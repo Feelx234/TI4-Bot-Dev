@@ -245,6 +245,7 @@ impl CommittedFight {
                 self.scoring_child.start(window);
                 self.stage = FStage::Scoring;
             }
+            // mutants:skip: a table without the area links (the product registers them: `driver::children::register`)
             None => {
                 self.unsupported = true;
                 self.stage = FStage::Done;

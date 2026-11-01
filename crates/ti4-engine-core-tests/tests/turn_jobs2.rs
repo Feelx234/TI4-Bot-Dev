@@ -345,10 +345,14 @@ fn the_arbiter_swap_asks_what_to_give_then_what_to_take_and_moves_the_cards_by_h
     // The owner (who took the last card) discards the law and is asked what to give: its two cards, in the order it holds them, with no way to decline.
     let give = asked(advance_ask(&mut s, &e, Some(Pick::Opt(Opt::Agenda(AOpt::DiscardLaw)))));
     assert_eq!((give.actor, give.ask), (Seat(0), Ask::Strategy(SAsk::ArbiterGive)));
+    // A plain question of the owner: not optional, no target, outside a battle and an invasion.
+    let plain_ctx = |q: &ti4_engine_core::choice::Choice| (q.ctx.optional, q.ctx.target, q.ctx.outstanding.as_slice().is_empty(), q.ctx.space_battle, q.ctx.invasion_seq);
+    assert_eq!(plain_ctx(&give), (false, None, true, false, None));
     assert_eq!(give.opts.as_slice(), [Opt::Strategy(SOpt::Card(StrategyCard::DiplomacyCodex)), Opt::Strategy(SOpt::Card(StrategyCard::Technology))]);
     // Then what to take: every card of the others with its holder.
     let take = asked(advance_ask(&mut s, &e, Some(pick_of(SOpt::Card(StrategyCard::DiplomacyCodex)))));
     assert_eq!((take.actor, take.ask), (Seat(0), Ask::Strategy(SAsk::ArbiterTake)));
+    assert_eq!(plain_ctx(&take), (false, None, true, false, None));
     assert_eq!(take.opts.as_slice(), [Opt::Strategy(SOpt::Take(Seat(1), StrategyCard::Leadership)), Opt::Strategy(SOpt::Take(Seat(1), StrategyCard::Politics))]);
     assert_eq!(advance_ask(&mut s, &e, Some(pick_of(SOpt::Take(Seat(1), StrategyCard::Leadership)))).unwrap().0, Live::Done);
     // The taken card goes on the END of the holding and the card given on the end of the other's: no initiative order.
@@ -400,6 +404,7 @@ fn the_datahub_offers_every_partner_card_pair_and_pays_a_token_and_three_goods()
     let e = env(&k);
     let q = asked(take_diplomacy(&mut s, &k));
     assert_eq!((q.actor, q.ask), (Seat(1), Ask::Technology(TAsk::QuantumDatahub)));
+    assert_eq!((q.ctx.optional, q.ctx.target, q.ctx.space_battle, q.ctx.invasion_seq), (false, None, false, None));
     // The partner's cards in order, each against each card the holder has (Leadership, Politics), then the decline.
     let swap = |give, take| Opt::Technology(TOpt::Swap { partner: Seat(0), give, take });
     assert_eq!(

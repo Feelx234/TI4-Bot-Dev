@@ -10,7 +10,7 @@ use ti4_engine_core::containers::Cow;
 use ti4_engine_core::driver::live::{Env, Live, LiveError};
 use ti4_engine_core::driver::windows::tactical::{advance_tactical, ask_tactical, open_free, open_tactical, TacticalAction};
 use ti4_engine_core::hex::Hex;
-use ti4_engine_core::kernel::ability::{TacticalCodes, TacticalGap, Unknown};
+use ti4_engine_core::kernel::ability::TacticalCodes;
 use ti4_engine_core::kernel::stage::{AbilityTable, Held};
 use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::state::{AStage, Code, Emit, EventKind, PlainKind, THeadStep, TStage, Window as OpenWindow, WindowKind};
