@@ -187,6 +187,45 @@ secondary_case!(a_technology_secondary_runs_like_the_string, "pok7technology", [
 secondary_case!(an_imperial_secondary_runs_like_the_string, "pok8imperial", ["yes"]);
 secondary_case!(a_thunders_edge_construction_secondary_runs_like_the_string, "te4construction", ["yes"]);
 
+// -- Jae Mir Kan's waiver heard by the Nomad's Temporal Command Suite (lane N) ------------------------------------------------------------
+
+/// A table `a` Sol (plays Trade), `b` Mahact (holds Jae Mir Kan readied, `a` has a token on Mecatol Rex), `c` Nomad (with Temporal Command Suite when
+/// `suite`), `d` Arborec; no follower holds a commodity.
+fn jae_mir_kan_table(suite: bool) -> GameState {
+    let mut state = action_table(&[("a", "sol"), ("b", "mahact"), ("c", "nomad"), ("d", "arborec")], "pok5trade");
+    for p in ["b", "c", "d"] {
+        state.player_mut(&pid(p)).unwrap().commodities = 0;
+    }
+    state.player_mut(&pid("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new(crate::factions::mahact::AGENT), ti4_model::state::LeaderStatus::Readied);
+    state.system_mut(&ti4_model::id::SystemId::new("18")).command_tokens.insert(pid("a"));
+    if suite {
+        state.player_mut(&pid("c")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("tcs"));
+        assert!(crate::factions::nomad::watches_agent_exhaustion(&state), "the suite is watching");
+    }
+    based(state)
+}
+
+/// The Mahact follower pays Jae Mir Kan's waiver while a Nomad holds the suite (it was `TurnGap::StrategyAbility`, the first gap of 176 of 2,304 sweep
+/// games): the same questions, events and position, and the exhaustion staged for the suite's holder on both sides.
+#[test]
+fn jae_mir_kan_while_the_nomad_holds_the_suite_runs_like_the_string_and_tells_the_suite() {
+    let state = jae_mir_kan_table(true);
+    let (string, native) = both(&state, "pok5trade", &["follow|waived|0|agent|18", "no", "no"]);
+    assert_same(&string, &native);
+    assert!(has(&string, "STRATEGIC_ACTION_COMPLETE") && has(&string, "STRATEGY_SECONDARY_FOLLOWED"), "{:?}", string.events);
+    assert_eq!(string.staged, ["AGENT_EXHAUSTED"], "the suite is told");
+    assert_eq!(native.staged, string.staged);
+}
+
+/// A Nomad without the suite hears nothing (the old gate refused the waiver for any Nomad at the table): nothing is staged.
+#[test]
+fn jae_mir_kan_with_a_nomad_that_lacks_the_suite_stages_nothing_like_the_string() {
+    let state = jae_mir_kan_table(false);
+    let (string, native) = both(&state, "pok5trade", &["follow|waived|0|agent|18", "no", "no"]);
+    assert_same(&string, &native);
+    assert!(string.staged.is_empty() && native.staged.is_empty(), "{:?} {:?}", string.staged, native.staged);
+}
+
 #[test]
 fn nobody_who_can_follow_ends_the_action_without_a_question_like_the_string() {
     let mut state = crate::fixtures::seated_dealt(&[("a", "sol"), ("b", "yssaril"), ("c", "arborec"), ("d", "letnev")], DEFAULT);

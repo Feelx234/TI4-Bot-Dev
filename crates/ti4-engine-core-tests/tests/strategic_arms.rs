@@ -448,7 +448,7 @@ fn the_heros_follower_question_is_the_heros_not_optional_and_outside_a_battle() 
     assert_eq!(q.opts.as_slice(), [Opt::Leaders(LOpt::HeroFollower(true)), Opt::Leaders(LOpt::HeroFollower(false))]);
 }
 
-// -- Jae Mir Kan: a waiver the Nomad's suite would hear is not carried -----------------------------------------------------------------
+// -- Jae Mir Kan: a waiver the Nomad's suite hears is paid and staged -----------------------------------------------------------------
 
 fn jae_mir_kan(nomad: bool) -> (CoreState, Kernel, Seat) {
     let system = ti4_engine_core_tests::scenario::first_planet().0;
@@ -480,18 +480,30 @@ fn jae_mir_kan_is_offered_as_a_waiver_and_pays_with_the_primary_players_token() 
 }
 
 #[test]
-fn a_waiver_a_nomad_would_hear_is_offered_and_stops_the_step_when_it_is_taken() {
+fn a_waiver_a_nomad_hears_is_paid_and_stages_the_exhaustion_for_the_suite() {
     let (mut s, k, mahact) = jae_mir_kan(true);
     let e = env(&k);
     let q = first_asked(&s, &e);
     let waiver = q.opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(..)))).expect("offered like the string offers it");
-    let held = s.clone();
-    assert_eq!(
-        advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))),
-        Err(LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::TurnGap(ti4_engine_core::kernel::turn_codes::TurnGap::StrategyAbility)))
-    );
-    assert_eq!(s, held, "nothing was paid");
-    assert_eq!(s.players().by_seat(mahact).unwrap().leaders.status.get(&Leader::JaeMirKan), Some(&ti4_engine_core::state::LeaderStatus::Readied));
+    let tokens = s.players().by_seat(mahact).unwrap().econ.strategic_tokens;
+    advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("the waiver is paid with a Nomad at the table too");
+    assert_eq!(s.players().by_seat(mahact).unwrap().leaders.status.get(&Leader::JaeMirKan), Some(&ti4_engine_core::state::LeaderStatus::Exhausted));
+    assert_eq!(s.players().by_seat(mahact).unwrap().econ.strategic_tokens, tokens, "no strategy token is spent");
+    assert!(kinds(&s).contains(&PlainKind::StrategySecondaryFollowed));
+    // (The Nomad's Temporal Command Suite is told: `exhaust_ready_agent` stages the event the next prelude announces.)
+    let staged: Vec<_> = s.pending().staged.iter().filter(|e| e.kind == ti4_engine_core::state::EventKind::AgentExhausted).collect();
+    assert_eq!(staged.len(), 1, "{:?}", s.pending().staged);
+    assert_eq!(staged[0].payload.get(ti4_engine_core::state::Key::Leader), Some(&ti4_engine_core::state::Val::Leader(Leader::JaeMirKan)));
+    assert_eq!(staged[0].payload.get(ti4_engine_core::state::Key::Player), Some(&ti4_engine_core::state::Val::Seat(mahact)));
+}
+
+#[test]
+fn a_waiver_without_a_nomad_at_the_table_stages_no_exhaustion() {
+    let (mut s, k, _) = jae_mir_kan(false);
+    let e = env(&k);
+    let waiver = first_asked(&s, &e).opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(..)))).expect("offered");
+    advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("paid");
+    assert!(s.pending().staged.iter().all(|e| e.kind != ti4_engine_core::state::EventKind::AgentExhausted), "{:?}", s.pending().staged);
 }
 
 // -- the redistribution after the free action ------------------------------------------------------------------------------------------
