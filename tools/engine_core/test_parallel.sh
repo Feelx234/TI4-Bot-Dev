@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # `cargo test` with the test executables run CONCURRENTLY (docs/ENGINE_COMPUTE.md 4; cargo-nextest is not installed).
 #
-#   tools/engine_core/test_parallel.sh [CARGO_TEST_ARGS...]     e.g. -p ti4-model -p ti4-engine -p ti4-host --profile gate
+#   tools/engine_core/test_parallel.sh [CARGO_TEST_ARGS...]     e.g. -p ti4-model -p ti4-engine-legacy -p ti4-host --profile gate
 #
 # Env: JOBS (executables running at once, default 3), THREADS (--test-threads of each, default 4),
 #      FILTER (words after `--`, e.g. a test name filter), OUT (log directory, default a temp dir).

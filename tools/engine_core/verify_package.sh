@@ -57,7 +57,7 @@ python3 -I tools/engine_core/check_layers.py engine > "$out/layers-engine.txt" 2
 note "     string engine: $(sed -n 2p "$out/layers-engine.txt")"
 # Clippy: the string engine carries old warnings (counted, not gating); the core crates, the bridge
 # and dual.rs must be clean, and nothing may be an error.
-cargo clippy -p ti4-engine -p ti4-engine-core -p ti4-engine-core-factions -p ti4-engine-core-bridge --all-targets --message-format short > "$out/clippy.log" 2>&1
+cargo clippy -p ti4-engine-legacy -p ti4-engine -p ti4-engine-core -p ti4-engine-core-factions -p ti4-engine-core-bridge --all-targets --message-format short > "$out/clippy.log" 2>&1
 clippy_new="$(grep -E '^(crates/ti4-engine-core/|crates/ti4-engine-core-factions/|crates/ti4-engine-core-bridge/|crates/ti4-engine/src/(dual|core_sync/|render/))[^ ]*: (warning|error)' "$out/clippy.log" | wc -l)"
 clippy_err="$(grep -c ': error' "$out/clippy.log")"
 note "     clippy: $(grep -c ': warning' "$out/clippy.log") warnings in total (old string-engine ones included), $clippy_new in core/bridge/dual/core_sync/render, $clippy_err errors"
@@ -93,7 +93,7 @@ if [[ -d /var/lib/ti4-public && "${SKIP_ALPHA:-0}" != 1 ]]; then
 fi
 
 # 1 tests
-check tests cargo test -p ti4-model -p ti4-content -p ti4-engine -p ti4-host -p ti4-rule-bot \
+check tests cargo test -p ti4-model -p ti4-content -p ti4-engine-legacy -p ti4-engine -p ti4-host -p ti4-rule-bot \
   -p ti4-selfplay -p ti4-engine-core -p ti4-engine-core-factions -p ti4-engine-core-bridge
 note "     $(grep -c '^test result: ok' "$out/tests.log") suites ok, $(grep -c 'FAILED\|test result: FAILED' "$out/tests.log") failed"
 check gen-cards-check cargo run -q -p xtask -- gen-cards --check
@@ -102,7 +102,7 @@ check tests-wasm cargo test -p ti4-wasm --features ts
 
 # 3 dual run
 if [[ -n "$dual" ]]; then
-  check dual-suite env "$dual" TI4_DUAL_FAIL_FAST=1 cargo test -p ti4-engine
+  check dual-suite env "$dual" TI4_DUAL_FAIL_FAST=1 cargo test -p ti4-engine-legacy
   note "     $(grep -c '^test result: ok' "$out/dual-suite.log") suites ok with $area on Dual (fail fast)"
   # SHARDS (default 4; 1 = one process) parallel shards, merged into the text of the single run.
   check dual-golden env TI4_DUAL_FAIL_FAST=1 tools/engine_core/dual_sharded.sh "$target/gate/dual_run" \

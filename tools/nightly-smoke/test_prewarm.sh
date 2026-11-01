@@ -40,7 +40,7 @@ NIGHTLY_SLOTS=1 PREWARM_JOBS=5 "$HERE/prewarm.sh" --fixer > "$TMP/out.log" 2>&1
 check "one slot + fixer = two builds" "$(wc -l < "$STUB_LOG")" 2
 check "the classic sweep builds into the checkout's target/" "$(sed -n 1p "$STUB_LOG" | cut -d'|' -f2)" "$TMP/repo/target"
 check "the fixer target gets the test build with -j5" "$(sed -n 2p "$STUB_LOG" | cut -d'|' -f2-)" \
-  "$TMP/reports/target-fixer|test --locked -j 5 -p ti4-server -p ti4-engine --no-run"
+  "$TMP/reports/target-fixer|test --locked -j 5 -p ti4-server -p ti4-engine-legacy -p ti4-engine --no-run"
 
 echo "== failure and dry run"
 : > "$STUB_LOG"

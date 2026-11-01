@@ -45,7 +45,7 @@ fi
 status=0
 for target in "${targets[@]}"; do
   if [ "$target" = "$REPORT_ROOT/target-fixer" ]; then
-    cmd=("${PREWARM_CARGO:-cargo}" test --locked -j "$JOBS" -p ti4-server -p ti4-engine --no-run)
+    cmd=("${PREWARM_CARGO:-cargo}" test --locked -j "$JOBS" -p ti4-server -p ti4-engine-legacy -p ti4-engine --no-run)
   else
     cmd=("${PREWARM_CARGO:-cargo}" build --locked -j "$JOBS" -p ti4-server --bin server)
   fi

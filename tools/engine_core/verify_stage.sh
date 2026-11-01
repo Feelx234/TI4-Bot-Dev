@@ -37,7 +37,7 @@ note "     $(tail -1 "$out/dual-templates.log")"
 check dual-golden "$target/release/core_equivalence" golden tools/engine_profile/profile-20.json 20 10
 note "     $(tail -1 "$out/dual-golden.log")"
 
-check tests cargo test -p ti4-model -p ti4-content -p ti4-engine -p ti4-host -p ti4-rule-bot \
+check tests cargo test -p ti4-model -p ti4-content -p ti4-engine-legacy -p ti4-engine -p ti4-host -p ti4-rule-bot \
   -p ti4-selfplay -p ti4-engine-core -p ti4-engine-core-bridge
 note "     $(grep -c '^test result: ok' "$out/tests.log") suites ok, $(grep -c 'FAILED\|test result: FAILED' "$out/tests.log") failed"
 check gen-cards-check cargo run -q -p xtask -- gen-cards --check
