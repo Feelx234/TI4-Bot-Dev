@@ -902,7 +902,9 @@ impl Research {
 
     /// The offers are over: the research is paid for what the infantry left of the bill, if the seat can pay it.
     fn after_offers(&mut self, s: &mut CoreState, k: &Kernel) {
-        if prod::available(&Self::cx(s, k), self.who, Spend::Resources, &Extras::default()) >= self.cost {
+        // (The string asks `payment::affordable`, whose plans are planets and trade goods: War Machine's bonus, which `production::available`
+        // counts for the units a production buys, is no way to pay a research.)
+        if prod::available(&Self::cx(s, k), self.who, Spend::Resources, &Extras::default()) - prod::war_machine_bonus(s, self.who) >= self.cost {
             self.stage = RStage::Choose;
         } else {
             self.end_paid(s, false);
@@ -1169,19 +1171,8 @@ impl Research {
             return;
         };
         let Some(worth) = step.took else {
-            // The step found nothing to pay with: the pool counted more than the options can spend (War Machine's bonus is no face). `pay_seeing`
-            // is false, the string restores the position from before the bill, and the research ends with nothing gained.
-            match self.before.take() {
-                Some(before) => {
-                    *s = *before;
-                    self.end_paid(s, false);
-                }
-                // (The position was not kept: not carried.)
-                None => {
-                    self.failed = true;
-                    self.stage = RStage::Done;
-                }
-            }
+            self.failed = true;
+            self.stage = RStage::Done;
             return;
         };
         let paid = step.paid + worth;

@@ -647,6 +647,28 @@ fn a_ported_waiver_is_taken_although_another_offered_one_is_not_carried() {
     assert_eq!(s.cards().promissory.get(&note), Some(&Seat(0)), "the note went home");
 }
 
+/// The Technology secondary is offered to a seat that can pay it with planets and trade goods; War Machine's bonus (a production term of
+/// `production::available`) is no way to pay it (the string's `payment::affordable`). Found by a sweep game, lane N.
+#[test]
+fn war_machines_bonus_does_not_make_the_technology_secondary_affordable() {
+    use ti4_engine_core::driver::windows::strategic::facts::follower_facts;
+    use ti4_engine_core::state::RoundKind;
+    let eligible = |goods: i16, marked: bool| {
+        let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheArborec]).phase(Phase::Action).active(Some(0)).build();
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::Technology);
+        s.players_mut().by_seat_mut(Seat(1)).unwrap().econ.trade_goods = goods;
+        if marked {
+            let seq = s.meta().activation_seq;
+            s.players_mut().by_seat_mut(Seat(1)).unwrap().round_marks.push(RoundKind::WarMachine, seq);
+        }
+        follower_facts(&s, &k, Seat(0), StrategyCard::Technology, Seat(1)).eligible
+    };
+    assert!(eligible(4, false), "four trade goods pay the four resources");
+    assert!(eligible(4, true));
+    assert!(!eligible(0, true), "the bonus alone pays nothing");
+    assert!(!eligible(1, true), "nor does it top up one trade good");
+}
+
 // -- Xxcha's Peace Accords and the Ssruu copy of Doctor Sucaban -----------------------------------------------------------------------------
 
 /// Xxcha at seat 1 controls and has exhausted `pa`; `pb` stands in the next system, uncontrolled (and controlled by seat 0 when `taken`).

@@ -122,26 +122,30 @@ fn a_waiver_that_opens_the_technology_only_after_the_bill_took_the_prerequisite_
 }
 
 /// Lane N, found by a sweep game (`--factions sol --players 4 --first-seed 18`, first gap `StrategyAbility` of a Technology secondary): War Machine's
-/// bonus (5, for the activation it was played in) is part of `production::available`, so the research is OFFERED to a seat with no planet to spend;
-/// the bill then has no option (the bonus is not a face), and `pay_seeing` returns false: the string restores the position from before the bill and
-/// the research ends with nothing gained. The window ended `failed` (a counted bail).
+/// bonus (5, for the activation it was played in) is part of `production::available`, which counted it in the pool that decides whether a research is
+/// offered; the bill then had no option and the window ended `failed` (a counted bail). The string's gate is `payment::affordable` (planets and trade
+/// goods): a seat whose only pool is the bonus is not offered the research.
 #[test]
-fn a_bill_no_option_can_pay_although_the_pool_counts_war_machine_ends_the_research_with_nothing_gained() {
+fn war_machines_bonus_is_no_way_to_pay_a_research() {
     covers!("rules::production::strategy_cards::Research");
     use ti4_engine_core::state::RoundKind;
-    let mut sc = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]);
-    sc = sc.map_from(&[plain_systems()[0], plain_systems()[1]]);
+    let sc = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_from(&[plain_systems()[0], plain_systems()[1]]);
     let mut rig = Rig::new(sc, Research::new(Seat(0), false, 4, ALL_SOURCES));
     let seq = rig.state.meta().activation_seq;
     rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().round_marks.push(RoundKind::WarMachine, seq);
     rig.run();
-    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::ResearchTechnology { decline: true, .. })), "the pool (the bonus) affords the bill: {:?}", rig.asked().ask);
-    let tech = rig.opts().into_iter().find(|o| matches!(o, Opt::Strategy(SOpt::Research(_)))).expect("a technology is open");
-    let before = rig.state.clone();
-    rig.pick_opt(tech);
-    rig.auto(Policy::First);
-    assert!(rig.is_done());
-    assert!(!rig.driver.window.failed, "the string ends the research itself: nothing is left to the string");
-    assert!(rig.driver.window.researched.as_slice().is_empty());
-    assert_eq!(delta(&before, &rig.state), "", "the position from before the bill is back");
+    assert!(rig.is_done(), "no technology is offered: {:?}", rig.asked().ask);
+    assert!(!rig.driver.window.failed && rig.driver.window.researched.as_slice().is_empty());
+    // The control: four trade goods pay it (the research is offered), with the bonus standing or not.
+    for marked in [false, true] {
+        let sc = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_from(&[plain_systems()[0], plain_systems()[1]]);
+        let mut rig = Rig::new(sc, Research::new(Seat(0), false, 4, ALL_SOURCES));
+        rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = 4;
+        if marked {
+            let seq = rig.state.meta().activation_seq;
+            rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().round_marks.push(RoundKind::WarMachine, seq);
+        }
+        rig.run();
+        assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::ResearchTechnology { decline: true, .. })), "marked {marked}: {:?}", rig.asked().ask);
+    }
 }

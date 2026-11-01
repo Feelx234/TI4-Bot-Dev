@@ -114,7 +114,8 @@ impl strategy::Env for KernelEnv<'_> {
         false
     }
     fn technology_secondary_affordable(&self, who: Seat) -> bool {
-        self.available(who, Spend::Resources) >= TECHNOLOGY_SECONDARY_COST
+        // (The string asks `payment::affordable`: planets and trade goods. War Machine's bonus is a production term, no way to pay a research.)
+        self.available(who, Spend::Resources) - crate::rules::production::war_machine_bonus(self.core, who) >= TECHNOLOGY_SECONDARY_COST
     }
     fn secret_hand_all_scored(&self, who: Seat) -> bool {
         let limit = objectives::HAND_LIMIT + crate::query::relic::secret_objective_bonus(self.core, who);
