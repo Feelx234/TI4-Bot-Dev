@@ -134,3 +134,12 @@ fn bail_a_discard_the_data_skimmer_could_take_is_unknown_and_only_then() {
     assert_eq!(skim(Phase::Action, true, 1), None, "the holder passed (and the holder's own discard is never taken)");
     assert_eq!(skim(Phase::Status, false, 1), None, "only during the action phase");
 }
+
+/// Regression: a footprint that does not load the marks (an agenda or a tactical window) must not trip the check for staged rows after an event.
+#[test]
+fn a_position_without_the_marks_slice_has_nothing_staged() {
+    covers!("kernel::fx_cards");
+    let mut s = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).state();
+    s.loaded = ti4_engine_core::state::SliceSet::of_without(ti4_engine_core::state::SliceSet::ALL, ti4_engine_core::state::Slice::Marks);
+    assert!(!has_staged_cards(&s));
+}

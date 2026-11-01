@@ -29,7 +29,9 @@ pub enum Staged {
 /// Whether a card move is staged.
 #[must_use]
 pub fn has_staged_cards(s: &CoreState) -> bool {
-    s.marks().tail.iter().any(|(k, _)| matches!(k, MarkKey::CardsStaged(_)))
+    // A footprint without the marks cannot have staged a row (the windows that stage declare the slice).
+    s.loaded.has(crate::state::Slice::Marks)
+        && s.marks().tail.iter().any(|(k, _)| matches!(k, MarkKey::CardsStaged(_)))
 }
 
 /// The row of a `CardsStaged` mark: `[word, seat, from or absent, card]`.
