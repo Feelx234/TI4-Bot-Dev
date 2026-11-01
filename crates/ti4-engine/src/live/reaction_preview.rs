@@ -530,10 +530,13 @@ mod tests {
         // The rules of the first version: Infiltrate replaced the player's own structures.
         let mut old = full.clone();
         old.rules_version = 0;
+        // ... and the first version that swaps the rival's structures.
+        let mut fix = full.clone();
+        fix.rules_version = ti4_model::state::RULES_INFILTRATE_FIX;
         let names: Vec<&str> = crate::reaction_preview::PREVIEWED.to_vec();
         let mut compared = 0;
         let mut some = 0;
-        for (label, state) in [("full", &full), ("empty", &empty), ("flush", &flush), ("old rules", &old)] {
+        for (label, state) in [("full", &full), ("empty", &empty), ("flush", &flush), ("old rules", &old), ("infiltrate fix", &fix)] {
             let (mut cx, r) = crate::dual_window::tables_for_tests(state).expect("a table the codecs carry");
             let mut gs = state.clone();
             for name in &names {
@@ -564,7 +567,7 @@ mod tests {
                 some += usize::from(string.is_some());
             }
         }
-        assert_eq!(compared, names.len() * 4);
+        assert_eq!(compared, names.len() * 5);
         assert!(some > names.len(), "the positions give most cards something to say: {some}");
     }
 }
