@@ -290,7 +290,13 @@ impl NativeGame {
         }
         let mut cx = Ctx::of(&game.state).map_err(|e| format!("no owners table: {e}"))?;
         let positions = game.rng_positions();
-        let core = Codec::load(&mut cx, &game.state, Sources { galaxy: game.galaxy(), rng: Some(&positions) }, slices_for(true))
+        // The string applies the laws and the printed lanes (rules version 22) to its galaxy at every step's reconcile (`laws::apply_to_galaxy`), which a
+        // game that was not stepped yet has not done: the core's map would follow no lane (a lane tile a neighbour, no system joined across it).
+        let galaxy = game.galaxy().cloned().map(|mut galaxy| {
+            ti4_engine::laws::apply_to_galaxy(&game.state, &mut galaxy);
+            galaxy
+        });
+        let core = Codec::load(&mut cx, &game.state, Sources { galaxy: galaxy.as_ref(), rng: Some(&positions) }, slices_for(true))
             .map_err(|e| format!("the position does not load: {e}"))?;
         // (The options that name a seat by faction -- Politics' speaker, Trade's refreshed seats -- need the faction texts.)
         let factions = cx.owners.ids().iter().map(|id| game.state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned())).collect();
@@ -1062,6 +1068,26 @@ mod tests {
         NativeGame::from_spec(&lobby_spec(faction, players, seed)).expect("a lobby game builds and loads")
     }
 
+    /// Integration 14: the core's map of a hyperlane game follows the printed lanes from the first step. The string applies the laws and the lanes to its
+    /// galaxy at every reconcile; a game that was loaded before its first step had a map where a lane tile was a neighbour and no system was joined across
+    /// it (the Peace Accords question of an Xxcha seat listed the planets of the lane tile's far end short: found by `--quick --shadow`).
+    #[test]
+    fn the_core_map_of_a_hyperlane_game_follows_the_printed_lanes_from_the_first_step() {
+        let g = game("sol", 4, 1);
+        assert_eq!(lobby_spec("sol", 4, 1).map, "4pHyperlanes");
+        let galaxy = g.core.galaxy().expect("the map is loaded");
+        assert!(galaxy.hyperlane_lanes, "rules version 22: adjacency follows the printed lanes");
+        let mut joined_across_a_lane = 0;
+        for system in ti4_engine_core::generated::System::ALL {
+            if galaxy.is_hyperlane(system) {
+                assert!(galaxy.adjacent(system).is_empty(), "a lane tile has no neighbours of its own");
+                continue;
+            }
+            joined_across_a_lane += galaxy.adjacent(system).iter().filter(|n| galaxy.is_hyperlane(ti4_engine_core::ids::system_at(*n))).count();
+        }
+        assert_eq!(joined_across_a_lane, 0, "a lane tile is nobody's neighbour");
+    }
+
     /// The E-to-M6 join in a whole game (integration 12): a Thunder's Edge Warfare primary begins its free tactical action inside the strategic job
     /// (`strategic::begin` calls `tactical::begin_free`, no `TurnGap::FreeTactical`), the tactical tail opens the job after it (`strategic::after::open_after`,
     /// no `TacticalGap::{LeaderStrategy, WarfareSecondary}`), and the follower window and the end of the action follow, in the string's order. Seed 4 of the
@@ -1106,24 +1132,26 @@ mod tests {
         assert_ne!(lobby_spec("sol", 4, 1).factions, lobby_spec("sol", 4, 2).factions, "the seed rotates the table");
     }
 
-    /// The native game plays the setup, the draft, the announcement, the phase flip, the turn prelude, the action menu and nine rounds of actions (an Orbital
+    /// The native game plays the setup, the draft, the announcement, the phase flip, the turn prelude, the action menu and eight rounds of actions (an Orbital
     /// Drop, tactical actions, a first claim with its exploration, strategic actions, Ggrocuto Rinn, the Technology primary, the status phases) on the core alone,
     /// and stops with a COUNTED gap at the first body no lane has made native (an action card played from the menu: `TurnGap::Menu(ActionCard)`), with the position
-    /// as it was before the step. (Integration 12: round one, `TurnGap::StrategyAbility`; lane E2: the Technology primary, the status close and the secrets.)
+    /// as it was before the step. (Integration 12: round one, `TurnGap::StrategyAbility`; lane E2: the Technology primary, the status close and the secrets, nine rounds on the
+    /// map as it was loaded; integration 14: the core's map follows the printed lanes of this hyperlane table, so the game is another one: eight rounds, 967 steps, and the
+    /// action card is asked of a follower in a secondary.)
     #[test]
     fn a_native_game_plays_the_first_turns_and_stops_with_a_counted_gap_at_an_unrouted_menu_option() {
         let mut g = game("sol", 4, 1);
         let played = play_game(&mut g, 2_000, 50);
         let End::Gap(gap) = &played.end else { panic!("a gap is the end of a game today, got {:?}", played.end) };
-        assert_eq!((gap.arm.as_str(), gap.kind, gap.cause.as_str()), ("ask.action_menu", GapKind::Bail, "TurnGap(Menu(ActionCard))"), "{gap:?}");
+        assert_eq!((gap.arm.as_str(), gap.kind, gap.cause.as_str()), ("secondary", GapKind::Bail, "TurnGap(Menu(ActionCard))"), "{gap:?}");
         let native = &played.matrix.native;
         assert!(native.get("ask.draft").copied().unwrap_or(0) >= 3, "the draft was asked natively: {native:?}");
         assert_eq!(native.get("strategy_announce"), Some(&1), "{native:?}");
-        assert_eq!(native.get("phase"), Some(&25), "the phases flipped: strategy to action, action to status, status to strategy, eight times over, and the last into the action phase: {native:?}");
+        assert_eq!(native.get("phase"), Some(&22), "the phases flipped: strategy to action, action to status, status to strategy, seven times over, and the last into the action phase: {native:?}");
         assert!(native.get("turn_prelude").copied().unwrap_or(0) >= 1, "{native:?}");
         assert_eq!(played.matrix.total_gaps(), 1, "one game, one gap");
-        assert_eq!((played.rounds, played.steps), (9, 888), "nine rounds of the table, through eight status phases");
-        assert!(native.get("tokens").copied().unwrap_or(0) >= 8 && native.get("status").copied().unwrap_or(0) >= 8, "the status phases ran natively, their close included: {native:?}");
+        assert_eq!((played.rounds, played.steps), (8, 967), "eight rounds of the table, through seven status phases");
+        assert!(native.get("tokens").copied().unwrap_or(0) >= 7 && native.get("status").copied().unwrap_or(0) >= 7, "the status phases ran natively, their close included: {native:?}");
         // The position is the one before the step that gapped: the same gap again, the same position.
         let held = g.core.clone();
         assert_eq!(g.step(), Step::Gap(gap.clone()));
@@ -1441,8 +1469,9 @@ mod tests {
         turn::open_job(&mut g.core, TurnJob::Phase);
         assert!(g.asks(), "an open job is waiting on its step: the arm is Ask");
         let s = shadow_play(&lobby_spec("sol", 4, 1), 100, 50).unwrap();
-        assert_eq!((s.compared, s.played.steps), (54, 85), "eighty-five native steps (the shadow ends at the glued follower question of the Warfare card, see the next test); the glued ones, the ones that ask nothing while the legacy game stands at a question and the ones a lookahead groups with the step before are not legacy steps of their own");
-        assert!(matches!(shadow_play(&lobby_spec("sol", 4, 1), 100, 1).unwrap().played.end, End::Finished), "round 1 is within a budget of one: the shadow stops at its first difference");
+        assert_eq!((s.compared, s.played.steps), (65, 100), "a hundred native steps (the budget of the call: the shadow of the whole game ends at the production-order difference, see the next test); the glued ones, the ones that ask nothing while the legacy game stands at a question and the ones a lookahead groups with the step before are not legacy steps of their own");
+        let one_round = shadow_play(&lobby_spec("sol", 4, 1), 100, 1).unwrap();
+        assert!(matches!(one_round.played.end, End::StepLimit) && one_round.first_difference.is_none(), "round 1 is within a budget of one, and the hundred steps run out before any gap or difference (integration 13: the gap of round one was Peace Accords): {:?}", one_round.played.end);
         let survey = survey(&lobby_spec("sol", 4, 1), 400, 50).unwrap();
         assert!(survey.steps_by_arm.keys().all(|(label, _)| !label.contains('>') || label.starts_with("turn_prelude>") || label.starts_with("strategy_announce>")), "{:?}", survey.steps_by_arm);
     }
@@ -1487,18 +1516,21 @@ mod tests {
     /// pinned a KNOWN difference here, the Local Fabricators reward of step 24; lane F2c showed it was the harness' (the string asks it inside the legacy step
     /// that answers the second commit) and fixed the shadow, so the pin fired as it was written to and is replaced by this test.) Since lane E2 the quick
     /// game plays past the Technology primary (round one's old stop) and the first difference is the one `docs/INTEGRATION12.md` section 5 documents as the
-    /// shadow's limit, not a game difference: Thunder's Edge Warfare's primary (the free tactical action) is one NATIVE `secondary` step that asks the
-    /// seat's redistribution after the action AND the first follower's question; the legacy game asks the follower in its next step. 54 groups are compared
-    /// before it, with no difference; the native follower question is the one the legacy game asks next.
+    /// The shadow of the quick game (sol, 4 players, seed 1) agrees with the legacy game for 275 legacy steps and meets one KNOWN difference at native step
+    /// 397, a tactical action and its aftermath: the core writes `PRODUCTION_USED` where the string writes `INVASION_BEGAN` (the order of a production against
+    /// the invasion's begin; lane M5 / M2, listed in `docs/INTEGRATION13.md` section 6, not investigated here). Pinned so that the day it is fixed this
+    /// test fails as written and is replaced by `..._up_to_the_gap`. (Integration 12 and lane E2 pinned the glued follower question of the Warfare card at
+    /// step 85 here; the shadow harness no longer has that limit (integration 13, B7), and the two hyperlane-map differences of the game, the movement
+    /// options and Peace Accords' candidates, are gone: the core's map follows the printed lanes from the first step.)
     #[test]
-    fn the_shadow_run_agrees_with_the_legacy_game_up_to_the_glued_follower_question_of_the_warfare_card() {
+    fn the_shadow_run_agrees_with_the_legacy_game_up_to_the_known_production_order_difference() {
         let shadowed = shadow_play(&lobby_spec("sol", 4, 1), 2_000, 50).expect("builds");
         assert!(shadowed.compared >= 8, "the draft was compared step by step: {}", shadowed.compared);
-        assert_eq!(shadowed.compared, 54, "no difference in the first fifty-four legacy steps");
-        let d = shadowed.first_difference.expect("the glued step of the Warfare card");
-        assert_eq!((d.step, d.what, d.path.as_str()), (85, "questions", "[2]"), "{d}");
-        assert_eq!(d.arms, ["tactical", "aftermath", "tactical", "secondary"], "{d}");
-        assert!(d.native.contains("spend a strategy token to produce at home") && d.legacy == "<absent>", "the native step goes on into the follower's question, the legacy step ends before it: {d}");
+        assert_eq!(shadowed.compared, 275, "no difference in the first 275 legacy steps");
+        let d = shadowed.first_difference.expect("the production order");
+        assert_eq!((d.step, d.what, d.path.as_str()), (397, "events", "[1]"), "{d}");
+        assert_eq!(d.arms, ["tactical", "aftermath"], "{d}");
+        assert_eq!((d.native.as_str(), d.legacy.as_str()), ("PRODUCTION_USED", "INVASION_BEGAN"), "{d}");
     }
 
     #[test]

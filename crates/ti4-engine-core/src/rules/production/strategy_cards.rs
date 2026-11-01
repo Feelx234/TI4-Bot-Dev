@@ -770,8 +770,13 @@ pub struct Research {
     declined: SmallList<Technology, 8>,
     /// The waiver question under way.
     waiving: Option<Waiving>,
-    /// The position before the bill of a paid research (`before = state.clone()`), restored when the waiver is declined.
+    /// The position before the bill of a paid research (`before = state.clone()`), restored when the waiver is declined (or, with no waiver to ask about, when the
+    /// bill took the prerequisite away: lane E2).
     before: Option<Box<CoreState>>,
+    /// The technology picked in the paid research needed a faction waiver BEFORE the bill (`technology::faction_waiver_required`, read at the pick): a declined
+    /// waiver then puts it on the list and asks the technology again; if the bill itself took the prerequisite away (a specialty planet that covered it paid)
+    /// and a waiver opens it only now, the string restores the position and the research ends (`*state = before; if !waiver_required { return Ok(false) }`).
+    waiver_required: bool,
 }
 
 /// One right to trade infantry for research (`strategy_cards::SucabanSource`): the seat asked, the seat that holds the agent and whether the
@@ -841,7 +846,7 @@ impl Research {
     /// `cost`: the resources the paid research costs (6 for the primary's second, 4 for the secondary).
     #[must_use]
     pub const fn new(who: Seat, primary: bool, cost: i64, scope: Scope) -> Self {
-        Self { who, primary, cost, scope, roster: None, stage: RStage::Start, pay: None, chosen: None, failed: false, researched: SmallList::new(), rider: false, sucaban: SmallList::new(), offer_at: 0, checkpoint: None, declined: SmallList::new(), waiving: None, before: None }
+        Self { who, primary, cost, scope, roster: None, stage: RStage::Start, pay: None, chosen: None, failed: false, researched: SmallList::new(), rider: false, sucaban: SmallList::new(), offer_at: 0, checkpoint: None, declined: SmallList::new(), waiving: None, before: None, waiver_required: false }
     }
 
     /// Technology Rider ("research 1 technology", `strategy_cards::offer_free_research`): the Technology primary's free research,
@@ -1015,6 +1020,14 @@ impl Research {
         self.try_settle(s, k, t) == Settled::Landed
     }
 
+    /// `technology::faction_waiver_required` for a technology just picked (before its bill): the prerequisites are not met, Inheritance Systems cannot cover
+    /// them and a faction waiver is offered.
+    fn needs_waiver(&self, s: &CoreState, k: &Kernel, t: Technology) -> bool {
+        let hooks = KernelHooks::new(s, k, self.who);
+        let Some(ctx) = ResearchCtx::of(s, self.scope, reach::blanked(s), self.who, &hooks) else { return false };
+        !ctx.prerequisites_met(t, &hooks, true) && !tech::inheritance_ready(s, self.who, &hooks) && hooks.waiver_offer(t)
+    }
+
     /// [`Self::settle`], telling a technology only a faction waiver opens from a path that is not the window's.
     fn try_settle(&mut self, s: &mut CoreState, k: &Kernel, t: Technology) -> Settled {
         let blanked = reach::blanked(s);
@@ -1070,17 +1083,26 @@ impl Research {
     }
 
     /// The waiver or its payment is declined (or fails): nothing is researched; in the paid research the position from before the bill is back;
-    /// the technology is not offered again, the technology question is asked anew.
+    /// the technology is not offered again and the technology question is asked anew (if the waiver was needed before the bill; else the research ends).
     fn decline_waiver(&mut self, s: &mut CoreState) {
         let Some(waiving) = self.waiving.take() else { return };
-        self.stage = match self.before.take() {
+        match self.before.take() {
             Some(before) => {
                 *s = *before;
-                RStage::Choose
+                if self.waiver_required {
+                    self.declined.push(waiving.tech);
+                    self.stage = RStage::Choose;
+                } else {
+                    // (Integration 14, the join of lanes E2 and G5: the bill took the prerequisite away and only now a waiver opens the technology; a decline
+                    // is the end of the research, with nothing gained.)
+                    self.end_paid(s, false);
+                }
             }
-            None => RStage::Free,
-        };
-        self.declined.push(waiving.tech);
+            None => {
+                self.declined.push(waiving.tech);
+                self.stage = RStage::Free;
+            }
+        }
     }
 
     /// The waiver is paid and the technology researched without its prerequisites (`technology::research_with_waiver`).
@@ -1359,6 +1381,7 @@ impl Window for Research {
             (RStage::Choose, Opt::Strategy(SOpt::Research(t))) => {
                 // The position before the bill: a declined waiver puts it back (`before = state.clone()` of `paid_research`).
                 self.before = Some(Box::new(sx.state.clone()));
+                self.waiver_required = self.needs_waiver(sx.state, sx.kernel, t);
                 if self.cost > 0 && !sx.state.meta().rules_at_least(RULES_TECH_PAYMENT_CHOICE) {
                     // Below `RULES_TECH_PAYMENT_CHOICE` the cheapest plan is spent without asking (`payment::plans`'s first); a bill no plan
                     // pays ends the research with nothing changed.

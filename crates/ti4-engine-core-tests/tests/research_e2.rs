@@ -4,6 +4,9 @@
 
 use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt};
 use ti4_engine_core::generated::{Planet, Source, TechType};
+use ti4_engine_core::kernel::hooks::{ResearchWaiver, Waiver};
+use ti4_engine_core::kernel::Kernel;
+use ti4_engine_core::state::CoreState;
 use ti4_engine_core::rules::production::strategy_cards::Research;
 use ti4_engine_core_tests::inv::ALL_SOURCES;
 use ti4_engine_core_tests::prelude::*;
@@ -54,23 +57,66 @@ fn a_bill_paid_by_another_planet_leaves_the_specialty_ready_and_the_technology_l
     assert!(rig.state.players().by_seat(Seat(0)).unwrap().tech.owned.contains(Technology::GravityDrive), "the bill left the prerequisite standing");
 }
 
-#[test]
-fn a_technology_only_a_faction_waiver_opens_is_still_left_to_the_string_after_the_bill() {
-    covers!("rules::production::strategy_cards::Research");
-    use ti4_engine_core::kernel::hooks::{ResearchWaiver, Waiver};
-    use ti4_engine_core::kernel::Kernel;
-    use ti4_engine_core::state::CoreState;
-    fn walled(_: &CoreState, _: &Kernel, _: Seat, t: Technology) -> Option<ResearchWaiver> {
-        (t == Technology::GravityDrive).then(|| ResearchWaiver { waiver: Waiver { module: Faction::TheVuilraithCabal, code: 0 }, payments: Default::default() })
+/// Answer the payment questions with their first option until the window asks something else.
+fn pay_the_bill(rig: &mut Rig<Research>) {
+    for _ in 0..16 {
+        if rig.is_done() || matches!(rig.asked().ask, Ask::Strategy(_)) {
+            return;
+        }
+        rig.pick(0);
     }
-    // (G5 asks the waiver question there; until it lands the run is the string's: a counted bail, not a rollback.)
+    panic!("the bill is never paid\n{}", rig.transcript());
+}
+
+/// A module offering a waiver for Gravity Drive.
+fn walled(_: &CoreState, _: &Kernel, _: Seat, t: Technology) -> Option<ResearchWaiver> {
+    (t == Technology::GravityDrive).then(|| ResearchWaiver { waiver: Waiver { module: Faction::TheVuilraithCabal, code: 0 }, payments: Default::default() })
+}
+
+/// The same module, but its waiver opens the technology only when the specialty planet that covered the prerequisite is exhausted (the bill took it).
+fn walled_once_the_planet_is_spent(s: &CoreState, k: &Kernel, who: Seat, t: Technology) -> Option<ResearchWaiver> {
+    walled(s, k, who, t).filter(|_| ti4_engine_core::query::board::exhausted(s, blue_planet()))
+}
+
+#[test]
+fn a_technology_only_a_faction_waiver_opens_asks_the_waiver_after_the_bill_and_a_decline_gives_the_bill_back() {
+    covers!("rules::production::strategy_cards::Research");
+    // (Lane G5 asks the waiver question; before it the run was the string's, and this test pinned `failed`.)
     let (s, mut k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_ring(7).goods(0, 4).build();
     k.hooks.strategy.research_waiver_offer.push(walled);
     let mut rig = Rig::from_parts(s, k, Research::new(Seat(0), false, 4, ALL_SOURCES));
     rig.run();
     assert!(rig.opts().contains(&Opt::Strategy(SOpt::Research(Technology::GravityDrive))), "a waivable technology is offered");
     rig.pick_opt(Opt::Strategy(SOpt::Research(Technology::GravityDrive)));
-    rig.auto(Policy::First);
-    assert!(rig.is_done());
-    assert!(rig.driver.window.failed, "the waiver question is not carried: the string performs the research");
+    pay_the_bill(&mut rig);
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::ResearchWaiver { .. })), "the waiver is asked: {:?}", rig.asked().ask);
+    assert!(!rig.driver.window.failed, "the window carries the question");
+    rig.pick_opt(Opt::Decline);
+    // The technology was a waiver-only one BEFORE the bill: the question about the technologies comes again, without it.
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::ResearchTechnology { decline: true, .. })), "{:?}", rig.asked().ask);
+    assert!(!rig.opts().contains(&Opt::Strategy(SOpt::Research(Technology::GravityDrive))));
+    assert_eq!(delta(rig.start_state(), &rig.state), "", "the bill is back");
+}
+
+/// The join of lanes E2 and G5 (integration 14): the bill takes the specialty planet that covered the prerequisite, and a waiver opens the technology only
+/// now. The string asks the waiver (`resolve_research`); declining it is `*state = before; if !waiver_required { return Ok(false) }`: `waiver_required` was
+/// read BEFORE the bill (false), so the research ENDS with nothing gained. G5's window asked the technology again (it took every decline for a required waiver).
+#[test]
+fn a_waiver_that_opens_the_technology_only_after_the_bill_took_the_prerequisite_ends_the_research_when_declined() {
+    covers!("rules::production::strategy_cards::Research");
+    let blue = blue_planet();
+    let bill = i64::from(blue.data().resources);
+    let sc = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_from(&[system_of(blue), plain_systems()[0]]).control(blue, 0);
+    let (s, mut k) = sc.build();
+    k.hooks.strategy.research_waiver_offer.push(walled_once_the_planet_is_spent);
+    let mut rig = Rig::from_parts(s, k, Research::new(Seat(0), false, bill, ALL_SOURCES));
+    rig.run();
+    assert!(rig.opts().contains(&Opt::Strategy(SOpt::Research(Technology::GravityDrive))), "the ready planet covers the prerequisite");
+    rig.pick_opt(Opt::Strategy(SOpt::Research(Technology::GravityDrive)));
+    pay_the_bill(&mut rig);
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::ResearchWaiver { .. })), "the bill spent the planet: the waiver is asked: {:?}", rig.asked().ask);
+    rig.pick_opt(Opt::Decline);
+    assert!(rig.is_done(), "the research ends: {:?}", rig.asked().ask);
+    assert!(!rig.driver.window.failed && rig.driver.window.researched.as_slice().is_empty());
+    assert_eq!(delta(rig.start_state(), &rig.state), "", "the position from before the bill is back");
 }
