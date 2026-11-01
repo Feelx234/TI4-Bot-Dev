@@ -472,14 +472,10 @@ fn a_thunders_edge_warfare_primary_runs_its_free_tactical_action_and_the_followe
         for p in ["b", "c", "d"] {
             state.player_mut(&pid(p)).unwrap().strategic_tokens = 0;
         }
-        let (mut string, native) = te_warfare_both(&based(state), &hub.galaxy, &["0|3|5", &system]);
-        // The typed events of the aftermath's windows (the invasion, the use of PRODUCTION) are announced by the arms and not written to the event
-        // log the native run is read from; they are compared in `combat_live` and `invasion_live`.
-        let typed = ["INVASION_BEGAN", "PRODUCTION_USED", "UNITS_PRODUCED"];
-        let kept: Vec<String> = string.events.iter().filter(|e| !typed.contains(&e.as_str())).cloned().collect();
-        let all = std::mem::replace(&mut string.events, kept);
+        let (string, native) = te_warfare_both(&based(state), &hub.galaxy, &["0|3|5", &system]);
+        // (The typed events of the aftermath's windows, the invasion and the use of PRODUCTION, were left out of this comparison while the native
+        // aftermath did not mirror them into the event log; lane F2c's `chain::mirror_then_flush` writes them, so the whole list is compared now.)
         assert_same(&string, &native);
-        string.events = all;
         let started = string.events.iter().position(|e| e == "SYSTEM_ACTIVATED").expect("the free action activates the system");
         let began = string.events.iter().rposition(|e| e == "STRATEGIC_ACTION_BEGAN").expect("the action began");
         assert!(started < began, "the string activates the system before it says the strategic action began: {:?}", string.events);

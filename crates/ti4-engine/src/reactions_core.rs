@@ -921,6 +921,21 @@ mod tests {
         assert!(checked > 100);
     }
 
+    /// Two rules of the core table never share a slot, whatever the lanes that wrote them (integration 12: lane G2's Winnu rules took `42_001..42_007`,
+    /// the slots of lane G3's; `AbilityTable::add` only asserts it in a debug build, which the lib tests of the lockstep profile are not). The table
+    /// is built from every package, so the check crosses the lanes.
+    #[test]
+    fn no_two_rules_of_the_core_table_share_a_slot() {
+        let t = table();
+        let mut seen = std::collections::BTreeMap::new();
+        for spec in t.specs() {
+            if let Some(other) = seen.insert(spec.slot.0, (spec.kind, spec.event)) {
+                panic!("slot {} is registered twice: {other:?} and {:?}", spec.slot.0, (spec.kind, spec.event));
+            }
+        }
+        assert!(seen.len() > 150, "the whole table was registered: {}", seen.len());
+    }
+
     #[test]
     fn the_native_registry_equals_the_string_one_for_the_ported_abilities() {
         use crate::core_sync::{with_core, Footprint, Sources};
