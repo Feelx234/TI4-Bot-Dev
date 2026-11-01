@@ -784,3 +784,166 @@ fn black_market_forgery_chosen_from_the_menu_purges_two_fragments_for_a_relic_an
     assert_eq!(p.cards.fragments.get(ExploreType::Hazardous), Some(0));
     assert_eq!(s.cards().promissory.get(&note), Some(&Seat(1)), "the note went home to the Naaz");
 }
+
+// ---- lane F2e: the production leaders ----
+
+/// A table whose seat 0 (Muaat) holds Umbat, with a war sun at the first system, a planet there and trade goods; `extra` adds to the scenario.
+fn umbat_table(extra: impl FnOnce(Scenario) -> Scenario) -> (CoreState, Kernel) {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let (system, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let sc = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_ring(1)
+        .control(planet, 0)
+        .unit(system, None, Unit::WarSun, 0, 1)
+        .goods(0, 6)
+        .tokens(0, 3, 3, 2);
+    let (mut s, k) = extra(sc).build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::Umbat, LeaderStatus::Readied);
+    (s, k)
+}
+
+/// Answer a production's questions: build `wanted` whenever it is offered, stop producing once it was built `times` times, else take the first option.
+fn build_only(s: &mut CoreState, e: &Env<'_>, mut live: Live, wanted: Unit, times: usize) {
+    use ti4_engine_core::choice::production::Opt as POpt;
+    let mut built = 0;
+    for _ in 0..60 {
+        if !matches!(live, Live::Asks(_)) {
+            return;
+        }
+        let q = ask_ask(s, e).unwrap().unwrap().choice;
+        let opts = q.opts.as_slice();
+        let take = if built >= times {
+            opts.iter().copied().find(|o| matches!(o, Opt::Production(POpt::Stop) | Opt::Decline)).or_else(|| opts.first().copied())
+        } else {
+            opts.iter().copied().find(|o| matches!(o, Opt::Production(POpt::Build { unit, .. }) if *unit == wanted))
+        };
+        let take = take.unwrap_or_else(|| opts[0]);
+        if matches!(take, Opt::Production(POpt::Build { unit, .. }) if unit == wanted) {
+            built += 1;
+        }
+        live = advance_ask(s, e, Some(Pick::Opt(take))).unwrap().0;
+    }
+}
+
+/// The `UNITS_PRODUCED` announcements told so far (the leader's use announces at once, as the string does).
+fn produced_events(s: &CoreState) -> Vec<&ti4_engine_core::state::EventRec> {
+    s.ledger.events.iter().filter_map(|e| match e {
+        Emit::Typed(t) if t.kind == EventKind::UnitsProduced => Some(t),
+        _ => None,
+    }).collect()
+}
+
+/// Lane F2e: Umbat chosen from the menu: the holder names a player, that player produces up to 2 units of cost 4 or less in a system with a war sun,
+/// the agent exhausts, the action ends, and the use stages `UNITS_PRODUCED` with the source `ability` for the chosen player.
+#[test]
+fn umbat_chosen_from_the_menu_lets_the_named_player_produce_two_units_and_exhausts_the_agent() {
+    use ti4_engine_core::choice::leaders::Opt as LOpt;
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let (system, _) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = umbat_table(|sc| sc);
+    let mut e = env_r(&k);
+    e.table.facts.staging = true;
+    let before = s.board().sys(system).units.as_slice().len();
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::Umbat)))).unwrap();
+    assert!(matches!(live, Live::Asks(_)), "the player is asked");
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Leaders(LOpt::Player(Seat(0))))).unwrap();
+    first_options(&mut s, &e, live, 12);
+    let made = s.board().sys(system).units.as_slice().len() - before;
+    assert!((1..=2).contains(&made), "up to two units: {made}");
+    assert_eq!(status(&s, 0, Leader::Umbat), Some(LeaderStatus::Exhausted));
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+    let staged = produced_events(&s);
+    assert_eq!(staged.len(), 1, "one use, one announcement");
+    assert!(s.pending().staged.is_empty(), "announced at once, nothing left staged");
+    assert_eq!(staged[0].payload.seat(ti4_engine_core::state::Key::Player), Some(Seat(0)), "the chosen player is named");
+}
+
+/// Lane F2e: a decline of the player spends nothing: the agent stays ready and no action is taken (the string's `Some(false)`: the menu is asked again).
+#[test]
+fn umbat_declined_at_the_player_spends_nothing() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let (mut s, k) = umbat_table(|sc| sc);
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::Umbat)))).unwrap();
+    assert!(matches!(live, Live::Asks(_)));
+    pick(&mut s, &e, |o| matches!(o, Opt::Decline)).unwrap();
+    assert_eq!(status(&s, 0, Leader::Umbat), Some(LeaderStatus::Readied), "a decline spends nothing");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionFailed) && !plain(&s).contains(&PlainKind::ComponentActionResolved), "{:?}", plain(&s));
+}
+
+/// Lane F2e: the end of the use is the string adapter's tail: the Prophecy of Ixth is discarded by a use that made fewer than two fighters.
+#[test]
+fn the_end_of_a_leaders_production_discards_the_prophecy_of_ixth_unless_two_fighters_were_made() {
+    use ti4_engine_core::generated::{Agenda, Leader};
+    use ti4_engine_core::state::Outcome;
+    let (mut s, k) = umbat_table(|sc| sc);
+    s.agenda_mut().laws.insert(Agenda::ProphecyOfIxth, Outcome::Seat(Seat(0)));
+    let e = env_r(&k);
+    pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::Umbat)))).unwrap();
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Leaders(ti4_engine_core::choice::leaders::Opt::Player(Seat(0))))).unwrap();
+    build_only(&mut s, &e, live, Unit::DestroyerI, 1);
+    assert!(units_of(&s, ti4_engine_core_tests::scenario::first_planet().0, 0, Unit::DestroyerI) == 1, "a destroyer was built");
+    assert!(!s.agenda().laws.contains_key(&Agenda::ProphecyOfIxth), "fewer than two fighters: the law is discarded with the use");
+}
+
+/// Lane F2e: Letani Miasmiala produces in every system holding a ground force of the seat with no limit, is purged when something was made, and
+/// the use announces `UNITS_PRODUCED` for the system.
+#[test]
+fn letani_miasmiala_chosen_from_the_menu_produces_where_the_ground_forces_stand_and_is_purged() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let (system, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = Scenario::new(&[Faction::TheArborec, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_ring(1)
+        .control(planet, 0)
+        .unit(system, Some(planet), Unit::InfantryI, 0, 1)
+        .unit(system, None, Unit::CarrierI, 0, 1)
+        .goods(0, 6)
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::LetaniMiasmiala, LeaderStatus::Unlocked);
+    let mut e = env_r(&k);
+    e.table.facts.staging = true;
+    let before = s.board().sys(system).units.as_slice().len() + ti4_engine_core::query::board::planet_units(&s, planet).len();
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::LetaniMiasmiala)))).unwrap();
+    first_options(&mut s, &e, live, 16);
+    let after = s.board().sys(system).units.as_slice().len() + ti4_engine_core::query::board::planet_units(&s, planet).len();
+    assert!(after > before, "something was produced: {before} -> {after}");
+    assert_eq!(status(&s, 0, Leader::LetaniMiasmiala), Some(LeaderStatus::Purged), "the hero is purged");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+    assert_eq!(produced_events(&s).len(), 1, "announced once for the one system");
+}
+
+/// Lane F2e: Hacan's Auto-Factories pays a fleet token for three ships of a leader's production (Letani Miasmiala has no limit).
+#[test]
+fn a_leaders_production_of_three_ships_pays_hacans_auto_factories_token() {
+    use ti4_engine_core::generated::{Breakthrough, Leader};
+    use ti4_engine_core::state::LeaderStatus;
+    let (system, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = Scenario::new(&[Faction::TheArborec, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_ring(1)
+        .control(planet, 0)
+        .unit(system, Some(planet), Unit::InfantryI, 0, 1)
+        .unit(system, Some(planet), Unit::SpaceDockI, 0, 1)
+        .goods(0, 30)
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::LetaniMiasmiala, LeaderStatus::Unlocked);
+    s.players_mut().edit(0).cards.breakthrough = Some(Breakthrough::AutoFactories);
+    let e = env_r(&k);
+    let fleet = |s: &CoreState| s.players().by_seat(Seat(0)).unwrap().econ.fleet_tokens;
+    let before = fleet(&s);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::LetaniMiasmiala)))).unwrap();
+    build_only(&mut s, &e, live, Unit::DestroyerI, 3);
+    assert_eq!(units_of(&s, system, 0, Unit::DestroyerI), 3, "three destroyers were built");
+    assert_eq!(fleet(&s), before + 1, "a token for three non-fighter ships");
+}

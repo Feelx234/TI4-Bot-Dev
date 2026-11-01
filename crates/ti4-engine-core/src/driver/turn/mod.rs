@@ -24,6 +24,7 @@ pub mod inline;
 pub mod leader;
 pub mod phase;
 pub mod prelude;
+pub mod produce;
 pub mod relic;
 pub mod start;
 pub mod starting;

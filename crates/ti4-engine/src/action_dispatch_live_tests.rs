@@ -307,3 +307,36 @@ fn mageon_implants_chosen_from_the_menu_takes_a_card_like_the_string() {
 
 // (Ggrocuto Rinn reads the map's adjacency: this file's harness loads no map. The route runs in the shadow of `native_play`, and `tests/action_dispatch.rs`
 // of the core tests runs it on a map.)
+
+// ---- lane F2e: the production leaders against the string ----
+
+fn home_of(state: &GameState, who: &str) -> ti4_model::id::SystemId {
+    state.player(&pid(who)).unwrap().home_system.clone().expect("a seated home system")
+}
+
+/// Umbat: the holder names a player (the seat itself, the only one with a war sun), who produces in its only system.
+#[test]
+fn umbat_chosen_from_the_menu_lets_the_named_player_produce_like_the_string() {
+    let mut state = leader_table(&[("a", "muaat"), ("b", "sol"), ("c", "hacan")], "muaatagent", LeaderStatus::Readied);
+    let home = home_of(&state, "a");
+    crate::fixtures::put(&mut state, &home, "warsun", &pid("a"), 1);
+    let state = super::turn_live_tests::based(state);
+    lockstep(&state, &["component|leader|muaatagent", "a"], "COMPONENT_ACTION_RESOLVED");
+}
+
+/// Umbat for another player: the production is that player's, the announcement names them.
+#[test]
+fn umbat_for_another_player_announces_the_use_of_that_player_like_the_string() {
+    let mut state = leader_table(&[("a", "muaat"), ("b", "sol"), ("c", "hacan")], "muaatagent", LeaderStatus::Readied);
+    let home = home_of(&state, "b");
+    crate::fixtures::put(&mut state, &home, "warsun", &pid("b"), 1);
+    let state = super::turn_live_tests::based(state);
+    lockstep(&state, &["component|leader|muaatagent", "b"], "COMPONENT_ACTION_RESOLVED");
+}
+
+/// Letani Miasmiala: a use of PRODUCTION in every system holding a ground force of the seat, and the hero is purged.
+#[test]
+fn letani_miasmiala_chosen_from_the_menu_produces_where_the_ground_forces_stand_like_the_string() {
+    let state = leader_table(&[("a", "arborec"), ("b", "sol"), ("c", "hacan")], "arborechero", LeaderStatus::Unlocked);
+    lockstep(&state, &["component|leader|arborechero"], "COMPONENT_ACTION_RESOLVED");
+}
