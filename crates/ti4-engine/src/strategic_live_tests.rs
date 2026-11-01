@@ -187,6 +187,99 @@ secondary_case!(a_technology_secondary_runs_like_the_string, "pok7technology", [
 secondary_case!(an_imperial_secondary_runs_like_the_string, "pok8imperial", ["yes"]);
 secondary_case!(a_thunders_edge_construction_secondary_runs_like_the_string, "te4construction", ["yes"]);
 
+// -- Jae Mir Kan's waiver heard by the Nomad's Temporal Command Suite (lane N) ------------------------------------------------------------
+
+/// A table `a` Sol (plays Trade), `b` Mahact (holds Jae Mir Kan readied, `a` has a token on Mecatol Rex), `c` Nomad (with Temporal Command Suite when
+/// `suite`), `d` Arborec; no follower holds a commodity.
+fn jae_mir_kan_table(suite: bool) -> GameState {
+    let mut state = action_table(&[("a", "sol"), ("b", "mahact"), ("c", "nomad"), ("d", "arborec")], "pok5trade");
+    for p in ["b", "c", "d"] {
+        state.player_mut(&pid(p)).unwrap().commodities = 0;
+    }
+    state.player_mut(&pid("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new(crate::factions::mahact::AGENT), ti4_model::state::LeaderStatus::Readied);
+    state.system_mut(&ti4_model::id::SystemId::new("18")).command_tokens.insert(pid("a"));
+    if suite {
+        state.player_mut(&pid("c")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("tcs"));
+        assert!(crate::factions::nomad::watches_agent_exhaustion(&state), "the suite is watching");
+    }
+    based(state)
+}
+
+/// The Mahact follower pays Jae Mir Kan's waiver while a Nomad holds the suite (it was `TurnGap::StrategyAbility`, the first gap of 176 of 2,304 sweep
+/// games): the same questions, events and position, and the exhaustion staged for the suite's holder on both sides.
+#[test]
+fn jae_mir_kan_while_the_nomad_holds_the_suite_runs_like_the_string_and_tells_the_suite() {
+    let state = jae_mir_kan_table(true);
+    let (string, native) = both(&state, "pok5trade", &["follow|waived|0|agent|18", "decline", "no", "no"]);
+    assert_same(&string, &native);
+    assert!(has(&string, "STRATEGIC_ACTION_COMPLETE") && has(&string, "STRATEGY_SECONDARY_FOLLOWED"), "{:?}", string.events);
+    // (The suite's holder is asked before the next follower, on both sides: the staged event is announced by the next step's reconcile.)
+    let asked: Vec<_> = string.questions.iter().map(|q| q.prompt.as_str()).collect();
+    assert!(asked.contains(&"after AGENT_EXHAUSTED"), "the suite is told: {asked:?}");
+    assert_eq!(native.questions.len(), string.questions.len());
+}
+
+/// A Nomad without the suite hears nothing (the old gate refused the waiver for any Nomad at the table): nothing is staged.
+#[test]
+fn jae_mir_kan_with_a_nomad_that_lacks_the_suite_stages_nothing_like_the_string() {
+    let state = jae_mir_kan_table(false);
+    let (string, native) = both(&state, "pok5trade", &["follow|waived|0|agent|18", "no", "no"]);
+    assert_same(&string, &native);
+    assert!(string.staged.is_empty() && native.staged.is_empty(), "{:?} {:?}", string.staged, native.staged);
+}
+
+/// The string ends the action in a step of its own when the followers left after the last answer are skipped: the reconcile that starts that step
+/// announces the staged `STRATEGY_TOKEN_SPENT` before `STRATEGIC_ACTION_COMPLETE` (the "close order" difference of the shadow, 27 games of int. 13).
+#[test]
+fn the_token_a_follower_spent_is_announced_before_the_action_completes_when_the_rest_are_skipped_like_the_string() {
+    // (A table with faction modules seated: the string stages the token's event only then.)
+    let mut state = jae_mir_kan_table(false);
+    state.player_mut(&pid("b")).unwrap().strategic_tokens = 2;
+    for p in ["c", "d"] {
+        state.player_mut(&pid(p)).unwrap().strategic_tokens = 0;
+    }
+    let (string, native) = both(&based(state), "pok5trade", &["yes"]);
+    assert_same(&string, &native);
+    let at = |e: &str| string.events.iter().position(|x| x == e).unwrap_or_else(|| panic!("{e}: {:?}", string.events));
+    assert!(at("STRATEGY_TOKEN_SPENT") < at("STRATEGIC_ACTION_COMPLETE"), "{:?}", string.events);
+}
+
+/// The same close with the Nomad's suite listening: the question of the suite comes before the action completes, as the string asks it.
+#[test]
+fn jae_mir_kan_as_the_last_follower_asks_the_suite_before_the_action_completes_like_the_string() {
+    let mut state = jae_mir_kan_table(true);
+    for p in ["c", "d"] {
+        state.player_mut(&pid(p)).unwrap().strategic_tokens = 0;
+    }
+    let (string, native) = both(&based(state), "pok5trade", &["follow|waived|0|agent|18", "decline"]);
+    assert_same(&string, &native);
+    let asked: Vec<_> = string.questions.iter().map(|q| q.prompt.as_str()).collect();
+    assert!(asked.contains(&"after AGENT_EXHAUSTED"), "{asked:?}");
+    let at = |e: &str| string.events.iter().position(|x| x == e).unwrap_or_else(|| panic!("{e}: {:?}", string.events));
+    assert!(at("STRATEGY_SECONDARY_FOLLOWED") < at("STRATEGIC_ACTION_COMPLETE"));
+}
+
+/// A follower whose only pool is War Machine's bonus (found by a sweep game, `StrategyAbility` of a Technology secondary): the string's gate is
+/// `payment::affordable` (planets and trade goods), so the seat is not asked; the core counted the bonus in the pool, asked it and ended the window `failed`.
+#[test]
+fn a_technology_secondary_the_pool_of_war_machine_alone_affords_runs_like_the_string() {
+    let mut state = table_for("pok7technology");
+    {
+        let seq = state.activation_seq;
+        let seat = state.player_mut(&pid("b")).unwrap();
+        seat.trade_goods = 0;
+        seat.war_machine_use.push(seq);
+    }
+    let planets: Vec<_> = state.controlled_planets(&pid("b")).into_iter().map(|(_, planet)| planet.clone()).collect();
+    for planet in planets {
+        state.exhausted_planets.insert(planet);
+    }
+    let (string, native) = both(&based(state), "pok7technology", &["yes"]);
+    assert_same(&string, &native);
+    assert!(string.questions.iter().all(|q| q.player.to_string() != "b"), "the seat with the bonus alone is not asked");
+    assert!(has(&string, "STRATEGIC_ACTION_COMPLETE"), "{:?}", string.events);
+}
+
 #[test]
 fn nobody_who_can_follow_ends_the_action_without_a_question_like_the_string() {
     let mut state = crate::fixtures::seated_dealt(&[("a", "sol"), ("b", "yssaril"), ("c", "arborec"), ("d", "letnev")], DEFAULT);

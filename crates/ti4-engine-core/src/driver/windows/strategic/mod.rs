@@ -148,8 +148,16 @@ impl Window for SecondaryWin {
             self.held = true;
             return Next::Done;
         }
+        let before = usize::from(self.w.next);
         self.skip_ineligible(sx.state, sx.kernel);
         let Some(who) = self.current() else {
+            // The string ends the action in a step of its own when the followers left after an answer are all skipped (`StrategySecondaryWindow` is not
+            // complete until they are recorded): that step starts with the reconcile, which announces what the answer staged (a strategy token spent,
+            // the exhaustion of Jae Mir Kan heard by a Nomad's suite, which may ask its question) BEFORE `STRATEGIC_ACTION_COMPLETE`.
+            let skipped_after_answer = usize::from(self.w.next) > before && before > 0 && self.w.resolved.as_slice().get(before - 1).is_some_and(|(_, how)| *how != SecondaryHow::Ineligible);
+            if skipped_after_answer && crate::driver::turn::prelude::run_reconcile(sx) == Flow::Halt {
+                return Next::Done;
+            }
             // No follower may follow: the window is over, the card is spent.
             self.exhaust_if_complete(sx.state);
             self.complete(sx);

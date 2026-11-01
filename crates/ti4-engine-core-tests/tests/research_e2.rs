@@ -120,3 +120,32 @@ fn a_waiver_that_opens_the_technology_only_after_the_bill_took_the_prerequisite_
     assert!(!rig.driver.window.failed && rig.driver.window.researched.as_slice().is_empty());
     assert_eq!(delta(rig.start_state(), &rig.state), "", "the position from before the bill is back");
 }
+
+/// Lane N, found by a sweep game (`--factions sol --players 4 --first-seed 18`, first gap `StrategyAbility` of a Technology secondary): War Machine's
+/// bonus (5, for the activation it was played in) is part of `production::available`, which counted it in the pool that decides whether a research is
+/// offered; the bill then had no option and the window ended `failed` (a counted bail). The string's gate is `payment::affordable` (planets and trade
+/// goods): a seat whose only pool is the bonus is not offered the research.
+#[test]
+fn war_machines_bonus_is_no_way_to_pay_a_research() {
+    covers!("rules::production::strategy_cards::Research");
+    use ti4_engine_core::state::RoundKind;
+    let sc = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_from(&[plain_systems()[0], plain_systems()[1]]);
+    let mut rig = Rig::new(sc, Research::new(Seat(0), false, 4, ALL_SOURCES));
+    let seq = rig.state.meta().activation_seq;
+    rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().round_marks.push(RoundKind::WarMachine, seq);
+    rig.run();
+    assert!(rig.is_done(), "no technology is offered: {:?}", rig.asked().ask);
+    assert!(!rig.driver.window.failed && rig.driver.window.researched.as_slice().is_empty());
+    // The control: four trade goods pay it (the research is offered), with the bonus standing or not.
+    for marked in [false, true] {
+        let sc = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_from(&[plain_systems()[0], plain_systems()[1]]);
+        let mut rig = Rig::new(sc, Research::new(Seat(0), false, 4, ALL_SOURCES));
+        rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = 4;
+        if marked {
+            let seq = rig.state.meta().activation_seq;
+            rig.state.players_mut().by_seat_mut(Seat(0)).unwrap().round_marks.push(RoundKind::WarMachine, seq);
+        }
+        rig.run();
+        assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::ResearchTechnology { decline: true, .. })), "marked {marked}: {:?}", rig.asked().ask);
+    }
+}

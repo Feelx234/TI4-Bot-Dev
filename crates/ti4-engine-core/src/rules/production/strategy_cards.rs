@@ -902,7 +902,9 @@ impl Research {
 
     /// The offers are over: the research is paid for what the infantry left of the bill, if the seat can pay it.
     fn after_offers(&mut self, s: &mut CoreState, k: &Kernel) {
-        if prod::available(&Self::cx(s, k), self.who, Spend::Resources, &Extras::default()) >= self.cost {
+        // (The string asks `payment::affordable`, whose plans are planets and trade goods: War Machine's bonus, which `production::available`
+        // counts for the units a production buys, is no way to pay a research.)
+        if prod::available(&Self::cx(s, k), self.who, Spend::Resources, &Extras::default()) - prod::war_machine_bonus(s, self.who) >= self.cost {
             self.stage = RStage::Choose;
         } else {
             self.end_paid(s, false);

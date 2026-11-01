@@ -487,7 +487,7 @@ fn the_heros_follower_question_is_the_heros_not_optional_and_outside_a_battle() 
     assert_eq!(q.opts.as_slice(), [Opt::Leaders(LOpt::HeroFollower(true)), Opt::Leaders(LOpt::HeroFollower(false))]);
 }
 
-// -- Jae Mir Kan: a waiver the Nomad's suite would hear is not carried -----------------------------------------------------------------
+// -- Jae Mir Kan: a waiver the Nomad's suite hears is paid and staged -----------------------------------------------------------------
 
 fn jae_mir_kan(nomad: bool) -> (CoreState, Kernel, Seat) {
     let system = ti4_engine_core_tests::scenario::first_planet().0;
@@ -519,18 +519,62 @@ fn jae_mir_kan_is_offered_as_a_waiver_and_pays_with_the_primary_players_token() 
 }
 
 #[test]
-fn a_waiver_a_nomad_would_hear_is_offered_and_stops_the_step_when_it_is_taken() {
+fn a_waiver_a_nomad_hears_is_paid_and_stages_the_exhaustion_for_the_suite() {
     let (mut s, k, mahact) = jae_mir_kan(true);
+    // (The suite is what listens: the Nomad holds Temporal Command Suite.)
+    s.players_mut().by_seat_mut(Seat(2)).unwrap().tech.owned.insert(ti4_engine_core::generated::Technology::TemporalCommandSuite);
     let e = env(&k);
     let q = first_asked(&s, &e);
     let waiver = q.opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(..)))).expect("offered like the string offers it");
-    let held = s.clone();
-    assert_eq!(
-        advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))),
-        Err(LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::TurnGap(ti4_engine_core::kernel::turn_codes::TurnGap::StrategyAbility)))
-    );
-    assert_eq!(s, held, "nothing was paid");
-    assert_eq!(s.players().by_seat(mahact).unwrap().leaders.status.get(&Leader::JaeMirKan), Some(&ti4_engine_core::state::LeaderStatus::Readied));
+    let tokens = s.players().by_seat(mahact).unwrap().econ.strategic_tokens;
+    advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("the waiver is paid with a Nomad at the table too");
+    assert_eq!(s.players().by_seat(mahact).unwrap().leaders.status.get(&Leader::JaeMirKan), Some(&ti4_engine_core::state::LeaderStatus::Exhausted));
+    assert_eq!(s.players().by_seat(mahact).unwrap().econ.strategic_tokens, tokens, "no strategy token is spent");
+    assert!(kinds(&s).contains(&PlainKind::StrategySecondaryFollowed));
+    // (The Nomad's Temporal Command Suite is told: `exhaust_ready_agent` stages the event the next prelude announces.)
+    let staged: Vec<_> = s.pending().staged.iter().filter(|e| e.kind == ti4_engine_core::state::EventKind::AgentExhausted).collect();
+    assert_eq!(staged.len(), 1, "{:?}", s.pending().staged);
+    assert_eq!(staged[0].payload.get(ti4_engine_core::state::Key::Leader), Some(ti4_engine_core::state::Val::Leader(Leader::JaeMirKan)));
+    assert_eq!(staged[0].payload.get(ti4_engine_core::state::Key::Player), Some(ti4_engine_core::state::Val::Seat(mahact)));
+}
+
+/// The followers left after the last answer are skipped in the step that completes the action; that step starts with the reconcile, so what the answer
+/// staged is announced before `STRATEGIC_ACTION_COMPLETE` (found by the shadow of games with a Mahact seat).
+#[test]
+fn what_the_last_answer_staged_is_announced_before_the_action_completes_when_the_rest_are_skipped() {
+    use ti4_engine_core::state::{Emit, EventKind};
+    let (mut s, k, mahact) = jae_mir_kan(true);
+    s.players_mut().by_seat_mut(Seat(2)).unwrap().tech.owned.insert(ti4_engine_core::generated::Technology::TemporalCommandSuite);
+    // (Seat 1 is the Mahact follower; the seat after it, the Nomad, has no token and is skipped.)
+    s.players_mut().by_seat_mut(Seat(2)).unwrap().econ.strategic_tokens = 0;
+    s.pending_mut().open(OpenWindow::StrategySecondary(secondary_of(Seat(0), StrategyCard::Trade, &[Seat(1), Seat(2)], true)));
+    let e = env(&k);
+    let waiver = first_asked(&s, &e).opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(..)))).expect("offered");
+    // (The core test table has no reaction for the suite: the announcement ends in the ledger; the lockstep asks the suite's holder.)
+    advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("the waiver is taken");
+    let _ = mahact;
+    let order: Vec<&str> = s
+        .ledger
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            Emit::Typed(t) if t.kind == EventKind::AgentExhausted => Some("exhausted"),
+            _ => e.plain().and_then(|p| (p.kind == PlainKind::StrategicActionComplete).then_some("complete")),
+        })
+        .collect();
+    assert_eq!(order, ["exhausted", "complete"], "the suite hears the exhaustion before the action completes: {order:?}");
+}
+
+#[test]
+fn a_waiver_without_a_nomad_holding_the_suite_stages_no_exhaustion() {
+    // A Nomad at the table without the suite hears nothing and does not stop the step either; with no Nomad at all the same.
+    for nomad in [false, true] {
+        let (mut s, k, _) = jae_mir_kan(nomad);
+        let e = env(&k);
+        let waiver = first_asked(&s, &e).opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(..)))).expect("offered");
+        advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("paid");
+        assert!(s.pending().staged.iter().all(|e| e.kind != ti4_engine_core::state::EventKind::AgentExhausted), "{:?}", s.pending().staged);
+    }
 }
 
 // -- the redistribution after the free action ------------------------------------------------------------------------------------------
@@ -611,6 +655,58 @@ fn a_winnu_primary_player_lets_a_follower_return_acquiescence_instead_of_a_token
     assert_eq!(q.opts.as_slice(), [Opt::Strategy(SOpt::Skip), Opt::Strategy(SOpt::WaiveBy(Faction::TheWinnu, 0))], "no token: the waiver instead of the follow");
     advance_secondary(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::WaiveBy(Faction::TheWinnu, 0))))).unwrap();
     assert_eq!(s.cards().promissory.get(&note), Some(&Seat(0)), "the note went home");
+}
+
+/// A waiver the core pays is taken although another waiver on the same question is one it does not carry (Enervate of an Obsidian follower is a
+/// waiver of the primary-instead kind: `Unported`); the gap is for the waiver TAKEN, not for any waiver offered (found by the mutation run of lane N).
+#[test]
+fn a_ported_waiver_is_taken_although_another_offered_one_is_not_carried() {
+    use ti4_engine_core::containers::SeatSet;
+    use ti4_engine_core::state::{NoteKey, Plot};
+    let (mut s, k) = Scenario::new(&[Faction::TheWinnu, Faction::TheObsidian]).phase(Phase::Action).active(Some(0)).build();
+    let note = NoteKey { note: ti4_engine_core::generated::PromissoryNote::Acquiescence, faction: Faction::TheWinnu };
+    s.cards_mut().promissory.edit().insert(note, Seat(1));
+    let mut tokens = SeatSet::EMPTY;
+    tokens.insert(Seat(0));
+    s.players_mut().edit(1).cards.plots.push(Plot { card: Some(ti4_engine_core::state::PlotCard::Enervate), tokens, faceup: true });
+    s.players_mut().by_seat_mut(Seat(1)).unwrap().econ.strategic_tokens = 0;
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::Trade);
+    s.pending_mut().open(OpenWindow::StrategySecondary(secondary_of(Seat(0), StrategyCard::Trade, &[Seat(1)], true)));
+    let e = env(&k);
+    let q = first_asked(&s, &e);
+    let waivers: Vec<_> = q.opts.iter().filter_map(|o| if let Opt::Strategy(SOpt::WaiveBy(f, c)) = o { Some((*f, *c)) } else { None }).collect();
+    assert_eq!(waivers.len(), 2, "both waivers are offered: {waivers:?}");
+    let enervate = *q.opts.iter().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(Faction::TheObsidian, _)))).expect("Enervate is offered");
+    // The one the core does not carry stops the step when it is the one taken...
+    let held = s.clone();
+    assert!(advance_secondary(&mut s, &e, Some(Pick::Opt(enervate))).is_err());
+    assert_eq!(s, held);
+    // ...and the Acquiescence is paid although Enervate stands beside it.
+    advance_secondary(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::WaiveBy(Faction::TheWinnu, 0))))).expect("Acquiescence is paid");
+    assert_eq!(s.cards().promissory.get(&note), Some(&Seat(0)), "the note went home");
+}
+
+/// The Technology secondary is offered to a seat that can pay it with planets and trade goods; War Machine's bonus (a production term of
+/// `production::available`) is no way to pay it (the string's `payment::affordable`). Found by a sweep game, lane N.
+#[test]
+fn war_machines_bonus_does_not_make_the_technology_secondary_affordable() {
+    use ti4_engine_core::driver::windows::strategic::facts::follower_facts;
+    use ti4_engine_core::state::RoundKind;
+    let eligible = |goods: i16, marked: bool| {
+        let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheArborec]).phase(Phase::Action).active(Some(0)).build();
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::Technology);
+        s.players_mut().by_seat_mut(Seat(1)).unwrap().econ.trade_goods = goods;
+        s.players_mut().by_seat_mut(Seat(1)).unwrap().econ.strategic_tokens = 2;
+        if marked {
+            let seq = s.meta().activation_seq;
+            s.players_mut().by_seat_mut(Seat(1)).unwrap().round_marks.push(RoundKind::WarMachine, seq);
+        }
+        follower_facts(&s, &k, Seat(0), StrategyCard::Technology, Seat(1)).eligible
+    };
+    assert!(eligible(4, false), "four trade goods pay the four resources");
+    assert!(eligible(4, true));
+    assert!(!eligible(0, true), "the bonus alone pays nothing");
+    assert!(!eligible(1, true), "nor does it top up one trade good");
 }
 
 // -- Xxcha's Peace Accords and the Ssruu copy of Doctor Sucaban -----------------------------------------------------------------------------

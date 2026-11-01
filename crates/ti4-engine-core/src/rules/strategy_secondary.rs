@@ -15,7 +15,7 @@
 //! string side as data, like the rest of the facts.
 //!
 //! Not ported (the adapter bails, one test each): a waiver whose payment the tables do not carry
-//! ([`WaiverEffect::Unported`]: an unknown module, Jae Mir Kan while the Nomad watches an agent exhaust), a window that
+//! ([`WaiverEffect::Unported`]: an unknown module), a window that
 //! is a preview or resolves a card nobody holds (Winnu hero), a position with a nested emission.
 //!
 //! The follow EFFECT (`strategy_cards::follow`, `resolve_faction_strategy`) is not this window: the string runs it
