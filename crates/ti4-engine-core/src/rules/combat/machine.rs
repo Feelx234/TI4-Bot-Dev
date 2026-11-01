@@ -208,8 +208,6 @@ pub struct Machine {
     /// Assault Cannon being resolved at the start of the combat, and whether it was (the opening goes on after it).
     ac_w: Option<AssaultCannon>,
     after_ac: bool,
-    /// The round whose end-of-round hits were produced already (the flow goes on to its end).
-    round_end_produced: Option<u32>,
     stage: Stage,
     /// Built for the answer to the decision the settle stopped at (`Machine::awaiting`).
     awaiting: bool,
@@ -243,7 +241,6 @@ impl Machine {
             barrage_done: false,
             ac_w: None,
             after_ac: false,
-            round_end_produced: None,
             stage: Stage::Running,
             awaiting: false,
             answered: false,
@@ -421,7 +418,7 @@ impl Machine {
         let over = self.over(sx);
         // After a round (retreats included): the hits Devotion makes, produced once the fight is not decided.
         if let Step::Retreating { round, leaving } = &self.fields.step {
-            if leaving.is_empty() && !over && self.env.devotion && self.round_end_produced != Some(*round) {
+            if leaving.is_empty() && !over && self.env.devotion && self.fields.round_end_produced != Some(*round) {
                 let round = *round;
                 self.start_produce(CombatMoment::RoundEnded, round);
                 return Some(false);
@@ -818,7 +815,7 @@ impl Machine {
                 }
             }
             _ => {
-                self.round_end_produced = Some(round);
+                self.fields.round_end_produced = Some(round);
                 if !queue.is_empty() {
                     self.fields.phase = Phase::RoundEnd;
                     // Hits produced after the round are their own "before you assign hits" moment: the once-per-round guard on the

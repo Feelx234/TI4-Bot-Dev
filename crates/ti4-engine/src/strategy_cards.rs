@@ -1346,7 +1346,7 @@ fn trade_infantry_for_research(
 
 /// Where this player has infantry: `(system, Some(planet))` on the ground, `(system, None)` in
 /// space. One entry per location, not per unit -- a stack of three offers one place to take from.
-fn infantry_sites(state: &GameState, player: &PlayerId) -> Vec<(SystemId, Option<PlanetId>)> {
+pub(crate) fn infantry_sites(state: &GameState, player: &PlayerId) -> Vec<(SystemId, Option<PlanetId>)> {
     let mut sites = Vec::new();
     for (system, here) in &state.board {
         if here
@@ -1370,11 +1370,10 @@ fn infantry_sites(state: &GameState, player: &PlayerId) -> Vec<(SystemId, Option
 
 /// Whether the paid research of `player` asks a question the core window does not carry, besides the technology and
 /// the payment (package B8c-2: the core `Research` window lands every technology itself): Jol-Nar's Specialist
-/// Compounds (the breakthrough with a readied specialty planet), Doctor Sucaban (the agent readied at the table and
-/// infantry on the board to trade, also copied by Ssruu), and the Deepwrought commander held by another seat.
+/// Compounds (the breakthrough with a readied specialty planet) and the Deepwrought commander held by another seat.
+/// (Doctor Sucaban, also copied by Ssruu, is the window's own since lane H4.)
 pub(crate) fn research_asks_more(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> bool {
     !crate::breakthroughs::specialty_research_planets(state, content, sources, player).is_empty()
-        || (!infantry_sites(state, player).is_empty() && !sucaban_sources(state, content, player).is_empty())
         || state.players.iter().any(|seat| {
             &seat.id != player && crate::promissory::has_commander_ability(state, &seat.id, "deepwroughtcommander")
         })
