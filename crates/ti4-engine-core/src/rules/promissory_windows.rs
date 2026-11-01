@@ -69,6 +69,12 @@ impl PlaceUnits {
         Self { who, unit, count, optional, within, scope, ability, then, stage: PStage::Start, placed: 0 }
     }
 
+    /// Whether the window would ask or place anything now: a unit the box holds and a planet to put it on (the offer of a component action that places).
+    #[must_use]
+    pub fn has_spot(&self, s: &CoreState) -> bool {
+        self.wanted(s) > 0 && !self.spots(s).as_slice().is_empty()
+    }
+
     /// How many units the box lets the placer put on the board now (`supply::allowed`).
     fn wanted(&self, s: &CoreState) -> u8 {
         let Some(unit) = self.unit else { return 0 };

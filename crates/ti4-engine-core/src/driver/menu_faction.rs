@@ -117,6 +117,41 @@ fn naaz(core: &CoreState, who: Seat, out: &mut Vec<Opt>) {
     }
 }
 
+/// Nekro's ???_ERROR_ERROR_???: place a PDS (a planet to put it on and a PDS in the box), repair all damaged units, discard a card to draw one.
+fn nekro(core: &CoreState, k: &Kernel, roster: &UnitRoster, who: Seat, out: &mut Vec<Opt>) {
+    if !reach::technology_text_ready(core, who, Technology::ERRORERROR) {
+        return;
+    }
+    let scope = reach::scope_of(k);
+    let pds = crate::kernel::fx_strategy::placed_unit(core, k, scope, roster, who, crate::generated::UnitBaseType::Pds);
+    let place = crate::rules::promissory_windows::PlaceUnits::new(who, pds, 1, None, false, scope, crate::state::Code(0), crate::rules::promissory_windows::Then::C4rPds);
+    if place.has_spot(core) {
+        out.push(action(Faction::TheNekroVirus, c::C4R_PLACE, 0));
+    }
+    let damaged = |list: &crate::state::UnitList| list.as_slice().iter().any(|p| p.owner() == who && p.sustained());
+    if core.board().systems().any(|(_, cell)| damaged(&cell.units)) || core.board().planets().any(|(_, cell)| damaged(&cell.units)) {
+        out.push(action(Faction::TheNekroVirus, c::C4R_REPAIR, 0));
+    }
+    if core.players().by_seat(who).is_some_and(|p| !p.cards.hand.is_empty()) && !core.decks().action.is_empty() {
+        out.push(action(Faction::TheNekroVirus, c::C4R_DRAW, 0));
+    }
+}
+
+/// Terraform (the Titans promissory note): one option per controlled planet that is no home planet and not Mecatol Rex, while no planet carries it yet.
+fn terraform(core: &CoreState, who: Seat, out: &mut Vec<Opt>) {
+    use crate::generated::Attachment;
+    if !holds_foreign(core, who, PromissoryNote::Terraform) || core.board().planets().any(|(_, cell)| cell.attach.as_slice().contains(&Attachment::Terraform)) {
+        return;
+    }
+    let seated_home = |planet: Planet| core.players().iter().any(|p| p.home_planets.as_slice().contains(&planet));
+    for (_, planet) in board::controlled_planets(core, who).as_slice() {
+        if matches!(planet, Planet::MecatolRex | Planet::MecatolRexTe) || planet.data().homeworld_of.is_some() || seated_home(*planet) {
+            continue;
+        }
+        out.push(action(Faction::TheTitansOfUl, c::TERRAFORM, *planet as u16));
+    }
+}
+
 /// The component actions of the faction modules and the three loose abilities for `who`.
 ///
 /// # Errors
@@ -154,14 +189,8 @@ pub fn faction(core: &CoreState, k: &Kernel, roster: &UnitRoster, who: Seat) -> 
     }
     muaat(core, k, roster, who, &mut out);
     naaz(core, who, &mut out);
-    // Nekro's ???_ERROR_ERROR_???: the PDS placement reads the placement spots of the seat, which the core does not hold.
-    if reach::technology_text_ready(core, who, Technology::ERRORERROR) {
-        return Err(MenuGap::Faction(Faction::TheNekroVirus));
-    }
-    // Terraform: its targets read the home planets of every seat.
-    if holds_foreign(core, who, PromissoryNote::Terraform) {
-        return Err(MenuGap::Faction(Faction::TheTitansOfUl));
-    }
+    nekro(core, k, roster, who, &mut out);
+    terraform(core, who, &mut out);
     // Lazax Gate Folding.
     if reach::technology_text_ready(core, who, Technology::LazaxGateFolding)
         && (board::controls(core, who, Planet::MecatolRex) || mecatol_planet_held(core, who))
@@ -178,9 +207,13 @@ pub fn faction(core: &CoreState, k: &Kernel, roster: &UnitRoster, who: Seat) -> 
             out.push(action(Faction::TheYssarilTribes, c::MAGEON_IMPLANTS, u16::from(other.seat.0)));
         }
     }
-    // Cabal's Vortex is a mapped action: it needs the targets over the map.
+    // Cabal's Vortex is a mapped action: listed after every plain one, when a unit type could be captured over the map.
+    let mut mapped = mapped;
     if faction_of(core, who) == Some(Faction::TheVuilraithCabal) && reach::technology_text_ready(core, who, Technology::Vortex) {
-        return Err(MenuGap::Faction(Faction::TheVuilraithCabal));
+        let vortex = crate::rules::technology_windows::Vortex::new(who, core.galaxy().is_some(), None, reach::scope_of(k));
+        if vortex.offered(core) {
+            mapped.push(action(Faction::TheVuilraithCabal, c::VORTEX, 0));
+        }
     }
     out.extend(mapped);
     Ok(out)

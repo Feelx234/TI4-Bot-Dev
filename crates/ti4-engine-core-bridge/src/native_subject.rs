@@ -490,7 +490,7 @@ fn menu_body_is_lent(id: &str) -> bool {
     use ti4_engine::generated::IdStr;
     use ti4_engine_core::generated::Leader;
     /// The ids of the faction component actions the core runs (the arms of `driver::turn::faction::run`; keep in step).
-    const ROUTED_FACTION: [&str; 17] = [
+    const ROUTED_FACTION: [&str; 22] = [
         "faction|winnu|lgf",
         "faction|orbital_drop",
         "faction|production_biomes",
@@ -508,6 +508,11 @@ fn menu_body_is_lent(id: &str) -> bool {
         "faction|empyrean|dark_pact",
         "faction|yssaril|mi|",
         "faction|ghost|wg",
+        "faction|nekro|c4r|pds",
+        "faction|nekro|c4r|repair",
+        "faction|nekro|c4r|draw",
+        "faction|titans|terraform|",
+        "faction|cabal|vortex",
     ];
     if let Some(rest) = id.strip_prefix("component|leader|") {
         let (borrowed, alias) = rest.strip_prefix("yssarilagent|").map_or((false, rest), |alias| (true, alias));

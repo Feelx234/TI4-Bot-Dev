@@ -1295,3 +1295,121 @@ fn it_feeds_on_carrion_chosen_from_the_menu_rolls_for_the_ships_next_to_a_tear_a
     assert_eq!(status(&s, 0, Leader::ItFeedsOnCarrion), Some(LeaderStatus::Purged));
     assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
 }
+
+// ---- lane F2e: the three faction actions the menu used to refuse (`MenuGap::Faction`) ----
+
+fn nekro_table(extra: impl FnOnce(Scenario) -> Scenario) -> (CoreState, Kernel) {
+    let (_, planet) = ti4_engine_core_tests::scenario::first_planet();
+    extra(Scenario::new(&[Faction::TheNekroVirus, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).map_ring(1).control(planet, 0).tech(0, Technology::ERRORERROR).tokens(0, 3, 3, 2)).build()
+}
+
+fn c4r(s: &mut CoreState, e: &Env<'_>, code: u16) -> Result<(Live, Out), LiveError> {
+    use ti4_engine_core::kernel::hooks::components as c;
+    let _ = c::C4R_PLACE;
+    pick(s, e, |o| matches!(o, Opt::Turn(TuOpt::Faction(a)) if a.code == code))
+}
+
+/// Lane F2e: Nekro's ???_ERROR_ERROR_??? places a PDS on a planet the seat controls and exhausts the card.
+#[test]
+fn nekros_error_error_card_chosen_from_the_menu_places_a_pds_and_exhausts_the_card() {
+    use ti4_engine_core::kernel::hooks::components as c;
+    let (system, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = nekro_table(|sc| sc);
+    let e = env_r(&k);
+    let before = ti4_engine_core::query::board::planet_units(&s, planet).len();
+    let (live, _) = c4r(&mut s, &e, c::C4R_PLACE).unwrap();
+    first_options(&mut s, &e, live, 3);
+    let _ = system;
+    assert_eq!(ti4_engine_core::query::board::planet_units(&s, planet).len(), before + 1, "a PDS was placed");
+    assert!(s.players().by_seat(Seat(0)).unwrap().tech.exhausted.contains(Technology::ERRORERROR));
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// Lane F2e: the repair mends every damaged unit of the seat (and only the seat's) and exhausts the card; it is listed only with a damaged unit.
+#[test]
+fn nekros_error_error_card_repairs_the_damaged_units_and_is_listed_only_when_one_is_damaged() {
+    use ti4_engine_core::kernel::hooks::components as c;
+    let (system, _) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = nekro_table(|sc| sc.unit(system, None, Unit::DreadnoughtI, 0, 1).unit(system, None, Unit::DreadnoughtI, 1, 1));
+    let e = env_r(&k);
+    let listed = |s: &mut CoreState| ask_ask(s, &e).unwrap().unwrap().choice.opts.as_slice().iter().any(|o| matches!(o, Opt::Turn(TuOpt::Faction(a)) if a.code == c::C4R_REPAIR));
+    assert!(!listed(&mut s), "nothing is damaged");
+    for p in s.board_mut().sys_mut(system).units.as_mut_slice() {
+        *p = p.with_sustained(true);
+    }
+    assert!(listed(&mut s));
+    c4r(&mut s, &e, c::C4R_REPAIR).unwrap();
+    let units = s.board().sys(system).units.as_slice().to_vec();
+    assert!(units.iter().filter(|p| p.owner() == Seat(0)).all(|p| !p.sustained()), "the seat's units are mended");
+    assert!(units.iter().filter(|p| p.owner() == Seat(1)).all(|p| p.sustained()), "a rival's are not");
+    assert!(s.players().by_seat(Seat(0)).unwrap().tech.exhausted.contains(Technology::ERRORERROR));
+}
+
+/// Lane F2e: the draw discards a card of the hand, exhausts the card and draws one; it needs a card in the hand and one in the deck.
+#[test]
+fn nekros_error_error_card_discards_a_card_and_draws_one() {
+    use ti4_engine_core::generated::ActionCard;
+    use ti4_engine_core::kernel::hooks::components as c;
+    let (mut s, k) = nekro_table(|sc| sc.hand(0, &[ActionCard::ALL[0], ActionCard::ALL[3]]));
+    s.decks_mut().action = ti4_engine_core::Deck::new(vec![ActionCard::ALL[7]]);
+    let mut e = env_r(&k);
+    e.table.facts.card_groups = (0..ActionCard::ALL.len()).map(|i| u8::try_from(i % 250).unwrap_or(0)).collect();
+    let (live, _) = c4r(&mut s, &e, c::C4R_DRAW).unwrap();
+    first_options(&mut s, &e, live, 6);
+    let p = s.players().by_seat(Seat(0)).unwrap();
+    assert_eq!(p.cards.hand.as_slice().len(), 2, "one card out, one in");
+    assert!(p.cards.hand.as_slice().contains(&ActionCard::ALL[7]), "the deck's card was drawn");
+    assert!(p.tech.exhausted.contains(Technology::ERRORERROR));
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+    // An empty deck takes the option off the menu.
+    let (mut t, k) = nekro_table(|sc| sc.hand(0, &[ActionCard::ALL[0]]));
+    t.decks_mut().action = ti4_engine_core::Deck::new(vec![]);
+    let e = env_r(&k);
+    let q = ask_ask(&mut t, &e).unwrap().unwrap().choice;
+    assert!(!q.opts.as_slice().iter().any(|o| matches!(o, Opt::Turn(TuOpt::Faction(a)) if a.code == c::C4R_DRAW)));
+}
+
+/// Lane F2e: Terraform attaches to a controlled planet that is no home planet and not Mecatol Rex, once; the note turns faceup.
+#[test]
+fn terraform_chosen_from_the_menu_attaches_to_the_planet_the_option_names() {
+    use ti4_engine_core::generated::{Attachment, PromissoryNote};
+    use ti4_engine_core::kernel::hooks::components as c;
+    use ti4_engine_core::state::NoteKey;
+    let (_, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheTitansOfUl, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).map_ring(1).control(planet, 0).tokens(0, 3, 3, 2).build();
+    let note = NoteKey { note: PromissoryNote::Terraform, faction: Faction::TheTitansOfUl };
+    s.cards_mut().promissory.edit().insert(note, Seat(0));
+    let e = env_r(&k);
+    pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Faction(a)) if a.code == c::TERRAFORM && a.arg == planet as u16)).unwrap();
+    assert!(s.board().planet(planet).attach.as_slice().contains(&Attachment::Terraform));
+    assert!(s.cards().promissory_faceup.contains_key(&note), "the note is faceup");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+    // Once attached, the option is gone.
+    let q = ask_ask(&mut s, &e).unwrap().unwrap().choice;
+    assert!(!q.opts.as_slice().iter().any(|o| matches!(o, Opt::Turn(TuOpt::Faction(a)) if a.code == c::TERRAFORM)));
+}
+
+/// Lane F2e: Cabal's Vortex captures a non-structure unit type of another player that has a unit next to one of the seat's space docks.
+#[test]
+fn vortex_chosen_from_the_menu_captures_a_unit_type_next_to_a_space_dock_and_exhausts_the_card() {
+    use ti4_engine_core::kernel::hooks::components as c;
+    let ps = ti4_engine_core_tests::scenario::plain_systems();
+    let planet = ps[0].data().planets[0];
+    let (mut s, k) = Scenario::new(&[Faction::TheVuilraithCabal, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_ring(7)
+        .control(planet, 0)
+        .unit(ps[0], Some(planet), Unit::SpaceDockI, 0, 1)
+        .unit(ps[1], None, Unit::CruiserI, 1, 1)
+        .tech(0, Technology::Vortex)
+        .tokens(0, 3, 3, 2)
+        .build();
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Faction(a)) if a.code == c::VORTEX)).unwrap();
+    first_options(&mut s, &e, live, 3);
+    let p = s.players().by_seat(Seat(0)).unwrap();
+    assert!(p.misc.captured_units.as_slice().contains(&(Seat(1), Unit::CruiserI)), "the cruiser type was captured");
+    assert!(p.tech.exhausted.contains(Technology::Vortex));
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}

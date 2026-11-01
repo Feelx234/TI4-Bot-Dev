@@ -416,3 +416,48 @@ fn hesh_and_prit_chosen_from_the_menu_gains_a_relic_like_the_string() {
     let state = super::turn_live_tests::based(state);
     lockstep(&state, &["component|leader|naazhero", "decline"], "COMPONENT_ACTION_RESOLVED");
 }
+
+// ---- lane F2e: Nekro's ???_ERROR_ERROR_??? and Terraform against the string ----
+
+fn nekro_c4r_table() -> GameState {
+    let mut state = action_table(&[("a", "nekro"), ("b", "sol"), ("c", "hacan")]);
+    state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("nekroc4r"));
+    state
+}
+
+#[test]
+fn nekros_error_error_card_places_a_pds_like_the_string() {
+    let state = super::turn_live_tests::based(nekro_c4r_table());
+    lockstep(&state, &["faction|nekro|c4r|pds"], "COMPONENT_ACTION_RESOLVED");
+}
+
+#[test]
+fn nekros_error_error_card_repairs_the_damaged_units_like_the_string() {
+    let mut state = nekro_c4r_table();
+    let home = home_of(&state, "a");
+    crate::fixtures::put(&mut state, &home, "dreadnought", &pid("a"), 1);
+    for unit in &mut state.system_mut(&home).units {
+        unit.sustained_damage = true;
+    }
+    let state = super::turn_live_tests::based(state);
+    lockstep(&state, &["faction|nekro|c4r|repair"], "COMPONENT_ACTION_RESOLVED");
+}
+
+#[test]
+fn nekros_error_error_card_discards_and_draws_like_the_string() {
+    let mut state = nekro_c4r_table();
+    state.player_mut(&pid("a")).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[0].as_str()), ti4_model::id::ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[3].as_str())];
+    let state = super::turn_live_tests::based(state);
+    lockstep(&state, &["faction|nekro|c4r|draw"], "COMPONENT_ACTION_RESOLVED");
+}
+
+#[test]
+fn terraform_chosen_from_the_menu_attaches_like_the_string() {
+    let mut state = action_table(&[("a", "sol"), ("b", "titans"), ("c", "hacan")]);
+    let planet = ti4_model::id::PlanetId::new(crate::fixtures::non_home_planets(1).remove(0));
+    let system = ti4_model::id::SystemId::new(ti4_content::galaxy::all_planets(ti4_content::ContentStore::embedded(), ti4_model::content_types::POK).get(planet.as_str()).and_then(|p| p.system_id()).expect("a placed planet"));
+    state.board.entry(system).or_default().set_control(planet.clone(), pid("a"));
+    state.promissory_notes.insert("terraform:titans".to_owned(), pid("a"));
+    let state = super::turn_live_tests::based(state);
+    lockstep(&state, &[&format!("faction|titans|terraform|{planet}")], "COMPONENT_ACTION_RESOLVED");
+}

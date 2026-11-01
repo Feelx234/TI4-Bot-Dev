@@ -238,6 +238,12 @@ impl Vortex {
 
     const ASK: Ask = Ask::Technology(TAsk::Vortex);
 
+    /// Whether a unit type could be captured now (the offer of the component action): the targets of seated owners, whatever the table's neutral side.
+    #[must_use]
+    pub fn offered(&self, s: &CoreState) -> bool {
+        self.targets(s).iter().any(|(owner, _)| s.players().by_seat(*owner).is_some())
+    }
+
     fn targets(&self, s: &CoreState) -> Vec<(Seat, Unit)> {
         use crate::generated::UnitBaseType;
         if !self.has_map {
