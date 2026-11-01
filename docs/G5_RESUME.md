@@ -54,14 +54,12 @@ Evidence: `ti4-engine-core-tests/tests/staged_cards.rs` (4), lockstep `silent4_l
 Evidence: `ti4-engine-core-tests/tests/seen_revealed.rs` (3), engine `silent4_live_tests::the_typed_seen_reports_the_revealed_cards_like_the_seat_observation` (6 positions against the string observation, M'aban included, order-insensitive within a row).
 Nobody calls it yet: the string's only callers are the observation tests and a harness bot (`action_cards.rs`); the rule bot's `Seen` users may take it.
 
-## 4. Checks
+## 4. Checks (final, tip after this commit)
 
-STATE AT HAND-OVER (checks NOT finished; the session was told to hand back):
-
-* Private `CARGO_TARGET_DIR=/root/deploytmp/core-g5` (~0.7 GB, delete at the end), scratch worktree `.claude/worktrees/core-g5-run` (detached at the branch tip; remove with `git worktree remove`).
-* First engine lib run (tip `8a02ebbd3`): 5060 passed, 21 failed. 17 of the 21 (agenda_close_tests 2, agenda_reveal_tests 15) plus `game::tests::deadly_plot_effect_...` were MY regression: `fx_cards::has_staged_cards` read `marks()` in `Sx::emit_mirrored` where the footprint does not load the Marks slice (debug assert). Fixed in `1fd92c5ba` (guard on `loaded`, test `staged_cards::a_position_without_the_marks_slice_has_nothing_staged`). The remaining 3 are the expected M6d-owned ones (two `combat_live`, one `tactical_live`); NOT yet re-run on the fixed tip.
-* `ti4-engine-core --lib` 474 ok, `ti4-engine-core-factions --lib` 146 ok (tip `8a02ebbd3`).
-* Running when handed back: `/tmp/.../scratchpad/g5_run1.sh` (bridge lib, the named core-tests binaries, engine lib under `TI4_AREAS=all=dual`) on the fixed tip; logs in the scratchpad `g5_run1/`. The normal engine lib run on the fixed tip is still to do.
-* Mutation: NOT run. Script ready: `scratchpad/g5_mut.sh` (fx_cards, seen/hand, the Research window lines 694-1204, hooks/strategy.rs, emit_mirrored lines 155-175, cabal/yin helpers, renderer helpers and arms), each with core tests and engine lockstep, `D4_COVERS_FILE=/dev/null`.
-* Not run: clippy_core.sh, check_layers (0 violations, 528 files) and lint_core (0 hits) were run at `8a02ebbd3`.
-
+* `ti4-engine --lib`: 5078 pass, 3 fail, with or without `TI4_AREAS=all=dual`: exactly the three M6d-owned tests (`combat_live::{a_space_fight_of_each_faction..., an_undefended_system_with_a_space_dock...}`, `tactical_live::a_tactical_action_of_each_faction...`). Core lib 474, factions lib 146, bridge lib 3 + kernel_env, 32 named `ti4-engine-core-tests` binaries all pass.
+* **Not G5's: `turn_jobs2` (2 tests)** `a_free_leader_of_the_closing_menu_is_asked_and_its_dispatch_is_a_counted_gap` and `a_leader_printed_during_the_action_phase_is_a_free_option_of_the_closing_menu` failed with `TurnGap::MenuSources` on the G4 base too: Hacan's Guild Ships (`rules/trade.rs`, lane G `d5a6abc1a`) reach every seat, so the closing menu has an open trade partner. Fixed in the tests (the partner is marked as already transacted with); no assertion loosened.
+* Fixed on the way: `has_staged_cards` read the Marks slice where the footprint does not load it (`1fd92c5ba`); clippy findings of the G5 test code (unused import, `mut`, complex type).
+* `clippy_core.sh`: remaining findings are not G5's (`g2_abilities.rs:734` logic-bug error, `silent/g3/ragh.rs:26`, `native_play.rs:1084/1097`).
+* `check_layers.py core`: 528 files, 0 violations; `lint_core.sh`: 530 files, 0 hits.
+* Mutation (`g5_mut.sh`, `D4_COVERS_FILE=/dev/null`): fx_cards 17/17 and seen/hand 30/30 killed by the core tests (after the survivor tests); hooks/strategy.rs 1/1, emit_mirrored 2/2, renderer helpers 4/4, cabal/yin helpers killed but for `unwrap_or(0)` fallbacks of a u16 index (`// mutants:skip`, unreachable). The waiver cap `min(2)` is skipped too (`start_waiver` leaves the path above two offers). Research window (lines 694-1204, whole window): union of core and lockstep leaves 18 survivors, all in code G5 did not write (payment steps, `rider`, `research_chosen`, `Settled` plumbing); every mutation point on G5's lines (waiver questions, `start_waiver`, `settle`, `try_settle`) is killed by the union. Renderer arms: survivors only in other families' arms.
+* Not run: golden / wide dual, benches, soak, ratchet.

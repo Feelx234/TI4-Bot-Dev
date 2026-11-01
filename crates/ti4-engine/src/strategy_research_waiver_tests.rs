@@ -4,7 +4,7 @@
 
 use ti4_content::ContentStore;
 use ti4_model::content_types::POK;
-use ti4_model::id::{LeaderId, PlayerId, SystemId, TechnologyId, UnitTypeId};
+use ti4_model::id::{LeaderId, PlayerId, TechnologyId, UnitTypeId};
 use ti4_model::state::{GameState, LeaderStatus};
 
 use crate::choice::{Scripted, Table};
