@@ -6,11 +6,11 @@
 //! checks, a fleet that meets the Letnev and L1Z1X commanders, exhausted planets, a durable grant.
 
 use ti4_content::ContentStore;
-use ti4_engine::dual::{Area, AreaMask, Backend, with_mask};
+use ti4_engine_legacy::dual::{Area, AreaMask, Backend, with_mask};
 use ti4_engine::generated::IdStr;
-use ti4_engine::leaders as st;
-use ti4_engine::faction_abilities as fa;
-use ti4_engine::leaders_view::{LeaderView, READS_ABILITIES, READS_ABILITY, READS_ACTIONS, READS_STATUS, READS_UNLOCK};
+use ti4_engine_legacy::leaders as st;
+use ti4_engine_legacy::faction_abilities as fa;
+use ti4_engine_legacy::leaders_view::{LeaderView, READS_ABILITIES, READS_ABILITY, READS_ACTIONS, READS_STATUS, READS_UNLOCK};
 use ti4_engine_core::generated::{Ability, Leader, LeaderType, PublicObjective, StrategyCardKind, Technology};
 use ti4_model::id::{LeaderId, ObjectiveId, PlayerId, TechnologyId, UnitTypeId};
 use ti4_model::state::{Feat, FeatOccurrence, GameState, LeaderStatus};
@@ -251,7 +251,7 @@ pub fn check_leaders_position(p: &Position, report: &mut LeaderReport) {
                     if ti4_engine_core::rules::leaders::kind(l) == LeaderType::Commander {
                         report.same(
                             &at(&format!("has_commander_ability {}", l.as_str())),
-                            &ti4_engine::promissory::has_commander_ability(&g, pid, l.as_str()),
+                            &ti4_engine_legacy::promissory::has_commander_ability(&g, pid, l.as_str()),
                             &ability.has_commander_ability(pid, l.as_str()),
                         );
                     }

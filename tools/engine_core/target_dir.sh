@@ -26,7 +26,7 @@ case "$cmd" in
   path) echo "$default_seed" ;;
   warm)
     seed="${1:-$default_seed}"; [[ $# -gt 0 ]] && shift
-    args=("$@"); [[ ${#args[@]} == 0 ]] && args=(test --profile gate -p ti4-engine --lib --no-run)
+    args=("$@"); [[ ${#args[@]} == 0 ]] && args=(test --profile gate -p ti4-engine-legacy --lib --no-run)
     mkdir -p "$seed"
     # One warm build at a time on the dir; cargo takes its own lock too.
     exec 9> "$seed/.warm.lock"; flock 9

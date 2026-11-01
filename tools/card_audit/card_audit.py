@@ -17,7 +17,7 @@ Inputs
                                             curated claim names its evidence; the script checks
                                             that each evidence site still contains its pattern.
   * docs/card_audit/registry_dump.json      optional: the engine's own registries, written by
-                                            `cargo run -p ti4-engine --example card_registry_dump`.
+                                            `cargo run -p ti4-engine-legacy --example card_registry_dump`.
 
 Outputs (docs/card_audit/)
   * fields.csv      category x field: records carrying it, bytes in the embedded (minified) JSON,

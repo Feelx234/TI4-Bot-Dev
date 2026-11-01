@@ -12,7 +12,7 @@ use std::fmt::Write as _;
 
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-use ti4_engine::dual::{Area, AreaCounts, Category, Difference, DualReport, HookCounts, HookGroup, WindowCounts};
+use ti4_engine_legacy::dual::{Area, AreaCounts, Category, Difference, DualReport, HookCounts, HookGroup, WindowCounts};
 
 /// The file format tag.
 pub const FORMAT: &str = "ti4-dual-shard-v1";

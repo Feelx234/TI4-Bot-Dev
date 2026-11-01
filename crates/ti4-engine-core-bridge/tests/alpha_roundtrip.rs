@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use ti4_content::ContentStore;
-use ti4_engine::Game;
+use ti4_engine_legacy::Game;
 use ti4_engine::choice::{SeededRandom, Table};
 use ti4_engine_core_bridge::alpha::{check_game, list_games, refuse_live_dir};
 use ti4_engine_core_bridge::roundtrip::Checker;

@@ -6,8 +6,9 @@ rust-version.workspace = true
 publish = false
 description = "Oracle-free tests of the typed core (docs/todo/D4-core-tests.md): the shared typed kit (Scenario, Rig, delta, snapshots, covers!), the rule tests of the windows and the properties. A test-only crate: no production code."
 
-# The default build holds no engine at all (neither `ti4-engine` nor the legacy string engine): that is what
-# makes these tests runnable "without ti4-engine-legacy". The `wrapper` feature adds the string wrapper for the
+# The default build holds no engine at all (neither the product crate `ti4-engine` nor the string engine
+# `ti4-engine-legacy`): that is what makes these tests runnable without either. The `wrapper` feature adds the product crate (the thin
+# `ti4-engine`, a facade over the legacy until D2-8; docs/todo/D2-7-legacy-split.md) and the bridge for the
 # properties on real positions (D4-3) and the golden tool (D4-4).
 [dependencies]
 ti4-engine-core.workspace = true

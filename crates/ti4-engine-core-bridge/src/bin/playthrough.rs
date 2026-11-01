@@ -34,8 +34,8 @@
 
 use std::panic::AssertUnwindSafe;
 
-use ti4_engine::dual::{self, AreaMask, DualReport};
-use ti4_engine::seating::LOBBY_FACTIONS;
+use ti4_engine_legacy::dual::{self, AreaMask, DualReport};
+use ti4_engine_legacy::seating::LOBBY_FACTIONS;
 use ti4_engine_core_bridge::workload::golden_decider;
 use ti4_selfplay::spec::GameSpec;
 

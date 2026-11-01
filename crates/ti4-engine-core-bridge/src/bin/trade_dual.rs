@@ -17,10 +17,10 @@
 //! / `note_negotiation` on copies under `Dual`. Exit status 1 on any difference.
 
 use ti4_content::ContentStore;
-use ti4_engine::dual::{self, Area, AreaMask, Backend};
+use ti4_engine_legacy::dual::{self, Area, AreaMask, Backend};
 use ti4_engine::generated::IdStr;
-use ti4_engine::trade_core::TradeView;
-use ti4_engine::transactions::{self, Offer, PlanetTerm, Terms};
+use ti4_engine_legacy::trade_core::TradeView;
+use ti4_engine_legacy::transactions::{self, Offer, PlanetTerm, Terms};
 use ti4_engine_core::generated::{ActionCard, Planet, SecretObjective};
 use ti4_engine_core_bridge::workload::{Position, golden_positions, template_openings};
 use ti4_model::id::{ActionCardId, PlanetId, PlayerId, SecretObjectiveId, SystemId, TechnologyId, UnitTypeId};
@@ -177,11 +177,11 @@ fn random_terms(state: &GameState, content: &ContentStore, who: &PlayerId, rng: 
         t.fragments.push(KINDS[rng.below(KINDS.len())].to_owned());
     }
     if rng.below(5) == 0 {
-        let notes = ti4_engine::promissory::available_notes(state, content, who);
+        let notes = ti4_engine_legacy::promissory::available_notes(state, content, who);
         if !notes.is_empty() {
             t.promissory = Some(notes[rng.below(notes.len())].clone());
         } else if rng.below(3) == 0 {
-            t.promissory = Some(ti4_engine::promissory::support(&ti4_engine::promissory::faction_name(state, who)));
+            t.promissory = Some(ti4_engine_legacy::promissory::support(&ti4_engine_legacy::promissory::faction_name(state, who)));
         }
     }
     if rng.below(6) == 0 {
@@ -317,8 +317,8 @@ fn main() {
     println!("positions {} | questions {} | fuzz copies {} per position | direct differences {}", positions.len(), run.asked, fuzz_copies, run.differences);
     println!(
         "typed settles {} | settles left to the string engine (note or planet card) {}",
-        ti4_engine::trade_core::TYPED_WRITES.load(std::sync::atomic::Ordering::Relaxed),
-        ti4_engine::trade_core::STRING_WRITES.load(std::sync::atomic::Ordering::Relaxed)
+        ti4_engine_legacy::trade_core::TYPED_WRITES.load(std::sync::atomic::Ordering::Relaxed),
+        ti4_engine_legacy::trade_core::STRING_WRITES.load(std::sync::atomic::Ordering::Relaxed)
     );
     print!("{report}");
     std::process::exit(i32::from(report.total_differences() > 0 || run.differences > 0));

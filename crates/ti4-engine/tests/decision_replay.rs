@@ -24,9 +24,9 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use ti4_engine::choice::{Choice, ChoiceOption, DecisionLog};
-use ti4_engine::fingerprint::{CanonicalHashVersion, decision_hash};
-use ti4_engine::render::{self, Render, generic};
+use ti4_engine_legacy::choice::{Choice, ChoiceOption, DecisionLog};
+use ti4_engine_legacy::fingerprint::{CanonicalHashVersion, decision_hash};
+use ti4_engine_legacy::render::{self, Render, generic};
 use ti4_engine_core::choice::generic::Ask as GAsk;
 use ti4_engine_core::choice::{self as core, Ask, Opt};
 
@@ -61,7 +61,7 @@ fn seat_table(c: &Choice) -> Render {
     let mut seats = vec![c.player.as_str().to_owned()];
     if let Some(ctx) = &c.context {
         seats.push(ctx.actor.as_str().to_owned());
-        if let Some(ti4_engine::decision_context::DecisionTarget::Player(p)) = &ctx.target {
+        if let Some(ti4_engine_legacy::decision_context::DecisionTarget::Player(p)) = &ctx.target {
             seats.push(p.as_str().to_owned());
         }
     }

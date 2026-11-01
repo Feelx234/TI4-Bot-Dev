@@ -164,7 +164,7 @@ pub fn check_position(p: &Position, report: &mut PlayReport) {
             }
         };
         let r = Render::new(cx.owners.ids().to_vec());
-        let Some(string) = ti4_engine::reactions_core::string_play_facts(&r, &g, &p.sources) else {
+        let Some(string) = ti4_engine_legacy::reactions_core::string_play_facts(&r, &g, &p.sources) else {
             report.unmapped += 1;
             report.mismatches.push(format!("{label}: the string side gave no play facts"));
             continue;

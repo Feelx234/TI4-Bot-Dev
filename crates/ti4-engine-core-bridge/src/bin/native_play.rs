@@ -24,7 +24,7 @@
 
 use std::time::Instant;
 
-use ti4_engine::seating::LOBBY_FACTIONS;
+use ti4_engine_legacy::seating::LOBBY_FACTIONS;
 use ti4_engine_core_bridge::native_play::{lobby_spec, play_game, shadow_play, survey, End, Matrix, NativeGame};
 use ti4_selfplay::spec::GameSpec;
 

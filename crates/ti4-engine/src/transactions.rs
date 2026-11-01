@@ -2100,11 +2100,11 @@ const LABEL_ANSWER: &str = "transactions::answer";
 /// use ti4_content::ContentStore;
 /// use ti4_model::content_types::POK;
 /// use ti4_model::id::PlayerId;
-/// use ti4_engine::transactions::TradeWindow;
+/// use ti4_engine_legacy::transactions::TradeWindow;
 ///
 /// let players = [PlayerId::new("a"), PlayerId::new("b")];
 /// let mut state =
-///     ti4_engine::setup::start_game(ContentStore::embedded(), &players, POK, None).unwrap();
+///     ti4_engine_legacy::setup::start_game(ContentStore::embedded(), &players, POK, None).unwrap();
 /// for player in &players {
 ///     let seat = state.player_mut(player).unwrap();
 ///     seat.trade_goods = 2;

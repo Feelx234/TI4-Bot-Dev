@@ -18,7 +18,7 @@
 //! of skipped scenarios; exit 1 on an unallowed difference, a changed decision hash or (full run: not a shard, `--game`, `--seed`) a
 //! stale allow-list entry; exit 2 on bad arguments or files that do not make one complete run.
 
-use ti4_engine::dual::{AreaMask, Backend};
+use ti4_engine_legacy::dual::{AreaMask, Backend};
 use ti4_engine_core_bridge::allow_list::{AllowList, DEFAULT_PATH, Tally};
 use ti4_engine_core_bridge::dual_shard::{self, GameRecord, Shard, ShardFile};
 use ti4_engine_core_bridge::native_subject::{self, NativeSubject};
@@ -165,12 +165,12 @@ fn main() {
 
 /// The areas the leading subject runs on `Core`.
 fn core_areas(mask: AreaMask) -> Vec<String> {
-    ti4_engine::dual::Area::ALL.into_iter().filter(|a| mask.backend(*a) == Backend::Core).map(|a| a.name().to_owned()).collect()
+    ti4_engine_legacy::dual::Area::ALL.into_iter().filter(|a| mask.backend(*a) == Backend::Core).map(|a| a.name().to_owned()).collect()
 }
 
 /// A shard or one game: what it played, its unallowed differences, the skips; exit 1 on a difference or a changed hash.
 fn print_partial(file: &ShardFile, list: &AllowList, tally: &Tally) -> ! {
-    let mut report = ti4_engine::dual::DualReport::default();
+    let mut report = ti4_engine_legacy::dual::DualReport::default();
     let mut ok = true;
     for g in &file.records {
         report.add(&g.report);

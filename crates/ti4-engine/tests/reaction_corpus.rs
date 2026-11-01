@@ -7,9 +7,9 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 use serde_json::Value;
-use ti4_engine::choice::Choice;
-use ti4_engine::kernel_sync::{ability_id, event_kind};
-use ti4_engine::render::{self, Render};
+use ti4_engine_legacy::choice::Choice;
+use ti4_engine_legacy::kernel_sync::{ability_id, event_kind};
+use ti4_engine_legacy::render::{self, Render};
 use ti4_engine_core::choice::reaction::{Ask, Opt as ROpt, Relation, Subtype};
 use ti4_engine_core::choice::{self as core, Ask as CAsk, Opt as COpt, Subtype as CSub};
 

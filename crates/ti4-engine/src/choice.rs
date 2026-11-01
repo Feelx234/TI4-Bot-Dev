@@ -546,7 +546,7 @@ impl Resolving<'_> {
 /// cargo — differs only in what it asks and what answering does.
 ///
 /// ```
-/// use ti4_engine::choice::{Choice, ChoiceOption, IllegalChoice, Resolving, Window};
+/// use ti4_engine_legacy::choice::{Choice, ChoiceOption, IllegalChoice, Resolving, Window};
 /// use ti4_model::id::PlayerId;
 ///
 /// /// Asks a player to name a colour, once.
@@ -589,7 +589,7 @@ impl Resolving<'_> {
 /// let content = ti4_content::ContentStore::embedded();
 /// let sources = ti4_model::content_types::POK;
 /// let state =
-///     ti4_engine::setup::start_game(content, &[PlayerId::new("a")], sources, None).unwrap();
+///     ti4_engine_legacy::setup::start_game(content, &[PlayerId::new("a")], sources, None).unwrap();
 ///
 /// let mut window = PickAColour { asked: false };
 /// let choice = window
@@ -2341,7 +2341,7 @@ pub struct PublicSeat<'a> {
 /// # Example
 ///
 /// ```
-/// use ti4_engine::choice::{Decider, Choice, ChoiceOption, IllegalChoice};
+/// use ti4_engine_legacy::choice::{Decider, Choice, ChoiceOption, IllegalChoice};
 ///
 /// struct AlwaysDecline;
 ///
@@ -2695,7 +2695,7 @@ impl DecisionLog {
 /// # Example
 ///
 /// ```
-/// use ti4_engine::choice::{Table, Decider, Scripted};
+/// use ti4_engine_legacy::choice::{Table, Decider, Scripted};
 /// use ti4_model::id::PlayerId;
 ///
 /// let mut table = Table::with_default(Box::new(Scripted::new(vec![String::new()])));

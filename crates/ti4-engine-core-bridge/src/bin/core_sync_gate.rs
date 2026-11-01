@@ -37,7 +37,7 @@ fn fixtures(galaxy: &ti4_content::galaxy::Galaxy) -> Vec<Position> {
         out.push(Position {
             label: format!("fixture {} seats", seats.len()),
             // real lobby factions, deployed, notes dealt (the placeholder `generic` is not in the corpus)
-            state: ti4_engine::fixtures::real_game(seats),
+            state: ti4_engine_legacy::fixtures::real_game(seats),
             galaxy: galaxy.clone(),
             sources: ti4_model::content_types::POK,
         });

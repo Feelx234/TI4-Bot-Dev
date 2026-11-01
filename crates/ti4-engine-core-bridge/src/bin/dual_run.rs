@@ -11,11 +11,11 @@
 //! dual_run --specs CONFIG GAMES                           one JSON line per game: index, seed, map, factions, ... and the
 //!                                                         `selfplay replay` flags (the soak maps a difference to its game)
 //! ```
-//! Prints the [`DualReport`](ti4_engine::dual::DualReport); exit 1 on any difference or hash change.
+//! Prints the [`DualReport`](ti4_engine_legacy::dual::DualReport); exit 1 on any difference or hash change.
 //! The merge prints exactly what the unsharded run prints (after checking that the shards cover every game
 //! exactly once, see `dual_shard`); it exits 2 when the files do not make one complete run.
 
-use ti4_engine::dual::{self, Area, AreaMask, Backend, DualReport};
+use ti4_engine_legacy::dual::{self, Area, AreaMask, Backend, DualReport};
 use ti4_engine_core_bridge::dual_shard::{self, GameRecord, Shard, ShardFile};
 use ti4_engine_core_bridge::workload::{golden_game_count, golden_games, specs as config_specs};
 

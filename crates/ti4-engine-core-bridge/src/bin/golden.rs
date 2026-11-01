@@ -19,7 +19,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ti4_engine::dual::{AreaMask, Backend};
+use ti4_engine_legacy::dual::{AreaMask, Backend};
 use ti4_engine_core_bridge::golden::bless::{self, BlessArgs, GitEnv};
 use ti4_engine_core_bridge::golden::corpus;
 use ti4_engine_core_bridge::golden::format::{GameFile, Limits, Tier};
@@ -150,7 +150,7 @@ fn cmd_list(root: &Path) -> Result<(), String> {
 fn replayer_of(a: &Args) -> EngineReplayer {
     let mask = mask_of(a.get("--mask"));
     if let Some(m) = mask {
-        let on: Vec<&str> = ti4_engine::dual::Area::ALL.into_iter().filter(|x| m.backend(*x) != Backend::String).map(ti4_engine::dual::Area::name).collect();
+        let on: Vec<&str> = ti4_engine_legacy::dual::Area::ALL.into_iter().filter(|x| m.backend(*x) != Backend::String).map(ti4_engine_legacy::dual::Area::name).collect();
         eprintln!("mask: {} area(s) off the string path ({})", on.len(), a.get("--mask").unwrap_or(""));
     }
     EngineReplayer { mask, require_clean: None }

@@ -1,5 +1,5 @@
 [package]
-name = "ti4-engine"
+name = "ti4-engine-legacy"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -30,7 +30,7 @@ default = ["typed-core"]
 typed-core = ["dep:ti4-engine-core", "dep:ti4-engine-core-factions"]
 # The off switch: with it, every call site uses the string search again although `typed-core`
 # (a default feature, which a dependent cannot turn off) is compiled in. For A/B and spot checks:
-# `cargo build -p ti4-selfplay --features ti4-engine/string-movement`.
+# `cargo build -p ti4-selfplay --features ti4-engine/string-movement` (the product crate `ti4-engine` forwards it).
 # Call counters of the view side of the rule bot (`ti4_model::count`): `Observed` methods and id constructors, per decision
 # subtype. Counting only; docs/todo/D3-bots.md D3-0 item 5.
 observed-count = ["ti4-model/observed-count"]

@@ -7,13 +7,13 @@
 # Run from a scratch worktree (the script edits one source file for the incremental steps and restores it
 # with git). Every step that can take minutes holds the heavy lock (/root/.ti4-heavy.lock) on its own.
 # Env: LOCK=0 (do not take the heavy lock: for a small PKG whose steps are under 5 minutes), JOBS (default 4, CARGO_BUILD_JOBS of all steps), PROFILES (default "gate lockstep lockstep0"),
-#      PKG (default ti4-engine). All target dirs live in WORK_DIR and are removed again unless KEEP=1.
+#      PKG (default ti4-engine-legacy; its directory is crates/ti4-engine). All target dirs live in WORK_DIR and are removed again unless KEEP=1.
 # Output: one `RESULT ...` line per step on stdout; cargo logs in WORK_DIR/*.log.
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 mode="${1:?profiles|seed}"; work="${2:?WORK_DIR}"
-jobs="${JOBS:-4}"; pkg="${PKG:-ti4-engine}"; profiles="${PROFILES:-gate lockstep lockstep0}"
+jobs="${JOBS:-4}"; pkg="${PKG:-ti4-engine-legacy}"; profiles="${PROFILES:-gate lockstep lockstep0}"
 mkdir -p "$work"; cd "$repo"
 export CARGO_BUILD_JOBS="$jobs"
 free_gb() { df -BG --output=avail /root/deploytmp | tail -1 | tr -dc 0-9; }
@@ -26,7 +26,8 @@ timed() { # LABEL LOGFILE CMD... : runs under the heavy lock, prints RESULT labe
 }
 poke() { printf '\n// compute_bench touch %s\n' "$RANDOM" >> "$1"; }
 unpoke() { git checkout -q -- "$1"; }
-leaf="crates/${PKG:-ti4-engine}/src/lib.rs"
+dir="$pkg"; [[ "$pkg" == ti4-engine-legacy ]] && dir=ti4-engine
+leaf="crates/$dir/src/lib.rs"
 if [[ "$mode" == profiles ]]; then
   for p in $profiles; do
     td="$work/t-$p"; export CARGO_TARGET_DIR="$td"; rm -rf "$td"

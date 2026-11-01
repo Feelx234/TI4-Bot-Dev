@@ -1971,15 +1971,15 @@ fn satisfied(position: &Position<'_>, alias: &ObjectiveId) -> bool {
 ///
 /// let players = [PlayerId::new("a"), PlayerId::new("b")];
 /// let mut state =
-///     ti4_engine::setup::start_game(ContentStore::embedded(), &players, POK, None).unwrap();
+///     ti4_engine_legacy::setup::start_game(ContentStore::embedded(), &players, POK, None).unwrap();
 ///
 /// // Nothing is revealed, so nothing can be scored.
-/// assert!(ti4_engine::objectives::scoreable(&state, ContentStore::embedded(), POK, &players[0])
+/// assert!(ti4_engine_legacy::objectives::scoreable(&state, ContentStore::embedded(), POK, &players[0])
 ///     .is_empty());
 ///
 /// // Engineer a Marvel: have your flagship or a war sun on the board.
 /// state.revealed_objectives.push(ObjectiveId::new("engineer_marvel"));
-/// assert!(ti4_engine::objectives::scoreable(&state, ContentStore::embedded(), POK, &players[0])
+/// assert!(ti4_engine_legacy::objectives::scoreable(&state, ContentStore::embedded(), POK, &players[0])
 ///     .is_empty(), "revealed, but not yet met");
 /// ```
 pub fn scoreable(

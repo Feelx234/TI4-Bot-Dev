@@ -10,7 +10,7 @@
 use std::collections::BTreeSet;
 
 use ti4_content::ContentStore;
-use ti4_engine::movement::{Board, MovementRules};
+use ti4_engine_legacy::movement::{Board, MovementRules};
 use ti4_engine_core::galaxy::Adjacency;
 use ti4_engine_core::movement::CoreRules;
 use ti4_engine::generated::systems::SYSTEM_IDS as SYSTEM_NAMES;
@@ -130,7 +130,7 @@ pub fn check_position(position: &Position, routes: bool, report: &mut Report) {
             let legacy_board = Board::for_player(state, content, sources, &player.id);
             let mut legacy =
                 MovementRules::with_laws(galaxy, content, sources, dest, legacy_board, Some(state));
-            ti4_engine::action_cards::apply_movement_effects(&mut legacy, state, &player.id);
+            ti4_engine_legacy::action_cards::apply_movement_effects(&mut legacy, state, &player.id);
             report.rules_built += 1;
             // A faction module searched a copy of the map: convert that copy.
             let own;
@@ -321,7 +321,7 @@ pub fn check_galaxy_variants(position: &Position, report: &mut Report) {
 /// the translation of `with_laws` built for that destination (field by field, with and without the
 /// cards in play), and every typed `Observed` answer equals the string engine's.
 pub fn check_observed(position: &Position, report: &mut Report) {
-    use ti4_engine::core_adapter::SeatReach;
+    use ti4_engine_legacy::core_adapter::SeatReach;
     let content = ContentStore::embedded();
     let (state, galaxy, sources) = (&position.state, &position.galaxy, position.sources);
     let observed = ti4_engine::choice::Observed::new(state, content, sources, Some(galaxy));
@@ -329,8 +329,8 @@ pub fn check_observed(position: &Position, report: &mut Report) {
         report.unmapped += 1;
         return;
     };
-    let mut hooks = ti4_engine::reach_check::ReachCheck::default();
-    ti4_engine::reach_check::compare(&position.label, state, galaxy, sources, &mut hooks);
+    let mut hooks = ti4_engine_legacy::reach_check::ReachCheck::default();
+    ti4_engine_legacy::reach_check::compare(&position.label, state, galaxy, sources, &mut hooks);
     report.seat_rules += hooks.rules as usize;
     report.unmapped += hooks.unmapped as usize;
     report.hook_answers += (hooks.ship_values + hooks.unit_hooks) as usize;
@@ -338,32 +338,32 @@ pub fn check_observed(position: &Position, report: &mut Report) {
         report.miss(m);
     }
     // Wave C, package CA: the ported combat-line hooks next to their string functions.
-    let mut ca = ti4_engine::core_factions::ca::CaCheck::default();
-    ti4_engine::core_factions::ca::compare(&position.label, state, galaxy, sources, &mut ca);
+    let mut ca = ti4_engine_legacy::core_factions::ca::CaCheck::default();
+    ti4_engine_legacy::core_factions::ca::compare(&position.label, state, galaxy, sources, &mut ca);
     report.hook_answers += ca.compared as usize;
     report.unmapped += ca.unmapped as usize;
     for m in ca.mismatches {
         report.miss(m);
     }
     // Wave C, package CC: the ported ground-and-ship-line hooks next to their string functions.
-    let mut cc = ti4_engine::core_factions::cc::CcCheck::default();
-    ti4_engine::core_factions::cc::compare(&position.label, state, galaxy, sources, &mut cc);
+    let mut cc = ti4_engine_legacy::core_factions::cc::CcCheck::default();
+    ti4_engine_legacy::core_factions::cc::compare(&position.label, state, galaxy, sources, &mut cc);
     report.hook_answers += cc.compared as usize;
     report.unmapped += cc.unmapped as usize;
     for m in cc.mismatches {
         report.miss(m);
     }
     // Wave C, package CE: the ported movement-line hooks next to their string functions.
-    let mut ce = ti4_engine::core_factions::ce::CeCheck::default();
-    ti4_engine::core_factions::ce::compare(&position.label, state, galaxy, sources, &mut ce);
+    let mut ce = ti4_engine_legacy::core_factions::ce::CeCheck::default();
+    ti4_engine_legacy::core_factions::ce::compare(&position.label, state, galaxy, sources, &mut ce);
     report.hook_answers += ce.compared as usize;
     report.unmapped += ce.unmapped as usize;
     for m in ce.mismatches {
         report.miss(m);
     }
     // Wave C, package CD: the registry-line hooks over variants of the position, through the hook dual.
-    let mut cd = ti4_engine::core_factions::cd::CdCheck::default();
-    ti4_engine::core_factions::cd::compare(&position.label, state, galaxy, sources, &mut cd);
+    let mut cd = ti4_engine_legacy::core_factions::cd::CdCheck::default();
+    ti4_engine_legacy::core_factions::cd::compare(&position.label, state, galaxy, sources, &mut cd);
     report.hook_answers += cd.compared as usize;
     report.unmapped += cd.unmapped as usize;
     for m in cd.mismatches {
@@ -383,7 +383,7 @@ pub fn check_observed(position: &Position, report: &mut Report) {
                 let mut legacy =
                     MovementRules::with_laws(galaxy, content, sources, dest, board, Some(state));
                 if effects {
-                    ti4_engine::action_cards::apply_movement_effects(&mut legacy, state, &player.id);
+                    ti4_engine_legacy::action_cards::apply_movement_effects(&mut legacy, state, &player.id);
                 }
                 let Some(adjacency) = adapter::adjacency_for(legacy.parts().galaxy) else {
                     report.unmapped += 1;
@@ -415,7 +415,7 @@ pub fn check_observed(position: &Position, report: &mut Report) {
                     }
                 }
             }
-            let want = ti4_engine::tactical::movable_into(
+            let want = ti4_engine_legacy::tactical::movable_into(
                 state, content, sources, galaxy, &player.id, &dest_id,
             );
             let got = observed.typed_movable_into(&player.id, &dest_id);
@@ -439,7 +439,7 @@ pub fn check_observed(position: &Position, report: &mut Report) {
                     continue;
                 };
                 for boosts in [(false, false), (true, false)] {
-                    let want = ti4_engine::tactical::route_rift_exits(
+                    let want = ti4_engine_legacy::tactical::route_rift_exits(
                         state,
                         content,
                         sources,
@@ -478,7 +478,7 @@ pub fn check_neighbours(position: &Position, report: &mut Report) {
     let presences: Vec<_> = state
         .players
         .iter()
-        .map(|p| ti4_engine::transactions::presence(state, &p.id))
+        .map(|p| ti4_engine_legacy::transactions::presence(state, &p.id))
         .collect();
     let mut galaxies = vec![position.galaxy.clone()];
     for bits in [1u32, 2, 4, 8, 16, 31] {
@@ -496,7 +496,7 @@ pub fn check_neighbours(position: &Position, report: &mut Report) {
                 if i == j {
                     continue;
                 }
-                let want = ti4_engine::transactions::present_together_text(galaxy, a, b);
+                let want = ti4_engine_legacy::transactions::present_together_text(galaxy, a, b);
                 let got = adapter::present_together(galaxy, a, b);
                 report.neighbour_answers += 1;
                 if got != Some(want) {
@@ -513,7 +513,7 @@ pub fn check_neighbours(position: &Position, report: &mut Report) {
 /// Stage 5: the generated planet and system rows answer what the content records answer, for every
 /// planet and system id of the corpus (and ids it does not carry), in every scope a game uses.
 pub fn check_content(report: &mut Report) {
-    use ti4_engine::production::{Spend, planet_value, planet_value_text};
+    use ti4_engine_legacy::production::{Spend, planet_value, planet_value_text};
     use ti4_model::content_types::{BASE, FULL, POK};
     let content = ContentStore::embedded();
     let planets: Vec<String> = ti4_engine::generated::planets::PLANET_IDS
@@ -537,7 +537,7 @@ pub fn check_content(report: &mut Report) {
                     report.miss(format!("planet_value {id} {kind:?}: {want} vs {got}"));
                 }
             }
-            let want = ti4_engine::planets::printed_specialties_text(content, sources, &planet);
+            let want = ti4_engine_legacy::planets::printed_specialties_text(content, sources, &planet);
             let got: Vec<String> = adapter::printed_specialties(content, sources, id)
                 .map_or_else(|| want.clone(), |names| names.iter().map(|n| (*n).to_owned()).collect());
             report.content_answers += 1;
@@ -547,8 +547,8 @@ pub fn check_content(report: &mut Report) {
         }
         for id in &systems {
             let system = ti4_model::id::SystemId::new(id.as_str());
-            let want = ti4_engine::space_stations::stations_in_text(content, sources, &system);
-            let got = ti4_engine::space_stations::stations_in(content, sources, &system);
+            let want = ti4_engine_legacy::space_stations::stations_in_text(content, sources, &system);
+            let got = ti4_engine_legacy::space_stations::stations_in(content, sources, &system);
             report.content_answers += 1;
             if want != got {
                 report.miss(format!("stations_in {id}: {want:?} vs {got:?}"));

@@ -1,5 +1,5 @@
 //! Merge the files a golden dual wrote with `TI4_BAIL_PROBE=FILE` (docs/todo/D2-prereqs.md D2-5 item 5), print the rows of
-//! `ti4_engine::lend_table::BAILS`, and cross-check them against the report of the run (docs/todo/D2-remaining.md 3.1 R1, R2, R3).
+//! `ti4_engine_legacy::lend_table::BAILS`, and cross-check them against the report of the run (docs/todo/D2-remaining.md 3.1 R1, R2, R3).
 //!
 //! ```text
 //! bail_table [--sites TSV] FILE..                       the rows (writes from the probe files; kind/args from the sites file)
@@ -17,7 +17,7 @@
 
 use std::collections::BTreeMap;
 
-use ti4_engine::lend_table::{BAILS, How, When, check, how_from_sites, merge_probe, parse_report, render_check, render_table_with, when_of_reason};
+use ti4_engine_legacy::lend_table::{BAILS, How, When, check, how_from_sites, merge_probe, parse_report, render_check, render_table_with, when_of_reason};
 
 fn usage() -> ! {
     eprintln!("usage: bail_table [--sites TSV] FILE..\n       bail_table --check REPORT [--sites TSV] [--rows] FILE..");

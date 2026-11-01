@@ -81,8 +81,8 @@ step build    "gate-profile binaries (selfplay, every bridge bin)" \
 step clippy   "clippy gate (clippy_core.sh): cargo's exit status, no warning anywhere in the core, factions, bridge, test and typed-bot crates, no new one in the engine" \
   "tools/engine_core/clippy_core.sh $out/clippy.txt"
 step tests    "tests: packages, the engine suite with every area on Dual (fail-fast), the D4 crate with its profile, gen-cards, xtask, wasm" \
-  "cargo test -p ti4-model -p ti4-content -p ti4-engine -p ti4-host -p ti4-rule-bot -p ti4-selfplay -p ti4-engine-core -p ti4-engine-core-factions -p ti4-engine-core-bridge -p ti4-rule-bot-typed \
-   && TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1 cargo test --profile lockstep -p ti4-engine --lib \
+  "cargo test -p ti4-model -p ti4-content -p ti4-engine-legacy -p ti4-engine -p ti4-host -p ti4-rule-bot -p ti4-selfplay -p ti4-engine-core -p ti4-engine-core-factions -p ti4-engine-core-bridge -p ti4-rule-bot-typed \
+   && TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1 cargo test --profile lockstep -p ti4-engine-legacy --lib \
    && rm -f $T/d4-covers.txt && cargo test --profile lockstep -p ti4-engine-core-tests --no-fail-fast $D4FLAGS \
    && cargo run -q -p xtask -- gen-cards --check && cargo test -p xtask && cargo test -p ti4-wasm --features ts"
 step dual-all "sharded golden dual, every area on Dual (driver included), bail probe on" \

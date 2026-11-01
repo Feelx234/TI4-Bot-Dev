@@ -10,7 +10,7 @@
 use ti4_content::ContentStore;
 use ti4_model::content_types::{ContentType, DEFAULT, SourceSet};
 
-const FACTIONS: [&str; 6] = ti4_engine::seating::IN_SCOPE_FACTIONS;
+const FACTIONS: [&str; 6] = ti4_engine_legacy::seating::IN_SCOPE_FACTIONS;
 
 fn row(area: &str, implemented: usize, total: usize) {
     let share = if total == 0 {
@@ -43,21 +43,21 @@ fn main() {
     println!("  area                   implemented        share");
 
     let cards = count_of(content, ContentType::ActionCards, sources);
-    let missing_cards = ti4_engine::action_cards::unimplemented(content).len();
+    let missing_cards = ti4_engine_legacy::action_cards::unimplemented(content).len();
     row("action cards", cards.saturating_sub(missing_cards), cards);
 
     let agendas = count_of(content, ContentType::Agendas, sources);
-    let missing_agendas = ti4_engine::agenda_effects::unimplemented(content, sources).len();
+    let missing_agendas = ti4_engine_legacy::agenda_effects::unimplemented(content, sources).len();
     row("agendas", agendas.saturating_sub(missing_agendas), agendas);
 
-    let laws_missing = ti4_engine::laws::unimplemented(content, sources).len();
+    let laws_missing = ti4_engine_legacy::laws::unimplemented(content, sources).len();
     println!(
         "  {:<22} {:>5} unenforced once in play",
         "  of which laws", laws_missing
     );
 
     let explores = count_of(content, ContentType::Explores, sources);
-    let missing_explores = ti4_engine::exploration::unimplemented(content, sources).len();
+    let missing_explores = ti4_engine_legacy::exploration::unimplemented(content, sources).len();
     row(
         "exploration cards",
         explores.saturating_sub(missing_explores),
@@ -65,11 +65,11 @@ fn main() {
     );
 
     let relics = count_of(content, ContentType::Relics, sources);
-    let missing_relics = ti4_engine::relics::unimplemented(content, sources).len();
+    let missing_relics = ti4_engine_legacy::relics::unimplemented(content, sources).len();
     row("relics", relics.saturating_sub(missing_relics), relics);
 
     let secrets = count_of(content, ContentType::SecretObjectives, sources);
-    let missing_secrets = ti4_engine::secrets::unimplemented(content, sources).len();
+    let missing_secrets = ti4_engine_legacy::secrets::unimplemented(content, sources).len();
     row(
         "secret objectives",
         secrets.saturating_sub(missing_secrets),
@@ -94,13 +94,13 @@ fn main() {
         .iter()
         .filter(|alias| {
             let id = ti4_model::id::ObjectiveId::new((*alias).clone());
-            ti4_engine::objectives::requirement_for(&id).is_some()
-                || ti4_engine::objectives::cost_of(&id).is_some()
+            ti4_engine_legacy::objectives::requirement_for(&id).is_some()
+                || ti4_engine_legacy::objectives::cost_of(&id).is_some()
         })
         .count();
     row("public objectives", scored, objectives.len());
 
-    let abilities_missing = ti4_engine::faction_abilities::unimplemented(content, sources).len();
+    let abilities_missing = ti4_engine_legacy::faction_abilities::unimplemented(content, sources).len();
     let abilities = count_of(content, ContentType::Abilities, sources);
     row(
         "faction abilities",
@@ -108,7 +108,7 @@ fn main() {
         abilities,
     );
 
-    let leaders_missing = ti4_engine::leaders::unimplemented(content, &FACTIONS).len();
+    let leaders_missing = ti4_engine_legacy::leaders::unimplemented(content, &FACTIONS).len();
     println!(
         "  {:<22} {:>5} unimplemented across the six trained factions",
         "leaders", leaders_missing
@@ -144,7 +144,7 @@ fn main() {
                 .is_some_and(|f| FACTIONS.contains(&f.to_ascii_lowercase().as_str()))
         })
         .count();
-    let missing_ours_abilities = ti4_engine::faction_abilities::unimplemented(content, sources)
+    let missing_ours_abilities = ti4_engine_legacy::faction_abilities::unimplemented(content, sources)
         .into_iter()
         .filter(|alias| is_ours(faction_of(ContentType::Abilities, alias)))
         .count();
@@ -164,7 +164,7 @@ fn main() {
                 .is_some_and(|f| FACTIONS.contains(&f.to_ascii_lowercase().as_str()))
         })
         .count();
-    let missing_ours_leaders = ti4_engine::leaders::unimplemented(content, &FACTIONS).len();
+    let missing_ours_leaders = ti4_engine_legacy::leaders::unimplemented(content, &FACTIONS).len();
     row(
         "leaders",
         ours_leaders.saturating_sub(missing_ours_leaders),
@@ -184,7 +184,7 @@ fn main() {
     // Counted from the registry and filtered by scope, not written as a literal: the previous
     // version said 2 with a comment explaining that only two were read anywhere, which was true
     // when it was written and had drifted to 5 without the report noticing.
-    let implemented_breakthroughs = ti4_engine::breakthroughs::registered_aliases()
+    let implemented_breakthroughs = ti4_engine_legacy::breakthroughs::registered_aliases()
         .into_iter()
         .filter(|alias| {
             content
@@ -201,14 +201,14 @@ fn main() {
     // Mech abilities are printed on the unit, not in `abilities.json`, so the faction-ability
     // count above never saw them. Four of six were unimplemented and invisible until 2026-08-31.
     let mechs_missing =
-        ti4_engine::faction_abilities::unimplemented_mechs(content, sources, &FACTIONS).len();
+        ti4_engine_legacy::faction_abilities::unimplemented_mechs(content, sources, &FACTIONS).len();
     row(
         "mech abilities",
         FACTIONS.len() - mechs_missing,
         FACTIONS.len(),
     );
 
-    let windows = ti4_engine::reactions::unsupported_windows();
+    let windows = ti4_engine_legacy::reactions::unsupported_windows();
     println!(
         "  {:<22} {:>5} reaction windows unsupported",
         "reaction windows",
