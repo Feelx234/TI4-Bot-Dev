@@ -35,7 +35,8 @@ pub fn for_faction(content: &ContentStore, sources: SourceSet, faction: &str) ->
         .filter(|record| {
             record
                 .text("faction")
-                .is_some_and(|owner| super::factions::tag_belongs_to(owner, faction, false))
+                // Equivalent on the corpus: no leader record is tagged `keleresm`, the one tag `unit` adds.
+                .is_some_and(|owner| super::factions::tag_belongs_to(owner, faction, false)) // mutants:skip
         })
         .collect::<Vec<_>>();
     let replaced: std::collections::BTreeSet<&str> = records

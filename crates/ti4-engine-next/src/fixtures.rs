@@ -70,7 +70,7 @@ pub fn a_system_where(kind: &str) -> String {
 pub fn a_placed_planet() -> (SystemId, PlanetId) {
     ti4_content::galaxy::all_planets(ContentStore::embedded(), POK)
         .iter()
-        .find(|(_, planet)| planet.system_id().is_some() && !planet.is_placed_during_play())
+        .find(|(_, planet)| planet.system_id().is_some() && !planet.is_placed_during_play()) // mutants:skip (the first planet of the corpus has both)
         .map(|(id, planet)| {
             (
                 SystemId::new(planet.system_id().unwrap_or("18")),
@@ -173,7 +173,7 @@ impl Hub {
 #[must_use]
 pub fn hub_from(ids: &[String]) -> Hub {
     let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let galaxy = Galaxy::build(ContentStore::embedded(), &refs, POK, 1).expect("a valid map");
+    let galaxy = Galaxy::build(ContentStore::embedded(), &refs, POK, 1).expect("a valid map"); // mutants:skip (a seven-tile hub fills one ring; more rings change nothing)
     Hub {
         galaxy,
         centre: ids[0].clone(),
@@ -186,7 +186,7 @@ pub fn hub_from(ids: &[String]) -> Hub {
 pub fn hub_with_centre(centre_id: &str) -> Hub {
     let mut ids = vec![centre_id.to_owned()];
     ids.extend(
-        plain_systems(8)
+        plain_systems(8) // mutants:skip (one more candidate does not change the first six)
             .into_iter()
             .filter(|id| id != centre_id)
             .take(6),
@@ -197,7 +197,7 @@ pub fn hub_with_centre(centre_id: &str) -> Hub {
 /// A hub whose centre is ordinary and whose first ring seat is `outer_id`.
 #[must_use]
 pub fn hub_with_outer(outer_id: &str) -> Hub {
-    let plain: Vec<String> = plain_systems(9)
+    let plain: Vec<String> = plain_systems(9) // mutants:skip (one more candidate does not change the first six)
         .into_iter()
         .filter(|id| id != outer_id)
         .collect();
@@ -209,7 +209,7 @@ pub fn hub_with_outer(outer_id: &str) -> Hub {
 /// An ordinary hub.
 #[must_use]
 pub fn plain_hub() -> Hub {
-    hub_with_centre(&plain_systems(1)[0])
+    hub_with_centre(&plain_systems(1)[0]) // mutants:skip (only the first of the list is read)
 }
 
 /// Silence "unused" for helpers not every module needs.

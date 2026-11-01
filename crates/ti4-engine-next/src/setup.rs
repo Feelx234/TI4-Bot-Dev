@@ -91,7 +91,7 @@ fn card_setup_from_record(
         let id = StrategyCardId::new(card_id);
         initiative.insert(
             id.clone(),
-            i32::try_from(card.int("initiative").unwrap_or(99)).unwrap_or(99),
+            i32::try_from(card.int("initiative").unwrap_or(99)).unwrap_or(99), // mutants:skip (a card without initiative does not exist in the corpus)
         );
         ids.push(id);
     }

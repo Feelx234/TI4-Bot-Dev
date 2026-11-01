@@ -499,15 +499,44 @@ fn deployed_tables_reach_the_same_position_through_the_whole_setup() {
                     &legacy::map_feasibility::census(content(), sources, &gb, &homes),
                     "census",
                 );
+                // A unit of a type the corpus does not know carries nothing.
+                if let Some(seat) = a.players.first().map(|s| s.id.clone()) {
+                    let home = a.players[0].home_system.clone().unwrap();
+                    native::fixtures::put(&mut a, &home, "zz_unknown_unit", &seat, 2);
+                    legacy::fixtures::put(&mut b, &home, "zz_unknown_unit", &seat, 2);
+                }
                 // Opening measures.
                 let start_a = native::opening::snapshot(&a, content(), sources);
                 let start_b = legacy::opening::snapshot(&b, content(), sources);
                 assert_eq!(start_a, start_b);
-                same_debug(
-                    &native::opening::measure(&a, &start_a, &BTreeMap::new(), content(), sources),
-                    &legacy::opening::measure(&b, &start_b, &BTreeMap::new(), content(), sources),
-                    "measure",
-                );
+                // With the setup baseline, without any (every seat then "gains" what it holds), with a
+                // per-faction bar, and every reading of every seat's opening.
+                let bar_a = native::opening::Requirement { planets_gained: 1, systems: 2, capacity_ships: 1, infantry: 2 };
+                let bar_b = legacy::opening::Requirement { planets_gained: 1, systems: 2, capacity_ships: 1, infantry: 2 };
+                let bars_a: BTreeMap<String, _> = a.players.iter().map(|s| (s.faction.to_string(), bar_a)).collect();
+                let bars_b: BTreeMap<String, _> = a.players.iter().map(|s| (s.faction.to_string(), bar_b)).collect();
+                let none = BTreeMap::new();
+                for (start, bars_a, bars_b) in [
+                    (&start_a, &BTreeMap::new(), &BTreeMap::new()),
+                    (&none, &BTreeMap::new(), &BTreeMap::new()),
+                    (&start_a, &bars_a, &bars_b),
+                ] {
+                    let ma = native::opening::measure(&a, start, bars_a, content(), sources);
+                    let mb = legacy::opening::measure(&b, start, bars_b, content(), sources);
+                    same_debug(&ma, &mb, "measure");
+                    for (id, oa) in &ma {
+                        let ob = &mb[id];
+                        assert_eq!(
+                            (oa.planets_ok(), oa.systems_ok(), oa.units_ok(), oa.cleared(), oa.planet_shortfall(), oa.system_shortfall(), oa.unit_shortfall(), oa.shortfall()),
+                            (ob.planets_ok(), ob.systems_ok(), ob.units_ok(), ob.cleared(), ob.planet_shortfall(), ob.system_shortfall(), ob.unit_shortfall(), ob.shortfall()),
+                            "{id}"
+                        );
+                        for (expansion, unit) in [(1.0, 1.0), (0.5, 2.0), (3.0, 0.25)] {
+                            assert_eq!(oa.weighted_shortfall(expansion, unit).to_bits(), ob.weighted_shortfall(expansion, unit).to_bits());
+                        }
+                    }
+                }
+                assert_eq!(format!("{:?}", native::opening::DEFAULT_REQUIREMENT), format!("{:?}", legacy::opening::DEFAULT_REQUIREMENT));
                 assert_eq!(
                     native::seating::nexus_is_triggered(&a),
                     legacy::seating::nexus_is_triggered(&b)
@@ -583,6 +612,105 @@ fn boards_neutral_systems_and_the_nexus_are_the_legacy_ones() {
     }
 }
 
+/// The census and the feasibility pass on many real boards (random fillers, 2-8 seats): the boards
+/// that rule objectives out are the interesting ones, and they are rare.
+#[test]
+fn the_feasibility_pass_agrees_on_many_boards() {
+    let mut ruled_out = 0;
+    for (name, sources) in [("pok", POK), ("full", FULL)] {
+        for n in 2..=8 {
+            for seed in 0..30_u64 {
+                let table = players(n);
+                let drawn = native::seating::lobby_faction_draw(&vec![None; n], seed).unwrap();
+                let mut a = native::start_game_seeded(content(), &table, sources, None, seed).unwrap();
+                let mut b = legacy::start_game_seeded(content(), &table, sources, None, seed).unwrap();
+                for (player, faction) in table.iter().zip(&drawn) {
+                    native::deploy(&mut a, content(), player, faction, sources).unwrap();
+                    legacy::deploy(&mut b, content(), player, faction, sources).unwrap();
+                }
+                let assignments: BTreeMap<PlayerId, FactionId> = table.iter().cloned().zip(drawn.iter().cloned()).collect();
+                // A short filler, so the thin boards (the ones that rule objectives out) are in the draw.
+                for count in [8_usize, 20, 36] {
+                    let filler = native::seating::map_filler(content(), count, sources, seed);
+                    let refs: Vec<&str> = filler.iter().map(SystemId::as_str).collect();
+                    let (ga, gb) = (
+                        native::build_board(content(), &assignments, &refs, sources),
+                        legacy::build_board(content(), &assignments, &refs, sources),
+                    );
+                    same_debug(&ga, &gb, &format!("{name} {n}p {seed} {count}"));
+                    let (Ok(ga), Ok(gb)) = (ga, gb) else { continue };
+                    let homes: Vec<SystemId> = a.players.iter().filter_map(|s| s.home_system.clone()).collect();
+                    same_debug(
+                        &native::map_feasibility::census(content(), sources, &ga, &homes),
+                        &legacy::map_feasibility::census(content(), sources, &gb, &homes),
+                        &format!("{name} {n}p {seed} {count} census"),
+                    );
+                    let (mut a2, mut b2) = (a.clone(), b.clone());
+                    let ra = native::map_feasibility::apply(&mut a2, content(), sources, &ga);
+                    let rb = legacy::map_feasibility::apply(&mut b2, content(), sources, &gb);
+                    assert_eq!(ra, rb, "{name} {n}p {seed} {count}");
+                    same_state(&a2, &b2, &format!("{name} {n}p {seed} {count} after the pass"));
+                    ruled_out += usize::from(!ra.0.is_empty() || !ra.1.is_empty());
+                }
+            }
+        }
+    }
+    eprintln!("boards that ruled objectives out: {ruled_out}");
+}
+
+/// The thresholds of the feasibility pass, on census values no real board reaches: both sides must
+/// rule out the same objectives for every combination, so every threshold is pinned.
+#[test]
+fn the_feasibility_rules_rule_out_the_same_objectives_on_synthetic_censuses() {
+    fn next(state: &mut u64) -> u64 {
+        // splitmix64
+        *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = *state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+    let mut rng = 7_u64;
+    for round in 0..40_000 {
+        // Small values most of the time (the thresholds are small numbers), large ones now and then.
+        let mut pick = |max: u64| -> usize {
+            let r = next(&mut rng);
+            let cap = if r % 7 == 0 { max * 4 } else { max };
+            usize::try_from(next(&mut rng) % (cap + 1)).unwrap()
+        };
+        let players = pick(8);
+        let (holdable, planetless, notable) = (pick(40), pick(20), pick(12));
+        let (beside_anomaly, anomalies, alpha, beta) = (pick(10), pick(8), pick(6), pick(6));
+        let (planets, non_home_planets, most_common_trait) = (pick(50), pick(40), pick(20));
+        let (cultural, hazardous, industrial, legendary) = (pick(12), pick(12), pick(12), pick(4));
+        let (resources, influence) = (i64::try_from(pick(80)).unwrap(), i64::try_from(pick(80)).unwrap());
+        let (multi, rim, away, mecatol_adjacent, home_adjacent) = (pick(14), pick(18), pick(20), pick(8), pick(14));
+        let mecatol = next(&mut rng) % 2 == 0;
+        let a = native::map_feasibility::MapCensus {
+            players, holdable, planetless, notable, beside_anomaly, anomalies, alpha, beta, planets,
+            non_home_planets, most_common_trait, cultural, hazardous, industrial, legendary, mecatol,
+            resources, influence, multi_planet_systems: multi, best_rim: rim, best_planets_away: away,
+            beside_mecatol: mecatol_adjacent, beside_a_home: home_adjacent,
+        };
+        let b = legacy::map_feasibility::MapCensus {
+            players, holdable, planetless, notable, beside_anomaly, anomalies, alpha, beta, planets,
+            non_home_planets, most_common_trait, cultural, hazardous, industrial, legendary, mecatol,
+            resources, influence, multi_planet_systems: multi, best_rim: rim, best_planets_away: away,
+            beside_mecatol: mecatol_adjacent, beside_a_home: home_adjacent,
+        };
+        assert_eq!(
+            native::map_feasibility::unsatisfiable_public(&a),
+            legacy::map_feasibility::unsatisfiable_public(&b),
+            "public, round {round}: {a:?}"
+        );
+        assert_eq!(
+            native::map_feasibility::unsatisfiable_secret(&a),
+            legacy::map_feasibility::unsatisfiable_secret(&b),
+            "secret, round {round}: {a:?}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // starting technology
 
@@ -602,13 +730,14 @@ fn tech_tables(sources: SourceSet, factions: &[&str]) -> (GameState, GameState) 
 
 #[test]
 fn the_starting_technology_picks_open_ask_and_settle_like_the_legacy_ones() {
-    let tables: [(&str, SourceSet, &[&str]); 7] = [
+    let tables: [(&str, SourceSet, &[&str]); 8] = [
         ("fixed", POK, &["sol", "hacan", "sardakk"]),
         ("winnu", POK, &["winnu", "sol"]),
         ("winnu base", BASE, &["winnu", "sol"]),
         ("argent keleres", POK, &["keleresm", "argent", "hacan"]),
         ("keleres nekro", POK, &["keleresx", "nekro", "sardakk"]),
         ("keleres alone", POK, &["keleresa", "sol"]),
+        ("keleres, nothing to take", POK, &["keleresx", "sardakk"]),
         ("deepwrought", FULL, &["deepwrought", "sol", "winnu", "argent"]),
     ];
     for (name, sources, factions) in tables {
@@ -718,7 +847,7 @@ fn the_fixture_positions_are_the_legacy_ones() {
         legacy::fixtures::redeal_notes(&mut b, sources);
         same_state(&a, &b, "redeal_notes");
     }
-    for count in [0, 1, 5, 12] {
+    for count in [0, 1, 5, 12, usize::MAX] {
         assert_eq!(native::fixtures::plain_systems(count), legacy::fixtures::plain_systems(count));
         assert_eq!(native::fixtures::non_home_planets(count), legacy::fixtures::non_home_planets(count));
     }
@@ -818,9 +947,10 @@ fn promissory_notes_are_dealt_taken_and_received_like_the_legacy_ones() {
             assert_eq!(np::owner_of(note), legacy::promissory::owner_of(note));
             assert_eq!(np::is_play_area(content(), note), legacy::promissory::is_play_area(content(), note), "{note}");
         }
-        for text in ["nonsense", "support:sol", "x:y:z", ""] {
+        for text in ["nonsense", "support:sol", "x:y:z", "", "zz:sol", "cf:nobody", "an:mahact", "pop:mentak"] {
             assert_eq!(np::alias_of(text), legacy::promissory::alias_of(text));
             assert_eq!(np::owner_of(text), legacy::promissory::owner_of(text));
+            assert_eq!(np::is_play_area(content(), text), legacy::promissory::is_play_area(content(), text), "{text}");
         }
         assert_eq!(np::support("sol"), legacy::promissory::support("sol"));
         assert_eq!(np::note_id("cf", "sol"), legacy::promissory::note_id("cf", "sol"));
@@ -846,7 +976,7 @@ fn promissory_notes_are_dealt_taken_and_received_like_the_legacy_ones() {
             }
         }
         // Support for the Throne, to everyone, twice, and for notes that are not Supports.
-        for note in notes.iter().map(|n| np::support(&np::owner_of(n).unwrap())).chain(["support:ghost".to_owned(), "cf:sol".to_owned()]) {
+        for note in notes.iter().map(|n| np::support(&np::owner_of(n).unwrap())).chain(["support:ghost".to_owned(), "cf:sol".to_owned(), "nonsense".to_owned()]) {
             for holder in players(6) {
                 let (mut a2, mut b2) = (a.clone(), b.clone());
                 for _ in 0..2 {
@@ -855,6 +985,26 @@ fn promissory_notes_are_dealt_taken_and_received_like_the_legacy_ones() {
                     assert_eq!(ra, rb, "{name} receive {note} -> {holder}");
                 }
                 same_state(&a2, &b2, &format!("{name} receive {note} -> {holder}"));
+            }
+        }
+    }
+    // Mahact's Hubris (no Alliance for it), and the Promise of Protection at the version that moved it.
+    let seats = [("a", "mahact"), ("b", "mentak"), ("c", "sol")];
+    for version in [0, ti4_model::state::RULES_FACTION_EFFECTS - 1, ti4_model::state::RULES_FACTION_EFFECTS, ti4_model::state::RULES_VERSION] {
+        let mut a = native::fixtures::seated_dealt(&seats, POK);
+        let mut b = legacy::fixtures::seated_dealt(&seats, POK);
+        a.rules_version = version;
+        b.rules_version = version;
+        let notes: Vec<String> = a.promissory_notes.keys().cloned().collect();
+        for note in &notes {
+            for who in ["a", "b", "c", "nobody"] {
+                let who = PlayerId::new(who);
+                assert_eq!(np::may_receive(&a, &who, note), legacy::promissory::may_receive(&b, &who, note), "{note} -> {who}");
+            }
+            for holder in ["a", "b", "c"] {
+                np::take(&mut a, content(), &PlayerId::new(holder), note);
+                legacy::promissory::take(&mut b, content(), &PlayerId::new(holder), note);
+                same_state(&a, &b, &format!("version {version}: take {note} -> {holder}"));
             }
         }
     }
@@ -926,6 +1076,31 @@ fn technologies_are_gained_and_upgrades_applied_like_the_legacy_ones() {
         legacy::technology::gain(&mut b, content(), FULL, &me, &TechnologyId::new("cr2"));
         same_state(&a, &b, &format!("mentak cr2 (grace {holds})"));
     }
+    // The breakthrough without Cruiser II (the override must not fire for a plain cruiser), and Cruiser
+    // II without the breakthrough, for the other Mentak units too.
+    for tech in ["dd2", "ff2", "cr2", "ac2"] {
+        for holds in [false, true] {
+            let mut a = native::fixtures::seated_game(&seats, FULL);
+            let mut b = legacy::fixtures::seated_game(&seats, FULL);
+            for state in [&mut a, &mut b] {
+                state.player_mut(&PlayerId::new("a")).unwrap().breakthrough =
+                    holds.then(|| BreakthroughId::new("mentakbt"));
+            }
+            let me = PlayerId::new("a");
+            let (system, _) = native::fixtures::a_placed_planet();
+            for kind in ["cruiser", "cruiser2", "destroyer", "fighter"] {
+                native::fixtures::put(&mut a, &system, kind, &me, 1);
+                legacy::fixtures::put(&mut b, &system, kind, &me, 1);
+            }
+            nt::gain(&mut a, content(), FULL, &me, &TechnologyId::new(tech));
+            legacy::technology::gain(&mut b, content(), FULL, &me, &TechnologyId::new(tech));
+            same_state(&a, &b, &format!("mentak {tech} (grace {holds})"));
+            assert_eq!(
+                nt::unit_swaps(&a, content(), FULL, &me),
+                legacy::technology::unit_swaps(&b, content(), FULL, &me)
+            );
+        }
+    }
     // An unseated player.
     let (mut a, mut b) = dealt_table(POK, 3, 1);
     let ghost = PlayerId::new("ghost");
@@ -977,6 +1152,17 @@ fn objectives_are_revealed_and_points_ledgered_like_the_legacy_ones() {
                 );
             }
             same_state(&a, &b, &format!("{name} {seed} adjust_victory_points"));
+            // A seat above the target (a scenario sets points by hand): a zero change still clamps it.
+            a.players[3].victory_points = 12;
+            b.players[3].victory_points = 12;
+            for delta in [0, 0, -1, 1] {
+                let who = PlayerId::new("p3");
+                assert_eq!(
+                    no::adjust_victory_points(&mut a, &who, delta, "over"),
+                    legacy::objectives::adjust_victory_points(&mut b, &who, delta, "over")
+                );
+            }
+            same_state(&a, &b, &format!("{name} {seed} points above the target"));
         }
     }
 }
@@ -1086,6 +1272,8 @@ fn map_edits_are_made_recorded_and_replayed_like_the_legacy_ones() {
             native::fixtures::put(&mut a, &SystemId::new(ids[5].as_str()), "cruiser", &PlayerId::new("p0"), 2);
             legacy::fixtures::put(&mut b, &SystemId::new(ids[5].as_str()), "cruiser", &PlayerId::new("p0"), 2);
             for state in [&mut a, &mut b] {
+                state.wormhole_tokens.insert("ALPHA".to_owned(), SystemId::new(ids[5].as_str()));
+                state.wormhole_tokens.insert("BETA".to_owned(), SystemId::new(ids[2].as_str()));
                 state.frontier_tokens.insert(SystemId::new(ids[5].as_str()));
                 state.ion_storm = Some((SystemId::new(ids[6].as_str()), "ALPHA".to_owned()));
             }
