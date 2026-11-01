@@ -958,7 +958,7 @@ mod tests {
         let aftermath = Window::Aftermath(Box::new(Aftermath::new(seat, system, AStage::Invading, Before::default(), NoteHold::default())));
         let invasion = Window::Invasion(Box::new(Invasion::observed(seat, system)));
         let mut core = CoreState::all_loaded();
-        assert!(!open_arm(Arm::Tactical, &[aftermath.clone()], &mut core), "no tactical window observed");
+        assert!(!open_arm(Arm::Tactical, std::slice::from_ref(&aftermath), &mut core), "no tactical window observed");
         assert!(core.pending().window(WindowKind::Tactical).is_none());
         assert!(open_arm(Arm::Tactical, &[tactical.clone(), aftermath.clone()], &mut core));
         assert!(core.pending().window(WindowKind::Tactical).is_some() && core.pending().window(WindowKind::Aftermath).is_none(), "the arm opens its own window only");

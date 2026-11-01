@@ -14,6 +14,7 @@ use crate::ids::Seat;
 use crate::kernel::fx_strategy;
 use crate::kernel::stage::Sx;
 use crate::kernel::turn_codes::TurnGap;
+use crate::query::leader_reads::has_entry;
 use crate::query::{promissory, reach};
 use crate::rules::leaders;
 use crate::rules::promissory_windows::{PlaceUnits, Then};
@@ -33,7 +34,8 @@ fn chaos_facts(sx: &Sx<'_>, active: Seat) -> Result<ChaosFacts, TurnGap> {
     let link = sx.table.links.one.ok_or(TurnGap::ChaosMapping)?;
     let (buildable, fleet_limit) = (link.facts)(sx.state, sx.kernel, roster, active).ok_or(TurnGap::ChaosMapping)?;
     let cx = production::Cx::new(sx.state, sx.kernel, reach::scope_of(sx.kernel), reach::blanked(sx.state));
-    let systems = sx.state.board().systems().map(|(system, _)| system).filter(|system| production::capacity(&cx, active, *system) > 0).collect();
+    // (The string walks the systems that have an entry on its board, `GameState::board.keys()`.)
+    let systems = sx.state.board().systems().map(|(system, _)| system).filter(|system| has_entry(sx.state, *system) && production::capacity(&cx, active, *system) > 0).collect();
     Ok(ChaosFacts { systems, one: OneFacts { buildable, fleet_limit, name: None, alias: None } })
 }
 

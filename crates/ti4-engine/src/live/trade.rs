@@ -132,7 +132,7 @@ pub fn pick(core: &mut CoreState, choice: &CoreChoice, id: &str) -> Option<Resul
     if !id.starts_with(FREE_FORM_PREFIX) {
         return None;
     }
-    let owner = |seat: ti4_engine_core::Seat| core.owners.id(seat).map(|b| PlayerId::new(String::from_utf8_lossy(b).into_owned()));
+    let owner = |seat: ti4_engine_core::Seat| core.owners.id(seat).map(|b| PlayerId::new(String::from_utf8_lossy(b)));
     let (me, other) = (owner(proposer)?, owner(partner)?);
     let Some(offer) = offer_from_with(&|_| String::new(), id, &me, &other) else {
         return Some(Ok(Pick::Opt(COpt::Decline)));

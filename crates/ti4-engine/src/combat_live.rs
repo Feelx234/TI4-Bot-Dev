@@ -939,6 +939,46 @@ mod tests {
         }
     }
 
+    /// Duranium Armor repairs a damaged ship after the round's hits are assigned (`Machine::duranium`, a native step of the space fight): both
+    /// sides own the technology and a damaged dreadnought, the string and the native path agree over the questions, the events and the
+    /// position, and the repair really happens (fewer damaged ships stand at the end with the card than without it).
+    #[test]
+    fn duranium_armor_repairs_a_damaged_ship_in_the_native_fight_as_the_string_does() {
+        let (hub, _origin, target) = hub();
+        let damaged_at_the_end = |tech: bool, seed: u64| {
+            let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+            state.rng_seed = seed;
+            for (who, kinds) in [(a(), ["dreadnought", "dreadnought", "cruiser"]), (b(), ["dreadnought", "dreadnought", "carrier"])] {
+                for kind in kinds {
+                    crate::fixtures::put(&mut state, &target, kind, &who, 1);
+                }
+                if tech {
+                    state.player_mut(&who).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("da"));
+                }
+                // One dreadnought of each side was damaged in an earlier fight.
+                let units = &mut state.system_mut(&target).units;
+                if let Some(unit) = units.iter_mut().find(|u| u.owner == who && u.type_id.as_str() == "dreadnought") {
+                    unit.sustained_damage = true;
+                }
+            }
+            let rng = crate::rng::GameRng::new(state.rng_seed).positions();
+            let script = [TACTICAL_ACTION_ID, target.as_str()];
+            let diffs = lockstep(state.clone(), &hub.galaxy, &script);
+            assert!(diffs.is_empty(), "da={tech} seed {seed}: {diffs:#?}");
+            let _guard = crate::dual::tests::serial();
+            let side = string_run(&state, &hub.galaxy, &script, 0);
+            let _ = rng;
+            side.state.to_string().matches("\"sustained_damage\":true").count()
+        };
+        let mut repaired = 0;
+        for seed in 1..=6_u64 {
+            if damaged_at_the_end(true, seed) < damaged_at_the_end(false, seed) {
+                repaired += 1;
+            }
+        }
+        assert!(repaired > 0, "the repair changed the outcome of some fight");
+    }
+
     /// A system of two ordinary planets as the centre of the hub (the target of the action), with the two planets: seat `a` holds the first one
     /// and a space dock on it.
     fn dock_hub() -> (crate::fixtures::Hub, SystemId, SystemId, ti4_model::id::PlanetId, ti4_model::id::PlanetId) {

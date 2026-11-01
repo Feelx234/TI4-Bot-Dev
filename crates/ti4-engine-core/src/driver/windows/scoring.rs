@@ -80,7 +80,7 @@ impl Offers for CoreOffers<'_> {
     }
 
     fn scored_at_occurrence(&mut self, seat: Seat) -> bool {
-        self.occurrence.is_some_and(|o| self.core.objectives().scored_feats.iter().any(|f| *f == (seat, o)))
+        self.occurrence.is_some_and(|o| self.core.objectives().scored_feats.contains(&(seat, o)))
     }
 }
 

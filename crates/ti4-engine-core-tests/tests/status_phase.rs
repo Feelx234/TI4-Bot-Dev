@@ -4,7 +4,7 @@
 
 use std::rc::Rc;
 
-use ti4_engine_core::choice::objectives::{Offer, Opt as OOpt};
+use ti4_engine_core::choice::objectives::Opt as OOpt;
 use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt, Pool};
 use ti4_engine_core::containers::Cow;
 use ti4_engine_core::driver::live::{advance, ask, is_open, Env, Live, LiveError, Out};
@@ -15,7 +15,7 @@ use ti4_engine_core::kernel::ability::Unknown;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::turn_codes::TurnGap;
 use ti4_engine_core::kernel::Registry;
-use ti4_engine_core::state::{DriverFlags, Emit, EventKind, LeaderStatus, ObjectiveRef, PlainArg, PlainKind, PlainRec, PlanetFlags, WindowKind};
+use ti4_engine_core::state::{DriverFlags, Emit, EventKind, LeaderStatus, ObjectiveRef, PlainKind, PlainRec, PlanetFlags, WindowKind};
 use ti4_engine_core_tests::prelude::*;
 
 fn env(k: &Kernel) -> Env<'_> {
@@ -498,7 +498,7 @@ fn a_secret_is_offered_in_the_window_of_the_occurrence_its_feat_was_recorded_for
     let (live, _) = advance_scoring_event(&mut s, &e, pe);
     assert_eq!(live, Live::Done);
     assert!(s.players().by_seat(Seat(0)).unwrap().cards.secrets.is_empty());
-    assert!(s.objectives().scored_feats.iter().any(|f| *f == (Seat(0), 3)));
+    assert!(s.objectives().scored_feats.contains(&(Seat(0), 3)));
     // A wrong-timed secret is not offered in a window of another phase.
     let (mut agenda, k5) = pe_table(40);
     open_event(&mut agenda, ScoringTiming::Agenda, 3, true);

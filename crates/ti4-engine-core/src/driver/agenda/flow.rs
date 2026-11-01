@@ -26,6 +26,7 @@ pub const AGENDAS_PER_PHASE: usize = 2;
 
 /// Where the loop of the phase stopped.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant, reason = "the loop of the phase is left once per agenda; boxing the voting window would allocate on the live path for the variant that is the common one")]
 pub enum Opened {
     /// The step is doomed (a question found the tape dry, or a gap was noted).
     Halt,

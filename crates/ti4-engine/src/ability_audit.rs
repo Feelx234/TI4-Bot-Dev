@@ -15,8 +15,6 @@ mod tests {
         Dropped(&'static str),
         /// Done another way (a hook, a mark the native windows read).
         Carried(&'static str),
-        /// A rule on another lane's branch, not merged here yet: delete the line when that branch merges (the test fails when it does).
-        Lane(&'static str),
         /// In scope and not ported: a LOUD gap. The row of `GAPS` (and `GAP_IDS`) makes a native game stop where a seat holds the card.
         Gap(usize),
     }
@@ -225,7 +223,7 @@ mod tests {
         }
         // Every status says why.
         assert!(ACCOUNTED.iter().all(|(_, s)| match s {
-            Status::Dropped(w) | Status::Carried(w) | Status::Lane(w) => !w.is_empty(),
+            Status::Dropped(w) | Status::Carried(w) => !w.is_empty(),
             Status::Gap(i) => *i < GAPS.len(),
         }));
     }

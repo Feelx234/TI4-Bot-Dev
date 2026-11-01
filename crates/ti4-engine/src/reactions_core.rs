@@ -997,8 +997,11 @@ mod tests {
         let accounted: Vec<String> = ACTIVATION_ACCOUNTED.iter().map(|(id, _)| (*id).to_owned()).collect();
         let missing: Vec<String> = missing.into_iter().collect();
         assert_eq!(missing, accounted, "string-registered SYSTEM_ACTIVATED abilities without a core slot");
-        // The in-scope ones are an open list, never a silent one: `Gap` rows are named in docs/M6B_RESUME.md with their owner.
-        assert!(ACTIVATION_ACCOUNTED.iter().all(|(_, status)| matches!(*status, Status::Carried(_) | Status::Dropped(_) | Status::Gap(_))));
+        // Every row says what carries it or why it is out of the content.
+        assert!(ACTIVATION_ACCOUNTED.iter().all(|(_, status)| match *status {
+            Status::Carried(by) => !by.is_empty(),
+            Status::Dropped(why) => !why.is_empty(),
+        }));
     }
 
     /// What becomes of a string `SYSTEM_ACTIVATED` ability the core table has no slot for.
@@ -1008,9 +1011,6 @@ mod tests {
         Carried(&'static str),
         /// Out of the agreed content, by decision.
         Dropped(&'static str),
-        /// In scope and NOT ported: an eligible activation misses the offer silently in the native path (the lockstep against the string
-        /// shows it as a missing question). The reason names what the port needs.
-        Gap(&'static str),
     }
 
     /// The string abilities of `SYSTEM_ACTIVATED` the core table has no slot for, sorted as the test sorts them, each with what carries it.

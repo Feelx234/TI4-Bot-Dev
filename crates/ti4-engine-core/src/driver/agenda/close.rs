@@ -29,6 +29,7 @@ const RULES_OFFICIAL_ACTION_DECK: u32 = 30;
 
 /// How the close ended.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant, reason = "the close is moved once per agenda; boxing the voting window would allocate on the live path for the variant that is the common one")]
 pub enum Closed {
     /// The step is doomed (a question found the tape dry, or a gap was noted).
     Halt,

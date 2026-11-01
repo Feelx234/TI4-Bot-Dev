@@ -1021,7 +1021,7 @@ pub(crate) mod tests {
         let store = ContentStore::embedded();
         let all = ti4_content::galaxy::all_systems(store, POK);
         let (centre, system) = all.iter().find(|(_, s)| !s.is_anomaly() && !s.is_hyperlane() && s.planets().len() >= planets).expect("a system with the planets");
-        let found = system.planets().iter().map(|p| ti4_model::id::PlanetId::new((*p).to_owned())).collect();
+        let found = system.planets().iter().map(|p| ti4_model::id::PlanetId::new(*p)).collect();
         let mut ids = vec![(*centre).to_owned()];
         ids.extend(crate::fixtures::plain_systems(12).into_iter().filter(|i| i != centre).take(6));
         (crate::fixtures::hub_from(&ids), found)
