@@ -710,3 +710,33 @@ fn dynamis_core_the_book_of_latvinia_and_the_codex_chosen_from_the_menu_resolve_
     assert!(!held(&s, Relic::TheCodex));
     assert!(s.players().by_seat(Seat(0)).unwrap().cards.hand.as_slice().contains(&ActionCard::ALL[0]), "the card came from the pile");
 }
+
+/// Lane F2d: a copy of Carth (a free use) and of Letani Ospha (an ACTION) through Ssruu follow the copied agent's window: Carth leaves the turn open,
+/// Ospha ends the action; Ssruu exhausts in both and the copied agent stays as it was.
+#[test]
+fn ssruu_copies_of_carth_and_letani_ospha_follow_the_copied_agents_timing() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let (system, _) = ti4_engine_core_tests::scenario::first_planet();
+    // Carth: free.
+    let (mut s, k) = Scenario::new(&[Faction::TheYssarilTribes, Faction::TheEmiratesOfHacan, Faction::TheArborec]).phase(Phase::Action).active(Some(0)).tokens(0, 3, 3, 2).commodities(0, 0).build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::Ssruu, LeaderStatus::Readied);
+    s.players_mut().edit(1).leaders.status.insert(Leader::CarthOfGoldenSands, LeaderStatus::Readied);
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Borrowed(Leader::CarthOfGoldenSands)))).unwrap();
+    first_options(&mut s, &e, live, 4);
+    assert_eq!(status(&s, 0, Leader::Ssruu), Some(LeaderStatus::Exhausted));
+    assert_eq!(status(&s, 1, Leader::CarthOfGoldenSands), Some(LeaderStatus::Readied));
+    let kinds = plain(&s);
+    assert!(kinds.contains(&PlainKind::LeaderAbilityResolved) && !kinds.contains(&PlainKind::ComponentActionResolved), "{kinds:?}");
+    // Ospha: an action.
+    let (mut s, k) = Scenario::new(&[Faction::TheYssarilTribes, Faction::TheArborec, Faction::TheEmbersOfMuaat]).phase(Phase::Action).active(Some(0)).map_ring(7).unit(system, None, Unit::DestroyerI, 2, 1).tokens(0, 3, 3, 2).build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::Ssruu, LeaderStatus::Readied);
+    s.players_mut().edit(1).leaders.status.insert(Leader::LetaniOspha, LeaderStatus::Readied);
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Borrowed(Leader::LetaniOspha)))).unwrap();
+    first_options(&mut s, &e, live, 6);
+    assert_eq!(status(&s, 0, Leader::Ssruu), Some(LeaderStatus::Exhausted));
+    assert_eq!(status(&s, 1, Leader::LetaniOspha), Some(LeaderStatus::Readied));
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}

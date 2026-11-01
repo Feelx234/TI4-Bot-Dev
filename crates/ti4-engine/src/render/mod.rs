@@ -520,11 +520,12 @@ mod sync_codes_tests {
         // The state minted a text of its own: the render takes it.
         let minted = state.intern(b"beta", usize::MAX).expect("room");
         render.sync_codes(&mut state);
-        assert_eq!(u32::from(render.code("beta").0), minted, "the render knows the text the state minted");
+        assert_eq!(render.codes_snapshot().get(minted), Some("beta".as_bytes()), "the render knows the text the state minted, at the same code");
         // Two tables that disagree at the first text are left alone.
         let mine = render.codes_snapshot();
         let mut texts: Vec<Vec<u8>> = (0..mine.len() as u32).map(|i| mine.get(i).expect("text").to_vec()).collect();
         texts[0] = b"other".to_vec();
+        texts.pop();
         let mut apart = Interner::sealed(texts.iter().map(Vec::as_slice));
         let before = apart.len();
         render.sync_codes(&mut apart);

@@ -84,7 +84,7 @@ impl StarForge {
     }
 
     /// The systems holding a war sun of the seat, in system order.
-    fn war_sun_systems(core: &CoreState, who: Seat) -> Vec<System> {
+    pub fn war_sun_systems(core: &CoreState, who: Seat) -> Vec<System> {
         let mut found: Vec<System> = core
             .board()
             .systems()

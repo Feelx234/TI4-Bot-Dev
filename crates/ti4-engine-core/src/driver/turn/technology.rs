@@ -2,7 +2,7 @@
 //! core's `SlingRelay` window asks the dock system, the ship and the payment through the tape; the technology exhausts when a ship was produced. The
 //! technology arm of the string announces nothing after its body (`conclude`: no staged announcements).
 
-use super::component::{conclude, verdict};
+use super::component::{conclude_quiet, verdict};
 use super::inline::{gap_flow, run as run_window, Flow};
 use crate::generated::Technology;
 use crate::ids::Seat;
@@ -22,8 +22,7 @@ pub const fn routed(tech: Technology) -> bool {
 pub fn run(sx: &mut Sx<'_>, who: Seat, key: u32, tech: Technology) -> Flow {
     match tech {
         Technology::SlingRelay => sling_relay(sx, who, key),
-        // mutants:skip (the key default): every option on the menu has a key
-        other => gap_flow(sx, TurnGap::Menu(MenuGap::Unrouted(6, crate::choice::turn::Opt::Tech(other).key().unwrap_or(0)))),
+        other => gap_flow(sx, TurnGap::Menu(MenuGap::Unrouted(6, crate::choice::turn::Opt::Tech(other).key().unwrap_or(0)))), // mutants:skip (the key default, and the kind): every option on the menu has a key; Sling Relay is the only technology the menu lists
     }
 }
 
@@ -40,5 +39,5 @@ fn sling_relay(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     if window.produced {
         fx_strategy::exhaust_technology_text(sx.state, who, Technology::SlingRelay);
     }
-    conclude(sx, who, key, verdict(window.produced), false)
+    conclude_quiet(sx, who, key, verdict(window.produced))
 }

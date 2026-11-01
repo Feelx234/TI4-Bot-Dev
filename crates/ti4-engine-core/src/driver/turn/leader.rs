@@ -9,9 +9,8 @@
 //! Grom (the Thunder's Edge card set's Xxcha hero). A copy of an agent through Ssruu (`Opt::Borrowed`) runs the same body and exhausts Ssruu.
 //! The rest of the agents and heroes are still lent (docs/KM4_RESUME.md lists them with what each needs).
 
-use super::component::{announce_staged, conclude, verdict};
+use super::component::{announce_staged, conclude_announced, verdict};
 use super::inline::{gap_flow, run as run_window, Flow};
-use crate::choice::turn::Opt;
 use crate::generated::{Leader, Planet, System, Unit, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::fx_strategy;
@@ -57,7 +56,7 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool)
             Leader::GgrocutoRinn => xxcha_agent(sx, who, key, leader, true),
             Leader::CarthOfGoldenSands => carth(sx, who, key, leader, true),
             Leader::LetaniOspha => letani_ospha(sx, who, key, leader, true),
-            _ => unrouted(sx, leader, borrowed),
+            _ => unrouted(sx, key),
         };
     }
     match leader {
@@ -81,14 +80,12 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool)
         Leader::TheHelmsman => helmsman(sx, who, key),
         Leader::GurnoAggero => saar_hero(sx, who, key),
         Leader::XxekirGromTe => xxcha_hero_te(sx, who, key),
-        _ => unrouted(sx, leader, borrowed),
+        _ => unrouted(sx, key),
     }
 }
 
 /// The leader has no native body yet: the counted gap names the option.
-fn unrouted(sx: &mut Sx<'_>, leader: Leader, borrowed: bool) -> Flow {
-    // mutants:skip (the key default): every option on the menu has a key
-    let key = if borrowed { Opt::Borrowed(leader) } else { Opt::Leader(leader) }.key().unwrap_or(0);
+fn unrouted(sx: &mut Sx<'_>, key: u32) -> Flow {
     gap_flow(sx, TurnGap::Menu(MenuGap::Unrouted(5, key)))
 }
 
@@ -103,7 +100,7 @@ fn agent_action(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: 
     if used {
         exhaust_agent(sx, who, leader, borrowed);
     }
-    conclude(sx, who, key, verdict(used), true)
+    conclude_announced(sx, who, key, verdict(used))
 }
 
 /// The end of a free use ("during the action phase" is not an ACTION, OP-07): the use does not take the turn, so there is no Extreme Duress and
@@ -129,7 +126,7 @@ fn hero(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, used: bool) -> Flo
     if used {
         crate::rules::leaders::purge(sx.state, who, leader);
     }
-    conclude(sx, who, key, verdict(used), true)
+    conclude_announced(sx, who, key, verdict(used))
 }
 
 /// Ggrocuto Rinn: ready an exhausted planet (asked when there are several), and remove an infantry from a planet next to one of the seat's. An
@@ -186,7 +183,7 @@ fn letani_ospha(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: 
 /// string `exhaust` moves only a readied card, so an unlocked hero stays as she is.
 fn darktalon(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let used = crate::rules::leaders::activate_letnev_hero(sx.state, who);
-    conclude(sx, who, key, verdict(used), true)
+    conclude_announced(sx, who, key, verdict(used))
 }
 
 /// The Helmsman: the flagship and the dreadnoughts are placed in one system holding no rival ships.
@@ -215,7 +212,7 @@ fn xxcha_hero_te(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let planets: Vec<(System, Planet)> = board::controlled_planets(sx.state, who).as_slice().to_vec();
     let form = |base: UnitBaseType| -> Option<(Unit, usize)> {
         let unit = fx_strategy::placed_unit(sx.state, sx.kernel, scope, roster, who, base)?;
-        let allowed = !sx.kernel.hooks.economy.effect_placement_forbidden(sx.state, sx.kernel, who, unit) && crate::query::fleet::remaining_all(sx.state, scope, who, unit) > 0;
+        let allowed = !sx.kernel.hooks.economy.effect_placement_forbidden(sx.state, sx.kernel, who, unit) && crate::query::fleet::remaining_all(sx.state, scope, who, unit) > 0; // mutants:skip: `supply::allowed(.., 1)`; the box-empty and forbidden edges are the string's (the menu offers the hero only with a PDS in the box)
         Some((unit, usize::from(allowed)))
     };
     let (pds, mech) = (form(UnitBaseType::Pds), form(UnitBaseType::Mech));

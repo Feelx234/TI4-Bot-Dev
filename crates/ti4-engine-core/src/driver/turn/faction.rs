@@ -2,7 +2,7 @@
 //! code of [`crate::kernel::hooks::components`] is routed to the rule or the window that runs it, the facts computed from the core. An
 //! action whose window is not native yet is the counted gap [`MenuGap::Unrouted`] (named by the option's key).
 
-use super::component::{conclude, verdict};
+use super::component::{conclude_announced, verdict};
 use super::inline::{gap_flow, run as run_window, Flow};
 use crate::choice::turn::{ComponentAction, Opt};
 use crate::generated::UnitBaseType;
@@ -51,7 +51,7 @@ fn lazax_gate_folding(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
         .filter(|unit| !sx.kernel.hooks.economy.effect_placement_forbidden(sx.state, sx.kernel, who, *unit));
     let mecatol = crate::query::objectives::mecatol_on(sx.state);
     let done = crate::rules::faction_component::lazax_gate_folding(sx.state, scope, who, mecatol, form);
-    conclude(sx, who, key, verdict(done), true)
+    conclude_announced(sx, who, key, verdict(done))
 }
 
 /// Orbital Drop (Sol; `faction_abilities::orbital_drop`): the core window asks the planet, spends the token, places the infantry and offers the mech.
@@ -77,7 +77,7 @@ fn orbital_drop(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     if super::component::announce_events(sx) == Flow::Halt {
         return Flow::Halt;
     }
-    conclude(sx, who, key, verdict(window.done), true)
+    conclude_announced(sx, who, key, verdict(window.done))
 }
 
 /// The form a seat places for a base type (`factions::muaat::placement_facts`).
@@ -88,11 +88,7 @@ fn unit_form(sx: &Sx<'_>, who: Seat, base: UnitBaseType) -> Option<crate::genera
 
 /// `fleet::limit`, or the unlimited bill while Darktalon Treilla's round lasts.
 fn fleet_limit(sx: &Sx<'_>, who: Seat) -> i64 {
-    if crate::query::fleet::is_unlimited(sx.state, who) {
-        crate::query::fleet::UNLIMITED_FLEET_BILL
-    } else {
-        i64::from(super::facts::fleet_limit(sx.state, sx.kernel, who)).max(0)
-    }
+    crate::rules::production::probe::fleet_limit(sx.state, sx.kernel, crate::query::reach::blanked(sx.state), who)
 }
 
 /// Star Forge (`nucleus`: false) and The Nucleus (`nucleus`: true): 2 fighters or 1 destroyer at a war sun, then the Ember Colossus placements. The
@@ -102,14 +98,7 @@ fn star_forge(sx: &mut Sx<'_>, who: Seat, key: u32, nucleus: bool) -> Flow {
     if roster(sx).is_none() {
         return gap_flow(sx, TurnGap::NoRoster);
     }
-    let mut suns: Vec<crate::generated::System> = sx
-        .state
-        .board()
-        .systems()
-        .filter(|(_, cell)| cell.units.as_slice().iter().any(|u| u.owner() == who && u.kind().data().base_type == UnitBaseType::Warsun))
-        .map(|(system, _)| system)
-        .collect();
-    suns.sort_unstable();
+    let suns = StarForge::war_sun_systems(sx.state, who);
     let near = suns
         .into_iter()
         .map(|system| {
@@ -131,7 +120,7 @@ fn star_forge(sx: &mut Sx<'_>, who: Seat, key: u32, nucleus: bool) -> Flow {
     if run_window(sx, &mut window) == Flow::Halt || super::component::announce_events(sx) == Flow::Halt { // mutants:skip: a halted step is rolled back by the driver whatever the job does after the halt
         return Flow::Halt;
     }
-    conclude(sx, who, key, verdict(window.done), true)
+    conclude_announced(sx, who, key, verdict(window.done))
 }
 
 /// The Inferno: a cruiser placed in the system of the Muaat flagship, the strategy token spent after it.
@@ -145,7 +134,7 @@ fn inferno(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     if super::component::announce_events(sx) == Flow::Halt {
         return Flow::Halt;
     }
-    conclude(sx, who, key, verdict(done), true)
+    conclude_announced(sx, who, key, verdict(done))
 }
 
 /// Fires of the Gashlai (the Muaat promissory note): the first Muaat seat in seating order is the owner.
@@ -153,7 +142,7 @@ fn fires(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let Some(roster) = roster(sx) else { return gap_flow(sx, TurnGap::NoRoster) };
     let owner = sx.state.players().iter().find(|p| p.faction == crate::generated::Faction::TheEmbersOfMuaat).map(|p| p.seat);
     let done = owner.is_some_and(|owner| crate::rules::muaat_component::fires_of_the_gashlai(sx.state, sx.kernel, reach::scope_of(sx.kernel), roster, who, owner));
-    conclude(sx, who, key, verdict(done), true)
+    conclude_announced(sx, who, key, verdict(done))
 }
 
 /// Production Biomes (Hacan): spend a strategy token, another player gains 2 trade goods (the window asks who).
@@ -162,27 +151,27 @@ fn production_biomes(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     if run_window(sx, &mut window) == Flow::Halt || super::component::announce_events(sx) == Flow::Halt { // mutants:skip: a halted step is rolled back by the driver whatever the job does after the halt
         return Flow::Halt;
     }
-    conclude(sx, who, key, verdict(window.done), true)
+    conclude_announced(sx, who, key, verdict(window.done))
 }
 
 /// Trade Convoys (the Hacan promissory note): the first one in the hand (by the text of its faction id) goes faceup.
 fn trade_convoys(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let done = crate::rules::trade::play_convoys(sx.state, who, |faction| faction.index());
-    conclude(sx, who, key, verdict(done), true)
+    conclude_announced(sx, who, key, verdict(done))
 }
 
 /// Blood Pact and Dark Pact (the Empyrean promissory notes): "place this card faceup in your play area".
 fn pact(sx: &mut Sx<'_>, who: Seat, key: u32, note: crate::generated::PromissoryNote) -> Flow {
     let note = crate::state::NoteKey { note, faction: crate::generated::Faction::TheEmpyrean };
     let done = crate::rules::trade::play_action_note(sx.state, who, note);
-    conclude(sx, who, key, verdict(done), true)
+    conclude_announced(sx, who, key, verdict(done))
 }
 
 /// Promise of Protection (the Mentak promissory note): the first copy in the hand goes faceup.
 fn promise_of_protection(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let note = crate::query::promissory::action_notes_in_hand(sx.state, who).into_iter().find(|n| n.note == crate::generated::PromissoryNote::PromiseOfProtection);
     let done = note.is_some_and(|note| crate::rules::trade::play_action_note(sx.state, who, note));
-    conclude(sx, who, key, verdict(done), true)
+    conclude_announced(sx, who, key, verdict(done))
 }
 
 /// Naaz Fabrication (a relic for 2 fragments, or a command token for 1) and Black Market Forgery (the relic for 2 fragments and the held note).
@@ -192,7 +181,7 @@ fn fabrication(sx: &mut Sx<'_>, who: Seat, key: u32, mode: FabMode) -> Flow {
     if run_window(sx, &mut window) == Flow::Halt {
         return Flow::Halt;
     }
-    conclude(sx, who, key, verdict(window.done), true)
+    conclude_announced(sx, who, key, verdict(window.done))
 }
 
 /// Yssaril's Stall Tactics: discard an action card, then optionally place a mech.
@@ -206,7 +195,7 @@ fn stall_tactics(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     if run_window(sx, &mut window) == Flow::Halt {
         return Flow::Halt;
     }
-    conclude(sx, who, key, verdict(window.done), true)
+    conclude_announced(sx, who, key, verdict(window.done))
 }
 
 /// Yssaril's Mageon Implants: look at the hand of the player `arg` names and take a card.
@@ -219,5 +208,5 @@ fn mageon_implants(sx: &mut Sx<'_>, who: Seat, key: u32, target: u16) -> Flow {
     if window.unsupported {
         return gap_flow(sx, TurnGap::NoLink);
     }
-    conclude(sx, who, key, verdict(window.done), true)
+    conclude_announced(sx, who, key, verdict(window.done))
 }

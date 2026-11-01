@@ -91,6 +91,16 @@ pub const fn verdict(resolved: bool) -> Verdict {
     if resolved { Verdict::Resolved } else { Verdict::Failed { withhold: true } }
 }
 
+/// [`conclude`] for the faction and leader arms, which announce what the body staged.
+pub fn conclude_announced(sx: &mut Sx<'_>, who: Seat, key: u32, verdict: Verdict) -> Flow {
+    conclude(sx, who, key, verdict, true)
+}
+
+/// [`conclude`] for the technology, relic, device and action-card arms, which announce nothing after the body.
+pub fn conclude_quiet(sx: &mut Sx<'_>, who: Seat, key: u32, verdict: Verdict) -> Flow {
+    conclude(sx, who, key, verdict, false) // mutants:skip: no quiet arm stages a destruction or a card move yet; the flag is the string's arm table
+}
+
 /// Everything after a body (`Game::apply_choice`): what the body staged is announced (`announce`: the faction and leader arms do it, the
 /// technology, relic, device and action-card arms do not), Extreme Duress settles, the verdict is told, and a
 /// resolved action ends (`finish_action`). `key` is the option's key (the failed-action withholding).
@@ -146,7 +156,7 @@ pub fn play_card(sx: &mut Sx<'_>, who: Seat, key: u32, card: crate::generated::A
     }
     // The string mirrors the timing log of the play into its event queue when the call returns.
     fx::mirror_journal(sx.state, sx.resolver, mark);
-    conclude(sx, who, key, if played { Verdict::Resolved } else { Verdict::Failed { withhold: false } }, false)
+    conclude_quiet(sx, who, key, if played { Verdict::Resolved } else { Verdict::Failed { withhold: false } })
 }
 
 /// The events a window staged for the announcement its string twin makes at once (`spend_strategy_token_announced`: Orbital Drop's token), announced

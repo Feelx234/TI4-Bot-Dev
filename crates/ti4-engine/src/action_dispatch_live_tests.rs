@@ -278,5 +278,32 @@ fn an_action_card_cancelled_by_sabotage_fails_and_leaves_the_turn_open_like_the_
     assert!(has(&string, "COMPONENT_ACTION_FAILED") && !has(&string, "ACTION_COMPLETED"), "the play was cancelled: {:?}", string.events);
 }
 
+/// Carth at a table with a Cabal: the replenish is announced (`COMMODITIES_REPLENISHED`) before `LEADER_ABILITY_RESOLVED`, as the string says. (The
+/// string then offers the Cabal agent's reaction to that event; the native step does not open it yet -- lane G/H1, KM4 section 3 -- so this is not a
+/// full lockstep: it pins the native events and the string's order.)
+#[test]
+fn carth_replenishing_a_player_at_a_cabal_table_announces_it_before_the_ability_resolves_like_the_string() {
+    let mut state = action_table(&[("a", "hacan"), ("b", "sol"), ("c", "cabal")]);
+    state.player_mut(&pid("b")).unwrap().commodities = 0;
+    state.player_mut(&pid("a")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("hacanagent"), LeaderStatus::Readied);
+    let state = super::turn_live_tests::based(state);
+    let (string, _) = string_run_first(&state, &["component|leader|hacanagent", "b"], |g| {
+        let _ = g.step();
+    });
+    let native = native_marked(&state, &[(true, Arm::TurnPrelude, None), (false, Arm::Ask, None)], &["component|leader|hacanagent", "b"]);
+    let order = |run: &Run| run.events.iter().filter(|e| matches!(e.as_str(), "COMMODITIES_REPLENISHED" | "LEADER_ABILITY_RESOLVED")).cloned().collect::<Vec<_>>();
+    assert_eq!(order(&native), ["COMMODITIES_REPLENISHED", "LEADER_ABILITY_RESOLVED"], "{:?}", native.events);
+    assert_eq!(order(&native), order(&string), "the string's order");
+}
+
+#[test]
+fn mageon_implants_chosen_from_the_menu_takes_a_card_like_the_string() {
+    let mut state = action_table(&[("a", "yssaril"), ("b", "sol"), ("c", "hacan")]);
+    state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(ti4_engine_core::generated::Technology::MageonImplants.as_str()));
+    state.player_mut(&pid("b")).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[0].as_str()), ti4_model::id::ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[3].as_str())];
+    let state = super::turn_live_tests::based(state);
+    lockstep(&state, &["faction|yssaril|mi|b"], "COMPONENT_ACTION_RESOLVED");
+}
+
 // (Ggrocuto Rinn reads the map's adjacency: this file's harness loads no map. The route runs in the shadow of `native_play`, and `tests/action_dispatch.rs`
 // of the core tests runs it on a map.)

@@ -1,7 +1,7 @@
 //! The relic component actions of the action menu (`relics::perform`): purging fragments for a relic. Using a relic with an action, and the
 //! Enigmatic Device cards, are the counted gap [`crate::kernel::turn_codes::MenuGap::Unrouted`] until their windows are native.
 
-use super::component::{conclude, Verdict};
+use super::component::{conclude_quiet, Verdict};
 use super::inline::{gap_flow, run as run_window, Flow};
 use crate::generated::{ExploreType, Relic};
 use crate::ids::Seat;
@@ -13,7 +13,7 @@ use crate::kernel::turn_codes::{MenuGap, TurnGap};
 /// empty relic deck) fails and is not offered again this turn.
 pub fn purge(sx: &mut Sx<'_>, who: Seat, key: u32, kind: ExploreType) -> Flow {
     let gained = crate::rules::explore::purge_for_relic_scored(sx.state, who, kind);
-    conclude(sx, who, key, if gained.is_some() { Verdict::Resolved } else { Verdict::Failed { withhold: true } }, false)
+    conclude_quiet(sx, who, key, if gained.is_some() { Verdict::Resolved } else { Verdict::Failed { withhold: true } })
 }
 
 /// Whether using the relic has a native body ([`use_relic`] never ends it in the counted gap).
@@ -29,7 +29,7 @@ pub fn use_relic(sx: &mut Sx<'_>, who: Seat, key: u32, relic: Relic) -> Flow {
     match relic {
         Relic::DynamisCore => {
             // "Gain trade goods equal to your commodity value, +2": the faction's printed number, not what the seat holds.
-            let value = sx.state.players().by_seat(who).map_or(0, |p| i32::from(p.faction.data().commodities)) + 2;
+            let value = sx.state.players().by_seat(who).map_or(0, |p| i32::from(p.faction.data().commodities)) + 2; // mutants:skip: the seat exists
             crate::kernel::fx::gain_trade_goods_staged(sx.state, who, value, sx.table.codes.turn.relic);
         }
         Relic::BookOfLatvinia => {
@@ -41,10 +41,9 @@ pub fn use_relic(sx: &mut Sx<'_>, who: Seat, key: u32, relic: Relic) -> Flow {
                 return Flow::Halt;
             }
         }
-        // mutants:skip (the key default): every option on the menu has a key
-        other => return gap_flow(sx, TurnGap::Menu(MenuGap::Unrouted(7, crate::choice::turn::Opt::UseRelic(other).key().unwrap_or(0)))),
+        other => return gap_flow(sx, TurnGap::Menu(MenuGap::Unrouted(7, crate::choice::turn::Opt::UseRelic(other).key().unwrap_or(0)))), // mutants:skip (the key default): every option on the menu has a key
     }
     // A relic used is purged; the three bodies above cannot fail (the menu offers a relic only when it can resolve).
     crate::rules::explore::purge_relic(sx.state, who, relic);
-    conclude(sx, who, key, Verdict::Resolved, false)
+    conclude_quiet(sx, who, key, Verdict::Resolved)
 }
