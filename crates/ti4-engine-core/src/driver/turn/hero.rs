@@ -365,7 +365,7 @@ fn mahact_prepared(sx: &Sx<'_>, who: Seat, from: System, to: System) -> Option<c
         damaged: Vec::new(),
         fled: Vec::new(),
         at_start: Vec::new(),
-        scoring: false,
+        scoring: false, // mutants:skip: the machine writes the flag itself when a barrage's feat opens a scoring window and reads it only after
         outcome: None,
         end_announced: false,
         round_end_produced: None,
@@ -423,8 +423,8 @@ fn yin_spots(sx: &Sx<'_>) -> Vec<(System, crate::generated::Planet)> {
 /// Uplink, a coexisting planet): the counted gap [`TurnGap::HeroFight`].
 fn yin_unported(sx: &Sx<'_>, who: Seat, spots: &[(System, crate::generated::Planet)]) -> bool {
     let everyone: Vec<Seat> = sx.state.players().iter().map(|p| p.seat).collect();
-    if sx.kernel.hooks.direct.bastion_units_watches_ground_round(sx.state, &everyone) { // mutants:skip: Proxima Targeting VI is a technology of the dropped faction Last Bastion
-        return true;
+    if sx.kernel.hooks.direct.bastion_units_watches_ground_round(sx.state, &everyone) {
+        return true; // mutants:skip: Proxima Targeting VI is a technology of the dropped faction Last Bastion
     }
     if sx.state.players().by_seat(who).is_some_and(|p| p.cards.breakthrough == Some(crate::generated::Breakthrough::FealtyUplink)) {
         return true;
