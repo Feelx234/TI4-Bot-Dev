@@ -2,6 +2,7 @@
 //! facts; the arithmetic it stands on is tested here from the printed unit data and the rules of PRODUCTION (LRR 67).
 
 use ti4_engine_core::generated::{Agenda, UnitBaseType};
+use ti4_engine_core::query::economy::Spend;
 use ti4_engine_core::rules::production::{self as prod, Cx};
 use ti4_engine_core::state::{Outcome, RoundKind};
 use ti4_engine_core::tables::Scope;
@@ -143,4 +144,25 @@ fn a_floating_factory_in_space_is_a_mobile_dock_and_a_producer() {
     assert_eq!(prod::mobile_docks(&c, Seat(1), systems[2]).len(), 0);
     assert_eq!(prod::producers(&c, Seat(0), systems[2]).len(), 1);
     assert!(prod::capacity(&c, Seat(0), systems[2]) >= 4, "the printed production value");
+}
+
+/// Lane Q: `payable` is `available` without the faces a payment window does not offer (the Triad, and for resources War Machine's five): the gate of the
+/// research and of Inheritance Systems (the string's `payment::affordable`). An influence bill never counted War Machine.
+#[test]
+fn payable_leaves_out_the_triad_and_for_resources_the_war_machine_faces() {
+    let (mut s, k) = table().build();
+    s.meta_mut().activation_seq = 3;
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().round_marks.push(RoundKind::WarMachine, 3);
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.relics.push(ti4_engine_core::generated::Relic::TheTriad);
+    let c = cx(&s, &k);
+    let none = prod::Extras::default();
+    // (No planet is controlled: the faces are the Triad's three and, for resources, War Machine's five.)
+    assert_eq!(prod::available(&c, Seat(0), Spend::Resources, &none), 8);
+    assert_eq!(prod::payable(&c, Seat(0), Spend::Resources, &none), 0);
+    assert_eq!(prod::available(&c, Seat(0), Spend::Influence, &none), 3);
+    assert_eq!(prod::payable(&c, Seat(0), Spend::Influence, &none), 0, "War Machine is not an influence face and not subtracted from one");
+    let mut goods = s.clone();
+    goods.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = 2;
+    let c = cx(&goods, &k);
+    assert_eq!(prod::payable(&c, Seat(0), Spend::Resources, &none), 2, "what the seat can pay with is what is left");
 }
