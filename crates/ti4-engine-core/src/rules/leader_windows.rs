@@ -687,6 +687,86 @@ impl Window for RiftwalkerMeian {
     }
 }
 
+// -- Z'eu -------------------------------------------------------------------------------------------
+
+/// The suspension points of [`ZeuAction`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZStage {
+    Start,
+    System,
+    Done,
+}
+
+/// Z'eu (Naalu agent): "ACTION: Exhaust this card and choose a player. That player performs a tactical action in a system without placing a
+/// command token." (`Game::perform_zeu`: the Naalu seat itself is the player; another player's action would run inside the Naalu's turn and is not
+/// offered.) The window asks the system, or the decline; the systems are the facts of the string position (`leaders::zeu_systems`: the ones the seat
+/// could activate, less every home system and every system holding its command token), computed by the caller from the map. With none
+/// the question still stands (the decline alone), as the string asks it. The caller exhausts the card and begins the free tactical action in [`ZeuAction::chosen`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ZeuAction {
+    pub who: Seat,
+    systems: Vec<System>,
+    stage: ZStage,
+    /// The system the free tactical action is performed in (`None`: declined).
+    pub chosen: Option<System>,
+}
+
+impl ZeuAction {
+    #[must_use]
+    pub const fn new(who: Seat, systems: Vec<System>) -> Self {
+        Self { who, systems, stage: ZStage::Start, chosen: None }
+    }
+
+    const ASK: Ask = Ask::Leaders(LAsk::ZeuSystem);
+}
+
+impl Window for ZeuAction {
+    type Stage = ZStage;
+
+    fn stage(&self) -> ZStage {
+        self.stage
+    }
+
+    fn step(&mut self, _: &mut Sx<'_>) -> Next {
+        if self.stage == ZStage::Start {
+            self.stage = ZStage::System;
+        }
+        if self.stage == ZStage::System { Next::Continue(Self::ASK) } else { Next::Done }
+    }
+
+    fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+        (self.stage == ZStage::System).then(|| Choice {
+            actor: self.who,
+            ask: Self::ASK,
+            ctx: Ctx {
+                origin: Origin::Content(Content::Leader(Leader::Zeu)),
+                subtype: Subtype::Leaders(LSub::ZeuSystem),
+                optional: true,
+                target: None,
+                outstanding: SmallList::new(),
+                space_battle: false,
+                invasion_seq: None,
+            },
+            opts: self.systems.iter().map(|s| Opt::Leaders(LOpt::System(*s))).chain(std::iter::once(Opt::Decline)).collect::<Opts>(),
+        })
+    }
+
+    fn answer(&mut self, _: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match (self.stage, pick) {
+            (ZStage::System, Pick::Opt(Opt::Decline)) => {
+                self.stage = ZStage::Done;
+                Ok(())
+            }
+            (ZStage::System, Pick::Opt(Opt::Leaders(LOpt::System(system)))) if self.systems.contains(&system) => {
+                self.chosen = Some(system);
+                self.stage = ZStage::Done;
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
 // -- Nekro Malleon ----------------------------------------------------------------------------------
 
 /// The suspension points of [`NekroMalleon`].

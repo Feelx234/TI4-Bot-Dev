@@ -222,6 +222,22 @@ pub struct SeatReach {
     per_destination: bool,
 }
 
+/// The systems next to `system` for `seat`'s movement (`movement::PlayerAdjacency::neighbours`: the map's adjacency, the wormhole links and the
+/// faction rules), in system order. `None`: the position holds no map.
+#[must_use]
+pub fn neighbours_of(core: &CoreState, k: &Kernel, seat: Seat, system: System) -> Option<Vec<System>> {
+    // (A lend without the map slice, the dual windows' and the lockstep harness's, has no map to read: unknown, not a failed read.)
+    if !core.loaded.has(crate::state::Slice::Map) {
+        return None;
+    }
+    let reach = SeatReach::new(core, k, seat, false)?; // mutants:skip: the plain rules `PlayerAdjacency` builds; the cards in play (`effects`) change a move, not who is next to whom
+    let rules = reach.rules_for(core, k, system);
+    let mut found: Vec<System> = rules.adjacency.of(system).iter().map(crate::ids::system_at).filter(|n| *n != system).collect();
+    found.sort_unstable();
+    found.dedup();
+    Some(found)
+}
+
 impl SeatReach {
     /// The rules of `seat`: `effects` also applies the cards in play (`apply_movement_effects`, what a
     /// real move and `movable_into` use); without, the rules `Observed::can_reach` builds.

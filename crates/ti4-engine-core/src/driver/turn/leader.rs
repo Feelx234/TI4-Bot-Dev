@@ -18,7 +18,7 @@ use crate::kernel::stage::Sx;
 use crate::kernel::turn_codes::{MenuGap, TurnGap};
 use crate::query::{board, reach};
 use crate::rules::leader_production::{ArborecHero, Umbat};
-use crate::rules::leader_windows::{ArmageddonRelay, HacanAgent, Helmsman, LetaniOspha, NekroMalleon, RiftwalkerMeian, RinHero, SwapFacts, XxchaAgent, XxchaHeroTe};
+use crate::rules::leader_windows::{ArmageddonRelay, HacanAgent, Helmsman, LetaniOspha, NekroMalleon, RiftwalkerMeian, RinHero, SwapFacts, XxchaAgent, XxchaHeroTe, ZeuAction};
 use crate::state::{PlainKind, PlainRec};
 
 /// The unit roster of the table's play facts (the forms a seat places).
@@ -57,6 +57,9 @@ pub const fn routed(leader: Leader, borrowed: bool) -> bool {
             | Leader::MirikAunSissiri
             | Leader::ConservatorProcyon
             | Leader::MathisMathinus
+            | Leader::Zeu
+            | Leader::AiroShirAur
+            | Leader::DannelOfTheTenth
     )
 }
 
@@ -104,6 +107,9 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool)
         Leader::MirikAunSissiri => super::hero::flock_migration(sx, who, key),
         Leader::ConservatorProcyon => super::hero::conservator_procyon(sx, who, key),
         Leader::MathisMathinus => super::hero::mathis_mathinus(sx, who, key),
+        Leader::Zeu => zeu(sx, who, key),
+        Leader::AiroShirAur => super::hero::airo_shir_aur(sx, who, key),
+        Leader::DannelOfTheTenth => super::hero::dannel(sx, who, key),
         _ => unrouted(sx, key),
     }
 }
@@ -151,6 +157,39 @@ fn hero(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, used: bool) -> Flo
         crate::rules::leaders::purge(sx.state, who, leader);
     }
     conclude_announced(sx, who, key, verdict(used))
+}
+
+/// Z'eu (Naalu agent, an ACTION): the seat chooses a system it could activate that holds neither a home system nor its own command token (the
+/// question stands with the decline alone when there is none), the card exhausts, Extreme Duress settles, and the free tactical action begins there
+/// (`Game::perform_zeu`; the action's own close ends the turn). A declined question fails the action, which is withheld for the rest of the turn.
+fn zeu(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    let homes = |s: System| sx.state.players().iter().any(|p| p.home_system == Some(s));
+    // (A lend without the map slice -- the lockstep harness's -- has no system to name: the string without a galaxy offers the decline alone, too.)
+    // (Mahact's commander lets a seat activate a system holding its token, which Z'eu never names: the systems with the seat's token are left out.)
+    let mapped = sx.state.loaded.has(crate::state::Slice::Map);
+    let systems: Vec<System> = mapped
+        .then(|| crate::query::transit::activatable(sx.state, sx.kernel, who, false))
+        .flatten()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| !homes(*s))
+        .collect();
+    let mut window = ZeuAction::new(who, systems);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    let Some(system) = window.chosen else {
+        sx.plain(PlainRec::bare(PlainKind::ComponentActionFailed));
+        sx.state.pending_mut().note_failed_key(key);
+        return Flow::Done;
+    };
+    exhaust_agent(sx, who, Leader::Zeu, false);
+    if super::component::settle_extreme_duress(sx, who, false) == Flow::Halt {
+        return Flow::Halt;
+    }
+    sx.plain(PlainRec::bare(PlainKind::ComponentActionResolved));
+    crate::driver::windows::tactical::begin_free(sx, who, system);
+    Flow::Done
 }
 
 /// Ggrocuto Rinn: ready an exhausted planet (asked when there are several), and remove an infantry from a planet next to one of the seat's. An

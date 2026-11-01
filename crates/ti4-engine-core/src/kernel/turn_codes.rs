@@ -123,6 +123,9 @@ pub enum TurnGap {
     PeaceAccords,
     /// A hero's strategy primary or Thunder's Edge Warfare's free tactical action needs the tactical action of the tactical lane.
     FreeTactical,
+    /// A hero's fight (Dannel of the Tenth's committed ground combats, Airo Shir Aur's space combat) met a position of Thunder's Edge content or a combat
+    /// the machine does not carry (a neutral side, Proxima Targeting VI, Alarum, L1Z1X's Fealty Uplink, a coexisting planet).
+    HeroFight,
     /// A strategic action was cancelled (Coup d'Etat) and ends the turn.
     StrategicCancelled,
     /// The follower window of a card nobody holds, resolved by a hero (`exhausts_card` false), is not run by this arm.

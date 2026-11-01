@@ -433,6 +433,8 @@ pub type BuildableFacts = ([Option<Unit>; 9], i32);
 pub struct OneLink {
     /// What the seat may produce and the fleet limit it is judged by (`production::home::{buildable_for, fleet_limit}`).
     pub facts: fn(&CoreState, &Kernel, &UnitRoster, Seat) -> Option<BuildableFacts>,
+    /// The limits `fleet::enforce_seeing` judges the system by when the unit stands over its supply or its capacity (`Spawn::Seeing`).
+    pub limits: fn(&CoreState, &Kernel, Seat, System) -> SeeingLimits,
     /// Run the unit to its next question or its end (`Next::Done`).
     pub step: fn(crate::state::OneRun, &mut Sx<'_>) -> (crate::state::OneRun, Next),
     /// The question it waits on.

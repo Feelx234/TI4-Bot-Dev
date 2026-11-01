@@ -96,3 +96,33 @@ fn the_unit_in_production_is_kept_in_the_run_and_a_rebuilt_window_asks_the_same_
     let w = ProduceOne::resume(one);
     assert_eq!(w.run(), one);
 }
+
+/// Lane L: a system that stands over the fleet supply once the unit is made (the seat's three ships against a pool of two; a fighter counts against the
+/// capacity, not the supply, so it is offered) no longer ends the exploration in the counted bail `EWhy::Freelancers`: the enforcement of the system
+/// (`Spawn::Seeing`, the string's `fleet::enforce_seeing`) is a child of the card, which asks which ship goes.
+#[test]
+fn a_system_over_the_fleet_supply_is_followed_by_the_enforcement_of_the_system() {
+    covers!("rules::explore_windows::Exploring");
+    let (mut state, kernel, system, planet) = position();
+    for unit in [Unit::CruiserI, Unit::CruiserI, Unit::DestroyerI] {
+        state.board_mut().sys_mut(system).units.push(ti4_engine_core::state::Piece::new(unit, Seat(0)));
+    }
+    let window = Exploring::planet(Seat(0), planet, EDeck::Fixed(ExploreType::Cultural), false);
+    let mut driver = Driver::new(window, resolver(), table(), 1);
+    let Status::Asking(c) = driver.run(&mut state, &kernel).unwrap() else { panic!("the unit is asked") };
+    let fighter = c.opts.iter().copied().find(|o| matches!(o, Opt::Production(POpt::One { unit: Unit::FighterI, .. }))).expect("fighters are offered");
+    let mut status = driver.resume(&mut state, &kernel, Pick::Opt(fighter)).unwrap();
+    let mut asks = Vec::new();
+    for _ in 0..16 {
+        let Status::Asking(c) = status else { break };
+        asks.push(c.ask);
+        let pick = Pick::Opt(c.opts.as_slice()[0]);
+        status = driver.resume(&mut state, &kernel, pick).unwrap();
+    }
+    assert!(matches!(status, Status::Done), "the card ends: {status:?}");
+    assert!(driver.window.unsupported().is_none(), "no bail: {:?}", driver.window.unsupported());
+    assert!(asks.iter().any(|a| !matches!(a, Ask::Production(_))), "the enforcement asks which ship goes: {asks:?}");
+    let ships = state.board().sys(system).units.as_slice().iter().filter(|p| p.owner() == Seat(0) && p.kind().data().ship && p.kind().data().base_type != ti4_engine_core::generated::UnitBaseType::Fighter).count();
+    assert_eq!(ships, 2, "the fleet is back at its supply");
+    assert_eq!(driver.window.run().how, ti4_engine_core::state::EHow::Resolved, "the card resolved: a unit stood");
+}

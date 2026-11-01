@@ -41,18 +41,22 @@ pub const STREAM: Slot = Slot(13005);
 
 const COST: i64 = 2;
 
-/// What the map says of `a` and `b` as the string's `near` asked it: `Some(true)` when the same system or adjacent.
-fn near(f: &AdapterFacts, a: System, b: System) -> Option<bool> {
-    if a == b { Some(true) } else { f.adjacent(a, b) }
+/// What the map says of `a` and `b` as the string's `near` asked it: `Some(true)` when the same system or adjacent. A pair the adapter recorded is that answer; else
+/// the position's own map says (a live game holds the galaxy; the lockstep windows are lent none, `None`: the answer is unknown).
+fn near(s: &CoreState, f: &AdapterFacts, a: System, b: System) -> Option<bool> {
+    if a == b {
+        return Some(true);
+    }
+    f.adjacent(a, b).or_else(|| s.loaded.has(ti4_engine_core::state::Slice::Map).then(|| board::neighbours(s, a).map(|near| near.contains(b.index()))).flatten())
 }
 
 /// Whether any of `candidates` is near `system`, asking the pairs in the order `first_is_candidate` says (Dynamo asks
 /// `near(at, system)`, the Watcher `near(system, other)`); `Err` when the string did not ask a pair the answer needs.
-fn any_near(f: &AdapterFacts, candidates: impl Iterator<Item = System>, system: System, first_is_candidate: bool) -> Result<bool, ()> {
+fn any_near(s: &CoreState, f: &AdapterFacts, candidates: impl Iterator<Item = System>, system: System, first_is_candidate: bool) -> Result<bool, ()> {
     let mut missing = false;
     for at in candidates {
         let (a, b) = if first_is_candidate { (at, system) } else { (system, at) };
-        match near(f, a, b) {
+        match near(s, f, a, b) {
             Some(true) => return Ok(true),
             Some(false) => {}
             None => missing = true,
@@ -95,7 +99,7 @@ type Target = (System, Option<Planet>, Seat, Unit);
 
 fn window(s: &CoreState, f: &AdapterFacts, owner: Seat, p: &Payload) -> Result<Option<Target>, ()> {
     let Some(t) = target(s, p) else { return Ok(None) };
-    if !any_near(f, flagship_systems(s, owner), t.0, true)? {
+    if !any_near(s, f, flagship_systems(s, owner), t.0, true)? {
         return Ok(None);
     }
     Ok(affordable(s, f, owner)?.then_some(t))
@@ -154,7 +158,7 @@ fn sites(s: &CoreState, f: &AdapterFacts, owner: Seat, actor: Seat) -> Result<Ve
         if !space && planets.is_empty() {
             continue;
         }
-        if !any_near(f, occupied.iter().copied(), sys, false)? {
+        if !any_near(s, f, occupied.iter().copied(), sys, false)? {
             continue;
         }
         if space {
@@ -327,14 +331,37 @@ mod tests {
     #[test]
     fn the_map_is_an_input_and_a_pair_the_string_did_not_ask_makes_the_answer_unknown() {
         let mut f = AdapterFacts::default();
+        let (s, _) = table(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]);
         let (a, b, c) = (System::ALL[0], System::ALL[1], System::ALL[2]);
-        assert_eq!(any_near(&f, [a].into_iter(), a, true), Ok(true), "the same system needs no map");
-        assert_eq!(any_near(&f, [b].into_iter(), a, true), Err(()), "never asked");
+        assert_eq!(any_near(&s, &f, [a].into_iter(), a, true), Ok(true), "the same system needs no map");
+        assert_eq!(any_near(&s, &f, [b].into_iter(), a, true), Err(()), "never asked, and the position holds no map");
         f.set_adjacent(b, a, false);
-        assert_eq!(any_near(&f, [b].into_iter(), a, true), Ok(false));
+        assert_eq!(any_near(&s, &f, [b].into_iter(), a, true), Ok(false));
         f.set_adjacent(c, a, true);
-        assert_eq!(any_near(&f, [b, c].into_iter(), a, true), Ok(true));
-        assert_eq!(any_near(&f, [c].into_iter(), b, false), Err(()), "the pair is asked in the string's order (system, candidate)");
+        assert_eq!(any_near(&s, &f, [b, c].into_iter(), a, true), Ok(true));
+        assert_eq!(any_near(&s, &f, [c].into_iter(), b, false), Err(()), "the pair is asked in the string's order (system, candidate)");
+    }
+
+    /// Lane L: a live game holds the galaxy, so a pair nobody recorded is answered by the position's own map (the Empyrean games that stopped at the counted
+    /// `MissingFact` of Dynamo's and the Watcher's conditions); a pair the adapter recorded still wins.
+    #[test]
+    fn a_position_with_a_map_answers_the_pair_nobody_recorded() {
+        use ti4_engine_core::galaxy::CoreGalaxy;
+        use ti4_engine_core::hex::Hex;
+        static NO_LANES: [Option<&[(u8, u8)]>; ti4_engine_core::generated::System::COUNT] = [None; ti4_engine_core::generated::System::COUNT];
+        let (mut s, _) = table(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]);
+        let (a, b, far) = (System::ALL[0], System::ALL[1], System::ALL[2]);
+        let mut galaxy = CoreGalaxy::new(&NO_LANES);
+        galaxy.place(a, Hex::new(0, 0)).unwrap();
+        galaxy.place(b, Hex::new(1, 0)).unwrap();
+        galaxy.place(far, Hex::new(5, 0)).unwrap();
+        galaxy.refresh_lane_links();
+        s.map_mut().set_galaxy(galaxy);
+        let mut f = AdapterFacts::default();
+        assert_eq!(any_near(&s, &f, [b].into_iter(), a, true), Ok(true), "next to it on the position's own map");
+        assert_eq!(any_near(&s, &f, [far].into_iter(), a, true), Ok(false), "five hexes away");
+        f.set_adjacent(far, a, true);
+        assert_eq!(any_near(&s, &f, [far].into_iter(), a, true), Ok(true), "a pair the adapter recorded wins");
     }
 
     fn plain_kernel() -> &'static ti4_engine_core::kernel::Kernel {

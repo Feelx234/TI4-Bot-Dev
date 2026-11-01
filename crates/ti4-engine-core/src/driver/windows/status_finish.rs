@@ -197,38 +197,18 @@ fn genesis(sx: &mut Sx<'_>) -> Flow {
     Flow::Done
 }
 
-/// `Live::announce_staged_cards` (`reactions::announce_staged_card_events`): after a typed event, the card moves an effect staged as
-/// `CardsStaged` marks (Scheming's discard) are announced now, oldest first, and the marks go. A discard reaches the pile and
-/// `last_action_discarded` first, as a played card's does; a take names the taker and the seat it came from, never the card.
+/// `Live::announce_staged_cards` (`reactions::announce_staged_card_events`) for a job: the card moves an effect staged as `CardsStaged` marks are
+/// announced now, oldest first (the one body is [`crate::kernel::fx_cards::announce_staged_cards`], which every top-level typed event calls too).
+/// `Flow::Halt` when a question found the tape dry or the resolver refused.
 pub(crate) fn announce_staged_cards(sx: &mut Sx<'_>) -> Flow {
-    use crate::keys::{Atom, MarkKey, MarkVal, Word};
-    use crate::state::{Key, Val};
-    loop {
-        let first = sx.state.marks().tail.iter().find_map(|(k, v)| if let MarkKey::CardsStaged(n) = k { Some((*n, v.clone())) } else { None });
-        let Some((n, row)) = first else { return Flow::Done };
-        sx.state.marks_mut().tail.edit().remove(&MarkKey::CardsStaged(n));
-        let MarkVal::Rec(row) = row else { continue };
-        let [MarkVal::Atom(Atom::Word(word)), MarkVal::Atom(Atom::Seat(who)), from, MarkVal::Atom(Atom::Card(card))] = row.as_slice() else { continue };
-        let flow = match word {
-            Word::Discarded => {
-                sx.state.cards_mut().discarded_action.edit().push(*card);
-                sx.state.transient_mut().combat.last_action_discarded = Some((*who, *card));
-                emit_typed(sx, EventKind::ActionCardDiscarded, Payload::new().with(Key::Player, Val::Seat(*who)).with(Key::Card, Val::Action(*card)))
-            }
-            Word::Taken => {
-                let mut payload = Payload::new().with(Key::Player, Val::Seat(*who));
-                if let MarkVal::Atom(Atom::Seat(from)) = from {
-                    payload = payload.with(Key::From, Val::Seat(*from));
-                }
-                emit_typed(sx, EventKind::ActionCardTaken, payload)
-            }
-            _ => Flow::Done,
-        };
-        // mutants:skip: the driver rolls a dry step back whatever the job returns
-        if flow == Flow::Halt {
-            return Flow::Halt;
+    if crate::kernel::fx_cards::announce_staged_cards(sx).is_err() {
+        // A dry tape rolls the step back whatever the emission returned; a refusal on a wet tape is a defect.
+        if !halted(sx) { // mutants:skip: the refusal of the resolver is a defect no position reaches
+            gap(sx, TurnGap::EmissionRefused);
         }
+        return Flow::Halt;
     }
+    if halted(sx) { Flow::Halt } else { Flow::Done } // mutants:skip: a halted step is rolled back by the driver whatever the job does after
 }
 
 /// `Live::emit_typed`: the event through its windows, then the staged card moves.

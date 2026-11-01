@@ -59,6 +59,8 @@ pub enum EThen {
     Derelict,
     /// Functioning Base's action card.
     BaseCard,
+    /// Freelancers' unit stands over the fleet supply or the capacity of its system: the enforcement of the system ends the card.
+    Enforced,
 }
 
 /// The suspension points of an exploration.
