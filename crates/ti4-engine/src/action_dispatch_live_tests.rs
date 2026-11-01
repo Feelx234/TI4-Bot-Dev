@@ -57,6 +57,14 @@ fn refit_troops_for_a_naaz_seat_chosen_from_the_menu_places_the_eidolon_like_the
     use ti4_engine_core::generated::ActionCard;
     let mut state = action_table(&[("a", "naaz"), ("b", "sol"), ("c", "hacan")]);
     state.player_mut(&pid("a")).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new(ActionCard::RefitTroops.as_str())];
+    // One infantry of the seat on the board: no pick is asked (the question's display facts are the string's own, see docs/K_RESUME.md).
+    let mut kept = false;
+    for board in state.board.values_mut() {
+        for units in board.planet_units.values_mut() {
+            units.retain(|u| u.owner.as_str() != "a" || u.type_id.as_str() != "infantry" || !std::mem::replace(&mut kept, true));
+        }
+    }
+    assert!(kept, "the seat has infantry");
     let state = super::turn_live_tests::based(state);
     let (string, native) = both(&state, &["action_card|0"]);
     assert_same(&string, &native);
