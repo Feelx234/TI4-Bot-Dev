@@ -404,6 +404,8 @@ fn can_reach_does_not_count_the_cards_in_play() {
         let activation = state.activation_seq;
         for seat in &mut state.players {
             seat.move_bonus_activation = Some(activation);
+            seat.anomalies_ignored_activation = Some(activation);
+            seat.technologies.insert(ti4_model::id::TechnologyId::new("lwd"));
         }
         let (o, t) = (old::choice::Observed::new(&state, content, POK, Some(&pos.galaxy)), thin::observed::Observed::new(&state, content, POK, Some(&pos.galaxy)));
         let systems: Vec<SystemId> = pos.galaxy.system_ids().into_iter().map(SystemId::new).collect();

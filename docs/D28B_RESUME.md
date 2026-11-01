@@ -36,5 +36,9 @@ Branch `core-d28b-surface`, cut from `core-d28a-types` (f2ef551e3). Pure refacto
 * **Lane F**: nothing in the bridge changed; the bridge compares through JSON/Debug, the parity tests here are the model (`movable_key`).
 * **Lane C**: `deck::EXPLORATION_TRAITS` is also in `queries::content` (same value); take one.
 
-## Checks
-See the final report of the branch tip (cargo check workspace minus torch crates, thin lib + integration tests, core/bridge/factions libs, `check_layers.py core`, `lint_core.sh`, `clippy_core.sh`, mutation numbers).
+* `observed.rs` unit test `public_spend_capacity_counts_only_ready_planets_and_faceup_goods` now builds a seated opening on a real map (`ti4_host::map::create_game_with_template`) instead of the `watched()` fixture (made-up hands and no faction: the core cannot hold it, the legacy answered through the string fallback). Same assertions (ready planets + goods; exhausted planets leave only the goods).
+
+## Checks (private target dir /root/deploytmp/core-d28b, CARGO_BUILD_JOBS=2)
+* `cargo check --workspace --all-targets` minus the torch crates (review, replayer, mlp, tensor, advisor): green. Thin crate: `cargo test --lib` (259 + 1 ignored), `--test surface_parity` (11), `observed_parity`, `ties_parity`, `wire_parity`: green. `check_layers.py core`: 0 violations; `lint_core.sh`: 0 hits; `clippy_core.sh`: ok (engine warnings 41 = baseline 41; the thin crate has none).
+* Mutation checks (single-file mutants, union of the thin integration tests, `D4_COVERS_FILE=/dev/null`): 16 mutants over `queries/{tactical,production,factions,transit,fleet,content,technology,laws,diplomacy}.rs` and `observed.rs`; 10 killed by the first corpus, 5 survived and got a regression test each (breach marks, Armada fallback, diplomacy window, can_reach with cards in play), all 4 re-run killed; 1 not applied (pattern occurs twice, `has_units_in_fracture` base-type match: not mutation-checked); 1 equivalent (`replaced_for_faction` empty-faction guard: no record has an empty faction and an alias that no table knows).
+* Not run (heavy, per the brief): golden/dual, benches, soak, census, the wide `native_play` table, `cargo wire-web`, workspace clippy.

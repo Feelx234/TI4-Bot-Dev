@@ -1439,45 +1439,27 @@ mod tests {
 
     #[test]
     fn public_spend_capacity_counts_only_ready_planets_and_faceup_goods() {
-        let mut state = watched();
-        let (system, planet) = ti4_engine_legacy::fixtures::a_placed_planet();
-        state
-            .system_mut(&system)
-            .set_control(planet.clone(), pid("a"));
+        // A seated opening on a real map (the native query answers for what the core holds, and the `watched()` fixture seats no faction).
+        let content = ContentStore::embedded();
+        let ids = [pid("a"), pid("b"), pid("c")];
+        let (mut state, _) = ti4_host::map::create_game_with_template(content, &ids, 3, None).expect("a map");
         state.player_mut(&pid("a")).unwrap().trade_goods = 2;
-        let resources = crate::production::planet_value(
-            ContentStore::embedded(),
-            POK,
-            &planet,
-            ti4_engine_legacy::production::Spend::Resources,
-        );
-        let influence = crate::production::planet_value(
-            ContentStore::embedded(),
-            POK,
-            &planet,
-            ti4_engine_legacy::production::Spend::Influence,
-        );
+        let planets: Vec<_> = state.controlled_planets(&pid("a")).into_iter().map(|(_, planet)| planet.clone()).collect();
+        assert!(!planets.is_empty(), "a seat controls its home planets at the opening");
+        let worth = |spend| -> i64 { planets.iter().map(|planet| crate::production::planet_value(content, POK, planet, spend)).sum() };
+        let resources = worth(ti4_engine_legacy::production::Spend::Resources);
+        let influence = worth(ti4_engine_legacy::production::Spend::Influence);
 
-        let seen = Observed::new(&state, ContentStore::embedded(), POK, None);
-        assert_eq!(
-            seen.available_spend(&pid("a"), crate::queries::production::Spend::Resources),
-            resources + 2
-        );
-        assert_eq!(
-            seen.available_spend(&pid("a"), crate::queries::production::Spend::Influence),
-            influence + 2
-        );
+        let seen = Observed::new(&state, content, POK, None);
+        assert_eq!(seen.available_spend(&pid("a"), crate::queries::production::Spend::Resources), resources + 2);
+        assert_eq!(seen.available_spend(&pid("a"), crate::queries::production::Spend::Influence), influence + 2);
 
-        state.exhaust_planet(planet);
-        let seen = Observed::new(&state, ContentStore::embedded(), POK, None);
-        assert_eq!(
-            seen.available_spend(&pid("a"), crate::queries::production::Spend::Resources),
-            2
-        );
-        assert_eq!(
-            seen.available_spend(&pid("a"), crate::queries::production::Spend::Influence),
-            2
-        );
+        for planet in planets {
+            state.exhaust_planet(planet);
+        }
+        let seen = Observed::new(&state, content, POK, None);
+        assert_eq!(seen.available_spend(&pid("a"), crate::queries::production::Spend::Resources), 2);
+        assert_eq!(seen.available_spend(&pid("a"), crate::queries::production::Spend::Influence), 2);
     }
 
     #[test]
