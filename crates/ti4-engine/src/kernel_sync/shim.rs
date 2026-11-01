@@ -153,7 +153,16 @@ fn replay(before: &View, items: &[Item]) -> Summary {
     let seat = |s: &str| r.seat(s).expect("every name is in the owner table");
     let seats = |v: &[String]| v.iter().map(|s| seat(s)).collect::<Vec<Seat>>();
 
-    let mut core = CoreResolver::new(&seats(&before.initiative), before.active.as_deref().map(seat));
+    // S1 (`docs/STRING_ENGINE_BUGS.md`): the string offers an action-phase window in its fixed initiative list ROTATED to start at the active seat; the
+    // core offers the active seat first and then the others in initiative order (the user's ruling). Handed the list rotated the same way, the core's
+    // order is the string's: this replay compares the two, it does not copy the bug into the core.
+    let mut order = seats(&before.initiative);
+    if !core_phase(before.phase).uses_speaker_order()
+        && let Some(at) = before.active.as_deref().map(seat).and_then(|active| order.iter().position(|s| *s == active))
+    {
+        order.rotate_left(at);
+    }
+    let mut core = CoreResolver::new(&order, before.active.as_deref().map(seat));
     core.set_phase(core_phase(before.phase));
     core.set_seating_order(&seats(&before.seating));
     core.set_speaker(before.speaker.as_deref().map(seat));
