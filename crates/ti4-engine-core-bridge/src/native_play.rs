@@ -833,7 +833,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                         }
                     }
                 }
-                if let Some(d) = compare_run(&mut legacy, &native, &base, &group, &run, &mut owed) {
+                if let Some(d) = compare_run(&mut legacy, &native, &base, &group, &run, &mut owed, !tail.is_empty()) {
                     first_difference = Some(d);
                     break End::Finished;
                 }
@@ -928,11 +928,13 @@ fn run_legacy(legacy: &mut MaskSubject<LegacyMask>, group: &[Played], ahead: &[S
 #[cfg(test)]
 fn compare_group(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: &ti4_model::state::GameState, group: &[Played]) -> Option<Difference> {
     let run = run_legacy(legacy, group, &[]);
-    compare_run(legacy, native, base, group, &run, &mut Owed::default())
+    compare_run(legacy, native, base, group, &run, &mut Owed::default(), false)
 }
 
 /// Compare the native steps of `group` with the legacy step that ran them.
-fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: &ti4_model::state::GameState, group: &[Played], run: &LegacyRun, owed: &mut Owed) -> Option<Difference> {
+/// `ahead`: native steps beyond this group already ran (they open the next group), so the native position is ahead of the legacy one and the state is
+/// compared with the next group's, which holds them.
+fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: &ti4_model::state::GameState, group: &[Played], run: &LegacyRun, owed: &mut Owed, ahead: bool) -> Option<Difference> {
     let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
     let diff = |what: &'static str, path: String, n: String, l: String| Difference { step: native.steps, arms: arms.clone(), what, path, native: n, legacy: l };
     let asked: Vec<&Asked> = group.iter().flat_map(|p| p.asked.iter()).collect();
@@ -967,7 +969,7 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
     }
     owed.native = native_stream[common..].to_vec();
     owed.legacy = legacy_stream[common..].to_vec();
-    if strict {
+    if strict && !ahead {
         // The events effects staged for the next step's announcement are marks of JSON in the legacy position and `Pending::staged` in the core's:
         // compared by name, in order, and kept out of the position (the position carries only what the codec carries).
         let mut legacy_state = legacy.state_json();
@@ -1387,13 +1389,13 @@ mod tests {
         group.last_mut().unwrap().events.push("INVENTED".to_owned());
         let run = run_legacy(&mut legacy, &group, &[]);
         let mut owed = Owed::default();
-        assert_eq!(compare_run(&mut legacy, &native, &base, &group, &run, &mut owed), None, "the native step is ahead: not a difference yet");
+        assert_eq!(compare_run(&mut legacy, &native, &base, &group, &run, &mut owed, false), None, "the native step is ahead: not a difference yet");
         assert_eq!((owed.native.as_slice(), owed.legacy.len()), (["INVENTED".to_owned()].as_slice(), 0));
         // The next group's legacy events must open with it.
         let mut next = Owed { native: vec!["INVENTED".to_owned()], legacy: Vec::new() };
         let nothing: Vec<Played> = vec![Played { arm: Arm::Tokens, source: None, asked: Vec::new(), events: Vec::new(), finished: false }];
         let run = LegacyRun { info: run.info, records: Vec::new(), events: vec!["OTHER".to_owned()] };
-        let d = compare_run(&mut legacy, &native, &base, &nothing, &run, &mut next).expect("the string pushed another line than the one owed");
+        let d = compare_run(&mut legacy, &native, &base, &nothing, &run, &mut next, false).expect("the string pushed another line than the one owed");
         assert_eq!((d.what, d.native.as_str(), d.legacy.as_str()), ("events", "INVENTED", "OTHER"));
     }
 

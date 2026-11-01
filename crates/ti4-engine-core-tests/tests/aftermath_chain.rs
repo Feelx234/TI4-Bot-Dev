@@ -293,12 +293,14 @@ fn the_events_an_invasion_emitted_are_mirrored_into_the_queue_before_its_resolve
     assert_eq!(line.iter().filter(|l| *l == "typed PlanetControlGained").count(), 1, "one planet changed hands, mirrored once: {line:?}");
 }
 
-/// The string's settle presents the finished (empty) fight once when a side holds the system (`complete`), and presents nothing for a system nobody
-/// holds any more (the guns of the space cannon offense destroyed the only ship: it was never a fight). Lane H3: the chain wrote it for both.
+/// The string's `AftermathWindow::new` settles the combat window, and so presents the finished (empty) fight, unless the head's space cannon offense
+/// paused for a scoring window; after such a pause a system nobody holds any more (the guns of the offense destroyed the only ship: it was never a
+/// fight) shows nothing, one that a side holds does. Lane H3 found the pause case (the Argent commander's lockstep); integration 13 found that the
+/// same rule must not apply without a pause (a tactical action that moved no ship: the whole-game shadow, 35 of 96 games).
 #[test]
-fn an_undefended_system_presents_the_finished_fight_and_one_nobody_holds_presents_nothing() {
+fn an_empty_system_presents_the_finished_fight_unless_the_head_paused_and_nobody_holds_the_system() {
     covers!("driver::windows::chain::AftermathChain");
-    for (ships, presented) in [(0_usize, false), (1, true)] {
+    for (ships, paused, presented) in [(0_usize, false, true), (0, true, false), (1, false, true), (1, true, true)] {
         let (mut core, k) = {
             let mut sc = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).map_from(&[sys()]).active(Some(0)).active_system(sys()).tokens(0, 3, 6, 3);
             if ships > 0 {
@@ -308,12 +310,16 @@ fn an_undefended_system_presents_the_finished_fight_and_one_nobody_holds_present
         };
         let env = env(&k, 3, &[]);
         let untouched = core.transient().combat.presentation.phase;
-        open_aftermath(&mut core);
+        let mut a = Aftermath::new(Seat(0), sys(), AStage::Fighting, Before::default(), NoteHold::new());
+        if paused {
+            a.event_scoring = Some((5, ti4_engine_core::state::PauseLimit::OnePerPlayer));
+        }
+        AftermathChain::new(a).to_pending(&mut core);
         let (_, end) = play(&mut core, &env, &mut first);
-        assert_eq!(end, Ok(()), "{ships} ships");
+        assert_eq!(end, Ok(()), "{ships} ships, paused {paused}");
         let complete = env.table.facts.combat.phases[4];
-        assert_eq!(core.transient().combat.presentation.phase == complete, presented, "{ships} ships: the finished fight is presented only when a side holds the system");
-        assert!(presented || core.transient().combat.presentation.phase == untouched, "{ships} ships: nothing is written for a system nobody holds");
+        assert_eq!(core.transient().combat.presentation.phase == complete, presented, "{ships} ships, paused {paused}: the finished fight is presented");
+        assert!(presented || core.transient().combat.presentation.phase == untouched, "{ships} ships, paused {paused}: nothing is written for a system nobody holds after the head's pause");
     }
 }
 

@@ -171,10 +171,12 @@ impl AftermathChain {
                         return Some(Next::Done);
                     }
                     Opened::NoFight(winner) => {
-                        // The string's settle presents the finished (empty) fight once when a side holds the system or a draw was declared; a system
-                        // nobody holds any more (the guns of the space cannon offense destroyed the only ship) was never a fight and shows nothing.
+                        // The string's `AftermathWindow::new` settles the combat window (and so presents the finished, empty, fight) unless the head's
+                        // space cannon offense paused for a scoring window; after such a pause a system nobody holds any more (the guns destroyed the
+                        // only ship) shows nothing, a side that holds it or a declared draw does (lane H3's lockstep, narrowed by integration 13: the
+                        // whole-game shadow found 35 of 96 games where nobody had ships there and the string presented the fight).
                         let m = sx.state.meta();
-                        if winner.is_some() || m.combat_draw_round.is(m.combat_round_seq) {
+                        if !self.p.head_paused || winner.is_some() || m.combat_draw_round.is(m.combat_round_seq) {
                             sx.state.transient_mut().combat.presentation.edit().phase = sx.table.facts.combat.phases[4];
                         }
                         self.p.outcome = Some((winner, 0));
@@ -280,6 +282,7 @@ impl Window for AftermathChain {
             }
             // A scoring pause: the window of the occurrence opens above this entry, which waits for it.
             if let Some((occurrence, limit)) = self.p.event_scoring.take() {
+                self.p.head_paused |= self.p.fight == AFight::Opening;
                 let w = open_event_scoring(sx.state, occurrence, limit == PauseLimit::OnePerPlayer);
                 self.opened.push(w);
                 self.parked = true;

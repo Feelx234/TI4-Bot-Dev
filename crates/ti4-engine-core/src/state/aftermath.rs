@@ -81,6 +81,9 @@ pub struct Aftermath {
     pub invaded: bool,
     /// LIVE: the use of PRODUCTION of the `Producing` stage was opened (`Window::Production` above this entry; the string's `Producing(window)`).
     pub produced: bool,
+    /// LIVE: the space cannon offense of the head paused for a scoring window before the fight opened (the string then does not settle the combat window
+    /// in the same step, so a system nobody holds any more is not presented as a finished fight: `AftermathWindow::new`).
+    pub head_paused: bool,
     /// LIVE: the plain events the steps announced (`AftermathWindow::log`), written to the queue when the step ends.
     pub log: SmallList<crate::state::PlainKind, 4>,
 }
@@ -103,6 +106,7 @@ impl Aftermath {
             holds: false,
             invaded: false,
             produced: false,
+            head_paused: false,
             log: SmallList::new(),
         }
     }
