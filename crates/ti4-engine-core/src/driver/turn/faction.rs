@@ -74,9 +74,7 @@ fn orbital_drop(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
         return gap_flow(sx, TurnGap::NoLink);
     }
     // The token the window spent is announced at once by the string (`hooks_economy::emit`), and only while a seated faction has a module.
-    if !sx.table.facts.staging {
-        let _ = crate::kernel::fx::drain_staged(sx.state);
-    } else if super::component::flush_staged_events(sx) == Flow::Halt {
+    if super::component::announce_events(sx) == Flow::Halt {
         return Flow::Halt;
     }
     conclude(sx, who, key, if window.done { Verdict::Resolved } else { Verdict::Failed { withhold: true } }, true)
@@ -130,7 +128,7 @@ fn star_forge(sx: &mut Sx<'_>, who: Seat, key: u32, nucleus: bool) -> Flow {
         mech: sx.table.codes.turn.muaat_mech,
     };
     let mut window = StarForge::new(who, if nucleus { Mode::Nucleus } else { Mode::StarForge }, facts);
-    if run_window(sx, &mut window) == Flow::Halt {
+    if run_window(sx, &mut window) == Flow::Halt || super::component::announce_events(sx) == Flow::Halt {
         return Flow::Halt;
     }
     conclude(sx, who, key, if window.done { Verdict::Resolved } else { Verdict::Failed { withhold: true } }, true)
@@ -144,6 +142,9 @@ fn inferno(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     }
     let facts = InfernoFacts { scope: reach::scope_of(sx.kernel), cruiser: unit_form(sx, who, UnitBaseType::Cruiser), fleet_limit: fleet_limit(sx, who), source: sx.table.codes.turn.inferno };
     let done = inferno(sx.state, sx.kernel, who, &facts);
+    if super::component::announce_events(sx) == Flow::Halt {
+        return Flow::Halt;
+    }
     conclude(sx, who, key, if done { Verdict::Resolved } else { Verdict::Failed { withhold: true } }, true)
 }
 
@@ -158,7 +159,7 @@ fn fires(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
 /// Production Biomes (Hacan): spend a strategy token, another player gains 2 trade goods (the window asks who).
 fn production_biomes(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let mut window = crate::rules::technology_windows::ProductionBiomes::new(who, sx.table.codes.turn.production_biomes);
-    if run_window(sx, &mut window) == Flow::Halt {
+    if run_window(sx, &mut window) == Flow::Halt || super::component::announce_events(sx) == Flow::Halt {
         return Flow::Halt;
     }
     conclude(sx, who, key, if window.done { Verdict::Resolved } else { Verdict::Failed { withhold: true } }, true)

@@ -158,3 +158,15 @@ pub fn flush_staged_events(sx: &mut Sx<'_>) -> Flow {
     }
     if super::inline::halted(sx) { Flow::Halt } else { Flow::Done }
 }
+
+/// The events a window staged, announced at once the way the string does for the spends and gains it announces itself (`hooks_economy::emit`,
+/// `supply::gain_trade_goods_staged` with a resolver in reach), and only while a seated faction has a module: the string's `stage_event` is a no-op
+/// without one, so the staged rows are dropped.
+pub fn announce_events(sx: &mut Sx<'_>) -> Flow {
+    if sx.table.facts.staging {
+        flush_staged_events(sx)
+    } else {
+        let _ = fx::drain_staged(sx.state);
+        Flow::Done
+    }
+}

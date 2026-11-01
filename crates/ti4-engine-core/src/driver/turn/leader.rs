@@ -157,7 +157,7 @@ fn carth(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool) -
 /// meets it).
 fn nekro_malleon(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let mut window = NekroMalleon::new(who, sx.table.codes.turn.nekroagent);
-    if run_window(sx, &mut window) == Flow::Halt {
+    if run_window(sx, &mut window) == Flow::Halt || super::component::announce_events(sx) == Flow::Halt {
         return Flow::Halt;
     }
     agent_free(sx, who, key, Leader::NekroMalleon, false, window.used)

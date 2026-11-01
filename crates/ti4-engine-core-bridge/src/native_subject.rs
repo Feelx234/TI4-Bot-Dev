@@ -487,7 +487,8 @@ pub(crate) fn without_staged_marks(mut state: Value) -> Value {
 /// tactical and strategic actions and the action cards are the core's (lane F2b).
 fn menu_body_is_lent(id: &str) -> bool {
     use ti4_engine_core::driver::turn::leader;
-    use ti4_engine_core::generated::{IdStr, Leader};
+    use ti4_engine::generated::IdStr;
+    use ti4_engine_core::generated::Leader;
     /// The ids of the faction component actions the core runs (the arms of `driver::turn::faction::run`; keep in step).
     const ROUTED_FACTION: [&str; 16] = [
         "faction|winnu|lgf",

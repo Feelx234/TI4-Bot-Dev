@@ -265,5 +265,18 @@ fn stall_tactics_chosen_from_the_menu_discards_a_card_like_the_string() {
     lockstep(&state, &["faction|yssaril|stall_tactics"], "COMPONENT_ACTION_RESOLVED");
 }
 
+/// KM2 section 8: an action card played as the action and cancelled by a Sabotage fails without withholding (22.4) and leaves the turn open; the
+/// card is gone either way (22.3).
+#[test]
+fn an_action_card_cancelled_by_sabotage_fails_and_leaves_the_turn_open_like_the_string() {
+    let mut state = action_table(&THREE);
+    state.player_mut(&pid("a")).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("industrial_initiative")];
+    state.player_mut(&pid("b")).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("sabo1")];
+    let state = super::turn_live_tests::based(state);
+    let (string, native) = both(&state, &["action_card|0"]);
+    assert_same(&string, &native);
+    assert!(has(&string, "COMPONENT_ACTION_FAILED") && !has(&string, "ACTION_COMPLETED"), "the play was cancelled: {:?}", string.events);
+}
+
 // (Ggrocuto Rinn reads the map's adjacency: this file's harness loads no map. The route runs in the shadow of `native_play`, and `tests/action_dispatch.rs`
 // of the core tests runs it on a map.)
