@@ -156,7 +156,7 @@ fn native_marked_arms(state: &GameState, steps: &[(bool, Option<Arm>, Option<Tur
         }
         let Some(arm) = arm else { continue };
         loop {
-            let step = live::live_step(&mut core, *arm, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native arm stopped: {e:?} after {:?}", asker.seen.iter().map(|c| (c.prompt.clone(), c.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>())).collect::<Vec<_>>()));
+            let step = live::live_step(&mut core, *arm, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native arm stopped: {e:?}"));
             if step.finished {
                 break;
             }
