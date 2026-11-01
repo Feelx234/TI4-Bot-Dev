@@ -162,5 +162,108 @@ fn orbital_drop_at_a_table_without_a_module_announces_nothing_like_the_string() 
     assert!(!has(&string, "STRATEGY_TOKEN_SPENT"), "{:?}", string.events);
 }
 
+// ---- lane F2d: the leaders, relics and faction components the core now runs, against the string ----
+
+use ti4_model::state::LeaderStatus;
+
+/// A table in the action phase whose seat `a` holds `leader` in `status`.
+fn leader_table(seats: &[(&str, &str)], leader: &str, status: LeaderStatus) -> GameState {
+    let mut state = action_table(seats);
+    state.player_mut(&pid("a")).unwrap().leaders.insert(ti4_model::id::LeaderId::new(leader), status);
+    super::turn_live_tests::based(state)
+}
+
+fn lockstep(state: &GameState, ids: &[&str], resolved: &str) -> Run {
+    let (string, native) = both(state, ids);
+    assert_same(&string, &native);
+    assert!(has(&string, resolved), "{resolved} expected: {:?}", string.events);
+    string
+}
+
+#[test]
+fn jace_x_chosen_from_the_menu_returns_the_command_tokens_and_is_purged_like_the_string() {
+    let mut state = leader_table(&THREE, "solhero", LeaderStatus::Unlocked);
+    let system = ti4_model::id::SystemId::new(crate::seating::mecatol_on(&state));
+    state.board.entry(system).or_default().command_tokens.insert(pid("a"));
+    let state = super::turn_live_tests::based(state);
+    lockstep(&state, &["component|leader|solhero"], "COMPONENT_ACTION_RESOLVED");
+}
+
+#[test]
+fn darktalon_treilla_chosen_from_the_menu_lifts_the_fleet_supply_like_the_string() {
+    let state = leader_table(&[("a", "letnev"), ("b", "sol"), ("c", "hacan")], "letnevhero", LeaderStatus::Unlocked);
+    lockstep(&state, &["component|leader|letnevhero"], "COMPONENT_ACTION_RESOLVED");
+}
+
+/// Only seat `b` can pay (the others have no card and no token), so the payer is not asked: the payment is (first option: the discard), then the card.
+#[test]
+fn nekro_malleon_chosen_from_the_menu_takes_a_discard_for_two_goods_like_the_string() {
+    let mut state = action_table(&[("a", "nekro"), ("b", "sol"), ("c", "hacan")]);
+    for who in ["a", "c"] {
+        let seat = state.player_mut(&pid(who)).unwrap();
+        seat.action_cards.clear();
+        (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens) = (0, 0, 0);
+    }
+    let b = state.player_mut(&pid("b")).unwrap();
+    b.action_cards = vec![ti4_model::id::ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[0].as_str()), ti4_model::id::ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[3].as_str())];
+    state.player_mut(&pid("a")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("nekroagent"), LeaderStatus::Readied);
+    let state = super::turn_live_tests::based(state);
+    lockstep(&state, &["component|leader|nekroagent"], "LEADER_ABILITY_RESOLVED");
+}
+
+fn relic_table(relic: &str) -> GameState {
+    let mut state = action_table(&THREE);
+    state.player_mut(&pid("a")).unwrap().relics = vec![ti4_model::id::RelicId::new(relic)];
+    super::turn_live_tests::based(state)
+}
+
+#[test]
+fn the_dynamis_core_and_the_book_of_latvinia_chosen_from_the_menu_resolve_like_the_string() {
+    for relic in ["dynamiscore", "bookoflatvinia"] {
+        let state = relic_table(relic);
+        lockstep(&state, &[&format!("relic|{relic}")], "COMPONENT_ACTION_RESOLVED");
+    }
+}
+
+#[test]
+fn the_codex_chosen_from_the_menu_takes_the_discarded_cards_like_the_string() {
+    let mut state = relic_table("codex");
+    state.discarded_action_cards = vec![ti4_model::id::ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[0].as_str()), ti4_model::id::ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[2].as_str())];
+    lockstep(&state, &["relic|codex"], "COMPONENT_ACTION_RESOLVED");
+}
+
+#[test]
+fn an_action_note_chosen_from_the_menu_goes_faceup_like_the_string() {
+    for (note, id, table) in [
+        ("trade_convoys:hacan", "faction|trade_convoys", [("a", "sol"), ("b", "hacan"), ("c", "arborec")]),
+        ("blood_pact:empyrean", "faction|empyrean|blood_pact", [("a", "sol"), ("b", "empyrean"), ("c", "arborec")]),
+        ("dark_pact:empyrean", "faction|empyrean|dark_pact", [("a", "sol"), ("b", "empyrean"), ("c", "arborec")]),
+        ("pop:mentak", "faction|mentak|pop", [("a", "sol"), ("b", "mentak"), ("c", "arborec")]),
+    ] {
+        let mut state = action_table(&table);
+        state.promissory_notes.insert(note.to_owned(), pid("a"));
+        let state = super::turn_live_tests::based(state);
+        lockstep(&state, &[id], "COMPONENT_ACTION_RESOLVED");
+    }
+}
+
+#[test]
+fn production_biomes_chosen_from_the_menu_pays_four_and_two_like_the_string() {
+    let mut state = action_table(&[("a", "hacan"), ("b", "sol"), ("c", "arborec")]);
+    let seat = state.player_mut(&pid("a")).unwrap();
+    seat.technologies.insert(ti4_model::id::TechnologyId::new(ti4_engine_core::generated::Technology::ProductionBiomes.as_str()));
+    seat.strategic_tokens = 2;
+    let state = super::turn_live_tests::based(state);
+    lockstep(&state, &["faction|production_biomes"], "COMPONENT_ACTION_RESOLVED");
+}
+
+#[test]
+fn stall_tactics_chosen_from_the_menu_discards_a_card_like_the_string() {
+    let mut state = action_table(&[("a", "yssaril"), ("b", "sol"), ("c", "hacan")]);
+    state.player_mut(&pid("a")).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[0].as_str()), ti4_model::id::ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[3].as_str())];
+    let state = super::turn_live_tests::based(state);
+    lockstep(&state, &["faction|yssaril|stall_tactics"], "COMPONENT_ACTION_RESOLVED");
+}
+
 // (Ggrocuto Rinn reads the map's adjacency: this file's harness loads no map. The route runs in the shadow of `native_play`, and `tests/action_dispatch.rs`
 // of the core tests runs it on a map.)

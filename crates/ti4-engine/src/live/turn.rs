@@ -48,6 +48,7 @@ pub fn codes(r: &Render) -> TurnCodes {
         bmf: r.code("bmf"),
         stall_tactics: r.code("stall_tactics"),
         yssaril_mech: r.code("yssaril_mech"),
+        relic: r.code("relic"),
         strategy_secondary: r.code("strategy_secondary"),
         trade_primary: r.code("trade_primary"),
         place_structure: r.code("place_structure"),

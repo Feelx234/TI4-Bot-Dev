@@ -56,6 +56,7 @@ pub fn run_action(sx: &mut Sx<'_>, key: u32) -> Flow {
         Dispatch::Transaction(with) => transaction(sx, active, with),
         Dispatch::Relic => match opt {
             Opt::Purge(kind) => super::relic::purge(sx, active, key, kind),
+            Opt::UseRelic(relic) => super::relic::use_relic(sx, active, key, relic),
             _ => unrouted(sx, opt),
         },
         Dispatch::Faction(action) => super::faction::run(sx, active, key, action),

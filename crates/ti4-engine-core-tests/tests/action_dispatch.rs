@@ -389,3 +389,40 @@ fn production_biomes_chosen_from_the_menu_spends_a_token_and_pays_the_holder_fou
     assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.strategic_tokens, 1, "the token is spent");
     assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
 }
+
+/// A window that only announces what an effect staged, the way a component action does after its body (`component::announce_staged`).
+#[derive(Clone)]
+struct Announces;
+
+impl ti4_engine_core::kernel::stage::Window for Announces {
+    type Stage = ();
+
+    fn stage(&self) {}
+
+    fn step(&mut self, sx: &mut ti4_engine_core::kernel::stage::Sx<'_>) -> ti4_engine_core::kernel::Next {
+        ti4_engine_core::driver::turn::component::announce_staged(sx);
+        ti4_engine_core::kernel::Next::Done
+    }
+
+    fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<ti4_engine_core::choice::Choice> {
+        None
+    }
+
+    fn answer(&mut self, _: &mut ti4_engine_core::kernel::stage::Sx<'_>, _: Pick) -> Result<(), ti4_engine_core::choice::Illegal> {
+        Err(ti4_engine_core::choice::Illegal)
+    }
+}
+
+/// KM2 section 8: a ship an effect destroyed and staged (`pending_destructions`) is announced as `SHIP_DESTROYED` after a component action's body,
+/// once, and the queue is empty afterwards. (No route stages one yet; the first leader or faction body that does is covered by this announcement.)
+#[test]
+fn a_ship_destruction_an_effect_staged_is_announced_after_the_body_of_a_component_action() {
+    use ti4_engine_core::state::PendingDestruction;
+    let (system, _) = ti4_engine_core_tests::scenario::first_planet();
+    let mut rig = Rig::new(Scenario::lobby(3).phase(Phase::Action).active(Some(0)).map_from(&[system]).unit(system, None, Unit::CruiserI, 1, 1), Announces);
+    rig.state.transient_mut().combat.pending_destructions.push(PendingDestruction { system, owner: Seat(1), unit: Unit::CruiserI, reason: ti4_engine_core::state::Code(0), during_space_combat: false });
+    rig.run();
+    assert!(rig.state.transient().combat.pending_destructions.is_empty(), "the staged destruction was taken");
+    assert_eq!(rig.state.transient().combat.last_ship_destroyed, Some((system, Seat(1), Unit::CruiserI)));
+    assert_eq!(typed(&rig.state, EventKind::ShipDestroyed), 1, "announced once");
+}

@@ -58,6 +58,8 @@ pub struct TurnCodes {
     /// `stall_tactics` and `yssaril_mech`: the sources of the Yssaril Stall Tactics question and of the mech it places.
     pub stall_tactics: Code,
     pub yssaril_mech: Code,
+    /// `relic`: the source of the trade goods a relic gains.
+    pub relic: Code,
 }
 
 /// Why the live turn flow stops (a counted gap, never a silent skip): what the job needs and the core does not hold yet.

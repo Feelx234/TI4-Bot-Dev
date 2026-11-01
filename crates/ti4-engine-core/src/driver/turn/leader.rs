@@ -26,6 +26,29 @@ fn roster(sx: &Sx<'_>) -> Option<&'static crate::query::tech::UnitRoster> {
     sx.table.facts.plays.as_ref().and_then(|p| p.roster)
 }
 
+/// Whether the leader's use (`borrowed`: the copy through Ssruu) has a native body: [`run`] never ends it in the counted gap
+/// [`MenuGap::Unrouted`]. The shadow oracle lends exactly the others.
+#[must_use]
+pub const fn routed(leader: Leader, borrowed: bool) -> bool {
+    if borrowed {
+        return matches!(leader, Leader::GgrocutoRinn | Leader::CarthOfGoldenSands | Leader::LetaniOspha);
+    }
+    matches!(
+        leader,
+        Leader::GgrocutoRinn
+            | Leader::CarthOfGoldenSands
+            | Leader::NekroMalleon
+            | Leader::LetaniOspha
+            | Leader::JaceX4thAirLegion
+            | Leader::AhkSylSiven
+            | Leader::UlTheProgenitor
+            | Leader::DarktalonTreilla
+            | Leader::TheHelmsman
+            | Leader::GurnoAggero
+            | Leader::XxekirGromTe
+    )
+}
+
 /// Run the use of `leader` chosen as option `key`; `borrowed`: the copy of the agent that Ssruu holds.
 pub fn run(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool) -> Flow {
     if borrowed {
