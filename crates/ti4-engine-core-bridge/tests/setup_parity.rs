@@ -658,6 +658,50 @@ fn the_feasibility_pass_agrees_on_many_boards() {
     eprintln!("boards that ruled objectives out: {ruled_out}");
 }
 
+/// Hand-made thin boards (homes and a few tiles, no ring filled): the pass rules out one list of
+/// objectives, the other, both or none, and the decks are redrawn identically in every case.
+#[test]
+fn the_feasibility_pass_agrees_on_thin_hand_made_boards() {
+    let (mut neither, mut only_public, mut only_secret, mut both) = (0, 0, 0, 0);
+    for (name, sources) in [("pok", POK), ("full", FULL)] {
+        for n in 2..=6 {
+            for seed in 0..6_u64 {
+                for tiles in 0..=14_usize {
+                    let table = players(n);
+                    let assignments = native::seating::seat_in_scope(&table);
+                    let mut a = native::start_game_seeded(content(), &table, sources, None, seed).unwrap();
+                    let mut b = legacy::start_game_seeded(content(), &table, sources, None, seed).unwrap();
+                    for (player, faction) in &assignments {
+                        native::deploy(&mut a, content(), player, faction, sources).unwrap();
+                        legacy::deploy(&mut b, content(), player, faction, sources).unwrap();
+                    }
+                    let homes = native::home_systems(content(), &assignments).unwrap();
+                    let filler = native::seating::map_filler(content(), tiles, sources, seed);
+                    let mut ids: Vec<&str> = vec![native::seating::mecatol_for(content(), sources)];
+                    ids.extend(homes.iter().map(SystemId::as_str));
+                    ids.extend(filler.iter().map(SystemId::as_str));
+                    let Ok(galaxy) = ti4_content::galaxy::Galaxy::build(content(), &ids, sources, 2) else { continue };
+                    let ra = native::map_feasibility::apply(&mut a, content(), sources, &galaxy);
+                    let rb = legacy::map_feasibility::apply(&mut b, content(), sources, &galaxy);
+                    assert_eq!(ra, rb, "{name} {n}p {seed} {tiles}");
+                    same_state(&a, &b, &format!("{name} {n}p seed {seed} {tiles} tiles after the pass"));
+                    match (ra.0.is_empty(), ra.1.is_empty()) {
+                        (true, true) => neither += 1,
+                        (false, true) => only_public += 1,
+                        (true, false) => only_secret += 1,
+                        (false, false) => both += 1,
+                    }
+                }
+            }
+        }
+    }
+    eprintln!("neither {neither}, only public {only_public}, only secret {only_secret}, both {both}");
+    assert!(
+        only_public + only_secret > 0 && both > 0 && neither > 0,
+        "the boards must reach every branch of the pass: neither {neither}, public {only_public}, secret {only_secret}, both {both}"
+    );
+}
+
 /// The thresholds of the feasibility pass, on census values no real board reaches: both sides must
 /// rule out the same objectives for every combination, so every threshold is pinned.
 #[test]
