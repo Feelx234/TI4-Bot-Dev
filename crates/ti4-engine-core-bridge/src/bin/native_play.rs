@@ -134,6 +134,7 @@ fn main() {
     let mut matrix = Matrix::default();
     let mut bad = false;
     let mut finished = 0usize;
+    let mut known = 0usize;
     let mut survey_total: std::collections::BTreeMap<(String, bool), u64> = std::collections::BTreeMap::new();
     for spec in &specs {
         let started = Instant::now();
@@ -170,8 +171,14 @@ fn main() {
         if let Some((compared, difference)) = &shadow {
             line.push_str(&format!(" | shadow compared {compared}"));
             if let Some(d) = difference {
-                line.push_str(&format!(" | FIRST DIFFERENCE {d}"));
-                bad = true;
+                if d.known.is_some() {
+                    // A string bug the core does not copy (docs/STRING_ENGINE_BUGS.md): the game cannot go on past it; it is not a difference of the core.
+                    line.push_str(&format!(" | KNOWN STRING BUG {d}"));
+                    known += 1;
+                } else {
+                    line.push_str(&format!(" | FIRST DIFFERENCE {d}"));
+                    bad = true;
+                }
             }
         }
         line.push_str(&format!(" | {:.0}s", started.elapsed().as_secs_f64()));
@@ -213,6 +220,6 @@ fn main() {
     for line in matrix.render(o.top) {
         println!("{line}");
     }
-    println!("native_play: {} games | {} finished with zero gaps | {} gaps | {}", specs.len(), finished, matrix.total_gaps(), if bad { "FAILED (a whole game must play natively without a gap)" } else { "ZERO GAP" });
+    println!("native_play: {} games | {} finished with zero gaps | {} gaps | {} stopped at a known string bug (S1; not a difference of the core, excluded from the exit code) | {}", specs.len(), finished, matrix.total_gaps(), known, if bad { "FAILED (a whole game must play natively without a gap)" } else { "ZERO GAP" });
     std::process::exit(i32::from(bad));
 }

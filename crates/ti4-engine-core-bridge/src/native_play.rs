@@ -714,12 +714,59 @@ pub struct Difference {
     pub path: String,
     pub native: String,
     pub legacy: String,
+    /// The difference is a string bug the core does not copy, recorded in `docs/STRING_ENGINE_BUGS.md` (`Some("known string bug S1")`): the
+    /// game cannot go on past it (the script of the core's answers meets the string's other question), so it is reported on its own and does not
+    /// fail the run as a difference of the core.
+    pub known: Option<&'static str>,
 }
 
 impl std::fmt::Display for Difference {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "step {} [{}] {} {}: native {} | legacy {}", self.step, self.arms.join("+"), self.what, self.path, self.native, self.legacy)
+        write!(f, "step {} [{}] {} {}: native {} | legacy {}", self.step, self.arms.join("+"), self.what, self.path, self.native, self.legacy)?;
+        if let Some(known) = self.known {
+            write!(f, " ({known})")?;
+        }
+        Ok(())
     }
+}
+
+/// The label of a difference that is the string's S1.
+pub const KNOWN_S1: &str = "known string bug S1";
+
+/// S1 (`docs/STRING_ENGINE_BUGS.md`): the order the string offers an action-phase reaction window in (its seating order, rotated from the active seat,
+/// fixed at `Game::new`) against the order of the ruling (the active seat first, then the others in the initiative order of the moment).
+fn s1_orders_differ(state: &ti4_model::state::GameState) -> bool {
+    let Some(active) = &state.active else { return false };
+    let string: Vec<_> = state.clockwise_from(active);
+    let rule: Vec<_> = std::iter::once(active.clone()).chain(state.initiative_order().into_iter().filter(|p| p != active)).collect();
+    string != rule
+}
+
+fn is_reaction_id(id: &str) -> bool {
+    ["reaction:", "leader:", "ability:"].iter().any(|p| id.starts_with(p))
+}
+
+/// S1 shows as a legacy error when the string offers a reaction of another seat than the script wanted: `script wanted "<reaction>" but <seat> was
+/// offered ["<reaction>", ..]`.
+fn s1_in_error(state: &ti4_model::state::GameState, error: &str) -> bool {
+    let Some(wanted) = error.split("script wanted \"").nth(1).and_then(|r| r.split('"').next()) else { return false };
+    let Some(offered) = error.split(" was offered ").nth(1) else { return false };
+    s1_orders_differ(state) && is_reaction_id(wanted) && offered.trim_start_matches('[').trim_start_matches('"').split('"').next().is_some_and(is_reaction_id)
+}
+
+/// S1 shows in a question of the same prompt asked of another seat, or with the same options in another order.
+fn s1_in_questions(state: &ti4_model::state::GameState, path: &str, native: &[Value], legacy: &[Value]) -> bool {
+    let Some(at) = path.strip_prefix('[').and_then(|p| p.split(']').next()).and_then(|i| i.parse::<usize>().ok()) else { return false };
+    let (Some(n), Some(l)) = (native.get(at), legacy.get(at)) else { return false };
+    if !s1_orders_differ(state) || n["prompt"] != l["prompt"] || !l["options"].as_array().is_some_and(|o| o.iter().filter_map(Value::as_str).any(is_reaction_id)) {
+        return false;
+    }
+    let sorted = |v: &Value| -> Vec<String> {
+        let mut o: Vec<String> = v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+        o.sort();
+        o
+    };
+    n["player"] != l["player"] || sorted(&n["options"]) == sorted(&l["options"])
 }
 
 /// The arms whose steps the legacy engine runs together with the NEXT native step (`Game::step_flow` goes on from the prelude and the
@@ -792,7 +839,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                     let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
                     let events: Vec<String> = group.iter().flat_map(|p| p.events.iter().cloned()).collect();
                     if let Some((at, n, l)) = owed.settle(events, Vec::new()) {
-                        first_difference = Some(Difference { step: native.steps, arms, what: "events", path: format!("[{at}]"), native: n, legacy: l });
+                        first_difference = Some(Difference { step: native.steps, arms, what: "events", path: format!("[{at}]"), native: n, legacy: l, known: None });
                         break End::Finished;
                     }
                     group.clear();
@@ -813,7 +860,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                     let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
                     let _ = (legacy.decisions_since(), legacy.events_since());
                     if let Some((at, n, l)) = owed.settle(Vec::new(), run.events.clone()) {
-                        first_difference = Some(Difference { step: native.steps, arms, what: "events", path: format!("[{at}]"), native: n, legacy: l });
+                        first_difference = Some(Difference { step: native.steps, arms, what: "events", path: format!("[{at}]"), native: n, legacy: l, known: None });
                         break;
                     }
                     run = run_legacy(&mut legacy, &group, &ahead);
@@ -992,14 +1039,16 @@ fn compare_group(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base
 /// compared with the next group's, which holds them.
 fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: &ti4_model::state::GameState, group: &[Played], run: &LegacyRun, owed: &mut Owed, ahead: bool) -> Option<Difference> {
     let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
-    let diff = |what: &'static str, path: String, n: String, l: String| Difference { step: native.steps, arms: arms.clone(), what, path, native: n, legacy: l };
+    let diff = |what: &'static str, path: String, n: String, l: String| Difference { step: native.steps, arms: arms.clone(), what, path, native: n, legacy: l, known: None };
     let asked: Vec<&Asked> = group.iter().flat_map(|p| p.asked.iter()).collect();
     let (info, records, events) = (&run.info, &run.records, &run.events);
     if let Some(error) = &info.error {
         if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
             eprintln!("  legacy ERROR after answering {:?}: asked {:?}", asked.iter().map(|a| a.chosen.as_str()).collect::<Vec<_>>(), records.iter().map(|r| (r.player.as_str().to_owned(), r.prompt.clone(), r.chosen.clone())).collect::<Vec<_>>());
         }
-        return Some(diff("legacy", "step.error".to_owned(), "no error".to_owned(), error.clone()));
+        let mut d = diff("legacy", "step.error".to_owned(), "no error".to_owned(), error.clone());
+        d.known = s1_in_error(&legacy.game().state, error).then_some(KNOWN_S1);
+        return Some(d);
     }
     if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
         eprintln!("  legacy: answered {:?} -> asked {:?}", asked.iter().map(|a| a.chosen.as_str()).collect::<Vec<_>>(), records.iter().map(|r| (r.player.as_str().to_owned(), r.prompt.clone(), r.chosen.clone())).collect::<Vec<_>>());
@@ -1021,8 +1070,11 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
     let n: Vec<Value> = asked.iter().map(|a| json!({ "player": a.player, "prompt": a.prompt, "options": a.options })).collect();
     let l: Vec<Value> = records.iter().map(|r| json!({ "player": r.player.as_str(), "prompt": r.prompt, "options": r.offered })).collect();
     let l = legacy_prefix(strict, l, n.len());
-    if let Some(d) = crate::native_subject::first_leaf(&Value::Array(l), &Value::Array(n)) {
-        return Some(diff("questions", d.path, d.right, d.left));
+    if let Some(d) = crate::native_subject::first_leaf(&Value::Array(l.clone()), &Value::Array(n.clone())) {
+        let known = s1_in_questions(&legacy.game().state, &d.path, &n, &l);
+        let mut found = diff("questions", d.path, d.right, d.left);
+        found.known = known.then_some(KNOWN_S1);
+        return Some(found);
     }
     // The events are two streams: what one side pushed beyond the other's end of step is matched by the other's next step. A step that ends an
     // arm the string's close goes on after (non-strict) may leave either side ahead; a strict step must end level.
