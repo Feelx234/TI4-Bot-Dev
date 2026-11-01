@@ -358,3 +358,71 @@ fn the_technology_reads_answer_as_the_legacy_ones_do() {
         }
     }
 }
+
+/// Regression tests for mutants the position corpus did not kill (dropped-faction marks, a card effect, the diplomacy window, the printed Armada).
+#[test]
+fn the_crimson_breach_and_diplomacy_window_reads_follow_the_marks() {
+    let mut state = old::fixtures::game(&["a", "b"]);
+    let (a, b) = (state.players[0].id.clone(), state.players[1].id.clone());
+    state.breach_tokens = ["25", "26", "27"].into_iter().map(SystemId::new).collect();
+    state.faction_marks.insert("crimson:breach:active:26".to_owned(), "1".to_owned());
+    assert_eq!(old::factions::crimson::active_breaches(&state), thin::queries::factions::crimson_active_breaches(&state));
+    assert_eq!(thin::queries::factions::crimson_active_breaches(&state), vec![SystemId::new("26")]);
+    state.round = 5;
+    for last in [3, 4, 5, 6] {
+        state.diplomacy.last_attacks.entry(a.clone()).or_default().insert(b.clone(), last);
+        state.diplomacy.last_breaches.entry(b.clone()).or_default().insert(a.clone(), last);
+        for (x, y) in [(&a, &b), (&b, &a)] {
+            assert_eq!(old::diplomacy::recent_attack(&state, x, y), thin::queries::diplomacy::recent_attack(&state, x, y), "attack, event round {last}");
+            assert_eq!(old::diplomacy::recent_breach(&state, x, y), thin::queries::diplomacy::recent_breach(&state, x, y), "breach, event round {last}");
+        }
+    }
+    assert!(thin::queries::diplomacy::recent_attack(&state, &a, &b), "an attack of the last round is recent");
+}
+
+#[test]
+fn the_printed_armada_lifts_the_fleet_limit_of_a_table_the_core_cannot_hold() {
+    let content = content();
+    let mut state = old::fixtures::game(&["a", "b"]);
+    let player = state.players[0].id.clone();
+    for faction in ["letnev", "sol"] {
+        state.players[0].faction = ti4_model::id::FactionId::new(faction);
+        state.players[0].fleet_tokens = 3;
+        assert_eq!(old::fleet::limit(&state, content, &player), thin::queries::factions::fleet_limit(&state, content, &player), "{faction}");
+    }
+    state.players[0].faction = ti4_model::id::FactionId::new("letnev");
+    assert_eq!(thin::queries::factions::fleet_limit(&state, content, &player), 5);
+}
+
+#[test]
+fn can_reach_does_not_count_the_cards_in_play() {
+    use ti4_model::content_types::POK;
+    let content = content();
+    let mut compared = 0_usize;
+    for pos in positions().into_iter().take(6) {
+        let mut state = pos.state.clone();
+        let activation = state.activation_seq;
+        for seat in &mut state.players {
+            seat.move_bonus_activation = Some(activation);
+        }
+        let (o, t) = (old::choice::Observed::new(&state, content, POK, Some(&pos.galaxy)), thin::observed::Observed::new(&state, content, POK, Some(&pos.galaxy)));
+        let systems: Vec<SystemId> = pos.galaxy.system_ids().into_iter().map(SystemId::new).collect();
+        for player in players(&state) {
+            for origin in state.systems_with_units_of(&player) {
+                for dest in &systems {
+                    for value in [1, 2, 3] {
+                        assert_eq!(o.can_reach(&player, origin, dest, value), t.can_reach(&player, origin, dest, value), "{}: can_reach with Flank Speed in play", pos.label);
+                        compared += 1;
+                    }
+                }
+            }
+        }
+        // ... while the ships that could move do count it.
+        for player in players(&state) {
+            for dest in systems.iter().step_by(3) {
+                assert_eq!(o.movable_into(&player, dest).iter().map(movable_key_old).collect::<Vec<_>>(), t.movable_into(&player, dest).iter().map(movable_key).collect::<Vec<_>>(), "{}: movable_into with Flank Speed", pos.label);
+            }
+        }
+    }
+    assert!(compared > 500);
+}
