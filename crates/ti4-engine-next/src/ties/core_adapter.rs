@@ -81,7 +81,9 @@ pub fn kernel_for(sources: SourceSet) -> &'static Kernel {
 /// (`ti4_content::hyperlane::lanes_of` of each hyperlane record; built once).
 #[must_use]
 pub fn lane_table() -> &'static ti4_engine_core::tables::LaneTable {
-    static TABLE: std::sync::OnceLock<Vec<Option<&'static [(u8, u8)]>>> = std::sync::OnceLock::new();
+    /// The lanes of each system, by index.
+    type Lanes = Vec<Option<&'static [(u8, u8)]>>;
+    static TABLE: std::sync::OnceLock<Lanes> = std::sync::OnceLock::new();
     TABLE.get_or_init(|| {
         SystemIx::ALL
             .iter()

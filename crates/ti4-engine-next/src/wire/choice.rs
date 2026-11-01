@@ -482,6 +482,13 @@ pub trait Decider {
     fn stage_scores(&mut self, scores: Vec<(Option<f64>, Option<f64>)>) {
         let _ = scores;
     }
+
+    /// Whether this decider reads the view [`Decider::choose_seeing`] is given. The default, `false`, is right for every decider that does
+    /// not override `choose_seeing`: the game then skips building the [`Observed`] position (a materialisation of the core state) for its
+    /// questions. A decider that overrides `choose_seeing` and looks at the view (the rule bots, the policy deciders) returns `true`.
+    fn wants_view(&self) -> bool {
+        false
+    }
 }
 
 /// Always take the first option. Deterministic; the default in tests.
@@ -1082,6 +1089,13 @@ impl Table {
         Ok(())
     }
 
+    /// Whether the decider that answers for `player` reads the view [`Table::ask_seeing`] hands it ([`Decider::wants_view`]); the game
+    /// builds the [`Observed`] of a question only when this says yes.
+    #[must_use]
+    pub fn wants_view(&self, player: &PlayerId) -> bool {
+        self.deciders.get(player).unwrap_or(&self.default).wants_view()
+    }
+
     /// Put a choice to its actor, validate the answer, and record it.
     ///
     /// # Errors
@@ -1447,6 +1461,30 @@ mod tests {
     }
 
     // -- options ---------------------------------------------------------------
+
+    /// A decider that reads the view says so; the table answers for the seat it is seated at and for the default.
+    #[test]
+    fn a_table_reports_which_seats_decider_wants_the_view() {
+        struct Looks;
+        impl Decider for Looks {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+                FirstOption.choose(choice)
+            }
+
+            fn wants_view(&self) -> bool {
+                true
+            }
+        }
+        let mut table = Table::new();
+        table.seat(pid("a"), Box::new(Looks));
+        table.seat(pid("b"), Box::new(FirstOption));
+        assert!(table.wants_view(&pid("a")));
+        assert!(!table.wants_view(&pid("b")), "FirstOption does not override choose_seeing");
+        assert!(!table.wants_view(&pid("nobody")), "the default decider of a table is FirstOption");
+        table.set_default(Box::new(Looks));
+        assert!(table.wants_view(&pid("nobody")));
+        assert!(!table.wants_view(&pid("b")));
+    }
 
     #[test]
     fn an_option_is_identified_by_its_id_not_its_payload() {
