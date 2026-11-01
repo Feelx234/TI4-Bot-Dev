@@ -1053,7 +1053,7 @@ fn with_trigger_of(choice: &CoreChoice) -> bool {
 /// The battle and invasion a nested question is asked in. The string puts a payment an ability asks (`pay_seeing`, the
 /// table's own `ask_seeing`) in the position of an invasion only, never of a battle; the other nested questions
 /// (`TimingContext::ask_seeing`) name both.
-fn nested_position(choice: &CoreChoice, ctx: crate::decision_context::DecisionContext, pos: &NestedPos) -> crate::decision_context::DecisionContext {
+pub(crate) fn nested_position(choice: &CoreChoice, ctx: crate::decision_context::DecisionContext, pos: &NestedPos) -> crate::decision_context::DecisionContext {
     if matches!(choice.ask, ti4_engine_core::choice::Ask::Production(ti4_engine_core::choice::production::Ask::Pay(_))) {
         ctx.about_invasion_in(pos.invasion.clone())
     } else {

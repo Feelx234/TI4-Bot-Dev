@@ -194,11 +194,11 @@ impl Fx {
     /// beyond the position (the forms the seat places, the neutral owner, the texts of the hit flows) are handed in by the host window
     /// with the other facts of a play ([`crate::kernel::ability::PlayFacts`]: `SeatPlayMore`, `SharedPlay`), so a card is nested when
     /// everything it reads is in them. Not nested: the cards of an Action timing (a component action is never played from a window), the
-    /// cards that read the map (Exploration Probe: the host would have to lend the galaxy), Crash Landing (no host of the ported areas places the
-    /// units it saves), and Fire Team and Scramble Frequency, which read the dice a roll staged and are played by the window that stages them
+    /// cards that read the map (Exploration Probe: the host would have to lend the galaxy), and Fire Team and Scramble Frequency, which read the dice a roll staged and are played by the window that stages them
     /// (`core-b12` registers Fire Team for the ground roll's tail). Since lane H the hosts of the activation, the movement, the control gain, the
     /// vote and the transaction are native windows that hand the play facts (`driver::windows::live_common::table_at`), so Upgrade, Decoy Operation,
-    /// Harness Energy, Infiltrate, Bribery, Lie in Wait and Experimental Battlestation are nested.
+    /// Harness Energy, Infiltrate, Bribery, Lie in Wait and Experimental Battlestation are nested. Crash Landing is nested since lane H3: the hit assignment that destroys the last ship (the host of its window) leaves the ground forces of
+    /// the space area on the board for the reaction, and the card places the one it saves on a planet of the system.
     #[must_use]
     pub const fn nested(self) -> bool {
         !matches!(
@@ -214,7 +214,6 @@ impl Fx {
                 | Self::Plagiarize
                 | Self::Focused
                 | Self::Divert
-                | Self::Crash
                 | Self::Probe
                 | Self::Perform { .. }
                 | Self::Reroll
@@ -462,8 +461,6 @@ const RULES_PLAGIARIZE_OWNED: u32 = 28;
 const RULES_ACTION_CARD_COSTS: u32 = 23;
 /// `RULES_INFILTRATE_FIX` (`ti4_model::state`).
 const RULES_INFILTRATE_FIX: u32 = 1;
-/// `RULES_OFFICIAL_ACTION_DECK` (`ti4_model::state`).
-const RULES_OFFICIAL_ACTION_DECK: u32 = 30;
 
 /// The sides of the die the string `Dice` rolls.
 const DIE_SIDES: u32 = 10;
@@ -3494,6 +3491,14 @@ mod tests {
         assert!(Play::of(&core, ActionCard::ExplorationProbe, Seat(0), probe_env()).is_some());
         core.cards_mut().reserve = Some(crate::containers::Cow::new(Default::default()));
         assert!(Play::of(&core, ActionCard::ExplorationProbe, Seat(0), probe_env()).is_none());
+    }
+
+    /// The cards a host window can play from inside (`Fx::nested`): Crash Landing is one of them since lane H3, the cards that run their own
+    /// area's windows (a bill, a research, the map) are not.
+    #[test]
+    fn crash_landing_is_played_from_inside_the_window_of_the_loss_of_a_ship() {
+        assert!(Fx::Crash.nested() && Fx::of(ActionCard::CrashLanding) == Some(Fx::Crash));
+        assert!(!Fx::Probe.nested() && !Fx::Jam.nested() && !Fx::Plagiarize.nested());
     }
 
     /// The documented bails of the action-card area (docs/B6_CARDS.md): the cards whose string effect runs alone, each with the

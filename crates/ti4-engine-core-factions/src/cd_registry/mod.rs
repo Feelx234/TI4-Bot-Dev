@@ -271,9 +271,20 @@ mod tests {
 
 /// The timing abilities of the package (the reaction windows), in the string registration order of the factions.
 pub fn register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
+    register_early_abilities(t);
+    register_last_abilities(t);
+}
+
+/// The timing abilities that come before the silent modules (Winnu's among them) in the string order of the factions.
+pub fn register_early_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
     yin::timing::register_abilities(t);
     titans::offer::register_abilities(t);
     sardakk::timing::register_abilities(t);
     yssaril::ssruu::register_abilities(t);
+}
+
+/// The timing abilities of the last faction module of the string's order (Yssaril: So Ata's end of the look comes after Winnu's mech in the
+/// `ACTION_COMPLETED` bucket): registered after the silent modules.
+pub fn register_last_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
     yssaril::timing::register_abilities(t);
 }

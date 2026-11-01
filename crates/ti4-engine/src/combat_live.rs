@@ -131,14 +131,23 @@ pub fn combat_texts(core: &mut CoreState, r: &Render) -> CombatTexts {
     // it back. Minting the state texts into the position's table and the shown ones into the render's makes two tables that disagree about every
     // code minted after the split; the render's table, which the live loop commits to the position, then names a state code by a shown text (or
     // by none: `unknown text code`, the Argent and Nekro rows of the faction sweep).
-    r.sync_codes(&mut core.texts.codes);
-    let t = combat_texts_in(core, r);
-    r.sync_codes(&mut core.texts.codes);
+    // (A `Render` that does not continue the position's table keeps the two apart, as before: the state texts go to the position.)
+    let one = r.sync_codes(&mut core.texts.codes);
+    let t = combat_texts_in(core, r, one);
+    if one {
+        r.sync_codes(&mut core.texts.codes);
+    }
     t
 }
 
-fn combat_texts_in(core: &CoreState, r: &Render) -> CombatTexts {
-    let state_code = |_: &CoreState, text: &str| -> Code { r.code(text) };
+fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
+    let state_code = |core: &mut CoreState, text: &str| -> Code {
+        if one {
+            r.code(text)
+        } else {
+            Code(u16::try_from(core.texts.codes.intern(text.as_bytes(), ti4_engine_core::state::CODE_CAPACITY).expect("room for the text")).expect("a code fits"))
+        }
+    };
     let mut t = CombatTexts::default();
     for (slot, text) in t.phases.iter_mut().zip(["pre_roll", "barrage", "resolving_hits", "retreating", "complete"]) {
         *slot = state_code(core, text);
@@ -506,6 +515,26 @@ mod tests {
 
     fn mv(origin: &SystemId, index: usize) -> String {
         format!("move|{origin}|{index}")
+    }
+
+    /// Crash Landing played in the window of the loss of its holder's last ship, in a space fight of the native tactical action: the ground
+    /// force that rides in the space area lands on a planet of the active system (it is saved from the space area it would not survive), as the
+    /// string does. The holder answers the first option everywhere (the card is offered, played, the first planet is chosen); some seeds lose the
+    /// carrier in the first round, the others fight on and offer the card later. Bail as failure: the native path never stops at the card.
+    #[test]
+    fn crash_landing_saves_the_ground_force_of_a_lost_last_ship_in_lockstep() {
+        let (hub, origin, target, _planet) = super::super::tactical_live::tests::one_planet_hub_for_lockstep();
+        for seed in 0..6_u64 {
+            let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+            state.rng_seed = seed;
+            crate::fixtures::put(&mut state, &origin, "dreadnought", &a(), 3);
+            crate::fixtures::put(&mut state, &target, "carrier", &b(), 1);
+            crate::fixtures::put(&mut state, &target, "infantry", &b(), 1);
+            state.player_mut(&b()).unwrap().action_cards.push(ti4_model::id::ActionCardId::new("crashlanding"));
+            let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), &mv(&origin, 0), &mv(&origin, 0), "done_moving"];
+            let diffs = lockstep(state, &hub.galaxy, &script);
+            assert!(diffs.is_empty(), "seed {seed}: {diffs:#?}");
+        }
     }
 
     /// A space fight with no decision of the defender: a carrier and a cruiser against a lone cruiser, both sides answering the first option.

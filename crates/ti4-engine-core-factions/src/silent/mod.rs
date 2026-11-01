@@ -29,6 +29,8 @@ pub fn register_abilities(t: &mut AbilityTable) {
     cabal::register_abilities(t);
     empyrean::register_abilities(t);
     ghost::register_abilities(t);
+    // The Muaat hero's windows (Adjudicator Ba'al, lane M6d) come with the Muaat module of the string, after Ghost's.
+    crate::ce_movement::muaat::timing::register_abilities(t);
     muaat::register_abilities(t);
     naaz::register_abilities(t);
     scavenge::register_abilities(t);

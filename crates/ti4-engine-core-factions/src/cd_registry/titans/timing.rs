@@ -12,7 +12,7 @@ use ti4_engine_core::choice::generic::Content;
 use ti4_engine_core::choice::reaction::{AbilityKind, Ask as RAsk, Opt as ROpt, Relation, Subtype as RSub};
 use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use ti4_engine_core::containers::SmallList;
-use ti4_engine_core::generated::{Faction, Planet, System, Unit, UnitBaseType};
+use ti4_engine_core::generated::{Planet, System, Unit, UnitBaseType};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec};
 use ti4_engine_core::kernel::resolver::TimingError;

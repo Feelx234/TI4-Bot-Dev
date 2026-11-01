@@ -172,6 +172,12 @@ pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     if let Some((facts, at)) = &asking.nested {
         crate::dual_window::complete_nested(cx.render, &asking.choice, facts, &crate::dual_window::NestedPos::of_core(cx.render, at), at, &mut rendered);
         crate::combat_live::after_nested(&asking.choice, &mut rendered);
+    } else if matches!(asking.choice.ctx.origin, ti4_engine_core::choice::Origin::ActionCard(_)) {
+        // A question of an action card played from a window (Crash Landing's planet, asked while the combat or the invasion goes on) is asked by the
+        // string through `ask_seeing` too: it names the battle and the invasion the position is in.
+        if let Some(ctx) = rendered.context.take() {
+            rendered.context = Some(crate::dual_window::nested_position(&asking.choice, ctx, &crate::dual_window::NestedPos::of_core(cx.render, at)));
+        }
     }
     rendered
 }

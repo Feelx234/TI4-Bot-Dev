@@ -100,10 +100,6 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::ce_movement::nomad::timing::MERCER, kind: "leader", card: "nomadagentmercer" },
     Named { slot: ti4_engine_core_factions::ce_movement::muaat::timing::NOVA_SEED, kind: "leader", card: "muaathero" },
     Named { slot: ti4_engine_core_factions::ce_movement::muaat::timing::WAR_SUN_MOVED, kind: "leader", card: "muaathero_moved" },
-    Named { slot: ti4_engine_core_factions::cc_ground::ghost::timing::SAI_SHIP_MOVED, kind: "leader", card: "ghostcommander" },
-    Named { slot: ti4_engine_core_factions::cc_ground::ghost::timing::SAI_FINISHED, kind: "leader", card: "ghostcommander" },
-    Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::ACAMAR, kind: "leader", card: "empyreanagent" },
-    Named { slot: ti4_engine_core_factions::ce_movement::empyrean::timing::XUANGE, kind: "leader", card: "empyreancommander" },
     Named { slot: ti4_engine_core_factions::cd_registry::titans::timing::AWAKEN, kind: "ability", card: "awaken" },
     Named { slot: ti4_engine_core_factions::cd_registry::titans::timing::OURANOS, kind: "unit", card: "titans_flagship" },
     Named { slot: ti4_engine_core_factions::silent::gift::GIFT, kind: "promissory", card: "gift" },
@@ -273,9 +269,10 @@ pub fn table() -> AbilityTable {
             ti4_engine_core_factions::ca_combat::register_abilities(&mut t);
             ti4_engine_core_factions::ce_movement::register_late_abilities(&mut t);
             ti4_engine_core_factions::cb_economy::register_late_abilities(&mut t);
-            ti4_engine_core_factions::cd_registry::register_abilities(&mut t);
+            ti4_engine_core_factions::cd_registry::register_early_abilities(&mut t);
             ti4_engine_core_factions::activation::register(&mut t);
             ti4_engine_core_factions::silent::register_abilities(&mut t);
+            ti4_engine_core_factions::cd_registry::register_last_abilities(&mut t);
             ti4_engine_core::rules::reactions::register_after_factions(&mut t);
             ti4_engine_core_factions::cards::register(&mut t);
             // The links to the areas whose windows an action card runs as children: a play window that follows nested
@@ -786,8 +783,8 @@ mod tests {
         played.played = vec!["scramble".to_owned(), "fire_team".to_owned()];
         assert_eq!(played.unported(&t), None, "a Scramble Frequency and a Fire Team are played by the registered plays of the core");
         // Another card the core does not play stays named.
-        played.played = vec!["crashlanding".to_owned()];
-        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card crashlanding)"), "a card the core does not play");
+        played.played = vec!["refit".to_owned()];
+        assert_eq!(played.unported(&t).as_deref(), Some("unported ability reaction:*:HITS_TO_ASSIGN:when (card refit)"), "a card the core does not play");
     }
 
     #[test]
@@ -797,10 +794,12 @@ mod tests {
         let mut r = rec(&[slot], &[slot]);
         r.played = vec!["mb1".to_owned()];
         assert_eq!(r.unported(&t), None, "a Morale Boost is a stamp the core plays");
-        r.played = vec!["mb1".to_owned(), "crashlanding".to_owned()];
-        assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card crashlanding)"));
+        r.played = vec!["mb1".to_owned(), "refit".to_owned()];
+        assert_eq!(r.unported(&t).as_deref(), Some("unported ability reaction:*:COMBAT_ROUND_STARTED:after (card refit)"));
         r.played = vec!["upgrade".to_owned(), "decoy".to_owned(), "harness".to_owned(), "infiltrate".to_owned(), "bribery".to_owned(), "lieinwait".to_owned(), "experimental".to_owned()];
         assert_eq!(r.unported(&t), None, "lane H: the hosts of these seven cards hand the play facts");
+        r.played = vec!["crashlanding".to_owned()];
+        assert_eq!(r.unported(&t), None, "H3: the hosts of the loss of a ship (the hit assignment) are native windows: Crash Landing is nested");
         r.played = vec!["reveal_prototype".to_owned()];
         assert_eq!(r.unported(&t), None, "W4: Reveal Prototype is played by the core");
         r.played = vec!["reflective".to_owned(), "ghost_squad".to_owned(), "courageous".to_owned()];
@@ -817,7 +816,7 @@ mod tests {
         let mut r = rec(&[slot], &[slot]);
         r.played = vec!["sabo1".to_owned()];
         assert_eq!(r.unported(&table()), None, "a Sabotage is played at once by the core");
-        r.played = vec!["crashlanding".to_owned()];
+        r.played = vec!["refit".to_owned()];
         assert_eq!(r.unported(&table()).as_deref(), Some("unported ability reaction:*:ACTION_CARD_PLAYED:when (a card played at once)"));
     }
 
