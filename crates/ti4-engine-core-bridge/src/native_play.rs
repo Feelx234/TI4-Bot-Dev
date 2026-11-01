@@ -786,10 +786,10 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 let mut run = run_legacy(&mut legacy, &group, &ahead);
                 // The native steps ran on where the string takes a step of its own with no question (the close of an action): that step uses no
                 // answer; its events meet what the native pushed ahead, and the legacy game is stepped again with the same answers.
-                let mut catch_up = 0;
+                let mut catch_up = 0; // mutants:skip (the counter only feeds the defensive bound)
                 // (Or the string took a step that did and said nothing -- the scoring window of an event nobody scores, ahead of the phase flip --
                 // where the native loop has a step of its own: the answers are still unused.)
-                while run.records.is_empty() && (!owed.native.is_empty() || run.events.is_empty()) && run.info.error.is_none() && !group.iter().all(|p| p.asked.is_empty()) && catch_up < 4 {
+                while run.records.is_empty() && (!owed.native.is_empty() || run.events.is_empty()) && run.info.error.is_none() && !group.iter().all(|p| p.asked.is_empty()) && catch_up_allowed(catch_up) {
                     let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
                     let _ = (legacy.decisions_since(), legacy.events_since());
                     if let Some((at, n, l)) = owed.settle(Vec::new(), run.events.clone()) {
@@ -797,7 +797,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                         break;
                     }
                     run = run_legacy(&mut legacy, &group, &ahead);
-                    catch_up += 1;
+                    catch_up += 1; // mutants:skip (the counter only feeds the defensive bound)
                 }
                 if first_difference.is_some() {
                     break End::Finished;
@@ -884,6 +884,11 @@ impl Owed {
         self.legacy = legacy[common..].to_vec();
         None
     }
+}
+
+/// The defensive bound of the catch-up loop of [`shadow_play`] (the string never takes more than a handful of steps that ask and say nothing in a row).
+const fn catch_up_allowed(done: usize) -> bool { // mutants:skip (a bound that only guards a loop)
+    done < 4
 }
 
 /// How many native steps the legacy game is given answers for beyond the group it is stepped with.
@@ -1117,6 +1122,16 @@ mod tests {
         assert!(!legacy.galaxy().expect("a galaxy").hyperlane_lanes, "the string has not applied its laws to the galaxy yet");
         let g = game("xxcha", 4, 1);
         assert!(g.core.galaxy().expect("a map").hyperlane_lanes, "the core's map holds the lanes");
+    }
+
+    /// The string takes a step that asks and says nothing ahead of the phase flip (the scoring window of an event nobody scores); the native loop has a step of its
+    /// own with no question there, and the shadow compared Arborec's Mitosis question of the status phase with that empty step (5-player letnev table, seed 1,
+    /// native step 98).
+    #[test]
+    fn the_shadow_steps_the_string_again_over_a_step_that_said_nothing_instead_of_calling_the_status_phase_question_a_difference() {
+        let s = shadow_play(&lobby_spec("letnev", 5, 1), 400, 50).expect("builds");
+        assert!(s.first_difference.as_ref().is_none_or(|d| d.step > 98), "{:?}", s.first_difference);
+        assert!(s.played.steps > 98, "the game plays past the status phase question: {}", s.played.steps);
     }
 
     #[test]

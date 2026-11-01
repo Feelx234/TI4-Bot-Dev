@@ -441,6 +441,11 @@ fn the_events_an_earlier_step_of_the_chain_emitted_survive_a_reaction_question_o
     a.feats_noted = true;
     a.holds = true;
     AftermathChain::new(a).to_pending(&mut core);
+    // At the question itself: the invasion's event is in the queue, the aftermath's own line (`INVASION_RESOLVED`) is not (it is drained when the step ends).
+    let Live::Asks(q) = advance_aftermath(&mut core, &env, None).expect("runs").0 else { panic!("the reaction is asked") };
+    assert!(matches!(q.choice.ask, Ask::Reaction(_)) && q.nested.is_some(), "a question from inside an emission");
+    assert!(core.ledger().events.iter().any(|e| matches!(e, Emit::Typed(t) if t.kind == EventKind::InvasionBegan)), "mirrored at the suspension");
+    assert!(plain_kinds(&core).is_empty(), "the aftermath's plain log waits for the end of the step");
     let (asked, end) = play(&mut core, &env, &mut |c: &Choice| {
         if matches!(c.ask, Ask::Reaction(_)) { c.opts.as_slice().iter().position(|o| *o == Opt::Decline).unwrap_or(0) } else { stop_producing(c) }
     });

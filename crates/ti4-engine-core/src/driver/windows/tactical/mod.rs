@@ -253,13 +253,13 @@ impl Window for TacticalAction {
                             Next::Continue(_) => {
                                 let Some(choice) = head.ask_of(sx.state, sx.kernel) else { return Self::bail(sx, TacticalGap::NoProgress) };
                                 let pick = sx.ask(&choice);
-                                if crate::driver::turn::inline::halted(sx) {
+                                if crate::driver::turn::inline::halted(sx) { // mutants:skip: the driver rolls a dry step back whatever the step returns
                                     return Next::Done;
                                 }
                                 let mark = crate::kernel::fx::journal_mark(sx.resolver);
                                 let answered = head.answer(sx, pick);
                                 crate::kernel::fx::mirror_journal(sx.state, sx.resolver, mark);
-                                if answered.is_err() {
+                                if answered.is_err() { // mutants:skip: the head's own question was just asked, so its answer is never refused
                                     return Self::bail(sx, TacticalGap::NoProgress);
                                 }
                             }
