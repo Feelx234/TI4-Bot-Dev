@@ -283,7 +283,9 @@ fn a_fight_of_no_rounds_or_a_draw_remembers_nobody_and_a_lost_fight_gives_no_inv
 #[test]
 fn the_end_of_a_fight_then_enforces_every_listed_fleet() {
     covers!("driver::windows::aftermath::FightOver");
-    let sc = || table().unit(sys(), None, Unit::CruiserI, 0, 3);
+    // (Since lane M6c the limits are the ones of the position when the fight is over, taken after the win is announced: the fleet pool of two tokens
+    // is the fleet supply, the limits in the facts are only the pairs to enforce.)
+    let sc = || table().tokens(0, 3, 2, 2).unit(sys(), None, Unit::CruiserI, 0, 3);
     let mut f = over_facts(Some(Seat(0)), 1, false);
     f.pairs = vec![(Seat(0), sys(), limits(2))];
     let mut rig = Rig::new(sc(), FightOver::new(f.clone()));
