@@ -111,12 +111,13 @@ fn a_strategic_action_chosen_from_the_menu_stops_nowhere_and_opens_the_follower_
 
 #[test]
 fn an_option_no_window_runs_yet_is_a_gap_that_names_it_and_leaves_the_position() {
-    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).goods(0, 8).build();
-    s.players_mut().edit(0).cards.explore.push(ti4_engine_core::generated::Explore::EnigmaticDevice1);
+    let (mut s, k) = Scenario::new(&[Faction::TheWinnu, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).build();
+    s.players_mut().edit(0).leaders.status.insert(ti4_engine_core::generated::Leader::MathisMathinus, ti4_engine_core::state::LeaderStatus::Unlocked);
+    s.strategy_mut().unclaimed.push(ti4_engine_core::generated::StrategyCard::ALL[0]);
     let e = env_r(&k);
     let held = s.clone();
-    let result = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Device(_))));
-    assert!(matches!(result, Err(LiveError::Unknown(Unknown::TurnGap(TurnGap::Menu(MenuGap::Unrouted(8, _)))))), "{result:?}");
+    let result = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(ti4_engine_core::generated::Leader::MathisMathinus))));
+    assert!(matches!(result, Err(LiveError::Unknown(Unknown::TurnGap(TurnGap::Menu(MenuGap::Unrouted(5, _)))))), "{result:?}");
     assert_eq!(s, held, "nothing was written");
 }
 
@@ -1468,5 +1469,23 @@ fn conservator_procyon_chosen_from_the_menu_explores_the_frontier_under_the_seat
     first_options(&mut s, &e, live, 6);
     assert_eq!(status(&s, 0, Leader::ConservatorProcyon), Some(LeaderStatus::Purged));
     assert!(!s.explore().frontier.contains(empty), "the token under the ship was explored");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// Lane F2e: an Enigmatic Device card in the play area asks the technology first, then takes six resources, is purged and researches it.
+#[test]
+fn an_enigmatic_device_card_chosen_from_the_menu_asks_pays_six_purges_the_card_and_researches() {
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).goods(0, 8).tokens(0, 3, 3, 2).build();
+    s.players_mut().edit(0).cards.explore.push(ti4_engine_core::generated::Explore::EnigmaticDevice1);
+    let e = env_r(&k);
+    let owned = s.players().by_seat(Seat(0)).unwrap().tech.owned.len();
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Device(_)))).unwrap();
+    assert!(matches!(live, Live::Asks(_)), "the technology is asked before anything is paid");
+    assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 8, "nothing is paid yet");
+    first_options(&mut s, &e, live, 10);
+    let p = s.players().by_seat(Seat(0)).unwrap();
+    assert_eq!(p.econ.trade_goods, 2, "six were paid");
+    assert_eq!(p.tech.owned.len(), owned + 1, "one technology researched");
+    assert!(p.cards.explore.as_slice().is_empty(), "the card is purged");
     assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
 }

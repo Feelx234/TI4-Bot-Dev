@@ -41,6 +41,7 @@ impl Family for Fam {
             Ask::TitanPrototype => "Titan Prototype: which player may build".to_owned(),
             Ask::StellarConverter => "Stellar Converter: destroy which planet".to_owned(),
             Ask::GainTechnology { .. } | Ask::GainTechnologyFrom { .. } => "gain which technology".to_owned(),
+            Ask::DeviceTechnology { .. } => "research which technology with the Enigmatic Device".to_owned(),
             Ask::FragmentType { count: 1 } => "purge 1 fragment of which type".to_owned(),
             Ask::FragmentType { count } => format!("purge {count} fragments of which type"),
             Ask::TokenPool => "Fabrication: which pool gains the token".to_owned(),
@@ -57,6 +58,7 @@ impl Family for Fam {
             Subtype::StellarConverterChooseTarget => "stellar_converter_choose_target",
             Subtype::ChooseTechnology(relic) => return format!("{}_choose_technology", relic.as_str()),
             Subtype::ChooseTechnologyFrom(source) => return format!("{}_choose_technology", r.code_text(*source)),
+            Subtype::DeviceChooseTechnology => "enigmatic_device_choose_technology",
             Subtype::FragmentType => "fragment_type",
             Subtype::TokenPool => "token_pool",
         }
@@ -95,6 +97,11 @@ impl Family for Fam {
                 let id = p.as_str();
                 ChoiceOption::labelled(id, "planet", format!("destroy {id}")).with_planet(id, shown.system.map(|s| s.as_str()))
             }
+            Opt::Tech(t) if matches!(a, Ask::DeviceTechnology { .. }) => {
+                let id = t.as_str();
+                let name = ti4_content::ContentStore::embedded().get(ti4_model::content_types::ContentType::Technologies, id).and_then(|record| record.text("name")).unwrap_or(id);
+                ChoiceOption::labelled(id, "technology", format!("research {name}"))
+            }
             Opt::Tech(t) => {
                 let id = t.as_str();
                 ChoiceOption::labelled(id, "technology", format!("gain {id}"))
@@ -110,7 +117,7 @@ impl Family for Fam {
             Ask::Codex => ActionCard::from_id(id).map(|c| Opt::Take(c, Shown::default())),
             Ask::TitanPrototype => r.seat(id).map(Opt::Builder),
             Ask::StellarConverter => Planet::from_id(id).map(|p| Opt::Destroy(p, Shown::default())),
-            Ask::GainTechnology { .. } | Ask::GainTechnologyFrom { .. } => Technology::from_id(id).map(Opt::Tech),
+            Ask::GainTechnology { .. } | Ask::GainTechnologyFrom { .. } | Ask::DeviceTechnology { .. } => Technology::from_id(id).map(Opt::Tech),
             Ask::FragmentType { .. } => ExploreType::ALL.iter().copied().find(|k| k.as_str().eq_ignore_ascii_case(id)).map(Opt::Fragment),
             Ask::TokenPool => [Pool::Tactic, Pool::Fleet, Pool::Strategic].into_iter().find(|pool| pool_name(*pool) == id).map(Opt::Pool),
         }

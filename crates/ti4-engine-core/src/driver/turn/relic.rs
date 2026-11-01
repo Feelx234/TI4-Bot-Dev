@@ -198,3 +198,40 @@ fn silver_flame(sx: &mut Sx<'_>, who: Seat) {
     });
     crate::rules::explore::silver_flame(sx.state, who, u32::from(face) == SILVER_FLAME_SIDES);
 }
+
+/// An Enigmatic Device exploration card in the play area (`exploration::perform_action`): the technology is asked first (among those the seat could
+/// research by prerequisites, in the order of the alias text), then the six resources are paid, the card is purged and the technology researched. A use
+/// that cannot be paid, or with nothing to research, fails and is withheld from the menu for the turn.
+pub fn use_device(sx: &mut Sx<'_>, who: Seat, key: u32, card: crate::generated::Explore) -> Flow {
+    let Some(plays) = sx.table.facts.plays.as_ref() else { return gap_flow(sx, TurnGap::NoRoster) };
+    let (Some(roster), alias_order) = (plays.roster, plays.tech_order) else { return gap_flow(sx, TurnGap::NoRoster) };
+    let scope = crate::query::reach::scope_of(sx.kernel);
+    let hooks = crate::rules::production::strategy_cards::KernelHooks::new(sx.state, sx.kernel, who);
+    let open = crate::query::tech::researchable_by_prerequisites(sx.state, scope, crate::query::reach::blanked(sx.state), who, &hooks);
+    let mut options: Vec<Technology> = Technology::ALL.iter().copied().filter(|t| open.contains(*t)).collect();
+    options.sort_by(|a, b| alias_order(*a, *b));
+    if options.is_empty() {
+        return conclude_quiet(sx, who, key, Verdict::Failed { withhold: true });
+    }
+    let mut window = crate::rules::relic_windows::GainTechnology::for_device(who, card, &options);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    let Some(chosen) = window.chosen else { return conclude_quiet(sx, who, key, Verdict::Failed { withhold: true }) };
+    let mut bill = crate::rules::production::pay::PayBill::new(who, crate::query::economy::Spend::Resources, 6);
+    if run_window(sx, &mut bill) == Flow::Halt {
+        return Flow::Halt;
+    }
+    if bill.outcome != Some(true) {
+        return conclude_quiet(sx, who, key, Verdict::Failed { withhold: true });
+    }
+    if let Some(p) = sx.state.players_mut().by_seat_mut(who)
+        && let Some(at) = p.cards.explore.as_slice().iter().position(|held| *held == card)
+    {
+        p.cards.explore.remove(at); // purged
+    }
+    if !crate::rules::production::strategy_cards::Research::research_chosen(sx.state, sx.kernel, scope, *roster, who, chosen) {
+        crate::kernel::fx::grant_technology(sx.state, who, chosen);
+    }
+    conclude_quiet(sx, who, key, Verdict::Resolved)
+}

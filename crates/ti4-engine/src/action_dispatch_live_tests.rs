@@ -461,3 +461,14 @@ fn terraform_chosen_from_the_menu_attaches_like_the_string() {
     let state = super::turn_live_tests::based(state);
     lockstep(&state, &[&format!("faction|titans|terraform|{planet}")], "COMPONENT_ACTION_RESOLVED");
 }
+
+#[test]
+fn an_enigmatic_device_card_chosen_from_the_menu_researches_like_the_string() {
+    let mut state = action_table(&THREE);
+    let card = ti4_engine_core::generated::Explore::EnigmaticDevice1.as_str();
+    let seat = state.player_mut(&pid("a")).unwrap();
+    seat.exploration_cards = vec![card.to_owned()];
+    seat.trade_goods = 8;
+    let state = super::turn_live_tests::based(state);
+    lockstep(&state, &[&format!("play_area:{card}")], "COMPONENT_ACTION_RESOLVED");
+}

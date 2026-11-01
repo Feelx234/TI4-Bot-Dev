@@ -527,7 +527,7 @@ fn menu_body_is_lent(id: &str) -> bool {
     if let Some(alias) = id.strip_prefix("relic|") {
         return !ti4_engine_core::generated::Relic::ALL.iter().any(|r| r.as_str() == alias && ti4_engine_core::driver::turn::relic::routed(*r));
     }
-    (id.starts_with("component|") && !id.starts_with("component|trade|")) || id.starts_with("play_area:")
+    id.starts_with("component|") && !id.starts_with("component|trade|")
 }
 
 /// Take the `private:#staged:event:*` marks out of a position: the `type` of each, in key order.

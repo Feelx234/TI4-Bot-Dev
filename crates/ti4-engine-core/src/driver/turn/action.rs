@@ -60,6 +60,7 @@ pub fn run_action(sx: &mut Sx<'_>, key: u32) -> Flow {
             _ => unrouted(sx, opt),
         },
         Dispatch::Faction(action) => super::faction::run(sx, active, key, action),
+        Dispatch::Device(card) => super::relic::use_device(sx, active, key, card),
         Dispatch::Leader { leader, borrowed } => super::leader::run(sx, active, key, leader, borrowed),
         Dispatch::Technology(tech) => super::technology::run(sx, active, key, tech),
         Dispatch::ActionCard => match opt {
