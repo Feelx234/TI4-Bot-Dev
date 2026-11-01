@@ -109,3 +109,15 @@ fn a_standing_permission_shows_the_notes_in_the_neighbours_hands_and_merges_with
     assert!(seen(&plain, &k2, 0).is_empty());
     assert!(seen(&s, &k, 1).iter().all(|r| r.owner != Seat(1)), "a seat is not its own audience");
 }
+
+#[test]
+fn my_notes_are_the_notes_of_the_hand_that_are_not_faceup() {
+    covers!("seen::hand");
+    let (mut s, k) = table();
+    let note = NoteKey { note: PromissoryNote::ALL[0], faction: Faction::TheEmbersOfMuaat };
+    s.cards_mut().promissory.edit().insert(note, Seat(0));
+    assert_eq!(Seen::new(&s, &k, Seat(0)).my_notes(), vec![note]);
+    assert!(Seen::new(&s, &k, Seat(1)).my_notes().is_empty(), "another seat's hand");
+    s.cards_mut().promissory_faceup.edit().insert(note, ());
+    assert!(Seen::new(&s, &k, Seat(0)).my_notes().is_empty(), "faceup is public");
+}

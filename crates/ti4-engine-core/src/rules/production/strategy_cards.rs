@@ -998,7 +998,7 @@ impl Research {
         for (slot, offer) in offered.iter_mut().zip(&offers) {
             *slot = Some(offer.waiver);
         }
-        let mut options = opts((0..offers.len().min(2)).filter_map(|i| u8::try_from(i).ok()).map(SOpt::ResearchWaiver));
+        let mut options = opts((0..offers.len().min(2)).filter_map(|i| u8::try_from(i).ok()).map(SOpt::ResearchWaiver)); // mutants:skip -- `start_waiver` leaves the path above two offers, so the cap is never reached
         options.push(Opt::Decline);
         Some(Choice { actor: self.who, ask: ask(SAsk::ResearchWaiver { tech, offered }), ctx: waiver_ctx(SSub::ResearchWaiver), opts: options })
     }

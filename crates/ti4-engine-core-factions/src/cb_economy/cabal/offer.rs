@@ -35,7 +35,7 @@ pub fn unit_upgrade_base(k: &Kernel, tech: Technology) -> Option<UnitBaseType> {
 /// The code of a payment: the captured model of `owner` (a seat) of the form `unit`.
 #[must_use]
 pub fn payment_code(owner: Seat, unit: Unit) -> u16 {
-    (u16::from(owner.0) << 8) | u16::try_from(unit.index()).unwrap_or(0)
+    (u16::from(owner.0) << 8) | u16::try_from(unit.index()).unwrap_or(0) // mutants:skip -- a unit index always fits a u16, the fallback is never taken
 }
 
 /// The captured model a payment code names: the seat it belongs to and its form (the inverse of [`payment_code`]).

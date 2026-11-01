@@ -89,8 +89,8 @@ pub enum PaymentPlace {
 #[must_use]
 pub fn place_code(place: PaymentPlace) -> u16 {
     match place {
-        PaymentPlace::Planet(planet) => u16::try_from(planet.index() + 1).unwrap_or(0),
-        PaymentPlace::Space(system) => SPACE | u16::try_from(system.index()).unwrap_or(0),
+        PaymentPlace::Planet(planet) => u16::try_from(planet.index() + 1).unwrap_or(0), // mutants:skip -- an index always fits a u16, the fallback is never taken
+        PaymentPlace::Space(system) => SPACE | u16::try_from(system.index()).unwrap_or(0), // mutants:skip -- an index always fits a u16, the fallback is never taken
     }
 }
 

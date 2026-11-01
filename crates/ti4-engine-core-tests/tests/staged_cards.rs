@@ -157,3 +157,39 @@ fn a_position_without_the_marks_slice_has_nothing_staged() {
     s.loaded = ti4_engine_core::state::SliceSet::of_without(ti4_engine_core::state::SliceSet::ALL, ti4_engine_core::state::Slice::Marks);
     assert!(!has_staged_cards(&s));
 }
+
+/// A window that announces with nothing staged.
+#[derive(Debug, Clone)]
+struct Idle {
+    count: Option<usize>,
+}
+
+impl Window for Idle {
+    type Stage = bool;
+
+    fn stage(&self) -> bool {
+        self.count.is_some()
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        self.count = Some(announce_staged_cards(sx).expect("announces"));
+        Next::Done
+    }
+
+    fn ask_of(&self, _: &CoreState, _: &ti4_engine_core::kernel::Kernel) -> Option<Choice> {
+        None
+    }
+
+    fn answer(&mut self, _: &mut Sx<'_>, _: Pick) -> Result<(), Illegal> {
+        Err(Illegal)
+    }
+}
+
+#[test]
+fn announcing_with_nothing_staged_counts_zero_and_emits_nothing() {
+    covers!("kernel::fx_cards");
+    let mut rig = Rig::new(Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]), Idle { count: None });
+    rig.run();
+    assert_eq!(rig.driver.window.count, Some(0));
+    assert!(rig.state.ledger().events.iter().all(|e| !matches!(e, Emit::Typed(_))));
+}
