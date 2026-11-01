@@ -692,6 +692,17 @@ pub fn resolver_of(r: &Render, cfg: &ResolverCfg) -> Option<Resolver> {
     let mut core = Resolver::from_state(&state, ti4_engine_core::containers::Cow::new(ti4_engine_core::kernel::Registry::default()));
     core.set_active_player(cfg.active.as_deref().and_then(|s| r.seat(s)));
     core.set_phase(phase_of(cfg.phase));
+    // S1 (`docs/STRING_ENGINE_BUGS.md`): the string offers an action-phase window in its fixed initiative list ROTATED to start at the active seat; the
+    // core offers the active seat first and then the others in initiative order (the user's ruling). Handed the string's list rotated the same way,
+    // the core's order is the string's: this adapter compares the two, it does not copy the bug into the core.
+    if !phase_of(cfg.phase).uses_speaker_order()
+        && let Some(active) = cfg.active.as_deref().and_then(|s| r.seat(s))
+        && let Some(at) = state.initiative.as_slice().iter().position(|s| *s == active)
+    {
+        let list = state.initiative.as_slice();
+        let rotated: Vec<Seat> = list[at..].iter().chain(&list[..at]).copied().collect();
+        core.set_initiative_order(&rotated);
+    }
     core.set_seating_order(&seats(&cfg.seating)?);
     core.set_speaker(cfg.speaker.as_deref().and_then(|s| r.seat(s)));
     core.set_counters(cfg.round, cfg.turn);
