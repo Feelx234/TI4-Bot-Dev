@@ -41,5 +41,8 @@ pub fn register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable
 
 /// The abilities of the factions that come after Mentak and Nekro in the string order of the modules (Nomad).
 pub fn register_late_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
+    // The Muaat hero's windows (Adjudicator Ba'al, lane M6d) and the war sun record come with the Muaat module of the string: after the Empyrean's and the
+    // Ghosts' rules (`silent::register_before_muaat`), before the Nomad's.
+    muaat::timing::register_abilities(t);
     nomad::timing::register_abilities(t);
 }

@@ -22,6 +22,10 @@ pub fn complete(core: &CoreState, kernel: &Kernel, choice: &CoreChoice, rendered
         Ask::Strategy(SAsk::WarfareRedistribute { .. } | SAsk::TeWarfareRedistribute { .. } | SAsk::TeWarfareRedistributeAfter { .. }) => {
             pool_details(core, choice.actor, "redistribute", None, rendered);
         }
+        // Carth of Golden Sands' branch: the seat's own commodities, which the "gain 2" branch adds to (`leaders::hacan_agent`'s `.detailed("commodities", ..)`).
+        Ask::Leaders(ti4_engine_core::choice::leaders::Ask::HacanBranch) => {
+            rendered.details.insert("commodities".to_owned(), super::strategic::commodity_standing(core, choice.actor));
+        }
         _ => {}
     }
     // The placement of lane G4's abilities (Yin Spinner, the Naalu mech): the offer card with a caption per spot.
