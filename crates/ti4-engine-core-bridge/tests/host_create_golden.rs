@@ -1,7 +1,7 @@
 //! D2-8c: the games the host creates (`ti4_host::setup::create`: the plain tables, every start
 //! preset, every scenario) are the same games after the setup moved from the legacy engine into the
 //! thin crate: a digest of the position and the map of each, compared with
-//! `tests/data/host_create.golden`.
+//! `tests/host_create.golden`.
 //!
 //! The golden file was recorded with the host going through the **legacy** setup and builders
 //! (the commit before D2-8c; `TI4_RECORD_HOST_GOLDEN=<path>` writes one). It is never re-recorded
@@ -16,7 +16,7 @@ use ti4_content::ContentStore;
 use ti4_host::setup::{SpeakerOrder, TableSetup, create, draw};
 use ti4_model::id::PlayerId;
 
-const GOLDEN: &str = include_str!("data/host_create.golden");
+const GOLDEN: &str = include_str!("host_create.golden");
 
 const PRESETS: [&str; 17] = [
     "combat", "cards", "agenda", "relics", "invasion", "techs", "leaders", "endgame", "siege",
