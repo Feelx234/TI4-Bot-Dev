@@ -270,8 +270,10 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
         None => {
             let (live, out) = advance(core, env, None)?;
             cx.render.sync_codes(&mut core.texts.codes);
+            let held = out.held;
             merge(&mut step, out);
             match live {
+                Live::Done if held => return Ok(step),
                 Live::Done => {
                     step.finished = true;
                     return Ok(step);
@@ -296,8 +298,11 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
         };
         let (live, out) = advance(core, env, Some(pick))?;
         cx.render.sync_codes(&mut core.texts.codes);
+        let held = out.held;
         merge(&mut step, out);
         match live {
+            // The string's step ends with the window open and asks nothing (its next step closes it).
+            Live::Done if held => return Ok(step),
             Live::Done => {
                 step.finished = true;
                 return Ok(step);

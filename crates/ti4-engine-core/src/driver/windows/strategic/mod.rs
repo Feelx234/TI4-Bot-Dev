@@ -53,13 +53,18 @@ pub fn complete_leader_strategy(core: &mut CoreState) {
 #[derive(Debug, Clone)]
 pub struct SecondaryWin {
     w: Secondary,
+    /// The answer of this call left followers in the list (`!is_complete`): the string's step ends with it. Not in the payload: a window is rebuilt
+    /// from the payload at every call, and the flag lives for the answer and the `step` that follows it.
+    cut: bool,
+    /// Set by `step` when `cut` found nobody left to ask: the call ends with the window open and the next call closes it (see [`Held::holds`]).
+    held: bool,
 }
 
 impl SecondaryWin {
     /// The window of `payload`.
     #[must_use]
     pub const fn new(payload: Secondary) -> Self {
-        Self { w: payload }
+        Self { w: payload, cut: false, held: false }
     }
 
     /// The payload as it stands.
@@ -136,6 +141,13 @@ impl Window for SecondaryWin {
     }
 
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        // `Game::step_secondary` ends its step with a follower's answer unless that answer was the last place of the list. The followers left in
+        // the list who may not follow are skipped, and the window is closed (`STRATEGIC_ACTION_COMPLETE`, the card exhausted), by the NEXT step, after
+        // the reconcile hooks of its start (the events the follow staged come before the close).
+        if std::mem::take(&mut self.cut) && self.pending(sx.state, sx.kernel).is_none() {
+            self.held = true;
+            return Next::Done;
+        }
         self.skip_ineligible(sx.state, sx.kernel);
         let Some(who) = self.current() else {
             // No follower may follow: the window is over, the card is spent.
@@ -169,6 +181,7 @@ impl Window for SecondaryWin {
         let resolution = take_answer(sx.state, sx.kernel, self.w.primary, sx.table.codes.turn.strategy_secondary, &f, opt)?;
         self.w.resolved.push((who, if resolution == Resolution::Followed { SecondaryHow::Followed } else { SecondaryHow::Declined }));
         self.w.next += 1;
+        self.cut = !self.is_complete();
         self.exhaust_if_complete(sx.state);
         sx.plain(PlainRec::bare(if resolution == Resolution::Followed { PlainKind::StrategySecondaryFollowed } else { PlainKind::StrategySecondaryDeclined }));
         if resolution == Resolution::Followed {
@@ -181,6 +194,10 @@ impl Window for SecondaryWin {
 
 impl Held for SecondaryWin {
     const KIND: WindowKind = WindowKind::StrategySecondary;
+
+    fn holds(&self) -> bool {
+        self.held
+    }
 
     fn from_pending(core: &CoreState, _: &Kernel) -> Option<Self> {
         match core.pending().window(WindowKind::StrategySecondary)? {
@@ -223,7 +240,8 @@ pub fn advance_secondary(core: &mut CoreState, env: &Env<'_>, answer: Option<Pic
     let before = core.clone();
     let result = advance::<SecondaryWin>(core, env, answer).and_then(|(live, out)| match live {
         // A preview must not finish the action (it is a planning fork's one-follower window).
-        Live::Done if !preview => close_with(core, env, TurnJob::Finish, out),
+        // (A held window ends the call, not the window: the string's next step closes it.)
+        Live::Done if !preview && !out.held => close_with(core, env, TurnJob::Finish, out),
         other => Ok((other, out)),
     });
     if result.is_err() {
