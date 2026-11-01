@@ -100,13 +100,15 @@ of the lane.
 |---|---|---|---|---|
 | 1 | `native_play::lent_close` (harness) | the status close was counted as lent for 9 games although KS5's `StatusFinish` runs in the same call | the entry is gone | `native_play::tests::the_last_token_of_the_status_phase_runs_the_close_natively_in_the_same_step` (R: the old test pinned the gap), the quick game's nine rounds |
 | 2 | `objectives_core::ObjView::build` (the engine's typed view of the objectives) | **it did not load the Cards and Trade slices**: the Dual comparison of Strengthen Bonds found `typed 0 / string 1` the moment the secret was answered by the core | the view loads both | `peace_accords_live_tests::secrets::strengthen_bonds_is_answered_by_the_typed_view_like_the_string` (R: difference 1) |
-| 3 | a paid research whose bill takes the prerequisite away | the core ended `failed` (a counted bail in 2 games) where the string restores the position and ends | `Research::land` | `research_e2` (R: `failed` on the old code), lockstep `research::a_bill_paid_with_the_specialty_planet...` (counts `(1, 0)`; old code `(0, 1)`, as the Inheritance test below) |
+| 3 | a paid research whose bill takes the prerequisite away | the core ended `failed` (a counted bail in 2 games) where the string restores the position and ends | `Research::land` | `research_e2` (R: `failed` on the old code), lockstep `research::a_bill_paid_with_the_specialty_planet...` (counts `(1, 0)`; the Dual backend counts a bail as `(0, 1)`, B) |
 | 4 | `strategy_research_tests::inheritance_systems_after_the_bill_keeps_the_string_when_the_two_resources_are_gone` | pinned "the core does not carry that rollback" (`(0, 1)`): the same fix carries it | renamed, now `(1, 0)` with the position checked | a trip-wire that fired as written |
 | 5 | `strategic/facts.rs::te_uses` | War Machine puts PRODUCTION in every system: the core listed all 231 cells of its board, `TeUses::new` (12) refused and the Construction primary stopped (`StrategyAbility`, an L1Z1X table at round 6) | only the cells the string holds an entry for (`TOUCHED`); `TE_USES` 64 for a late board | `te_uses_e2` (3 tests; R: `te_uses` is `None` on the old code) |
 | 6 | `status_phase`, `strategic_arms` | four tests pinned the gaps (`ScoringSecret` for Strengthen Bonds twice, `PeaceAccords` for an Xxcha follower, the `NoEffect(15)` of the pact in `agenda_live_tests`) | now pin the new behaviour | trip-wires |
 | 7 | `native_play` / `native_subject` tests | the quick game's counts (54 steps, round 1, `StrategyAbility`), the shadow's "no difference", `KNOWN_SILENT = [StrategyAbility]` | updated to 888 steps / 9 rounds / `Menu(ActionCard)`, 54 compared then the documented glue, `KNOWN_SILENT` empty | trip-wires; nothing loosened |
 | 8 | the new lockstep of Integrated Economy | the string asks the production question with no context, the core question has one | `live/details.rs` drops it | `peace_accords_live_tests::the_xxcha_with_integrated_economy...` (R: `context` differs) |
 | 9 | Peace Accords on the Thunder's Edge planet | the string's `legendary::control_gained` breakthrough looked like a gap | the planet is placed during play and printed on no system, so it is never a candidate | `peace_accords::the_planet_the_thunders_edge_legend_places...` |
+
+| 10 | **my own first lockstep of Peace Accords explored nothing** (found by the mutation run: `Exploring` negations survived) | `fixtures::plain_hub` is made of the first systems of the corpus, which are HOME systems: every candidate planet was a faction homeworld with no trait to explore into | `explorable_hub()` of the test file: seven systems whose planets all have a trait | the explored test now asserts the exploration decks differ from the declined run's; with it the native exploration agrees with the string, question by question |
 
 Not a bug: the lockstep needed `promissory::deal` after seating (trap T1 of `docs/todo/D2-prereqs.md`: the cards codec refuses the placeholder faction).
 
@@ -125,4 +127,28 @@ Not a bug: the lockstep needed `promissory::deal` after seating (trap T1 of `doc
 
 ## 6. Checks (cheap), private target `/root/deploytmp/core-e2` (`CARGO_BUILD_JOBS=2`, `CARGO_PROFILE_DEV_DEBUG=0`, no incremental; deleted at the end)
 
-MUTATION_AND_CHECKS_PLACEHOLDER
+* Whole `ti4-engine --lib` (lockstep profile): **5213 passed**, 7 ignored (int-12: 5199) plain, and the same with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1`: 5213 passed (run before the last test-only edits; the E2 modules and `strategy_research_tests` were rerun after them, plain: 33 + 27 passed).
+* `ti4-engine-core --lib` 480, `-factions --lib` 145, `ti4-rule-bot-typed --lib` 1, `ti4-engine-core-bridge --lib` 107 (all pass after the pins of section 4), bridge `kernel_env` 3, `play_facts` 3, `menu_sources` 2.
+* Core tests, named binaries (39, all pass): `peace_accords` 8, `crisis_pact` 4, `secret_progress_e2` 5, `research_e2` 3, `te_uses_e2` 3 (new), `query_objectives{,2}`, `status_phase`, `strategic_arms`, `research{,2}`, `research_sucaban`, `strategy_*`, `agenda_*`, `objective_windows`, `scoring_book`, `turn_jobs{,2}`, `explore_windows`, `exploring{,_freelancers}`, `leadership`, `construction`, `source_hygiene`, `driver_{windows,flow}`, `aftermath_chain`, `combat_{machine,fight}`.
+* Lockstep against the string (new, in `ti4-engine/src/peace_accords_live_tests.rs` and `agenda_live_tests.rs`): Peace Accords as the primary's player (annex with exploration, decline, another faction), as a follower, with Integrated Economy (and at the edges of its budget); the pact (all decline, all accept); Strengthen Bonds and Produce en Masse through the Dual backend of the objectives area; the paid research whose bill takes the prerequisite away.
+* `check_layers.py core`: 559 files, 0 violations. `lint_core.sh`: 561 files, 0 hits. `clippy_core.sh`: ok (core crates 0 warnings, engine 41 = baseline); it found `iter().any` -> `contains`, a lockstep file's complex types and an unused helper, fixed.
+* `native_play.sh --quick`, `--quick --shadow`, `--factions all --players 3,4,5,6 --seeds 1` (and `--seeds 3 --first-seed 2`): section 1.
+* Mutation (`tools/engine_core/mutants.sh`, committed snapshots in a scratch worktree, run by a Haiku runner and by me, `D4_COVERS_FILE=/dev/null`, single files; core tests (A) and engine lockstep (B) as two sets, union):
+
+| target (functions) | A core tests | B lockstep | union |
+|---|---|---|---|
+| `rules/peace_accords.rs` | 20/20 | 17/20 | 20/20 (the three `&&` of `annexable` are the core tests') |
+| `rules/crisis_pact.rs` | 12/12 | 11/12 | 12/12 |
+| `driver/agenda/crisis.rs` | -- | 10/10 | 10/10 |
+| `query/objectives.rs` (`rival_note_issuers`, `wants_capacity`, the rows of `secret_row`, the arms of `secret_progress`) | 43/49 | 3/49 | **all of E2's killed**; the 6 survivors are older rows and arms of the same functions (`DestroyHereticalWorks` 2, `FosterCohesion` 0, `DefyspaceAndTime` 1, `SameColourTechnologies`/`ActionCards`/`CombinedValue` `unwrap_or`) |
+| `seen/objectives.rs::terms` | 3/8 | -- | E2's lines killed (the capacity scan; the two equivalent mutants carry `mutants:skip`); the 5 survivors are the older hook terms |
+| `strategy_cards.rs` (`land`, `settle`) | 10/15 | 11/15 | `land` 100%; the survivors are older lines of `settle` (the Inheritance path) |
+| `strategic/facts.rs::te_uses` | 4/4 | 3/4 | 4/4 |
+| `strategic/perform.rs` (`resolved`, `peace_accords`, `integrated_economy`, `run_spawn`) | 2/22 (the driver has no core test but `strategic_arms`) | 20/22 | 20/22; the two left are equivalent and carry `mutants:skip` with the reason (`announce` of the exploration, `budget <= 0`) |
+
+First runs (before the tests added for them): `peace_accords.rs` 20/20, `crisis_pact.rs` 12/12 (A), `objectives.rs` 44/51, `te_uses` 2/4 (A), `land`/`waiver_only` 3/8 (a function this note no longer has: `waiver_pending` replaced it),
+`perform.rs` B 16/22. The run found that the lockstep of the exploration was vacuous (finding 10).
+
+Not run (user rule): `end_of_d1.sh` and its steps (golden / wide dual, `board_equivalence`, `core_sync_gate`, `alpha_roundtrip`, benches, soak, ratchet, census, workspace clippy beyond `clippy_core.sh`), `decision_replay`,
+`TI4_CORE_STRICT=1`, Playwright. The private target and the scratch worktree/mutation directories are deleted at the end.
+
