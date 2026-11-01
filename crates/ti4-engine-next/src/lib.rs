@@ -72,7 +72,7 @@ pub mod objectives {
 }
 pub mod production {
     pub use crate::kinds::production::{AGENT_OPTION_ID, AGENT_OPTION_KIND, BUILDABLE, PAY_KIND, PLACE_KIND, PRODUCE_KIND, REMOTE_SEPARATOR, SPACE, UNLOCKED_BY};
-    pub use crate::queries::production::{capacity, placements, price_of_under, trade_good_worth};
+    pub use crate::queries::production::{buildable_for, capacity, placements, planet_value_boosts, price_of_under, trade_good_worth};
     pub use ti4_engine_legacy::production::*;
 }
 pub mod promissory {
