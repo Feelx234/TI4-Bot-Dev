@@ -1413,3 +1413,60 @@ fn vortex_chosen_from_the_menu_captures_a_unit_type_next_to_a_space_dock_and_exh
     assert!(p.tech.exhausted.contains(Technology::Vortex));
     assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
 }
+
+/// Lane F2e: Mirik Aun Sissiri moves a ship to a system holding the seat's command token and no other player's ship, and the hero is purged.
+#[test]
+fn mirik_chosen_from_the_menu_moves_a_ship_to_a_system_with_the_seats_token_and_is_purged() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let ps = ti4_engine_core_tests::scenario::plain_systems();
+    let (mut s, k) = Scenario::new(&[Faction::TheArgentFlight, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_ring(7)
+        .unit(ps[3], None, Unit::CruiserI, 0, 1)
+        .command_token(ps[0], 0)
+        .tokens(0, 3, 3, 2)
+        .build();
+    touch(&mut s, &[ps[0], ps[3]]);
+    s.players_mut().edit(0).leaders.status.insert(Leader::MirikAunSissiri, LeaderStatus::Unlocked);
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::MirikAunSissiri)))).unwrap();
+    first_options(&mut s, &e, live, 8);
+    assert_eq!(units_of(&s, ps[0], 0, Unit::CruiserI), 1, "the cruiser arrived");
+    assert_eq!(units_of(&s, ps[3], 0, Unit::CruiserI), 0, "and left its system");
+    assert_eq!(status(&s, 0, Leader::MirikAunSissiri), Some(LeaderStatus::Purged));
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// Lane F2e: Conservator Procyon places a frontier token in every planetless system and explores the ones under the seat's ships; the hero is purged.
+#[test]
+fn conservator_procyon_chosen_from_the_menu_explores_the_frontier_under_the_seats_ships_and_is_purged() {
+    use ti4_engine_core::generated::{Explore, ExploreType, Leader};
+    use ti4_engine_core::state::LeaderStatus;
+    let ps = ti4_engine_core_tests::scenario::plain_systems();
+    let empty = *System::ALL.iter().find(|s| {
+        let d = s.data();
+        d.planets.is_empty() && !d.hyperlane && !d.home_system && !(d.anomalies.asteroid_field || d.anomalies.gravity_rift || d.anomalies.nebula || d.anomalies.supernova || d.anomalies.scar)
+    }).expect("a planetless system");
+    let (mut s, k) = Scenario::new(&[Faction::TheEmpyrean, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[ps[0], ps[1], empty])
+        .unit(empty, None, Unit::CruiserI, 0, 1)
+        .tokens(0, 3, 3, 2)
+        .build();
+    touch(&mut s, &[empty]);
+    s.decks_mut().explore[ExploreType::Frontier as usize].set(vec![Explore::UnknownRelicFragment1]);
+    s.decks_mut().explore_present |= 1 << ExploreType::Frontier as u8;
+    s.players_mut().edit(0).leaders.status.insert(Leader::ConservatorProcyon, LeaderStatus::Unlocked);
+    let mut e = env_r(&k);
+    let table = ti4_engine_core_tests::windows::explore_table();
+    e.table.facts.explore_words = table.facts.explore_words;
+    e.table.codes.explore = table.codes.explore;
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::ConservatorProcyon)))).unwrap();
+    first_options(&mut s, &e, live, 6);
+    assert_eq!(status(&s, 0, Leader::ConservatorProcyon), Some(LeaderStatus::Purged));
+    assert!(!s.explore().frontier.contains(empty), "the token under the ship was explored");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}

@@ -54,6 +54,8 @@ pub const fn routed(leader: Leader, borrowed: bool) -> bool {
             | Leader::KyverBladeAndKey
             | Leader::ItFeedsOnCarrion
             | Leader::HeshAndPrit
+            | Leader::MirikAunSissiri
+            | Leader::ConservatorProcyon
     )
 }
 
@@ -98,6 +100,8 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool)
         Leader::KyverBladeAndKey => super::hero::kyver(sx, who, key),
         Leader::ItFeedsOnCarrion => super::hero::carrion(sx, who, key),
         Leader::HeshAndPrit => super::hero::hesh_and_prit(sx, who, key),
+        Leader::MirikAunSissiri => super::hero::flock_migration(sx, who, key),
+        Leader::ConservatorProcyon => super::hero::conservator_procyon(sx, who, key),
         _ => unrouted(sx, key),
     }
 }

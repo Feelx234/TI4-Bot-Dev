@@ -12,7 +12,7 @@ use crate::kernel::stage::Sx;
 use crate::kernel::turn_codes::TurnGap;
 use crate::kernel::fx;
 use crate::query::{board, reach};
-use crate::rules::hero_windows::{CabalHero, Devourable, KyverHero, NaazHero, NekroHero, Stranded};
+use crate::rules::hero_windows::{ArgentHero, CabalHero, Devourable, EmpyreanHero, KyverHero, MigrationFacts, NaazHero, NekroHero, Stranded};
 use crate::state::Piece;
 
 /// A hero's end: purged when it resolved, then the shared tail.
@@ -201,4 +201,52 @@ pub fn hesh_and_prit(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
         return Flow::Halt;
     }
     finish(sx, who, key, Leader::HeshAndPrit, window.used)
+}
+
+/// Mirik Aun Sissiri (Argent hero): ships move to systems holding the seat's command token and no other player's ships. The window takes the systems of
+/// the board (those with an entry), the ones on the map (a coordinate or a wormhole) and the ones the seat's movement rules let it enter, which is read
+/// for the systems holding its token.
+pub fn flock_migration(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    let Some(galaxy) = sx.state.galaxy() else { return finish(sx, who, key, Leader::MirikAunSissiri, false) };
+    let Some(reach_rules) = reach::SeatReach::new(sx.state, sx.kernel, who, true) else { return gap_flow(sx, TurnGap::NoRoster) };
+    let mut order = Vec::new();
+    let mut on_map = Vec::new();
+    let mut enterable = Vec::new();
+    for system in System::ALL.iter().copied().filter(|s| crate::query::leader_reads::has_entry(sx.state, *s)) {
+        order.push(system);
+        if galaxy.coord_of(system).is_some() || galaxy.wormhole_kinds(system) != 0 {
+            on_map.push(system);
+        }
+        if sx.state.board().sys(system).cmd.contains(who) && reach_rules.rules_for(sx.state, sx.kernel, system).can_enter(system) {
+            enterable.push(system);
+        }
+    }
+    let mut window = ArgentHero::new(who, MigrationFacts { order, on_map, enterable });
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    finish(sx, who, key, Leader::MirikAunSissiri, window.moved)
+}
+
+/// Conservator Procyon (Empyrean hero): a frontier token in every system that holds no planet (a space station is not one) and has none, then each token in
+/// a system holding one of the seat's ships is explored. The window walks the systems in the order given, which here is the order of the core's tables.
+pub fn conservator_procyon(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    let scope = reach::scope_of(sx.kernel);
+    let Some(galaxy) = sx.state.galaxy() else { return finish(sx, who, key, Leader::ConservatorProcyon, false) };
+    let in_play = *galaxy.in_play();
+    let placed: Vec<System> = System::ALL
+        .iter()
+        .copied()
+        .filter(|s| in_play.contains(s.index()) && !galaxy.is_hyperlane(*s))
+        .filter(|s| s.data().planets.iter().filter(|p| scope.0 & crate::tables::source_bit(p.data().source) != 0).all(|p| crate::query::objectives::is_space_station(*p)))
+        .collect();
+    let order: Vec<System> = System::ALL.to_vec();
+    let mut window = EmpyreanHero::new(who, placed, order);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    if window.unsupported {
+        return gap_flow(sx, TurnGap::NoLink);
+    }
+    finish(sx, who, key, Leader::ConservatorProcyon, window.used)
 }
