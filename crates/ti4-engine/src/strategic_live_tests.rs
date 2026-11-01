@@ -259,8 +259,8 @@ fn jae_mir_kan_as_the_last_follower_asks_the_suite_before_the_action_completes_l
     assert!(at("STRATEGY_SECONDARY_FOLLOWED") < at("STRATEGIC_ACTION_COMPLETE"));
 }
 
-/// A follower whose only pool is War Machine's bonus (found by a sweep game, `StrategyAbility` of a Technology secondary): the string and the core agree on what
-/// is offered and what the empty bill does -- compared as far as the string goes (the research is declined by the empty payment).
+/// A follower whose only pool is War Machine's bonus (found by a sweep game, `StrategyAbility` of a Technology secondary): the string's gate is
+/// `payment::affordable` (planets and trade goods), so the seat is not asked; the core counted the bonus in the pool, asked it and ended the window `failed`.
 #[test]
 fn a_technology_secondary_the_pool_of_war_machine_alone_affords_runs_like_the_string() {
     let mut state = table_for("pok7technology");
@@ -274,10 +274,7 @@ fn a_technology_secondary_the_pool_of_war_machine_alone_affords_runs_like_the_st
     for planet in planets {
         state.exhausted_planets.insert(planet);
     }
-    let state = based(state);
-    let (string, taken) = string_secondary(&state, "pok7technology", &["yes"]);
-    eprintln!("WM-DEBUG string asked {:?} taken {:?}", string.questions.iter().map(|q| (q.player.to_string(), q.prompt.clone(), q.ids().into_iter().map(str::to_owned).collect::<Vec<_>>())).collect::<Vec<_>>(), taken);
-    let native = native_secondary(&state, "pok7technology", &taken);
+    let (string, native) = both(&based(state), "pok7technology", &["yes"]);
     assert_same(&string, &native);
     assert!(has(&string, "STRATEGIC_ACTION_COMPLETE"), "{:?}", string.events);
 }
