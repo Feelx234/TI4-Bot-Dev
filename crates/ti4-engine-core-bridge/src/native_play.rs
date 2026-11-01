@@ -1783,7 +1783,7 @@ mod tests {
         let run = |events: &[&str]| LegacyRun { info: info.clone(), records: Vec::new(), events: events.iter().map(|e| (*e).to_owned()).collect() };
         let pushed = Played { arm: Arm::Phase, source: None, asked: Vec::new(), events: vec!["STATUS_PHASE_BEGAN".to_owned()], finished: true };
         let silent = Played { events: Vec::new(), ..pushed.clone() };
-        assert!(steps_idle(&run(&[]), &[pushed.clone()]));
+        assert!(steps_idle(&run(&[]), std::slice::from_ref(&pushed)));
         assert!(!steps_idle(&run(&["X"]), &[pushed]), "the string said something");
         assert!(!steps_idle(&run(&[]), &[silent]), "the group pushed nothing either");
     }

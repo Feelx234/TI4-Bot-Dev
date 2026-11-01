@@ -52,7 +52,9 @@ No assertion was loosened. The only comparison that became less strict is the ha
 | bridge `--lib native_play` | 41 passed (18 s) |
 | `ti4-engine --lib` (plain, at `d749d40bc`) | **5286 passed**, 0 failed, 7 ignored (the first run at `e0f3c3c53`: 1 failed, `resolver_sync::random_play_of_a_seated_game_has_no_dual_difference`, the S1 order in the kernel dual: fixed by handing the dual's core resolver the string's rotated list, `kernel_sync/shim.rs`, `reactions_core::resolver_of`) |
 | `ti4-engine-core-factions --lib`, `ti4-rule-bot-typed --lib` | 151, 1 passed |
-| not run (user rule) | the `TI4_AREAS=all=dual` whole-lib run, golden / wide dual, benches, soak, census, ratchet, workspace clippy; `clippy_core.sh`, `check_layers.py`, `lint_core.sh` (see the end) |
+| `clippy_core.sh`, `check_layers.py core`, `lint_core.sh` | ok (engine 41 = baseline 41, core crates 0 warnings); 574 files 0 violations; 576 files 0 hits |
+| final binary, `--factions all --players 3,4,5,6 --seeds 1 --shadow` | 27 first differences, 9 known S1, 94 games without a gap (2 gaps as in int. 15: Doctor Sucaban's research) |
+| not run (user rule) | the `TI4_AREAS=all=dual` whole-lib run, golden / wide dual, benches, soak, census, ratchet, workspace clippy |
 | mutation | see below |
 
 ## Mutation (`tools/engine_core/mutants.sh`, single ranges, snapshot `d5e0e9c64` and `38e6cde0f`, `D4_COVERS_FILE=/dev/null`, Haiku-run queue plus a manual check)
@@ -91,3 +93,7 @@ First differences of the 96-game set (27) and of the 288-game set (69) that are 
 * **Technology follower eligibility (quick game, step 448)**: the string does not ask seat `c` for the Technology secondary (`c` holds 3 strategic tokens), the core does.
 * retreat announcements / hits (`announce a retreat from 62`, `assign a hit`, `HITS_TO_ASSIGN`, `munitions`), the Cabal secondary, the 82a option: one game each in the 96 set, not traced.
 * The gap of the 288 set (`TurnGap::StrategyAbility`, mahact 3p seed 67 among them) is lane N's (Jae Mir Kan's waiver).
+
+## Tip
+
+`git log -1 core-p-shadow2` (the last commit is this note's). Private targets `/root/deploytmp/core-p*` and the scratch worktree `/root/deploytmp/core-p-t-wt` are deleted at the end.
