@@ -32,7 +32,7 @@ use crate::generated::{
     UnitBaseType,
 };
 use crate::ids::Seat;
-use crate::state::{CoreState, PlanetFlags, SysFlags};
+use crate::state::{CoreState, ObjectiveRef, PlanetFlags, SysFlags};
 use crate::tables::{Scope, source_bit};
 
 use super::board;
@@ -1130,8 +1130,8 @@ pub fn faction_of(core: &CoreState, seat: Seat) -> Option<Faction> {
 pub struct Unsupported;
 
 /// `secrets::counting_progress` and `remaining_position_progress` rows: family and threshold of the
-/// position secrets (`fc` takes its threshold from the table). `Unsupported` for Strengthen Bonds
-/// and Produce en Masse, which read promissory notes and production capacity.
+/// position secrets (`fc` takes its threshold from the table). Strengthen Bonds reads the promissory notes of the position
+/// ([`rival_note_issuers`]); Produce en Masse reads [`Terms::capacity`], which the caller fills (`Unsupported` while it did not).
 fn secret_row(obj: SecretObjective) -> Result<Option<(Family, usize)>, Unsupported> {
     use SecretObjective as S;
     Ok(Some(match obj {
@@ -1160,7 +1160,8 @@ fn secret_row(obj: SecretObjective) -> Result<Option<(Family, usize)>, Unsupport
         S::OccupyTheSeatOfTheEmpire => (Family::MecatolShipsWhileControlling, 3),
         S::EstablishHegemony => (Family::CombinedValue(Spend::Influence), 12),
         S::HoardRawMaterials => (Family::CombinedValue(Spend::Resources), 12),
-        S::StrengthenBonds | S::ProduceEnMasse => return Err(Unsupported),
+        S::StrengthenBonds => (Family::RivalNoteIssuers, 1),
+        S::ProduceEnMasse => (Family::ProductionInOneSystem, 8),
         _ => return Ok(None),
     }))
 }
@@ -1391,9 +1392,49 @@ pub fn secret_progress(pos: &Pos<'_>, obj: SecretObjective) -> Result<Option<Pro
         }
         Family::MecatolShipsWhileControlling => mecatol_ships_while_controlling(pos),
         Family::CombinedValue(kind) => usize::try_from(combined_value(pos, kind)).unwrap_or(0),
+        Family::RivalNoteIssuers => rival_note_issuers(pos.core, pos.seat()),
+        // `production_in_one_system_count`: the most PRODUCTION the seat has in any one system (the string's board entries; a system with none has 0).
+        Family::ProductionInOneSystem if pos.facts.terms.capacity_known => {
+            usize::try_from(pos.facts.terms.capacity.as_slice().iter().map(|(_, c)| *c).max().unwrap_or(0)).unwrap_or(0) // mutants:skip: a capacity is never negative
+        }
+        Family::ProductionInOneSystem => return Err(Unsupported),
         _ => return Ok(None),
     };
     Ok(Some(Progress { family, have, threshold }))
+}
+
+/// Whether the seat's progress on a secret reads [`Terms::capacity`]: Produce en Masse in its hand, or revealed (a leaked secret is scored by whoever meets it).
+#[must_use]
+pub fn wants_capacity(core: &CoreState, seat: Seat) -> bool {
+    let mine = core.players().by_seat(seat).is_some_and(|p| p.cards.secrets.contains(&SecretObjective::ProduceEnMasse));
+    mine || core.objectives().revealed.iter().any(|r| matches!(r, ObjectiveRef::Secret(SecretObjective::ProduceEnMasse)))
+}
+
+/// `secrets::rival_note_issuers_count` (Strengthen Bonds): how many other issuers have a promissory note in the seat's play area. The Support for the
+/// Throne lent to the seat counts for its owner; a note placed faceup counts for the seat playing the faction that issued it (the first one, when
+/// two play it; the faction itself when nobody does), never for the seat's own faction. Each issuer counts once.
+#[must_use]
+pub fn rival_note_issuers(core: &CoreState, seat: Seat) -> usize {
+    #[derive(PartialEq, Eq, PartialOrd, Ord)]
+    enum Issuer {
+        Seat(Seat),
+        Faction(Faction),
+    }
+    let mut issuers: Vec<Issuer> = Vec::new();
+    for (owner, holder) in core.trade().support_holders.iter() {
+        if *holder == seat && *owner != seat {
+            issuers.push(Issuer::Seat(*owner));
+        }
+    }
+    let own = core.players().by_seat(seat).map(|p| p.faction);
+    for (key, holder) in core.cards().promissory.iter() {
+        if *holder == seat && core.cards().promissory_faceup.contains_key(key) && own != Some(key.faction) {
+            issuers.push(core.players().iter().find(|p| p.faction == key.faction).map_or(Issuer::Faction(key.faction), |p| Issuer::Seat(p.seat)));
+        }
+    }
+    issuers.sort_unstable();
+    issuers.dedup();
+    issuers.len()
 }
 
 /// The rules version from which a secret made public keeps its printed timing (`ti4_model::state::RULES_LEAKED_EVENT_SECRET`).

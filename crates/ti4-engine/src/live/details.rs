@@ -26,6 +26,8 @@ pub fn complete(core: &CoreState, kernel: &Kernel, choice: &CoreChoice, rendered
         Ask::Leaders(ti4_engine_core::choice::leaders::Ask::HacanBranch) => {
             rendered.details.insert("commodities".to_owned(), super::strategic::commodity_standing(core, choice.actor));
         }
+        // Integrated Economy's question (`production::integrated_economy_loop`) is a plain `Choice::new`: the string gives it no context.
+        Ask::Production(ti4_engine_core::choice::production::Ask::Economy(_)) => rendered.context = None,
         _ => {}
     }
     // The placement of lane G4's abilities (Yin Spinner, the Naalu mech): the offer card with a caption per spot.

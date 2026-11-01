@@ -189,10 +189,10 @@ fn inheritance_systems_pays_two_resources_and_exhausts_the_card_in_lockstep() {
 }
 
 #[test]
-fn inheritance_systems_after_the_bill_keeps_the_string_when_the_two_resources_are_gone() {
+fn inheritance_systems_after_the_bill_puts_the_position_back_in_lockstep_when_the_two_resources_are_gone() {
     // Six to spend on a secondary of four: the technology is offered because Inheritance Systems can pay two, the bill
     // takes four, and two are left only when the planets pay. With exactly four to spend nothing is left for the card,
-    // which the string restores the position for. The core window does not carry that rollback.
+    // which the string restores the position for. The core window carries that rollback since lane E2 (it was a counted bail).
     let owned = |s: &mut GameState| {
         give(s, "a", &["is"]);
         s.player_mut(&a()).unwrap().trade_goods = 0;
@@ -210,8 +210,10 @@ fn inheritance_systems_after_the_bill_keeps_the_string_when_the_two_resources_ar
         s.player_mut(&a()).unwrap().trade_goods = 4;
         s.exhausted_planets.insert(PlanetId::new("jord"));
     };
-    let (counts, _) = play(&F3, spend_all, &[unmet.as_str()], false);
-    assert_eq!(counts, (0, 1), "the card cannot pay after the bill: the string's rollback");
+    let (counts, after) = play(&F3, spend_all, &[unmet.as_str()], false);
+    assert_eq!(counts, (1, 0), "the card cannot pay after the bill: both put the position back (the dual compared them)");
+    assert!(!owns(&after, "a", unmet.as_str()), "nothing was researched");
+    assert_eq!(after.player(&a()).unwrap().trade_goods, 4, "the bill is back");
 }
 
 /// A unit upgrade `a` can research with the green technologies given.

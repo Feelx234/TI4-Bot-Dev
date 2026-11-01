@@ -548,13 +548,15 @@ fn a_status_secret_is_offered_by_its_position_not_by_a_feat_and_not_twice() {
     assert!(!offers.scored_at_occurrence(Seat(0)) && offers.plots(Seat(0)).is_empty());
     assert_eq!(offers.secrets(Seat(0)).as_slice(), [SecretObjective::SeizeAnIcon]);
     assert!(!offers.unsupported);
-    // Strengthen Bonds cannot be judged by the core: the window stops with a counted gap.
+    // Strengthen Bonds is judged from the notes of the play area (lane E2; it was a counted gap): with no bond nothing is offered, with a rival's faceup note it is.
     let (mut s4, k4) = build(true);
     s4.players_mut().edit(0).cards.secrets = [SecretObjective::StrengthenBonds].into_iter().collect();
     ti4_engine_core::driver::live::open(&mut s4, &StatusScoring::status(&[Seat(0)]));
-    let held = s4.clone();
-    assert_eq!(advance_scoring(&mut s4, &env(&k4), None), gap(TurnGap::ScoringSecret));
-    assert_eq!(s4, held);
+    assert!(ask::<StatusScoring>(&s4, &env(&k4)).unwrap().is_none(), "no bond: nothing to score");
+    let key = ti4_engine_core::state::NoteKey { note: ti4_engine_core::generated::PromissoryNote::Ceasefire, faction: s4.players().by_seat(Seat(1)).unwrap().faction };
+    s4.cards_mut().promissory.edit().insert(key, Seat(0));
+    s4.cards_mut().promissory_faceup.edit().insert(key, ());
+    assert!(ask::<StatusScoring>(&s4, &env(&k4)).unwrap().is_some(), "a rival's note in the play area is a bond: the secret is offered");
 }
 
 #[test]
@@ -695,13 +697,15 @@ fn a_revealed_event_secret_is_no_status_offer_and_a_held_one_is_offered_once() {
 }
 
 #[test]
-fn a_leaked_secret_the_core_cannot_judge_stops_the_window_with_a_counted_gap() {
+fn a_leaked_strengthen_bonds_is_judged_by_the_notes_of_whoever_meets_it() {
     let (mut s, k) = Scenario::lobby(2).phase(Phase::Status).active(None).build();
     s.objectives_mut().revealed.push(ObjectiveRef::Secret(SecretObjective::StrengthenBonds));
     ti4_engine_core::driver::live::open(&mut s, &StatusScoring::status(&[Seat(0)]));
-    let held = s.clone();
-    assert_eq!(advance_scoring(&mut s, &env(&k), None), gap(TurnGap::ScoringSecret));
-    assert_eq!(s, held);
+    assert!(ask::<StatusScoring>(&s, &env(&k)).unwrap().is_none(), "no bond: not offered, not a gap");
+    let key = ti4_engine_core::state::NoteKey { note: ti4_engine_core::generated::PromissoryNote::Ceasefire, faction: s.players().by_seat(Seat(1)).unwrap().faction };
+    s.cards_mut().promissory.edit().insert(key, Seat(0));
+    s.cards_mut().promissory_faceup.edit().insert(key, ());
+    assert!(ask::<StatusScoring>(&s, &env(&k)).unwrap().is_some(), "a bond: the leaked secret is offered");
 }
 
 #[test]

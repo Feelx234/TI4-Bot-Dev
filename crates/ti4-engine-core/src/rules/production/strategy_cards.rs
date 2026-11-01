@@ -1044,8 +1044,14 @@ impl Research {
     fn land(&mut self, s: &mut CoreState, k: &Kernel, t: Technology) {
         let settled = self.try_settle(s, k, t);
         match settled {
-            Settled::Landed => {}
-            Settled::Failed => self.failed = true,
+            Settled::Landed => self.before = None,
+            // The prerequisites are gone after the bill and no waiver opens the technology: the position from before the bill is back and the
+            // research ends with nothing gained (`paid_research`: `*state = before; if !waiver_required { return Ok(false) }`).
+            Settled::Failed => match self.before.take() {
+                Some(before) => *s = *before,
+                // (The position was not kept: not carried.)
+                None => self.failed = true,
+            },
             Settled::Waiver => return self.start_waiver(s, k, t),
         }
         self.end_paid(s, settled == Settled::Landed);

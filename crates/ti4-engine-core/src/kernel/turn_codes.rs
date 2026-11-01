@@ -118,7 +118,8 @@ pub enum TurnGap {
     /// A use of PRODUCTION made units and their `UNITS_PRODUCED` announcement is the production lane's (M2): the core's payload cannot carry
     /// the list yet.
     ProductionAnnounce,
-    /// Xxcha's Peace Accords could annex a planet after a Diplomacy ability (the annexation window is not ported yet).
+    /// Xxcha's Peace Accords left the path the core carries after the planet was taken: the exploration of the planet or Integrated Economy's
+    /// production met something of another area (the annexation window itself is `rules::peace_accords`).
     PeaceAccords,
     /// A hero's strategy primary or Thunder's Edge Warfare's free tactical action needs the tactical action of the tactical lane.
     FreeTactical,

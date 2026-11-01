@@ -25,6 +25,12 @@ const INFLUENCE_PER_TOKEN: i64 = 3;
 pub fn complete(core: &CoreState, kernel: &Kernel, choice: &CoreChoice, rendered: &mut Choice) {
     match choice.ask {
         Ask::Strategy(SAsk::Follow { card, .. }) => follow(core, kernel, choice.actor, card.data().kind, rendered),
+        // Galactic Crisis Pact (`strategy::crisis_pact_choice`): the follower's question without `tokens_left`, with the agenda it comes from.
+        Ask::Strategy(SAsk::CrisisPact { card }) => {
+            follow(core, kernel, choice.actor, card.data().kind, rendered);
+            rendered.details.remove("tokens_left");
+            rendered.details.insert("agenda".to_owned(), crate::strategy_cards::agenda_details(ContentStore::embedded(), "crisis"));
+        }
         // The label of a technology is its printed name, which only the content store has.
         Ask::Strategy(SAsk::ResearchTechnology { .. }) => {
             let content = ContentStore::embedded();

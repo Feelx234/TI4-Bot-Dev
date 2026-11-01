@@ -171,7 +171,8 @@ pub fn te_uses(core: &CoreState, kernel: &Kernel, roster: &UnitRoster, who: Seat
     let cx = crate::rules::production::Cx::new(core, kernel, reach::scope_of(kernel), reach::blanked(core));
     let agent_rules = true; // mutants:skip: the latest rules (a constant)
     let mut uses = Vec::new();
-    for (system, _) in core.board().systems() {
+    // (The systems the string holds an entry for, `state.board.keys()`: a bonus that is the same everywhere -- War Machine -- would otherwise list all 231.)
+    for (system, _) in core.board().systems().filter(|(_, cell)| cell.flags.has(crate::state::SysFlags::TOUCHED)) {
         if crate::rules::production::capacity(&cx, who, system) > 0 {
             uses.push(crate::rules::production::home::home_facts(core, kernel, roster, who, system, agent_rules)?);
         }

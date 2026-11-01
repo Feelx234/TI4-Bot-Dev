@@ -45,11 +45,6 @@ impl crate::choice::Decider for Chooser {
     }
 }
 
-/// The string's agenda phase on a copy of `state`: `Game::step` until `AGENDA_PHASE_RESOLVED`. The answers it took.
-fn string_agenda(state: &GameState, ids: &[&str]) -> (Run, Vec<String>) {
-    string_agenda_preferring(state, ids, &[])
-}
-
 fn string_agenda_preferring(state: &GameState, ids: &[&str], prefer: Policy) -> (Run, Vec<String>) {
     let _serial = crate::dual::tests::serial();
     let seen: Rc<std::cell::RefCell<Vec<crate::choice::Choice>>> = Rc::default();
@@ -179,9 +174,9 @@ fn rich_table(alias: &str) -> GameState {
     based(state)
 }
 
-/// The agendas whose effect is a counted gap of the live path (`docs/KV_RESUME.md`): Galactic Crisis Pact performs the secondary of a
-/// strategy card, which is the strategic-action lane's (KX).
-const GAPS: [&str; 1] = ["crisis"];
+/// The agendas whose effect is a counted gap of the live path (`docs/KV_RESUME.md`): none since lane E2 (Galactic Crisis Pact performs the secondary
+/// of the elected card in `driver::agenda::crisis`).
+const GAPS: [&str; 0] = [];
 
 fn sweep(prefer: Policy) -> Vec<String> {
     let mut failures = Vec::new();
@@ -404,27 +399,23 @@ fn a_valefar_assimilator_carrying_genetic_recombination_asks_the_nekro_before_ea
 }
 
 #[test]
-fn galactic_crisis_pact_is_a_counted_gap_of_the_live_path_not_a_silent_skip() {
-    let state = rich_table("crisis");
-    let (_, taken) = string_agenda(&state, &[]);
-    let mut cx = Ctx::of(&state).expect("a table the codecs carry");
-    let render = Render::new(cx.owners.ids().to_vec());
-    let game = super::Game::with_table(state.clone(), ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption)));
-    let positions = game.rng_positions();
-    let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
-    let mut core = Codec::load(&mut cx, &state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("the position loads");
-    let kernel = live::kernel::kernel_for(DEFAULT);
-    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
-    let lcx = live::Cx::new(&render, &env);
-    let mut asker = Scripted::new(taken.iter().cloned());
-    let stop = loop {
-        let arm = step_arm(&Facts::of_core(&core, false), false);
-        match live::live_step(&mut core, arm, &lcx, &mut asker) {
-            Ok(_) => continue,
-            Err(stop) => break stop,
-        }
-    };
-    assert_eq!(stop, live::Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::AgendaGap(ti4_engine_core::kernel::agenda_codes::AgendaGap::NoEffect(15)))));
+fn galactic_crisis_pact_asks_each_player_the_secondary_without_a_token_like_the_string() {
+    // A silent table (nobody spends a planet to vote: the speaker breaks the tie and elects the first card), everyone declines the pact ("no" is the first option).
+    let (string, native) = both_preferring(&rich_table("crisis"), &[], &["decline"]);
+    assert_same(&string, &native);
+    let pact: Vec<_> = string.questions.iter().filter(|q| q.prompt.contains("Galactic Crisis Pact") || q.details.contains_key("agenda") && q.details.get("kind").is_some_and(|k| k == "strategy_secondary")).collect();
+    assert!(!pact.is_empty(), "the pact asks: {:?}", string.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
+    assert!(pact.iter().all(|q| q.details.get("costs_token") == Some(&serde_json::Value::Bool(false)) && !q.details.contains_key("tokens_left") && !q.details.contains_key("played_by")), "no token, no primary player");
+}
+
+#[test]
+fn galactic_crisis_pact_performs_the_secondary_of_the_elected_card_for_those_who_accept_like_the_string() {
+    // The same silent table; everyone who is asked takes the secondary.
+    let (string, native) = both_preferring(&rich_table("crisis"), &[], &["decline", "yes"]);
+    assert_same(&string, &native);
+    assert!(string.events.iter().any(|e| e == "AGENDA_EFFECT_RESOLVED:crisis" || e.starts_with("AGENDA_EFFECT_RESOLVED")), "{:?}", string.events);
+    let asked = string.questions.iter().filter(|q| q.details.contains_key("agenda") && q.details.get("kind").is_some_and(|k| k == "strategy_secondary")).count();
+    assert!(asked >= 1, "the pact asked at least one player");
 }
 
 #[test]

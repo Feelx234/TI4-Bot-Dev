@@ -10,8 +10,8 @@
 //! use of PRODUCTION made are announced by the production lane (`UNITS_PRODUCED`); until that lane's window carries the list the core stops
 //! with the counted gap [`TurnGap::ProductionAnnounce`].
 
-use crate::driver::turn::inline::{gap, halted, Flow};
-use crate::generated::{Faction, StrategyCard, StrategyCardKind, System};
+use crate::driver::turn::inline::{gap, gap_flow, halted, run as run_window, Flow};
+use crate::generated::{StrategyCard, StrategyCardKind, System};
 use crate::ids::Seat;
 use crate::kernel::children::ErasedChild;
 use crate::kernel::fx;
@@ -153,35 +153,97 @@ pub(crate) fn place_tokens(sx: &mut Sx<'_>, system: System, seats: &[Seat]) {
 }
 
 /// `Game::resolve_faction_strategy`: what a faction does when a strategy card finishes for it (`faction_abilities::strategy_resolved`): the hooks of
-/// the modules, then Xxcha's Peace Accords after Diplomacy.
+/// the modules, then Xxcha's Peace Accords after Diplomacy: the annexation window, and the exploration of the planet taken (by its first trait,
+/// announced to nobody: the string explores with no timing handle).
 pub fn resolved(sx: &mut Sx<'_>, who: Seat, kind: StrategyCardKind) -> Flow {
     let kernel = sx.kernel;
     {
         let mut cx = sx.cx();
         kernel.hooks.general.strategy_resolved(&mut cx, who, Some(kind));
     }
-    if kind == StrategyCardKind::Diplomacy && sx.state.players().by_seat(who).is_some_and(|p| p.faction == Faction::TheXxchaKingdom) && annexable_exists(sx.state, who) {
-        gap(sx, TurnGap::PeaceAccords);
+    if kind != StrategyCardKind::Diplomacy {
+        return Flow::Done;
+    }
+    peace_accords(sx, who)
+}
+
+/// Xxcha's Peace Accords (`faction_abilities::strategy_resolved`): the window, then what taking the planet sets off in the string's order:
+/// Integrated Economy's production, the exploration of the planet by its first trait (announced to nobody: the string explores with no timing handle).
+fn peace_accords(sx: &mut Sx<'_>, who: Seat) -> Flow {
+    use crate::rules::explore_windows::{traits_now, Exploring};
+    use crate::rules::peace_accords::PeaceAccords;
+    use crate::state::EDeck;
+    let mut window = PeaceAccords::new(who);
+    if run_window(sx, &mut window) == Flow::Halt {
         return Flow::Halt;
+    }
+    let Some((system, planet)) = window.annexed else { return Flow::Done };
+    if sx.state.players().by_seat(who).is_some_and(|p| p.tech.owned.contains(crate::generated::Technology::IntegratedEconomy))
+        && integrated_economy(sx, who, system, planet) == Flow::Halt
+    {
+        return Flow::Halt;
+    }
+    let Some(deck) = traits_now(sx.state, crate::query::reach::scope_of(sx.kernel), planet).as_slice().first().copied() else { return Flow::Done };
+    let mut exploring = Exploring::planet(who, planet, EDeck::Fixed(deck), false); // mutants:skip: `true` announces PLANET_EXPLORED, which only Titans' Terragenesis hears (and its exploration is refused as unsupported)
+    if run_window(sx, &mut exploring) == Flow::Halt {
+        return Flow::Halt;
+    }
+    if exploring.unsupported().is_some() {
+        return gap_flow(sx, TurnGap::PeaceAccords);
     }
     Flow::Done
 }
 
-/// Whether Xxcha's Peace Accords (`faction_abilities::annexable`) has a planet to offer: an uncontrolled planet with no units on it, in or next
-/// to a system with a planet the seat controls ("in or next to" needs the map; Mecatol Rex is never annexed). A Space Station is counted
-/// (the gap is conservative there).
-fn annexable_exists(core: &crate::state::CoreState, who: Seat) -> bool {
-    use crate::query::board;
-    // (A position without the map slice is a game without a galaxy: "in or next to" needs the map.)
-    let Some(galaxy) = core.loaded.has(crate::state::Slice::Map).then(|| core.galaxy()).flatten() else { return false };
-    let mine: Vec<System> = board::controlled_planets(core, who).as_slice().iter().map(|(system, _)| *system).collect();
-    let mut reachable = mine.clone();
-    for system in &mine {
-        reachable.extend(galaxy.adjacent(*system).iter().map(crate::ids::system_at));
+/// Integrated Economy (`technology::control_gained`, `production::integrated_economy`): units up to the resource value of the planet gained, paid
+/// for as usual, then the fleet supply of the system is enforced (it asks only when a form is over).
+fn integrated_economy(sx: &mut Sx<'_>, who: Seat, system: System, planet: crate::generated::Planet) -> Flow {
+    use crate::kernel::children::{Report, SeeingLimits, Spawn};
+    use crate::query::economy::Spend;
+    use crate::rules::production::{self, triggered::EconomyWindow, Cx as ProdCx};
+    let (scope, blanked) = (crate::query::reach::scope_of(sx.kernel), crate::query::reach::blanked(sx.state));
+    let budget = production::planet_value(&ProdCx::new(sx.state, sx.kernel, scope, blanked), who, planet, Spend::Resources);
+    if budget <= 0 { // mutants:skip: a budget of nothing ends the window without a question and the enforcement asks only when a form is over
+        return Flow::Done;
     }
-    reachable.iter().any(|system| {
-        board::planets_of(core, *system).any(|planet| {
-            planet != crate::generated::Planet::MecatolRex && board::control(core, planet).is_none() && board::planet_units(core, planet).is_empty()
-        })
-    })
+    let Some(roster) = sx.table.facts.plays.as_ref().and_then(|p| p.roster) else { return gap_flow(sx, TurnGap::NoRoster) };
+    let facts = (crate::driver::children::one_link().facts)(sx.state, sx.kernel, roster, who);
+    let (Some((buildable, fleet_limit)), Ok(budget)) = (facts, i32::try_from(budget)) else { return gap_flow(sx, TurnGap::PeaceAccords) };
+    let mut window = EconomyWindow::new(who, system, planet, budget, fleet_limit, buildable);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    let limits = crate::driver::windows::tactical::limits(sx.state, sx.kernel, who, system);
+    let request = Spawn::Seeing { who, system, limits: SeeingLimits { enforce: limits.enforce, shown: limits.shown, halves: limits.halves } };
+    if sx.table.links.spawn.is_none() {
+        return gap_flow(sx, TurnGap::NoLink);
+    }
+    match run_spawn(sx, &request) {
+        Some(Report::Removed(_) | Report::Nothing) => Flow::Done,
+        _ if halted(sx) => Flow::Halt,
+        _ => gap_flow(sx, TurnGap::ReplayDiverged),
+    }
+}
+
+/// A child window of the table run to its end on the tape, its report. `None`: the step is doomed (a question found the tape dry, or a gap was
+/// noted) or the child left the path.
+fn run_spawn(sx: &mut Sx<'_>, request: &crate::kernel::children::Spawn) -> Option<crate::kernel::children::Report> {
+    let window = sx.table.links.start(request)?;
+    let mut child = ErasedChild::idle();
+    child.start(window);
+    loop {
+        if halted(sx) {
+            return None;
+        }
+        match child.step(sx)? {
+            Ran::Done(report) => return Some(report),
+            Ran::Asks(_) => {
+                let choice = child.ask_of(sx.state, sx.kernel)?;
+                let pick = sx.ask(&choice);
+                if halted(sx) || child.answer(sx, pick).is_err() {
+                    return None;
+                }
+            }
+            Ran::Pass(_) => return None,
+        }
+    }
 }

@@ -23,8 +23,8 @@ use crate::preview::{Delta, Preview, Quantity};
 /// The card of a follower's question.
 fn follow_card(a: &Ask) -> StrategyCard {
     match a {
-        Ask::Follow { card, .. } => *card,
-        _ => unreachable!("a follow option is asked by Ask::Follow"),
+        Ask::Follow { card, .. } | Ask::CrisisPact { card } => *card,
+        _ => unreachable!("a follow option is asked by Ask::Follow or Ask::CrisisPact"),
     }
 }
 
@@ -112,6 +112,13 @@ impl Family for Fam {
             Ask::PlaceStructure { .. } => "place a structure".to_owned(),
             Ask::PdsAlternative { .. } => "place a PDS or an alternative".to_owned(),
             Ask::ImperialScore => "score a public objective with Imperial".to_owned(),
+            Ask::PeaceAccords { .. } => "Peace Accords: annex a planet".to_owned(),
+            // `strategy::crisis_pact_choice`: the card's ordinary follower question, Leadership's purchase question unchanged.
+            Ask::CrisisPact { card } if card.data().kind == StrategyCardKind::Leadership => follow_words(*card).0.to_owned(),
+            Ask::CrisisPact { card } => {
+                let name = crate::strategy_cards::card_name(ti4_content::ContentStore::embedded(), card.as_str()).unwrap_or_default();
+                format!("Galactic Crisis Pact: perform the {name} secondary without spending a command token")
+            }
             Ask::ConstructionAbility => "Construction: a structure or a production".to_owned(),
             Ask::TeWarfareRedistribute { .. } => "Warfare: redistribute your command tokens before the tactical action".to_owned(),
             Ask::TeWarfareRedistributeAfter { .. } => "Warfare: redistribute your command tokens after the tactical action".to_owned(),
@@ -149,6 +156,7 @@ impl Family for Fam {
             Subtype::PlaceStructure => "place_structure",
             Subtype::PlaceStructurePdsAlternative => "place_structure_pds_alternative",
             Subtype::ImperialScoreObjective => "imperial_score_objective",
+            Subtype::PeaceAccordsAnnex => "peace_accords_annex",
             Subtype::ResearchTechnology => "research_technology",
             Subtype::SucabanExhaust => "doctor_sucaban_exhaust",
             Subtype::SucabanBorrowedExhaust => "doctor_sucaban_borrowed_exhaust",
@@ -253,6 +261,17 @@ impl Family for Fam {
             }
             Opt::Objective(o) => ChoiceOption::labelled(o.as_str(), "objective", o.as_str()),
             Opt::Card(card) if matches!(a, Ask::ArbiterGive) => ChoiceOption::labelled(card.as_str(), crate::draft::STRATEGY_CARD_KIND, format!("give {}", card.as_str())),
+            Opt::Annex(system, planet) => {
+                // `faction_abilities::strategy_resolved`: the planet's id, "annex", the system and the planet as details, and the gain of one planet.
+                let controlled = match a {
+                    Ask::PeaceAccords { controlled } => i64::from(*controlled),
+                    _ => 0,
+                };
+                ChoiceOption::labelled(planet.as_str(), "annex", format!("gain control of {}", planet.as_str()))
+                    .with("system", system.as_str())
+                    .with("planet", planet.as_str())
+                    .previewed(Preview::certain(vec![Delta::new(Quantity::PlanetsControlled, controlled, controlled + 1)]))
+            }
             Opt::Take(holder, card) => {
                 let (holder, card) = (r.seat_text(*holder), card.as_str());
                 ChoiceOption::labelled(format!("{holder}|{card}"), crate::draft::STRATEGY_CARD_KIND, format!("take {card} from {holder}"))
@@ -324,6 +343,7 @@ impl Family for Fam {
                 Some(Opt::Take(r.seat(holder)?, StrategyCard::from_id(card)?))
             }
             Ask::ImperialScore => PublicObjective::from_id(id).map(Opt::Objective),
+            Ask::PeaceAccords { .. } => Planet::from_id(id).and_then(|planet| planet.data().system.map(|system| Opt::Annex(system, planet))),
             Ask::ResearchTechnology { .. } => Technology::from_id(id).map(Opt::Research),
             Ask::SucabanOffer { .. } => (id == "yes").then_some(Opt::Exhaust),
             Ask::SucabanTrade => {
@@ -336,6 +356,11 @@ impl Family for Fam {
                 offered.get(usize::from(index)).copied().flatten().map(|_| Opt::ResearchWaiver(index))
             }
             Ask::ResearchWaiverPayment { waiver, .. } => parse_payment(r, *waiver, id).map(Opt::ResearchPayment),
+            Ask::CrisisPact { .. } => match id {
+                "no" => Some(Opt::Skip),
+                "yes" => Some(Opt::Follow),
+                _ => None,
+            },
             Ask::Follow { .. } => match id {
                 "no" => Some(Opt::Skip),
                 "yes" => Some(Opt::Follow),
@@ -387,6 +412,12 @@ impl Family for Fam {
                 vec![crate::choice::offer_fact_technology("Technology", tech.as_str())],
                 &[("decline", crate::choice::offer_caption("Don't pay", Some("Nothing is researched or paid")))],
             );
+        }
+        if let Ask::CrisisPact { card } = a {
+            // `strategy::secondary_choice` without a token (the pact has no `played_by` and no `tokens_left`; `live::strategic` adds the agenda card).
+            d.insert("kind".to_owned(), "strategy_secondary".into());
+            d.insert("card".to_owned(), card.as_str().into());
+            d.insert("costs_token".to_owned(), false.into());
         }
         if let Ask::PdsAlternative { system, planet } = a {
             // `strategy_cards::construction_structure`: the offer card of the alternative.

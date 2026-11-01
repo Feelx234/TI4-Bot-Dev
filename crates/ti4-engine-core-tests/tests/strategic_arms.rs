@@ -602,17 +602,23 @@ fn xxcha_table(taken: bool) -> (CoreState, Kernel) {
 }
 
 #[test]
-fn an_xxcha_follower_of_diplomacy_with_a_planet_to_annex_stops_at_a_counted_gap() {
+fn an_xxcha_follower_of_diplomacy_with_a_planet_to_annex_is_asked_which_after_the_ability_and_the_decline_ends_the_window() {
+    // (Lane E2: the annexation is a window of the core, `rules::peace_accords`; it was a counted gap. Its exploration and the lockstep against the string are
+    // `ti4-engine`'s `peace_accords_live_tests`.)
     let (mut s, k) = xxcha_table(false);
     let e = env(&k);
     let q = first_asked(&s, &e);
     assert_eq!(q.actor, Seat(1));
     let (live, _) = advance_secondary(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
     let Live::Asks(ready) = live else { panic!("the ready question") };
-    let held = s.clone();
-    let r = advance_secondary(&mut s, &e, ready.choice.pick(0));
-    assert_eq!(r, Err(LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::TurnGap(ti4_engine_core::kernel::turn_codes::TurnGap::PeaceAccords))));
-    assert_eq!(s, held);
+    let (live, _) = advance_secondary(&mut s, &e, ready.choice.pick(0)).unwrap();
+    let Live::Asks(annex) = live else { panic!("the Peace Accords question: {live:?}") };
+    assert_eq!(annex.choice.actor, Seat(1));
+    assert!(matches!(annex.choice.ask, Ask::Strategy(SAsk::PeaceAccords { controlled: 1 })), "{:?}", annex.choice.ask);
+    assert!(annex.choice.opts.as_slice().iter().any(|o| matches!(o, Opt::Strategy(SOpt::Annex(..)))) && annex.choice.opts.as_slice().last() == Some(&Opt::Decline));
+    let (live, _) = advance_secondary(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
+    assert!(matches!(live, Live::Done), "the follower window ends with the last follower");
+    assert!(!is_open::<SecondaryWin>(&s));
 }
 
 #[test]

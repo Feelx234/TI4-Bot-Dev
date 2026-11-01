@@ -96,6 +96,16 @@ fn run_effect(sx: &mut Sx<'_>, agenda: Agenda, effective: Outcome, ballot: &[(cr
         sx.plain(PlainRec::one(PlainKind::AgendaEffectResolved, PlainArg::Agenda(agenda)));
         return Flow::Done;
     }
+    // Galactic Crisis Pact (lane E2): each player may perform the secondary of the elected card (an election of anything else resolves nothing, as the string).
+    if agenda == Agenda::GalacticCrisisPact {
+        if let Outcome::StrategyCard(card) = effective
+            && super::crisis::run_pact(sx, card) == Flow::Halt
+        {
+            return Flow::Halt;
+        }
+        sx.plain(PlainRec::one(PlainKind::AgendaEffectResolved, PlainArg::Agenda(agenda)));
+        return Flow::Done;
+    }
     let facts = effect_facts(sx, ballot);
     let Some(mut window) = Resolve::of_facts(agenda, effective, &facts) else {
         gap(sx, AgendaGap::NoEffect(agenda as u8));
