@@ -1080,22 +1080,24 @@ mod tests {
         assert_ne!(lobby_spec("sol", 4, 1).factions, lobby_spec("sol", 4, 2).factions, "the seed rotates the table");
     }
 
-    /// The native game plays the setup, the draft, the announcement, the phase flip, the turn prelude, the action menu and the first round of actions (an Orbital
-    /// Drop, tactical actions, a first claim with its exploration, strategic actions, Ggrocuto Rinn) on the core alone, and stops with a COUNTED gap at the first
-    /// body no lane has made native (Thunder's Edge Warfare's free tactical action: `TurnGap::StrategyAbility`), with the position as it was before the step.
+    /// The native game plays the setup, the draft, the announcement, the phase flip, the turn prelude, the action menu and nine rounds of actions (an Orbital
+    /// Drop, tactical actions, a first claim with its exploration, strategic actions, Ggrocuto Rinn, the Technology primary, the status phases) on the core alone,
+    /// and stops with a COUNTED gap at the first body no lane has made native (an action card played from the menu: `TurnGap::Menu(ActionCard)`), with the position
+    /// as it was before the step. (Integration 12: round one, `TurnGap::StrategyAbility`; lane E2: the Technology primary, the status close and the secrets.)
     #[test]
     fn a_native_game_plays_the_first_turns_and_stops_with_a_counted_gap_at_an_unrouted_menu_option() {
         let mut g = game("sol", 4, 1);
         let played = play_game(&mut g, 2_000, 50);
         let End::Gap(gap) = &played.end else { panic!("a gap is the end of a game today, got {:?}", played.end) };
-        assert_eq!((gap.arm.as_str(), gap.kind, gap.cause.as_str()), ("ask.action_menu", GapKind::Bail, "TurnGap(StrategyAbility)"), "{gap:?}");
+        assert_eq!((gap.arm.as_str(), gap.kind, gap.cause.as_str()), ("ask.action_menu", GapKind::Bail, "TurnGap(Menu(ActionCard))"), "{gap:?}");
         let native = &played.matrix.native;
         assert!(native.get("ask.draft").copied().unwrap_or(0) >= 3, "the draft was asked natively: {native:?}");
         assert_eq!(native.get("strategy_announce"), Some(&1), "{native:?}");
-        assert_eq!(native.get("phase"), Some(&1), "the strategy phase flipped into the action phase: {native:?}");
+        assert_eq!(native.get("phase"), Some(&25), "the phases flipped: strategy to action, action to status, status to strategy, eight times over, and the last into the action phase: {native:?}");
         assert!(native.get("turn_prelude").copied().unwrap_or(0) >= 1, "{native:?}");
         assert_eq!(played.matrix.total_gaps(), 1, "one game, one gap");
-        assert_eq!(played.rounds, 1);
+        assert_eq!((played.rounds, played.steps), (9, 888), "nine rounds of the table, through eight status phases");
+        assert!(native.get("tokens").copied().unwrap_or(0) >= 8 && native.get("status").copied().unwrap_or(0) >= 8, "the status phases ran natively, their close included: {native:?}");
         // The position is the one before the step that gapped: the same gap again, the same position.
         let held = g.core.clone();
         assert_eq!(g.step(), Step::Gap(gap.clone()));
@@ -1198,10 +1200,10 @@ mod tests {
         let mut g = game("sol", 4, 1);
         assert_eq!(play_game(&mut g, 100, 0).end, End::RoundLimit, "round 1 is beyond a budget of none");
         let mut g = game("sol", 4, 1);
-        assert!(matches!(play_game(&mut g, 100, 1).end, End::Gap(_)), "round 1 is within a budget of one");
+        assert_eq!(play_game(&mut g, 2_000, 1).end, End::RoundLimit, "the game plays on past round one (lane E2): a budget of one round ends it");
         let mut g = game("sol", 4, 1);
         let p = play_game(&mut g, 100, 50);
-        assert_eq!(p.steps, 54);
+        assert_eq!(p.steps, 100);
         assert!(g.decided >= p.matrix.native.get("ask.draft").copied().unwrap_or(0) as usize - 1 + p.matrix.native.get("ask.starting_tech").copied().unwrap_or(0) as usize, "the last card of the draft is not asked; the menu and the actions add their answers");
         // The shadow and the survey keep the same budgets.
         let s = shadow_play(&lobby_spec("sol", 4, 1), 3, 50).unwrap();
@@ -1413,8 +1415,8 @@ mod tests {
         turn::open_job(&mut g.core, TurnJob::Phase);
         assert!(g.asks(), "an open job is waiting on its step: the arm is Ask");
         let s = shadow_play(&lobby_spec("sol", 4, 1), 100, 50).unwrap();
-        assert_eq!((s.compared, s.played.steps), (36, 54), "fifty-four native steps; the glued ones, the ones that ask nothing while the legacy game stands at a question and the ones a lookahead groups with the step before are not legacy steps of their own");
-        assert!(matches!(shadow_play(&lobby_spec("sol", 4, 1), 100, 1).unwrap().played.end, End::Gap(_)), "round 1 is within a budget of one");
+        assert_eq!((s.compared, s.played.steps), (54, 85), "eighty-five native steps (the shadow ends at the glued follower question of the Warfare card, see the next test); the glued ones, the ones that ask nothing while the legacy game stands at a question and the ones a lookahead groups with the step before are not legacy steps of their own");
+        assert!(matches!(shadow_play(&lobby_spec("sol", 4, 1), 100, 1).unwrap().played.end, End::Finished), "round 1 is within a budget of one: the shadow stops at its first difference");
         let survey = survey(&lobby_spec("sol", 4, 1), 400, 50).unwrap();
         assert!(survey.steps_by_arm.keys().all(|(label, _)| !label.contains('>') || label.starts_with("turn_prelude>") || label.starts_with("strategy_announce>")), "{:?}", survey.steps_by_arm);
     }
@@ -1455,15 +1457,22 @@ mod tests {
         assert!(!g.asks(), "the status phase asks nothing of its own");
     }
 
-    /// The native loop and the legacy game agree step by step up to the gap: the same questions, the same plain events, the same position. (Integration 11
+    /// The native loop and the legacy game agree step by step: the same questions, the same plain events, the same position. (Integration 11
     /// pinned a KNOWN difference here, the Local Fabricators reward of step 24; lane F2c showed it was the harness' (the string asks it inside the legacy step
-    /// that answers the second commit) and fixed the shadow, so the pin fired as it was written to and is replaced by this test.)
+    /// that answers the second commit) and fixed the shadow, so the pin fired as it was written to and is replaced by this test.) Since lane E2 the quick
+    /// game plays past the Technology primary (round one's old stop) and the first difference is the one `docs/INTEGRATION12.md` section 5 documents as the
+    /// shadow's limit, not a game difference: Thunder's Edge Warfare's primary (the free tactical action) is one NATIVE `secondary` step that asks the
+    /// seat's redistribution after the action AND the first follower's question; the legacy game asks the follower in its next step. 54 groups are compared
+    /// before it, with no difference; the native follower question is the one the legacy game asks next.
     #[test]
-    fn the_shadow_run_agrees_with_the_legacy_game_up_to_the_gap() {
+    fn the_shadow_run_agrees_with_the_legacy_game_up_to_the_glued_follower_question_of_the_warfare_card() {
         let shadowed = shadow_play(&lobby_spec("sol", 4, 1), 2_000, 50).expect("builds");
-        assert_eq!(shadowed.first_difference, None);
         assert!(shadowed.compared >= 8, "the draft was compared step by step: {}", shadowed.compared);
-        assert!(matches!(shadowed.played.end, End::Gap(_)));
+        assert_eq!(shadowed.compared, 54, "no difference in the first fifty-four legacy steps");
+        let d = shadowed.first_difference.expect("the glued step of the Warfare card");
+        assert_eq!((d.step, d.what, d.path.as_str()), (85, "questions", "[2]"), "{d}");
+        assert_eq!(d.arms, ["tactical", "aftermath", "tactical", "secondary"], "{d}");
+        assert!(d.native.contains("spend a strategy token to produce at home") && d.legacy == "<absent>", "the native step goes on into the follower's question, the legacy step ends before it: {d}");
     }
 
     #[test]

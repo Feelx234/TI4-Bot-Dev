@@ -758,11 +758,10 @@ mod tests {
     /// Arborec's Mitosis ("at the start of the status phase, place 1 infantry from your reinforcements on a planet you control"): a rule of the core table
     /// now (lane G, `silent::mitosis`); the abilities still without a rule are loud gaps of the live path (`silent::gaps`).
     ///
-    /// * A strategic action whose ability the core cannot begin (`TurnGap::StrategyAbility`: lane E's counted gap -- Thunder's Edge Warfare's free
-    ///   tactical action over a map the facts do not hold, Doctor Sucaban's offer in a research, a placement a faction effect changes): the menu now
-    ///   routes the strategic action natively (lane F2b), so the shadow meets the gap the strategic lane documented. It is a COUNTED gap (the step
-    ///   stops, the position is kept), not a silent difference.
-    const KNOWN_SILENT: [&[&str]; 1] = [&["StrategyAbility"]];
+    /// None are left (lane E2). The last one was a strategic action whose ability the core could not begin (`TurnGap::StrategyAbility`: Doctor Sucaban's offer
+    /// in a research, a paid research whose bill took the prerequisite away, the uses of the Thunder's Edge Construction primary); the Technology primary and the
+    /// Construction uses are native, and the line was deleted as the test demands.
+    const KNOWN_SILENT: [&[&str]; 0] = [];
 
     /// Whole games with every lobby faction in turn (six tables of four), the turn-flow arms in shadow and a counted bail a failure: no difference but the
     /// known silent ones (kept going: a difference never makes the follower diverge, the follower is a legacy game), and the arms ran.
