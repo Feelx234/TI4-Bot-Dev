@@ -1188,7 +1188,8 @@ mod tests {
         assert_eq!(native.get("phase"), Some(&26), "the phases flipped: strategy to action, action to status, status to strategy, eight times over, and the last into the action phase: {native:?}");
         assert!(native.get("turn_prelude").copied().unwrap_or(0) >= 1, "{native:?}");
         assert_eq!(played.matrix.total_gaps(), 0, "one game, no gap");
-        assert_eq!((played.rounds, played.steps), (9, 1174), "nine rounds of the table");
+        // (1,174 steps in lane K; the follower windows lane J holds open close in a step of their own: 24 more steps, the same position and fingerprint.)
+        assert_eq!((played.rounds, played.steps), (9, 1198), "nine rounds of the table");
         assert!(native.get("tokens").copied().unwrap_or(0) >= 8 && native.get("status").copied().unwrap_or(0) >= 8, "the status phases ran natively, their close included: {native:?}");
         assert_eq!(played.fingerprint, "2e93df9fa00fa982");
         assert_eq!(g.step(), Step::Finished, "a finished game stops the loop");
@@ -1504,7 +1505,7 @@ mod tests {
         turn::open_job(&mut g.core, TurnJob::Phase);
         assert!(g.asks(), "an open job is waiting on its step: the arm is Ask");
         let s = shadow_play(&lobby_spec("sol", 4, 1), 100, 50).unwrap();
-        assert_eq!((s.compared, s.played.steps), (65, 100), "a hundred native steps (the budget of the call: the shadow of the whole game ends at the production-order difference, see the next test); the glued ones, the ones that ask nothing while the legacy game stands at a question and the ones a lookahead groups with the step before are not legacy steps of their own");
+        assert_eq!((s.compared, s.played.steps), (66, 100), "a hundred native steps (the budget of the call: the shadow of the whole game ends at the production-order difference, see the next test); the glued ones, the ones that ask nothing while the legacy game stands at a question and the ones a lookahead groups with the step before are not legacy steps of their own");
         let one_round = shadow_play(&lobby_spec("sol", 4, 1), 100, 1).unwrap();
         assert!(matches!(one_round.played.end, End::StepLimit) && one_round.first_difference.is_none(), "round 1 is within a budget of one, and the hundred steps run out before any gap or difference (integration 13: the gap of round one was Peace Accords): {:?}", one_round.played.end);
         let survey = survey(&lobby_spec("sol", 4, 1), 400, 50).unwrap();
@@ -1549,23 +1550,24 @@ mod tests {
 
     /// The native loop and the legacy game agree step by step: the same questions, the same plain events, the same position. (Integration 11
     /// pinned a KNOWN difference here, the Local Fabricators reward of step 24; lane F2c showed it was the harness' (the string asks it inside the legacy step
-    /// that answers the second commit) and fixed the shadow, so the pin fired as it was written to and is replaced by this test.) Since lane E2 the quick
-    /// game plays past the Technology primary (round one's old stop) and the first difference is the one `docs/INTEGRATION12.md` section 5 documents as the
-    /// The shadow of the quick game (sol, 4 players, seed 1) agrees with the legacy game for 275 legacy steps and meets one KNOWN difference at native step
-    /// 397, a tactical action and its aftermath: the core writes `PRODUCTION_USED` where the string writes `INVASION_BEGAN` (the order of a production against
-    /// the invasion's begin; lane M5 / M2, listed in `docs/INTEGRATION13.md` section 6, not investigated here). Pinned so that the day it is fixed this
-    /// test fails as written and is replaced by `..._up_to_the_gap`. (Integration 12 and lane E2 pinned the glued follower question of the Warfare card at
-    /// step 85 here; the shadow harness no longer has that limit (integration 13, B7), and the two hyperlane-map differences of the game, the movement
-    /// options and Peace Accords' candidates, are gone: the core's map follows the printed lanes from the first step.)
+    /// that answers the second commit) and fixed the shadow, so the pin fired as it was written to and is replaced by this test.)
+    /// The shadow of the quick game (sol, 4 players, seed 1) agrees with the legacy game for 282 legacy steps and meets one KNOWN difference at native step
+    /// 408, a tactical action and its aftermath: the Xxcha seat answers `after PRODUCTION_USED` with a reaction card (War Machine), the string writes
+    /// `ACTION_CARD_PLAYED` and `ACTION_CARD_DISCARDED` between `PRODUCTION_USED` and `INVASION_RESOLVED`, and the core plays the card (hand, discard pile,
+    /// round mark) but writes neither event: the aftermath chain mirrors the TOP-LEVEL emissions of a sub-window (`Out::emitted`), and the events a reaction
+    /// emitted inside another (the card is announced when the window of `PRODUCTION_USED` closes) are in the resolver's journal only. Not fixed in integration 15
+    /// (`docs/INTEGRATION15.md` section 6: the mirror of the nested emissions of the production window of the aftermath chain). Pinned so that the day it is
+    /// fixed this test fails as written and is replaced by `..._up_to_the_next_difference`. (Integration 14 pinned the production order at step 397 here;
+    /// lane J fixed it, with the mirror of the space cannon offense of the head.)
     #[test]
-    fn the_shadow_run_agrees_with_the_legacy_game_up_to_the_known_production_order_difference() {
+    fn the_shadow_run_agrees_with_the_legacy_game_up_to_the_known_nested_events_of_a_reaction_card_in_the_production_window() {
         let shadowed = shadow_play(&lobby_spec("sol", 4, 1), 2_000, 50).expect("builds");
         assert!(shadowed.compared >= 8, "the draft was compared step by step: {}", shadowed.compared);
-        assert_eq!(shadowed.compared, 275, "no difference in the first 275 legacy steps");
-        let d = shadowed.first_difference.expect("the production order");
-        assert_eq!((d.step, d.what, d.path.as_str()), (397, "events", "[1]"), "{d}");
+        assert_eq!(shadowed.compared, 282, "no difference in the first 282 legacy steps");
+        let d = shadowed.first_difference.expect("the nested events of the reaction card");
+        assert_eq!((d.step, d.what, d.path.as_str()), (408, "events", "[3]"), "{d}");
         assert_eq!(d.arms, ["tactical", "aftermath"], "{d}");
-        assert_eq!((d.native.as_str(), d.legacy.as_str()), ("PRODUCTION_USED", "INVASION_BEGAN"), "{d}");
+        assert_eq!((d.native.as_str(), d.legacy.as_str()), ("INVASION_RESOLVED", "ACTION_CARD_PLAYED"), "{d}");
     }
 
     #[test]

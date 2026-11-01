@@ -165,13 +165,25 @@ impl<'a> Sx<'a> {
     /// What the resolver refuses with.
     pub fn emit_mirrored(&mut self, rec: EventRec) -> Result<EventRec, TimingError> {
         let top = self.resolver.emission_stack().len() == self.resolver.base_depth();
-        let mark = super::fx::journal_mark(self.resolver);
-        let done = self.emit(rec)?;
-        super::fx::mirror_journal(&mut *self.state, &*self.resolver, mark);
+        let done = self.emit_mirrored_bare(rec)?;
         if top {
             // `Live::emit_typed`: the card moves a faction effect staged in that event's windows are announced now, not at the next component action.
             super::fx_cards::announce_staged_cards(self)?;
         }
+        Ok(done)
+    }
+
+    /// [`Self::emit_mirrored`] without the announcement of the staged card moves at its end: for the events the string announces from the
+    /// pending list of a step (`announce_staged_events`, `try_flush_staged_events`) and not through `Live::emit_typed`. The string leaves
+    /// the card moves staged until its next typed event (Yssaril's Scheming discard follows the `ACTION_COMPLETED` of the strategic action,
+    /// not the `STRATEGY_TOKEN_SPENT` of a follower; integration 15, M1).
+    ///
+    /// # Errors
+    /// What the resolver refuses with.
+    pub fn emit_mirrored_bare(&mut self, rec: EventRec) -> Result<EventRec, TimingError> {
+        let mark = super::fx::journal_mark(self.resolver);
+        let done = self.emit(rec)?;
+        super::fx::mirror_journal(&mut *self.state, &*self.resolver, mark);
         Ok(done)
     }
 

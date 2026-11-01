@@ -37,7 +37,8 @@ fn announce_staged(sx: &mut Sx<'_>) -> Flow {
             if halted(sx) {
                 return Flow::Halt;
             }
-            if sx.emit_mirrored(rec).is_err() {
+            // Not `emit_mirrored`: the string announces these from the pending list, and its card moves wait for its next typed event.
+            if sx.emit_mirrored_bare(rec).is_err() {
                 if !halted(sx) {
                     gap(sx, TurnGap::EmissionRefused);
                 }

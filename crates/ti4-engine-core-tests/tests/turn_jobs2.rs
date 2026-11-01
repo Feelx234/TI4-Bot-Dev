@@ -83,13 +83,19 @@ fn the_end_of_an_action_announces_it_names_the_seat_and_passes_the_turn_when_not
     assert_eq!(plain(&s), [PlainRec::bare(PlainKind::TurnPassed)]);
 }
 
+/// Seat 1 discards `ActionCard::ALL[0]` from its hand the way Scheming does: the card leaves the hand and the move waits for the game step
+/// (`fx::discard_action_card_staged`, so the row has the staged format of the consumer, not a hand-written one).
+fn stage_a_discard(s: &mut CoreState) {
+    s.players_mut().edit(1).cards.hand.push(ActionCard::ALL[0]);
+    assert!(ti4_engine_core::kernel::fx::discard_action_card_staged(s, Seat(1), ActionCard::ALL[0]));
+}
+
 /// `Live::emit_typed` ends with `announce_staged_cards` for every typed event of the string: a discard Scheming staged in a follower window waits for the
 /// next typed event, which is `ACTION_COMPLETED` of the strategic action (J: the Yssaril seat's discard was never announced).
 #[test]
 fn a_card_move_staged_earlier_in_the_action_is_announced_right_after_the_typed_event_that_ends_it() {
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).build();
-    let row = MarkVal::Rec(vec![MarkVal::Atom(Atom::Word(Word::Discarded)), MarkVal::Atom(Atom::Seat(Seat(1))), MarkVal::Atom(Atom::Num(0)), MarkVal::Atom(Atom::Card(ActionCard::ALL[0]))]);
-    s.marks_mut().tail.edit().insert(MarkKey::CardsStaged(0), row);
+    stage_a_discard(&mut s);
     finish(&mut s, &k).unwrap();
     let kinds: Vec<EventKind> = s.ledger.events.iter().filter_map(|e| if let Emit::Typed(t) = e { Some(t.kind) } else { None }).collect();
     let done = kinds.iter().position(|k| *k == EventKind::ActionCompleted).expect("the action ended");
@@ -97,6 +103,23 @@ fn a_card_move_staged_earlier_in_the_action_is_announced_right_after_the_typed_e
     assert!(s.marks().tail.iter().all(|(k, _)| !matches!(k, MarkKey::CardsStaged(_))), "the mark is gone");
     assert_eq!(s.cards().discarded_action.len(), 1, "the card reached the pile");
     assert_eq!(s.transient().combat.last_action_discarded, Some((Seat(1), ActionCard::ALL[0])));
+}
+
+/// Integration 15 (M1): the events a step announces from its pending list (`announce_staged_events`; the reconcile's `announce_staged` here, which the
+/// follower windows of a strategic action also run) are NOT `Live::emit_typed` events in the string, so the card moves staged meanwhile wait for its next
+/// typed event. G5's hook in `Sx::emit_mirrored` announced Yssaril's Scheming discard right after a follower's `STRATEGY_TOKEN_SPENT` (the shadow of the
+/// four Yssaril tables stopped there once lane J's explicit announcement was merged with it).
+#[test]
+fn the_events_the_reconcile_announces_from_the_pending_list_do_not_announce_the_card_moves_staged_meanwhile() {
+    use ti4_engine_core::kernel::fx;
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).build();
+    stage_a_discard(&mut s);
+    fx::stage(&mut s, fx::event(EventKind::StrategyTokenSpent, ti4_engine_core::state::Payload::new().with(Key::Player, Val::Seat(Seat(0)))));
+    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    assert_eq!(typed(&s, EventKind::StrategyTokenSpent).len(), 1, "the staged event was announced");
+    assert!(typed(&s, EventKind::ActionCardDiscarded).is_empty(), "the string's card moves wait for its next typed event");
+    assert!(s.marks().tail.iter().any(|(k, _)| matches!(k, MarkKey::CardsStaged(_))), "the row is still staged");
+    assert!(s.cards().discarded_action.is_empty());
 }
 
 #[test]
