@@ -117,7 +117,7 @@ impl Loaded {
         let state = &*loadable_state;
         let mut cx = Ctx::of(state).ok()?;
         let view = CoreView::of(state, &mut cx, CodecSources { galaxy, rng: None }, reads).ok()?;
-        Some(Self { view, cx, scope: crate::ties::core_adapter::scope(sources), blanked: crate::ties::laws::blanked(state), kernel: crate::ties::core_adapter::kernel_for(sources) })
+        Some(Self { view, cx, scope: crate::ties::core_adapter::scope(sources), blanked: crate::ties::laws::blanked(state), kernel: crate::ties::production_view::kernel_of(sources) })
     }
 
     #[must_use]

@@ -736,6 +736,29 @@ pub fn held_secrets_of(state: &GameState, content: &ContentStore, sources: Sourc
     ObjView::build(state, sources, galaxy).map(|view| view.held_secrets(player, imagined)).unwrap_or_default()
 }
 
+/// Revealed objectives this player could score right now (the status window), in reveal order, with the map when the caller has one:
+/// none while a home planet is lost (61.16), a bought objective when it can be afforded, a position objective when its requirement is met.
+/// Empty when the core cannot hold the position.
+#[must_use]
+pub fn scoreable_on(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, galaxy: Option<&Galaxy>) -> Vec<ObjectiveId> {
+    if !content.is_embedded() {
+        return Vec::new();
+    }
+    let Some(view) = ObjView::build(state, sources, galaxy) else { return Vec::new() };
+    let Some(seen) = view.seen(player) else { return Vec::new() };
+    seen.scoreable_publics(seen.me())
+        .map(|refs| {
+            refs.as_slice()
+                .iter()
+                .map(|r| match r {
+                    ObjectiveRef::Public(o) => ObjectiveId::new(o.as_str()),
+                    ObjectiveRef::Secret(o) => ObjectiveId::new(o.as_str()),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 // ---- the accessors of `Observed` -------------------------------------------------------------------------------------------------------
 
 /// The view an `Observed` keeps for its objectives questions: loaded on the first one.

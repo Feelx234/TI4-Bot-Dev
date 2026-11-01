@@ -79,3 +79,20 @@ pub fn points_for(content: &ContentStore, alias: &ObjectiveId) -> Option<i32> {
 pub fn scored_count(state: &GameState, content: &ContentStore, player: &PlayerId) -> usize {
     state.scored_by(player).iter().filter(|alias| content.get(ContentType::SecretObjectives, alias.as_str()).is_some()).count()
 }
+
+/// Systems with nothing to land on, which is where a frontier token goes (35.5). Deep space and planetless anomalies both qualify; a tile
+/// whose only "planets" are space stations counts as planetless (space stations rule 14).
+#[must_use]
+pub fn frontier_systems(content: &ContentStore, sources: SourceSet, galaxy: &ti4_content::galaxy::Galaxy) -> Vec<ti4_model::id::SystemId> {
+    let mut systems: Vec<ti4_model::id::SystemId> = galaxy
+        .system_ids_holding_things()
+        .into_iter()
+        .filter(|id| {
+            ti4_content::galaxy::system(content, id, sources)
+                .is_none_or(|record| record.planets().into_iter().all(|planet| ti4_content::galaxy::is_space_station(content, planet, sources)))
+        })
+        .map(ti4_model::id::SystemId::new)
+        .collect();
+    systems.sort();
+    systems
+}
