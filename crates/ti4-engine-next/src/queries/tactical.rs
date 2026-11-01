@@ -226,3 +226,31 @@ pub fn routes_for(
         })
         .collect()
 }
+
+/// What a ship of this type moves from `origin` (the hull at `index` of the seat's units there), with the cards in play, the modules' move
+/// bonuses (Creuss Slipstream), Gravleash's anchor and the two boosts: the core's `query::reach::effective_move_value_for_ship` over the
+/// kernel with every faction module. Without an `index`, or when the core cannot hold the position or the ship, the answer is the printed move
+/// with the boosts only (the cards and the modules are the core's to add).
+#[must_use]
+pub fn effective_move_value_for_ship(
+    state: &GameState,
+    kind: &ti4_content::units::UnitType<'_>,
+    player: &PlayerId,
+    origin: &SystemId,
+    index: Option<usize>,
+    gravity_drive: bool,
+    ionian: bool,
+) -> i32 {
+    use ti4_engine_core::generated::{System, Unit};
+    use ti4_engine_core::state::{Slice, SliceSet};
+    let printed = i32::try_from(kind.move_value()).unwrap_or(0) + i32::from(gravity_drive) + i32::from(ionian);
+    let typed = || {
+        let view = super::view::Loaded::of(state, None, ti4_model::content_types::FULL, SliceSet::of_without(SliceSet::ALL, Slice::Map))?;
+        let seat = view.seat(player)?;
+        let hull = crate::ties::core_adapter::typed::<Unit>(kind.id())?;
+        let system = crate::ties::core_adapter::typed::<System>(origin.as_str())?;
+        let index = u16::try_from(index?).ok()?;
+        ti4_engine_core::query::reach::effective_move_value_for_ship(view.core(), view.kernel(), seat, system, hull, index, (gravity_drive, ionian))
+    };
+    typed().unwrap_or(printed)
+}

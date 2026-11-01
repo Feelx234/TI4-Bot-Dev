@@ -553,7 +553,12 @@ fn armed_table(faction: &str, seed: u64) -> (GameState, ti4_content::galaxy::Gal
     let assignments: std::collections::BTreeMap<PlayerId, ti4_model::id::FactionId> = [("a", faction), ("b", others[0]), ("c", others[1])].into_iter().map(|(p, f)| (PlayerId::new(p), ti4_model::id::FactionId::new(f))).collect();
     let (mut state, galaxy) = (seed..seed + 60).find_map(|seed| ti4_host::map::create_game_with_template_seated(content, &ids, seed, None, &assignments, None).ok()).unwrap_or_else(|| panic!("a map for some seed with {faction}: {:?}", ti4_host::map::create_game_with_template_seated(content, &ids, seed, None, &assignments, None).err()));
     let upgrades = unit_upgrades(ti4_model::content_types::POK);
-    state.player_mut(&ids[0]).expect("a seat").technologies.extend(upgrades);
+    let seat = state.player_mut(&ids[0]).expect("a seat");
+    seat.technologies.extend(upgrades);
+    // Every leader of the first seat is in play (commanders, heroes), so the hooks that read a commander's ability have something to answer.
+    for status in seat.leaders.values_mut() {
+        *status = LeaderStatus::Unlocked;
+    }
     let home = state.board.iter().find(|(_, b)| b.units.iter().any(|u| u.owner == ids[0])).map(|(id, _)| id.clone()).expect("a home");
     let unit = |kind: &str, owner: &PlayerId| ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new(kind), owner.clone());
     let board = state.board.get_mut(&home).expect("a home");
@@ -704,4 +709,34 @@ mod ts {
         same::<old::reach_query::ReachOrigin, thin::queries::reach_query::ReachOrigin>();
         same::<old::reach_query::ReachShip, thin::queries::reach_query::ReachShip>();
     }
+}
+
+#[test]
+fn the_effective_move_value_answers_as_the_legacy_one_does() {
+    let content = content();
+    let types = ti4_content::units::catalogue(content, ti4_model::content_types::POK);
+    let mut compared = 0_usize;
+    let mut tables: Vec<(String, GameState)> = positions().into_iter().map(|p| (p.label, p.state)).collect();
+    // Every lobby faction at an armed table (Creuss's Slipstream and the other movement modules), with the cards that move ships played.
+    for (n, faction) in old::seating::LOBBY_FACTIONS.iter().enumerate() {
+        let (mut state, _) = armed_table(faction, 3 + n as u64);
+        state.phase = ti4_model::state::Phase::Action;
+        tables.push(((*faction).to_owned(), state));
+    }
+    for (label, state) in &tables {
+        for player in players(state) {
+            for origin in state.systems_with_units_of(&player) {
+                for (index, hull) in state.ships_of(&player, origin).into_iter().enumerate() {
+                    let Some(kind) = types.get(hull.type_id.as_str()) else { continue };
+                    for (gravity_drive, ionian) in [(false, false), (true, false), (false, true), (true, true)] {
+                        let a = old::tactical::effective_move_value_for_ship(state, kind, &player, origin, Some(index), gravity_drive, ionian);
+                        let b = thin::queries::tactical::effective_move_value_for_ship(state, kind, &player, origin, Some(index), gravity_drive, ionian);
+                        assert_eq!(a, b, "{label}: {player} {} #{index} at {origin} boosts ({gravity_drive}, {ionian})", hull.type_id);
+                        compared += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(compared > 2000, "only {compared} ship values compared");
 }

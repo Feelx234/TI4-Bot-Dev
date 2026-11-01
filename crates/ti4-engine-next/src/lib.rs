@@ -153,6 +153,7 @@ pub mod strategy_cards {
 }
 pub mod tactical {
     pub use crate::kinds::tactical::{ACTIVATE_KIND, MAX_ROUTES, MOVE_KIND, ROUTES_DETAIL};
+    pub use crate::queries::tactical::effective_move_value_for_ship;
     pub use ti4_engine_legacy::tactical::*;
 }
 pub mod technology {
