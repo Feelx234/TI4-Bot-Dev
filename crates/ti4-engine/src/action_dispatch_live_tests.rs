@@ -340,3 +340,38 @@ fn letani_miasmiala_chosen_from_the_menu_produces_where_the_ground_forces_stand_
     let state = leader_table(&[("a", "arborec"), ("b", "sol"), ("c", "hacan")], "arborechero", LeaderStatus::Unlocked);
     lockstep(&state, &["component|leader|arborechero"], "COMPONENT_ACTION_RESOLVED");
 }
+
+// ---- lane F2e: the relics with a question of their own, and Rin, against the string ----
+
+#[test]
+fn the_silver_flame_chosen_from_the_menu_rolls_the_same_die_like_the_string() {
+    let state = relic_table("thesilverflame");
+    lockstep(&state, &["relic|thesilverflame"], "COMPONENT_ACTION_RESOLVED");
+}
+
+#[test]
+fn the_maw_of_worlds_chosen_from_the_menu_exhausts_the_planets_and_gains_a_technology_like_the_string() {
+    let state = relic_table("mawofworlds");
+    lockstep(&state, &["relic|mawofworlds"], "COMPONENT_ACTION_RESOLVED");
+}
+
+#[test]
+fn the_enigmatic_device_relic_chosen_from_the_menu_pays_six_and_researches_like_the_string() {
+    let mut state = relic_table("enigmaticdevice");
+    state.player_mut(&pid("a")).unwrap().trade_goods = 8;
+    lockstep(&state, &["relic|enigmaticdevice"], "COMPONENT_ACTION_RESOLVED");
+}
+
+#[test]
+fn the_titan_prototype_chosen_from_the_menu_lets_the_named_player_build_like_the_string() {
+    let state = relic_table("titanprototype");
+    lockstep(&state, &["relic|titanprototype", "b"], "COMPONENT_ACTION_RESOLVED");
+}
+
+#[test]
+fn rin_chosen_from_the_menu_swaps_a_technology_like_the_string() {
+    let mut state = leader_table(&[("a", "jolnar"), ("b", "sol"), ("c", "hacan")], "jolnarhero", LeaderStatus::Unlocked);
+    state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("amd"));
+    let state = super::turn_live_tests::based(state);
+    lockstep(&state, &["component|leader|jolnarhero"], "COMPONENT_ACTION_RESOLVED");
+}

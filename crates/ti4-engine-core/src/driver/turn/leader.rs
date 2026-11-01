@@ -18,7 +18,7 @@ use crate::kernel::stage::Sx;
 use crate::kernel::turn_codes::{MenuGap, TurnGap};
 use crate::query::{board, reach};
 use crate::rules::leader_production::{ArborecHero, Umbat};
-use crate::rules::leader_windows::{ArmageddonRelay, HacanAgent, Helmsman, LetaniOspha, NekroMalleon, XxchaAgent, XxchaHeroTe};
+use crate::rules::leader_windows::{ArmageddonRelay, HacanAgent, Helmsman, LetaniOspha, NekroMalleon, RiftwalkerMeian, RinHero, SwapFacts, XxchaAgent, XxchaHeroTe};
 use crate::state::{PlainKind, PlainRec};
 
 /// The unit roster of the table's play facts (the forms a seat places).
@@ -48,6 +48,8 @@ pub const fn routed(leader: Leader, borrowed: bool) -> bool {
             | Leader::XxekirGromTe
             | Leader::Umbat
             | Leader::LetaniMiasmiala
+            | Leader::RinTheMastersLegacy
+            | Leader::RiftwalkerMeian
     )
 }
 
@@ -86,6 +88,8 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool)
         Leader::XxekirGromTe => xxcha_hero_te(sx, who, key),
         Leader::Umbat => umbat(sx, who, key),
         Leader::LetaniMiasmiala => miasmiala(sx, who, key),
+        Leader::RinTheMastersLegacy => rin(sx, who, key),
+        Leader::RiftwalkerMeian => riftwalker_meian(sx, who, key),
         _ => unrouted(sx, key),
     }
 }
@@ -284,3 +288,47 @@ fn miasmiala(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
 
 /// The number of units one use of Letani Miasmiala may make: none is set by the card; the purse and the box bound it (`arborec::HERO_LIMIT`).
 const HERO_LIMIT: i64 = 1000;
+
+/// Rin, the Master's Legacy (Jol-Nar hero): each non-unit-upgrade technology may be swapped for one of its colour. The replacements are listed in the order of
+/// the corpus file and the technologies held in the order of their alias text (the string's `BTreeSet` order): both orders are the adapter's tables.
+fn rin(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    let Some(plays) = sx.table.facts.plays.as_ref() else { return gap_flow(sx, TurnGap::NoRoster) };
+    let (alias_order, corpus) = (plays.tech_order, sx.table.codes.agenda.tech_corpus);
+    let mut order = crate::generated::Technology::ALL.to_vec();
+    order.sort_by(|a, b| corpus(*a, *b));
+    let mut by_alias = crate::generated::Technology::ALL.to_vec();
+    by_alias.sort_by(|a, b| alias_order(*a, *b));
+    let mut window = RinHero::new(who, order, by_alias);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    hero(sx, who, key, Leader::RinTheMastersLegacy, window.used)
+}
+
+/// Riftwalker Meian (Ghost hero): swap the positions of two systems that hold a wormhole or the seat's units. The systems the card may not name are the
+/// two Creuss systems, the Wormhole Nexus and the Fracture's; the wormholes are the map's (printed and tokens).
+fn riftwalker_meian(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    use crate::bits::SysSet;
+    use crate::generated::System;
+    let scope = reach::scope_of(sx.kernel);
+    let (mut allowed, mut wormholes) = (SysSet::EMPTY, SysSet::EMPTY);
+    let has_map = sx.state.galaxy().is_some();
+    if let Some(galaxy) = sx.state.galaxy() {
+        for system in System::ALL {
+            let excluded = matches!(system, System::CreussGateCreuss | System::CreussCreuss | System::MalliceLockedNexus | System::MalliceNexus)
+                || scope.system(system).is_some_and(|d| d.tile_back == Some(crate::generated::TileBack::Fracture));
+            if excluded {
+                continue;
+            }
+            allowed.insert(system.index());
+            if galaxy.wormhole_kinds(system) != 0 {
+                wormholes.insert(system.index());
+            }
+        }
+    }
+    let mut window = RiftwalkerMeian::new(who, has_map, SwapFacts { allowed, wormholes });
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    hero(sx, who, key, Leader::RiftwalkerMeian, window.used)
+}

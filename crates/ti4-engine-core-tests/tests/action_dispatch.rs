@@ -947,3 +947,210 @@ fn a_leaders_production_of_three_ships_pays_hacans_auto_factories_token() {
     assert_eq!(units_of(&s, system, 0, Unit::DestroyerI), 3, "three destroyers were built");
     assert_eq!(fleet(&s), before + 1, "a token for three non-fighter ships");
 }
+
+/// Lane F2e (mutation debt of F2d): the question of Black Market Forgery names the `bmf` source and Naaz's own Fabrication the `fabrication` one. The
+/// test table interns nothing, so the two codes are set apart here; the window must be built with the right one.
+#[test]
+fn black_market_forgery_and_fabrication_ask_under_their_own_source() {
+    use ti4_engine_core::choice::generic::Content;
+    use ti4_engine_core::choice::Origin;
+    use ti4_engine_core::generated::{ExploreType, PromissoryNote};
+    use ti4_engine_core::kernel::hooks::components as c;
+    use ti4_engine_core::state::{Code, NoteKey};
+    for (code, expected) in [(c::BLACK_MARKET_FORGERY, Code(31)), (c::FABRICATION_RELIC, Code(32))] {
+        let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheNaazRokhaAlliance, Faction::TheArborec]).phase(Phase::Action).active(Some(0)).tokens(0, 3, 3, 2).build();
+        let note = NoteKey { note: PromissoryNote::BlackMarketForgery, faction: Faction::TheNaazRokhaAlliance };
+        s.cards_mut().promissory.edit().insert(note, Seat(0));
+        // Two types of fragments, so the window asks which type (a question that carries its source).
+        s.players_mut().edit(0).cards.fragments.set(ExploreType::Hazardous, 2);
+        s.players_mut().edit(0).cards.fragments.set(ExploreType::Cultural, 2);
+        s.decks_mut().relic = ti4_engine_core::Deck::new(vec![ti4_engine_core::generated::Relic::DynamisCore]);
+        if code == c::FABRICATION_RELIC {
+            s.players_mut().edit(0).faction = Faction::TheNaazRokhaAlliance;
+        }
+        let mut e = env_r(&k);
+        e.table.codes.turn.bmf = Code(31);
+        e.table.codes.turn.fabrication = Code(32);
+        let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Faction(a)) if a.code == code)).unwrap();
+        assert!(matches!(live, Live::Asks(_)), "the type of fragment is asked");
+        let q = ask_ask(&mut s, &e).unwrap().unwrap().choice;
+        assert_eq!(q.ctx.origin, Origin::FactionAbility(Content::Other(expected)), "{code}");
+    }
+}
+
+// ---- lane F2e: Rin, Riftwalker Meian and the relics with a window of their own ----
+
+fn plain_tech(skip: &[Technology]) -> Technology {
+    use ti4_engine_core::generated::{Source, TechType};
+    *Technology::ALL
+        .iter()
+        .find(|t| {
+            let d = t.data();
+            d.source == Source::Base && d.faction.is_none() && d.researchable && !d.types.is_empty() && !d.types.contains(&TechType::Unitupgrade) && !skip.contains(t)
+        })
+        .expect("a plain technology")
+}
+
+/// Lane F2e: Rin swaps a technology of the seat for another of its colour (the question per technology, the trade is the first option) and is purged.
+#[test]
+fn rin_chosen_from_the_menu_swaps_a_technology_for_one_of_its_colour_and_is_purged() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let held = plain_tech(&[]);
+    let (mut s, k) = Scenario::new(&[Faction::TheUniversitiesOfJolNar, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .tech(0, held)
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::RinTheMastersLegacy, LeaderStatus::Unlocked);
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::RinTheMastersLegacy)))).unwrap();
+    assert!(matches!(live, Live::Asks(_)), "the swap of the technology is asked");
+    first_options(&mut s, &e, live, 6);
+    let owned = &s.players().by_seat(Seat(0)).unwrap().tech.owned;
+    assert!(!owned.contains(held), "the held technology went back to the deck");
+    assert_eq!(status(&s, 0, Leader::RinTheMastersLegacy), Some(LeaderStatus::Purged));
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// Lane F2e: a Jol-Nar seat holding no technology it could swap is not offered the hero (the string's list of replacements is empty).
+#[test]
+fn rin_is_not_offered_when_nothing_can_be_swapped() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let (mut s, k) = Scenario::new(&[Faction::TheUniversitiesOfJolNar, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).tokens(0, 3, 3, 2).build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::RinTheMastersLegacy, LeaderStatus::Unlocked);
+    let e = env_r(&k);
+    let q = ask_ask(&mut s, &e).unwrap().unwrap().choice;
+    assert!(!q.opts.as_slice().iter().any(|o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::RinTheMastersLegacy)))), "no technology, no swap");
+}
+
+/// Lane F2e: Riftwalker Meian swaps two systems that hold the seat's units and records the map edit; the hero is purged.
+#[test]
+fn riftwalker_meian_chosen_from_the_menu_records_the_swap_of_two_systems_and_is_purged() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::{LeaderStatus, MarkKey};
+    let ps = ti4_engine_core_tests::scenario::plain_systems();
+    let (mut s, k) = Scenario::new(&[Faction::TheGhostsOfCreuss, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_ring(7)
+        .unit(ps[0], None, Unit::CruiserI, 0, 1)
+        .unit(ps[1], None, Unit::CruiserI, 0, 1)
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::RiftwalkerMeian, LeaderStatus::Unlocked);
+    // The string board has an entry for a system that holds a unit (the menu counts those).
+    for system in [ps[0], ps[1]] {
+        s.board_mut().sys_mut(system).flags.set(ti4_engine_core::state::SysFlags::TOUCHED, true);
+    }
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::RiftwalkerMeian)))).unwrap();
+    first_options(&mut s, &e, live, 4);
+    let edits = s.marks().tail.iter().filter(|(k, _)| matches!(k, MarkKey::MapEdit(_))).count();
+    assert_eq!(edits, 1, "one swap was recorded");
+    assert_eq!(status(&s, 0, Leader::RiftwalkerMeian), Some(LeaderStatus::Purged));
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+fn relic_table(relic: ti4_engine_core::generated::Relic, extra: impl FnOnce(Scenario) -> Scenario) -> (CoreState, Kernel) {
+    let (mut s, k) = extra(Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan, Faction::TheArborec]).phase(Phase::Action).active(Some(0)).tokens(0, 3, 3, 2)).build();
+    s.players_mut().edit(0).cards.relics.push(relic);
+    (s, k)
+}
+
+fn use_relic(s: &mut CoreState, e: &Env<'_>, relic: ti4_engine_core::generated::Relic) -> Live {
+    pick(s, e, |o| matches!(o, Opt::Turn(TuOpt::UseRelic(r)) if *r == relic)).unwrap().0
+}
+
+/// Lane F2e: the Maw of Worlds exhausts every planet of the seat, gains the technology asked (no prerequisites) and is purged.
+#[test]
+fn the_maw_of_worlds_chosen_from_the_menu_exhausts_the_planets_gains_a_technology_and_is_purged() {
+    use ti4_engine_core::generated::Relic;
+    let (_, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = relic_table(Relic::MawOfWorlds, |sc| sc.map_ring(1).control(planet, 0));
+    let e = env_r(&k);
+    let before = s.players().by_seat(Seat(0)).unwrap().tech.owned.len();
+    let live = use_relic(&mut s, &e, Relic::MawOfWorlds);
+    assert!(matches!(live, Live::Asks(_)), "the technology is asked");
+    first_options(&mut s, &e, live, 4);
+    let p = s.players().by_seat(Seat(0)).unwrap();
+    assert_eq!(p.tech.owned.len(), before + 1, "one technology gained");
+    assert!(s.board().planet(planet).flags.has(ti4_engine_core::state::PlanetFlags::EXHAUSTED), "every planet is exhausted first");
+    assert!(!p.cards.relics.as_slice().contains(&Relic::MawOfWorlds), "the relic is purged");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// Lane F2e: the Enigmatic Device (the relic) takes six resources, researches the technology asked and is purged.
+#[test]
+fn the_enigmatic_device_relic_chosen_from_the_menu_pays_six_and_researches_a_technology() {
+    use ti4_engine_core::generated::Relic;
+    let (mut s, k) = relic_table(Relic::EnigmaticDevice, |sc| sc.goods(0, 6));
+    let e = env_r(&k);
+    let before = s.players().by_seat(Seat(0)).unwrap().tech.owned.len();
+    let live = use_relic(&mut s, &e, Relic::EnigmaticDevice);
+    first_options(&mut s, &e, live, 12);
+    let p = s.players().by_seat(Seat(0)).unwrap();
+    assert_eq!(p.econ.trade_goods, 0, "six resources were paid");
+    assert_eq!(p.tech.owned.len(), before + 1, "one technology researched");
+    assert!(!p.cards.relics.as_slice().contains(&Relic::EnigmaticDevice), "purged");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// Lane F2e: the Stellar Converter destroys the planet chosen next to a bombarding unit and is purged.
+#[test]
+fn the_stellar_converter_chosen_from_the_menu_destroys_a_planet_next_to_a_bombarding_unit() {
+    use ti4_engine_core::generated::Relic;
+    let ps = ti4_engine_core_tests::scenario::plain_systems();
+    let (mut s, k) = relic_table(Relic::StellarConverter, |sc| sc.map_ring(7).unit(ps[0], None, Unit::DreadnoughtI, 0, 1));
+    for system in &ps[..7] {
+        s.board_mut().sys_mut(*system).flags.set(ti4_engine_core::state::SysFlags::TOUCHED, true);
+    }
+    let e = env_r(&k);
+    let live = use_relic(&mut s, &e, Relic::StellarConverter);
+    let q = ask_ask(&mut s, &e).unwrap().unwrap().choice;
+    let target = q.opts.as_slice().iter().find_map(|o| match o {
+        Opt::Relic(ti4_engine_core::choice::relic::Opt::Destroy(planet, _)) => Some(*planet),
+        _ => None,
+    });
+    let target = target.expect("a target is offered");
+    first_options(&mut s, &e, live, 3);
+    assert!(s.board().planet(target).flags.has(ti4_engine_core::state::PlanetFlags::PURGED), "the planet is destroyed");
+    assert!(!s.players().by_seat(Seat(0)).unwrap().cards.relics.as_slice().contains(&Relic::StellarConverter));
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// Lane F2e: the Silver Flame rolls a die, is purged either way and, on anything but a ten, bars the seat from public objectives and purges its
+/// home system. The roll is on the dice stream and in the ledger.
+#[test]
+fn the_silver_flame_chosen_from_the_menu_rolls_a_die_and_is_purged_either_way() {
+    use ti4_engine_core::generated::Relic;
+    let (mut s, k) = relic_table(Relic::TheSilverFlame, |sc| sc);
+    let e = env_r(&k);
+    let dice = s.ledger.dice.len();
+    use_relic(&mut s, &e, Relic::TheSilverFlame);
+    let p = s.players().by_seat(Seat(0)).unwrap();
+    assert!(!p.cards.relics.as_slice().contains(&Relic::TheSilverFlame), "purged");
+    assert_eq!(s.ledger.dice.len(), dice + 1, "one die rolled");
+    let roll = s.ledger.dice.last().unwrap();
+    assert_eq!(roll.faces.len(), 1);
+    let ten = roll.faces[0] == 10;
+    assert_eq!(p.econ.public_objectives_forbidden, !ten, "anything but a ten bars the seat from public objectives");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// Lane F2e: the Titan Prototype: the owner names the builder, who builds a structure for three resources or gains a trade good.
+#[test]
+fn the_titan_prototype_chosen_from_the_menu_lets_the_named_player_build_or_gain_a_trade_good() {
+    use ti4_engine_core::generated::Relic;
+    // Seat 1 has nothing to build on: it takes the trade good.
+    let (mut s, k) = relic_table(Relic::JRXS455O, |sc| sc.goods(1, 0));
+    let e = env_r(&k);
+    let live = use_relic(&mut s, &e, Relic::JRXS455O);
+    assert!(matches!(live, Live::Asks(_)), "the builder is asked");
+    pick(&mut s, &e, |o| matches!(o, Opt::Relic(ti4_engine_core::choice::relic::Opt::Builder(Seat(1))))).unwrap();
+    assert_eq!(s.players().by_seat(Seat(1)).unwrap().econ.trade_goods, 1, "the consolation");
+    assert!(!s.players().by_seat(Seat(0)).unwrap().cards.relics.as_slice().contains(&Relic::JRXS455O), "purged");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
