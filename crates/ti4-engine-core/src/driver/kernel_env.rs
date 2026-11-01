@@ -154,6 +154,12 @@ impl leaders::Env for KernelEnv<'_> {
         match leader {
             Leader::Zeu => self.zeu_resolves(who),
             Leader::RinTheMastersLegacy => self.sucaban_resolves(who),
+            // Xxekir Grom (Thunder's Edge Xxcha hero): a controlled planet to place on and a PDS in the box (the string also counts the mech; the
+            // form of each is the route's, `driver::turn::leader`).
+            Leader::XxekirGromTe => {
+                !crate::query::board::controlled_planets(self.core, who).as_slice().is_empty()
+                    && crate::query::fleet::remaining_all(self.core, crate::query::reach::scope_of(self.kernel), who, crate::generated::Unit::PDSI) > 0
+            }
             _ => false,
         }
     }

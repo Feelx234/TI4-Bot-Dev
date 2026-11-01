@@ -501,3 +501,40 @@ pub fn parse_pick(r: &Render, ask: &Ask, id: &str) -> Option<core::Pick> {
 
 /// A context for tests and tools: the string engine's `DecisionContext` type is re-exported here.
 pub type Context = DecisionContext;
+
+#[cfg(test)]
+mod sync_codes_tests {
+    use super::Render;
+    use ti4_engine_core::containers::Interner;
+
+    /// Lane F2c/F2d: the render and the state's table become one when one is a prefix of the other, whichever is longer; two tables that disagree
+    /// (also at the FIRST text) are left alone.
+    #[test]
+    fn the_render_and_the_state_share_one_code_table_only_when_one_is_a_prefix_of_the_other() {
+        let render = Render::new(Vec::new());
+        let a = render.code("alpha");
+        // The state is behind: it takes the render's table.
+        let mut state = Interner::default();
+        render.sync_codes(&mut state);
+        assert_eq!(state.get(u32::from(a.0)), Some("alpha".as_bytes()), "the state took the render's texts");
+        // The state minted a text of its own: the render takes it.
+        let minted = state.intern(b"beta", usize::MAX).expect("room");
+        render.sync_codes(&mut state);
+        assert_eq!(u32::from(render.code("beta").0), minted, "the render knows the text the state minted");
+        // Two tables that disagree at the first text are left alone.
+        let mine = render.codes_snapshot();
+        let mut texts: Vec<Vec<u8>> = (0..mine.len() as u32).map(|i| mine.get(i).expect("text").to_vec()).collect();
+        texts[0] = b"other".to_vec();
+        let mut apart = Interner::sealed(texts.iter().map(Vec::as_slice));
+        let before = apart.len();
+        render.sync_codes(&mut apart);
+        assert_eq!((apart.len(), apart.get(0)), (before, Some("other".as_bytes())), "a table built apart is untouched");
+        // ... and at a later text.
+        let mut late = Interner::default();
+        late.intern(render.codes_snapshot().get(0).expect("a first text"), usize::MAX);
+        late.intern(b"different", usize::MAX);
+        let kept = late.clone();
+        render.sync_codes(&mut late);
+        assert_eq!(late.len(), kept.len());
+    }
+}
