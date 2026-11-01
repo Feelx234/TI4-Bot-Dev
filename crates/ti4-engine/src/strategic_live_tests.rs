@@ -274,7 +274,10 @@ fn a_technology_secondary_the_pool_of_war_machine_alone_affords_runs_like_the_st
     for planet in planets {
         state.exhausted_planets.insert(planet);
     }
-    let (string, native) = both(&based(state), "pok7technology", &["yes"]);
+    let state = based(state);
+    let (string, taken) = string_secondary(&state, "pok7technology", &["yes"]);
+    eprintln!("WM-DEBUG string asked {:?} taken {:?}", string.questions.iter().map(|q| (q.player.to_string(), q.prompt.clone(), q.ids().into_iter().map(str::to_owned).collect::<Vec<_>>())).collect::<Vec<_>>(), taken);
+    let native = native_secondary(&state, "pok7technology", &taken);
     assert_same(&string, &native);
     assert!(has(&string, "STRATEGIC_ACTION_COMPLETE"), "{:?}", string.events);
 }
