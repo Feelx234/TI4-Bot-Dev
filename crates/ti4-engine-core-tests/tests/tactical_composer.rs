@@ -12,7 +12,6 @@ use ti4_engine_core::driver::windows::tactical::{advance_tactical, ask_tactical,
 use ti4_engine_core::hex::Hex;
 use ti4_engine_core::kernel::ability::TacticalCodes;
 use ti4_engine_core::kernel::stage::{AbilityTable, Held};
-use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::state::{AStage, Code, Emit, EventKind, PlainKind, THeadStep, TStage, Window as OpenWindow, WindowKind};
 use ti4_engine_core_tests::prelude::*;
 use ti4_engine_core_tests::rig::KitSeeds;
@@ -26,8 +25,16 @@ fn codes() -> TacticalCodes {
 fn env(k: &Kernel, seed: u64) -> Env<'_> {
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
+    // The activation marks of the Sardakk agent and of the Winnu are abilities of the activation window (`leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after`,
+    // `ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after`), registered for both seats of these positions.
+    ti4_engine_core_factions::silent::winnu::register_abilities(&mut table);
+    ti4_engine_core_factions::silent::g3::tro_marks::register_abilities(&mut table);
     table.codes.tactical = codes();
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(KitSeeds(seed)) }
+    let mut resolver = ti4_engine_core::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
+    for seat in [Seat(0), Seat(1)] {
+        resolver.register(table.specs().iter().map(|spec| spec.def(ti4_engine_core::choice::reaction::AbilityId { kind: spec.kind, key: Code(spec.slot.0) }, seat)).collect::<Vec<_>>());
+    }
+    Env { kernel: k, registry: Cow::new(resolver.registry().clone()), table, seeds: Rc::new(KitSeeds(seed)) }
 }
 
 fn t(o: TOpt) -> Opt {

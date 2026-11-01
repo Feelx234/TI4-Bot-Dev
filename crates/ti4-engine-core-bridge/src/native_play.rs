@@ -421,6 +421,9 @@ impl NativeGame {
         let lcx = live::Cx::new(&self.render, &env);
         let mut bot = Bot { seed: self.seed, seats: &self.seats, index: self.decided, asked: Vec::new() };
         let from = self.core.ledger.events.len();
+        if !self.quiet && std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() && !self.core.pending().staged.is_empty() {
+            eprintln!("  staged at the start of the step (after glue {}): {:?}", self.after_glue, self.core.pending().staged.iter().map(|e| e.kind).collect::<Vec<_>>());
+        }
         // 1. The reconcile hooks every step starts with (not the second half of a glued pair: the string's step runs on from the prelude).
         for _ in 0..8 {  // mutants:skip (the reconcile job is one window; the bound is defensive)
             if self.after_glue {
@@ -458,6 +461,9 @@ impl NativeGame {
         };
         if !self.quiet && std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
             eprintln!("step {arm_label}: asked {:?}", out.asked.iter().map(|c| (c.player.to_string(), c.prompt.clone(), c.options.iter().map(|o| o.id.clone()).collect::<Vec<_>>())).collect::<Vec<_>>());
+        }
+        if !self.quiet && std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() && !self.core.pending().staged.is_empty() {
+            eprintln!("  staged at the end of the step: {:?}", self.core.pending().staged.iter().map(|e| e.kind).collect::<Vec<_>>());
         }
         if out.finished
             && let Some(part) = lent_close(arm)

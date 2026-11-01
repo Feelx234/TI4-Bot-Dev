@@ -2045,6 +2045,9 @@ impl Play {
         if matches!(self.fx, Fx::Reroll | Fx::Scramble) {
             return self.begin_reroll(sx);
         }
+        if self.fx == Fx::Harness {
+            return self.begin_harness(sx);
+        }
         self.before(sx.state, sx.kernel);
         // Rules version 23: with nothing to take the five influence are never spent (older games paid first).
         if self.fx == Fx::Plagiarize && self.env.facts.rules_version >= RULES_ACTION_CARD_COSTS && self.options(sx.state, sx.kernel, &sx.table.links).is_empty() {
@@ -2063,6 +2066,20 @@ impl Play {
         self.maybe_bill(sx);
         self.maybe_explore(sx);
         self.maybe_hit(sx);
+    }
+
+    /// Harness Energy: the holder's commodities are replenished (`action_cards::harness_energy`), and what a replenishment causes follows (Cabal's note, the
+    /// Trade Agreement: the owner's commodities become the holder's trade goods and the holder's `TRADE_GOODS_GAINED` is staged for the next step). A faction
+    /// played by two seats (the Trade Agreement is the string's there) declines the run.
+    fn begin_harness(&mut self, sx: &mut Sx<'_>) {
+        self.stage = Stage::Done;
+        let codes = sx.table.codes.explore;
+        if !codes.filled {
+            // A table that announces nothing (`replenish_events` is false there: no Cabal, no note held): the plain write.
+            fx::replenish_commodities(sx.state, self.who);
+        } else if fx::replenish_announced(sx.state, self.who, codes.trade_agreement).is_none() {
+            self.unsupported = true;
+        }
     }
 
     /// Courageous To The End: "after 1 of your ships is destroyed during a space combat: roll 2 dice. For each result equal to or
