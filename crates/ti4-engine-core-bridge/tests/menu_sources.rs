@@ -44,7 +44,8 @@ fn the_faction_component_actions_listed_equal_the_strings() {
     assert!(report.mismatches.is_empty(), "{:#?}", report.mismatches);
     assert_eq!(report.unmapped, 0, "{:?}", report.unmapped_at);
     assert!(report.listed.get("faction").copied().unwrap_or(0) > 0, "no faction action was ever offered: {report:?}");
-    assert!(report.gaps > 0, "the gap cases were reached: {report:?}");
+    // (Lane F2e listed Nekro's C4R, the Titans' Terraform and Cabal's Vortex: the faction source has no counted gap left. The assertion used to demand one.)
+    assert_eq!(report.gaps, 0, "the core lists every faction action the string lists: {report:?}");
     for id in [
         "faction|orbital_drop", "faction|production_biomes", "faction|trade_convoys", "faction|muaat|star_forge", "faction|muaat|fires",
         "faction|ghost|wg", "faction|mentak|pop", "faction|empyrean|blood_pact", "faction|empyrean|dark_pact", "faction|winnu|lgf", "faction|naaz|fabrication_relic",
