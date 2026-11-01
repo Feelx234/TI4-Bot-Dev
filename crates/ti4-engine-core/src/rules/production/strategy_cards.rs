@@ -650,7 +650,7 @@ impl<'a> KernelHooks<'a> {
     #[must_use]
     pub fn new(s: &'a CoreState, k: &'a Kernel, who: Seat) -> Self {
         let cx = ProdCx::new(s, k, Scope(u32::from(k.sources.0)), reach::blanked(s));
-        let afford_inheritance = prod::available(&cx, who, Spend::Resources, &Extras::default()) >= tech::INHERITANCE_SYSTEMS_COST;
+        let afford_inheritance = prod::payable(&cx, who, Spend::Resources, &Extras::default()) >= tech::INHERITANCE_SYSTEMS_COST;
         Self { s, k, who, afford_inheritance }
     }
 }
@@ -902,7 +902,7 @@ impl Research {
 
     /// The offers are over: the research is paid for what the infantry left of the bill, if the seat can pay it.
     fn after_offers(&mut self, s: &mut CoreState, k: &Kernel) {
-        if prod::available(&Self::cx(s, k), self.who, Spend::Resources, &Extras::default()) >= self.cost {
+        if prod::payable(&Self::cx(s, k), self.who, Spend::Resources, &Extras::default()) >= self.cost {
             self.stage = RStage::Choose;
         } else {
             self.end_paid(s, false);
