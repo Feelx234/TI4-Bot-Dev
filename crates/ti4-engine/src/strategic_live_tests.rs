@@ -259,6 +259,26 @@ fn jae_mir_kan_as_the_last_follower_asks_the_suite_before_the_action_completes_l
     assert!(at("STRATEGY_SECONDARY_FOLLOWED") < at("STRATEGIC_ACTION_COMPLETE"));
 }
 
+/// A follower whose only pool is War Machine's bonus (found by a sweep game, `StrategyAbility` of a Technology secondary): the string and the core agree on what
+/// is offered and what the empty bill does -- compared as far as the string goes (the research is declined by the empty payment).
+#[test]
+fn a_technology_secondary_the_pool_of_war_machine_alone_affords_runs_like_the_string() {
+    let mut state = table_for("pok7technology");
+    {
+        let seq = state.activation_seq;
+        let seat = state.player_mut(&pid("b")).unwrap();
+        seat.trade_goods = 0;
+        seat.war_machine_use.push(seq);
+    }
+    let planets: Vec<_> = state.controlled_planets(&pid("b")).into_iter().map(|(_, planet)| planet.clone()).collect();
+    for planet in planets {
+        state.exhausted_planets.insert(planet);
+    }
+    let (string, native) = both(&based(state), "pok7technology", &["yes", "decline", "no", "no"]);
+    assert_same(&string, &native);
+    assert!(has(&string, "STRATEGIC_ACTION_COMPLETE"), "{:?}", string.events);
+}
+
 #[test]
 fn nobody_who_can_follow_ends_the_action_without_a_question_like_the_string() {
     let mut state = crate::fixtures::seated_dealt(&[("a", "sol"), ("b", "yssaril"), ("c", "arborec"), ("d", "letnev")], DEFAULT);
