@@ -35,13 +35,15 @@ pub struct Observed<'a> {
     /// value (a few empty caches; the legacy type has no interior-mutable field that names `'a`, so `Observed` stays covariant, which
     /// `SeatObservation::bind` needs).
     legacy: ti4_engine_legacy::choice::Observed<'a>,
+    /// The typed position and the answers memoised for it (movement questions), built on the first typed question.
+    seats: std::cell::RefCell<crate::queries::adapter::SeatCache>,
 }
 
 impl<'a> Observed<'a> {
     /// Wrap a position. Public so tests and sibling crates can build one.
     #[must_use]
     pub fn new(state: &'a GameState, content: &'a ContentStore, sources: SourceSet, galaxy: Option<&'a Galaxy>) -> Self {
-        Self { state, content, sources, galaxy, legacy: ti4_engine_legacy::choice::Observed::new(state, content, sources, galaxy) }
+        Self { state, content, sources, galaxy, legacy: ti4_engine_legacy::choice::Observed::new(state, content, sources, galaxy), seats: std::cell::RefCell::new(crate::queries::adapter::SeatCache::new()) }
     }
 
     /// The legacy view of this position (its memoised answers are shared by the delegates).
@@ -60,7 +62,7 @@ impl<'a> Observed<'a> {
             trade_goods: seat.trade_goods,
             commodities: seat.commodities,
             tactic_tokens: seat.tactic_tokens,
-            fleet_tokens: seat.fleet_tokens + self.legacy().seat(player).map_or(0, |s| s.fleet_tokens - seat.fleet_tokens),
+            fleet_tokens: seat.fleet_tokens + crate::queries::factions::mahact_foreign_tokens(self.state, player),
             strategic_tokens: seat.strategic_tokens,
             strategy_cards: &seat.strategy_cards,
             exhausted_strategy_cards: &seat.exhausted_strategy_cards,
@@ -563,7 +565,13 @@ impl<'a> Observed<'a> {
         permille
     }
 
-    // ---- delegated to the legacy view until the native queries land (lane B) ---------------------------------------------------------
+    /// The typed position (the loaded slices movement reads), built on the first typed question.
+    fn typed_position(&self) -> Option<std::rc::Rc<crate::queries::adapter::Position>> {
+        let galaxy = self.galaxy?;
+        self.seats.borrow_mut().position(self.state, self.sources, galaxy)
+    }
+
+    // ---- still delegated to the legacy view: the objectives group (lane B, next) ---------------------------------------------------------
 
     /// [`Self::rift_exits_into`] on the typed core (`tactical::route_rift_exits`); `None` when
     /// something is not mapped. The ship type is read from the generated rows, not the content store.
@@ -577,7 +585,8 @@ impl<'a> Observed<'a> {
         boosts: (bool, bool),
         destination: &SystemId,
     ) -> Option<usize> {
-        self.legacy().typed_rift_exits(player, origin, unit_type, boosts, destination)
+        let pos = self.typed_position()?;
+        crate::queries::tactical::typed_rift_exits(&mut self.seats.borrow_mut(), &pos, player, origin, unit_type, boosts, destination)
     }
 
     /// [`Self::movable_into`] on the typed core; `None` when something is not mapped.
@@ -587,18 +596,19 @@ impl<'a> Observed<'a> {
         &self,
         player: &PlayerId,
         destination: &SystemId,
-    ) -> Option<Vec<ti4_engine_legacy::tactical::Movable>> {
-        self.legacy().typed_movable_into(player, destination)
+    ) -> Option<Vec<crate::queries::tactical::Movable>> {
+        let pos = self.typed_position()?;
+        crate::queries::tactical::typed_movable_into(&mut self.seats.borrow_mut(), &pos, self.state, player, destination)
     }
 
     #[must_use]
     pub fn recent_diplomacy_attack(&self, observer: &PlayerId, subject: &PlayerId) -> bool {
-        self.legacy().recent_diplomacy_attack(observer, subject)
+        crate::queries::diplomacy::recent_attack(self.state, observer, subject)
     }
 
     #[must_use]
     pub fn recent_diplomacy_breach(&self, observer: &PlayerId, subject: &PlayerId) -> bool {
-        self.legacy().recent_diplomacy_breach(observer, subject)
+        crate::queries::diplomacy::recent_breach(self.state, observer, subject)
     }
 
     /// Revealed public objectives whose fixed map-shaped requirement includes `system`.
@@ -628,7 +638,9 @@ impl<'a> Observed<'a> {
         destination: &SystemId,
         move_value: i32,
     ) -> bool {
-        self.legacy().can_reach(player, origin, destination, move_value)
+        let Some(galaxy) = self.galaxy else { return false };
+        let _ = galaxy;
+        self.typed_position().and_then(|pos| crate::queries::tactical::typed_can_reach(&mut self.seats.borrow_mut(), &pos, player, origin, destination, move_value)).unwrap_or(false)
     }
 
     /// The routes (rules version 29, [`crate::tactical::ship_routes`]) the ship at `index` of
@@ -644,8 +656,9 @@ impl<'a> Observed<'a> {
         index: usize,
         boosts: (bool, bool),
         destination: &SystemId,
-    ) -> Vec<ti4_engine_legacy::tactical::MoveRoute> {
-        self.legacy().ship_routes_into(player, origin, index, boosts, destination)
+    ) -> Vec<crate::queries::tactical::MoveRoute> {
+        let Some(galaxy) = self.galaxy else { return Vec::new() };
+        crate::queries::tactical::routes_into(self.state, self.content, self.sources, galaxy, player, destination, origin, index, boosts)
     }
 
     /// Every ship of this player that could reach `destination` if it were activated.
@@ -662,8 +675,8 @@ impl<'a> Observed<'a> {
         &self,
         player: &PlayerId,
         destination: &SystemId,
-    ) -> Vec<ti4_engine_legacy::tactical::Movable> {
-        self.legacy().movable_into(player, destination)
+    ) -> Vec<crate::queries::tactical::Movable> {
+        self.movable_into_shared(player, destination).to_vec()
     }
 
     /// [`Self::movable_into`] without the copy: the memoised list, shared.
@@ -672,8 +685,22 @@ impl<'a> Observed<'a> {
         &self,
         player: &PlayerId,
         destination: &SystemId,
-    ) -> std::rc::Rc<[ti4_engine_legacy::tactical::Movable]> {
-        self.legacy().movable_into_shared(player, destination)
+    ) -> std::rc::Rc<[crate::queries::tactical::Movable]> {
+        if self.galaxy.is_none() {
+            return std::rc::Rc::from(Vec::new());
+        }
+        // The memo slot: the player's place at the table and the destination's system index.
+        let slot = self.state.players.iter().position(|p| &p.id == player).zip(crate::ties::core_adapter::system_ix(destination.as_str()));
+        if let Some((row, system)) = slot
+            && let Some(known) = self.seats.borrow().known_movable(row, system)
+        {
+            return known;
+        }
+        let found: std::rc::Rc<[crate::queries::tactical::Movable]> = self.typed_movable_into(player, destination).unwrap_or_default().into();
+        if let Some((row, system)) = slot {
+            self.seats.borrow_mut().remember_movable(row, system, found.clone());
+        }
+        found
     }
 
     /// Gravity rifts a ship of `player` sailing from `origin` to `destination` would exit (each
@@ -688,15 +715,37 @@ impl<'a> Observed<'a> {
         boosts: (bool, bool),
         destination: &SystemId,
     ) -> usize {
-        self.legacy().rift_exits_into(player, origin, unit_type, boosts, destination)
+        if self.galaxy.is_none() {
+            return 0;
+        }
+        let ix = crate::ties::core_adapter::system_ix;
+        let slot = self
+            .state
+            .players
+            .iter()
+            .position(|p| &p.id == player)
+            .zip(ix(destination.as_str()))
+            .zip(ix(origin.as_str()))
+            .zip(crate::queries::adapter::unit_ix(unit_type))
+            .map(|(((row, to), from), kind)| crate::queries::adapter::rift_key(row, to, from, kind, boosts));
+        if let Some(key) = slot
+            && let Some(known) = self.seats.borrow().known_rift_exits(key)
+        {
+            return known;
+        }
+        let found = self.typed_rift_exits(player, origin, unit_type, boosts, destination).unwrap_or(0);
+        if let Some(key) = slot {
+            self.seats.borrow_mut().remember_rift_exits(key, found);
+        }
+        found
     }
 
     /// Every unit of this player a ship leaving `origin` could carry: fighters and ground forces
     /// in its space area and on its planets, in the engine's own order. Reads only the seat's own
     /// units.
     #[must_use]
-    pub fn loadable(&self, player: &PlayerId, origin: &SystemId) -> Vec<ti4_engine_legacy::transit::Cargo> {
-        self.legacy().loadable(player, origin)
+    pub fn loadable(&self, player: &PlayerId, origin: &SystemId) -> Vec<crate::queries::transit::Cargo> {
+        crate::queries::transit::loadable(self.state, self.content, self.sources, player, origin)
     }
 
     /// Public resources or influence a player can currently spend.
@@ -705,42 +754,42 @@ impl<'a> Observed<'a> {
     /// cards and trade goods are visible at the table; the engine remains the single owner of
     /// the exact payment accounting used by policy and later factual feature capture.
     #[must_use]
-    pub fn available_spend(&self, player: &PlayerId, kind: ti4_engine_legacy::production::Spend) -> i64 {
-        self.legacy().available_spend(player, kind)
+    pub fn available_spend(&self, player: &PlayerId, kind: crate::queries::production::Spend) -> i64 {
+        crate::queries::production::available(self.state, self.content, self.sources, player, kind)
     }
 
     /// The public fleet-supply limit after laws and standing faction abilities.
     #[must_use]
     pub fn fleet_supply_limit(&self, player: &PlayerId) -> i32 {
-        self.legacy().fleet_supply_limit(player)
+        crate::queries::factions::fleet_limit(self.state, self.content, player)
     }
 
     /// Whose command tokens sit in `mahact`'s fleet pool (Edict), one entry per token. Public: the
     /// tokens are on the table in the owner's colour.
     #[must_use]
     pub fn mahact_fleet_pool_owners(&self, mahact: &PlayerId) -> Vec<PlayerId> {
-        self.legacy().mahact_fleet_pool_owners(mahact)
+        crate::queries::factions::mahact_fleet_pool_owners(self.state, mahact)
     }
 
     /// Players with a control token on one of `owner`'s faceup plots (the Firmament's puppets),
     /// which the Heaven's Eye reads. Public: the tokens sit on faceup cards.
     #[must_use]
     pub fn firmament_puppets(&self, owner: &PlayerId) -> BTreeSet<PlayerId> {
-        self.legacy().firmament_puppets(owner)
+        crate::queries::factions::firmament_puppeted(self.state, owner)
     }
 
     /// Whether `system` holds an active breach (the Crimson Rebellion). Public: the token's face
     /// shows.
     #[must_use]
     pub fn active_breach_in(&self, system: &SystemId) -> bool {
-        self.legacy().active_breach_in(system)
+        crate::queries::factions::crimson_active_breaches(self.state).contains(system)
     }
 
     /// Non-home systems containing a planet `player` controls, the count the Bastion flagship
     /// reads. Public: control is on the board.
     #[must_use]
     pub fn non_home_systems_with_planets(&self, player: &PlayerId) -> usize {
-        self.legacy().non_home_systems_with_planets(player)
+        crate::queries::factions::non_home_systems_with_planets(self.state, self.content, self.sources, player)
     }
 
     /// Capacity ships and ground forces owned by this player, using the opening gate's exact
@@ -751,21 +800,31 @@ impl<'a> Observed<'a> {
     /// fleet-composition bar.
     #[must_use]
     pub fn opening_fleet(&self, player: &PlayerId) -> (usize, usize) {
-        self.legacy().opening_fleet(player)
+        crate::queries::fleet::opening_fleet(self.state, player, self.content, self.sources)
     }
 
     /// Whether `system` is a Fracture system of a Fracture that is in play.
     /// Used only by training progress; it does not add a policy observation feature.
     #[must_use]
     pub fn is_fracture_system(&self, system: &SystemId) -> bool {
-        self.legacy().is_fracture_system(system)
+        self.state.fracture_in_play && crate::queries::fracture::is_fracture_system(self.content, self.sources, system)
     }
 
     /// Whether this seat currently has a ship, infantry or mech in a Fracture system.
     /// Used only by training progress; it does not add a policy observation feature.
     #[must_use]
     pub fn has_units_in_fracture(&self, player: &PlayerId) -> bool {
-        self.legacy().has_units_in_fracture(player)
+        if !self.state.fracture_in_play {
+            return false;
+        }
+        self.state.board.iter().any(|(id, system)| {
+            crate::queries::fracture::is_fracture_system(self.content, self.sources, id)
+                && system.units.iter().chain(system.planet_units.values().flatten()).any(|unit| {
+                    &unit.owner == player
+                        && ti4_content::units::unit_type(self.content, unit.type_id.as_str(), self.sources)
+                            .is_some_and(|stats| stats.is_ship() || matches!(stats.base_type(), "infantry" | "mech"))
+                })
+        })
     }
 
     /// How many revealed public objectives this seat could score right now.
@@ -1390,33 +1449,33 @@ mod tests {
             ContentStore::embedded(),
             POK,
             &planet,
-            crate::production::Spend::Resources,
+            ti4_engine_legacy::production::Spend::Resources,
         );
         let influence = crate::production::planet_value(
             ContentStore::embedded(),
             POK,
             &planet,
-            crate::production::Spend::Influence,
+            ti4_engine_legacy::production::Spend::Influence,
         );
 
         let seen = Observed::new(&state, ContentStore::embedded(), POK, None);
         assert_eq!(
-            seen.available_spend(&pid("a"), crate::production::Spend::Resources),
+            seen.available_spend(&pid("a"), crate::queries::production::Spend::Resources),
             resources + 2
         );
         assert_eq!(
-            seen.available_spend(&pid("a"), crate::production::Spend::Influence),
+            seen.available_spend(&pid("a"), crate::queries::production::Spend::Influence),
             influence + 2
         );
 
         state.exhaust_planet(planet);
         let seen = Observed::new(&state, ContentStore::embedded(), POK, None);
         assert_eq!(
-            seen.available_spend(&pid("a"), crate::production::Spend::Resources),
+            seen.available_spend(&pid("a"), crate::queries::production::Spend::Resources),
             2
         );
         assert_eq!(
-            seen.available_spend(&pid("a"), crate::production::Spend::Influence),
+            seen.available_spend(&pid("a"), crate::queries::production::Spend::Influence),
             2
         );
     }

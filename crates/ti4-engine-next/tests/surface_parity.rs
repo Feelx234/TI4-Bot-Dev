@@ -153,3 +153,92 @@ fn the_production_queries_answer_as_the_legacy_ones_do() {
     }
     assert!(compared > 1000, "only {compared} placement questions compared");
 }
+
+/// The accessors of `Observed` that ask a rule module, on positions with a map: the native view against the legacy one.
+#[test]
+fn the_observed_accessors_that_ask_rule_modules_answer_as_the_legacy_view_does() {
+    use ti4_model::content_types::POK;
+    let content = content();
+    let mut compared = 0_usize;
+    for pos in positions() {
+        let (o, t) = (
+            old::choice::Observed::new(&pos.state, content, POK, Some(&pos.galaxy)),
+            thin::observed::Observed::new(&pos.state, content, POK, Some(&pos.galaxy)),
+        );
+        let systems: Vec<SystemId> = pos.galaxy.system_ids().into_iter().map(SystemId::new).collect();
+        let at = |what: &str| format!("{}: {what}", pos.label);
+        for system in &systems {
+            assert_eq!(o.is_fracture_system(system), t.is_fracture_system(system), "{}", at("is_fracture_system"));
+            assert_eq!(o.active_breach_in(system), t.active_breach_in(system), "{}", at("active_breach_in"));
+        }
+        for player in players(&pos.state) {
+            let who = |what: &str| format!("{}: {player}: {what}", pos.label);
+            assert_eq!(o.fleet_supply_limit(&player), t.fleet_supply_limit(&player), "{}", who("fleet_supply_limit"));
+            assert_eq!(o.mahact_fleet_pool_owners(&player), t.mahact_fleet_pool_owners(&player), "{}", who("mahact_fleet_pool_owners"));
+            assert_eq!(o.firmament_puppets(&player), t.firmament_puppets(&player), "{}", who("firmament_puppets"));
+            assert_eq!(o.non_home_systems_with_planets(&player), t.non_home_systems_with_planets(&player), "{}", who("non_home_systems_with_planets"));
+            assert_eq!(o.opening_fleet(&player), t.opening_fleet(&player), "{}", who("opening_fleet"));
+            assert_eq!(o.has_units_in_fracture(&player), t.has_units_in_fracture(&player), "{}", who("has_units_in_fracture"));
+            assert_eq!(o.seat(&player).map(|s| s.fleet_tokens), t.seat(&player).map(|s| s.fleet_tokens), "{}", who("seat.fleet_tokens"));
+            assert_eq!(
+                o.available_spend(&player, old::production::Spend::Influence),
+                t.available_spend(&player, thin::queries::production::Spend::Influence),
+                "{}",
+                who("available_spend")
+            );
+            for other in players(&pos.state) {
+                assert_eq!(o.recent_diplomacy_attack(&player, &other), t.recent_diplomacy_attack(&player, &other), "{}", who("recent_diplomacy_attack"));
+                assert_eq!(o.recent_diplomacy_breach(&player, &other), t.recent_diplomacy_breach(&player, &other), "{}", who("recent_diplomacy_breach"));
+            }
+            for origin in pos.state.systems_with_units_of(&player) {
+                assert_eq!(format!("{:?}", o.loadable(&player, origin)), format!("{:?}", t.loadable(&player, origin)), "{}", who("loadable"));
+                for dest in &systems {
+                    for value in [1, 2, 3] {
+                        assert_eq!(o.can_reach(&player, origin, dest, value), t.can_reach(&player, origin, dest, value), "{}", who("can_reach"));
+                    }
+                    for unit in ["fighter", "carrier", "cruiser", "dreadnought", "warsun", "flagship"] {
+                        for boosts in [(false, false), (true, true)] {
+                            assert_eq!(o.rift_exits_into(&player, origin, unit, boosts, dest), t.rift_exits_into(&player, origin, unit, boosts, dest), "{}", who("rift_exits_into"));
+                            assert_eq!(o.typed_rift_exits(&player, origin, unit, boosts, dest), t.typed_rift_exits(&player, origin, unit, boosts, dest), "{}", who("typed_rift_exits"));
+                        }
+                    }
+                    compared += 1;
+                }
+            }
+            for dest in &systems {
+                let (om, tm) = (o.movable_into(&player, dest), t.movable_into(&player, dest));
+                assert_eq!(om.iter().map(movable_key_old).collect::<Vec<_>>(), tm.iter().map(movable_key).collect::<Vec<_>>(), "{}", who("movable_into"));
+                assert_eq!(o.movable_into_shared(&player, dest).len(), t.movable_into_shared(&player, dest).len(), "{}", who("movable_into_shared"));
+                assert_eq!(om.len(), t.typed_movable_into(&player, dest).map_or(0, |v| v.len()), "{}", who("typed_movable_into"));
+                for origin in pos.state.systems_with_units_of(&player).into_iter().take(3) {
+                    for index in 0..pos.state.ships_of(&player, origin).len().min(3) {
+                        assert_eq!(
+                            serde_json::to_string(&o.ship_routes_into(&player, origin, index, (false, false), dest)).unwrap(),
+                            serde_json::to_string(&t.ship_routes_into(&player, origin, index, (false, false), dest)).unwrap(),
+                            "{}",
+                            who("ship_routes_into")
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assert!(compared > 500, "only {compared} reach questions compared");
+}
+
+#[test]
+fn the_fleet_limit_of_a_table_the_core_cannot_hold_is_the_pool_capped_by_the_law() {
+    let content = content();
+    let mut state = old::fixtures::game(&["a", "b", "c"]);
+    for tokens in [0, 3, 6, 9] {
+        for law in [false, true] {
+            state.players[0].fleet_tokens = tokens;
+            state.laws.clear();
+            if law {
+                state.laws.insert("regulations".to_owned(), "for".to_owned());
+            }
+            let player = state.players[0].id.clone();
+            assert_eq!(old::fleet::limit(&state, content, &player), thin::queries::factions::fleet_limit(&state, content, &player), "{tokens} tokens, law {law}");
+        }
+    }
+}
