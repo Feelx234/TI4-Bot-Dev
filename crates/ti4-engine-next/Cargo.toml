@@ -40,6 +40,8 @@ string-agenda = ["ti4-engine-legacy/string-agenda"]
 [dev-dependencies]
 proptest.workspace = true
 zstd.workspace = true
+# Lane B: the surface parity tests play legacy games on real maps (`ti4_host::map::create_game_with_template`).
+ti4-host.workspace = true
 
 [lints]
 workspace = true
