@@ -260,8 +260,9 @@ pub struct NativeGame {
     chain: String,
     /// A fork (the shadow's lookahead): no trace.
     quiet: bool,
-    /// The last step was a glued one that finished (`glued`: the turn prelude, the strategy announcement): the string runs it together with the next
-    /// step, whose reconcile hooks are not run (the events a prelude question staged are announced at the start of the string's NEXT step).
+    /// The last step was a glued one that finished (`glued`: the turn prelude, the strategy announcement; a finished aftermath and the tail of the
+    /// tactical action after it): the string runs it together with the next step, whose reconcile hooks are not run (the events a prelude question or
+    /// a retreat staged are announced at the start of the string's NEXT step).
     after_glue: bool,
 }
 
@@ -480,7 +481,8 @@ impl NativeGame {
         let one = self.render.sync_codes(&mut self.core.texts.codes);
         debug_assert!(one, "the renderer's code table continues the position's (a text minted into one and not the other would name two things)");
         self.steps += 1;
-        self.after_glue = glued(arm) && out.finished;
+        // The string's step goes on past a finished aftermath into the tail of the tactical action (and the end of the action) up to its next question.
+        self.after_glue = out.finished && (glued(arm) || arm == Arm::Aftermath || (self.after_glue && arm == Arm::Tactical && asked.is_empty()));
         Step::Played(Played { arm, source, asked, events, finished: out.finished })
     }
 

@@ -474,7 +474,8 @@ fn advance_inner(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> R
         merge(&mut out, more);
         match live {
             Live::Asks(a) => {
-                if a.nested.is_none() {
+                // (A question the tape of a window put inside its step is nested too, with or without display facts: `Pending::nested` holds it.)
+                if a.nested.is_none() && core.pending().nested.is_none() {
                     flush_open(core, &typed);
                 } else {
                     // A question from inside an emission suspends the string's step, and the call that resumes it starts with an empty list: what the
