@@ -196,10 +196,18 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
             owned.extend(core.board().planet(*planet).units.iter().map(|p| (p.owner(), p.kind())));
         }
         for (owner, unit) in owned {
-            if let Some(p) = core.players().by_seat(owner)
-                && let Some(upgrade) = ti4_engine_core::query::tech::unlocked_upgrade(ti4_engine_core::tables::Scope(u32::MAX), unit.data().base_type, p.faction, &p.tech.owned)
-            {
+            let Some(p) = core.players().by_seat(owner) else { continue };
+            if let Some(upgrade) = ti4_engine_core::query::tech::unlocked_upgrade(ti4_engine_core::tables::Scope(u32::MAX), unit.data().base_type, p.faction, &p.tech.owned) {
                 pieces.push(upgrade);
+            }
+            // A seat that can research a unit upgrade while the combat goes on (Reveal Prototype: "at the start of a combat round, spend 4 resources
+            // to research a unit upgrade"; the Nekro's Technological Singularity) may field any form of the base types it has units of: those are named
+            // too, or the machine stands at the roller of the form it researched.
+            if researches_in_combat(core, owner) {
+                let scope = ti4_engine_core::tables::Scope(u32::MAX);
+                pieces.extend(Unit::ALL.into_iter().filter(|u| {
+                    scope.unit(*u).is_some_and(|d| d.base_type == unit.data().base_type && d.faction.is_none_or(|tag| ti4_engine_core::query::tech::tag_is(tag, p.faction)) && matches!(d.required_technology, ti4_engine_core::generated::Requirement::Known(_)))
+                }));
             }
         }
     }
@@ -228,6 +236,11 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
         t.groups.push((kinds, state_code(core, &joined), r.code(&joined)));
     }
     t
+}
+
+/// Whether `seat` can gain a unit upgrade in the middle of a combat: it holds the action card Reveal Prototype, or it is the Nekro (Technological Singularity).
+fn researches_in_combat(core: &CoreState, seat: ti4_engine_core::ids::Seat) -> bool {
+    core.players().by_seat(seat).is_some_and(|p| p.faction == ti4_engine_core::generated::Faction::TheNekroVirus || p.cards.hand.iter().any(|c| *c == ti4_engine_core::generated::ActionCard::RevealPrototype))
 }
 
 /// The unit types of the space combat Airo Shir Aur (Mahact hero) can start from this position: the active seat holds the unlocked hero, and the fight
@@ -703,6 +716,29 @@ mod tests {
         let t = super::combat_texts(&mut core, &render);
         let named: Vec<ti4_engine_core::generated::Unit> = t.unit_codes.iter().map(|(u, _)| *u).collect();
         assert!(named.contains(&ti4_engine_core::generated::Unit::DestroyerI) && named.contains(&ti4_engine_core::generated::Unit::DestroyerII), "both forms are named: {named:?}");
+    }
+
+    /// Lane L: Reveal Prototype ("at the start of a combat round, spend 4 resources to research a unit upgrade") gives the holder the form of a unit it does not
+    /// field yet in the middle of the combat; the machine then stood at the roller of the new form (`CombatUnported`, the Letnev seat of the 5-player sweep).
+    /// A seat that holds the card (or is the Nekro) gets the other forms of its base types named; a seat that cannot research gets only the forms it fields.
+    #[test]
+    fn the_texts_of_a_fight_name_the_forms_a_seat_holding_reveal_prototype_can_research() {
+        let (hub, _origin, target) = hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "destroyer", &b(), 1);
+        let named = |state: &GameState| {
+            let mut cx = Ctx::of(state).expect("owners");
+            let mut core = Codec::load(&mut cx, state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&crate::rng::RngPositions::default()) }, SliceSet::ALL).expect("the position loads");
+            let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+            let (seat_a, seat_b) = (render.seat("a").expect("a"), render.seat("b").expect("b"));
+            core.transient_mut().combat.active_space_combat = Some((<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(target.as_str()).expect("a system"), seat_a, seat_b));
+            super::combat_texts(&mut core, &render).unit_codes.iter().map(|(u, _)| *u).collect::<Vec<ti4_engine_core::generated::Unit>>()
+        };
+        let dd2 = ti4_engine_core::generated::Unit::DestroyerII;
+        assert!(!named(&state).contains(&dd2), "no card, no other form");
+        state.player_mut(&b()).unwrap().action_cards.push(ti4_model::id::ActionCardId::new("reveal_prototype"));
+        assert!(named(&state).contains(&dd2), "the holder may research Destroyer II in the middle of the fight");
     }
 
     /// Lane L: Airo Shir Aur starts a fight no step has opened yet (`active_space_combat` is written when the card moves the fleet), so the texts of the
