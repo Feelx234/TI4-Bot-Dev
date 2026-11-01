@@ -1169,8 +1169,19 @@ impl Research {
             return;
         };
         let Some(worth) = step.took else {
-            self.failed = true;
-            self.stage = RStage::Done;
+            // The step found nothing to pay with: the pool counted more than the options can spend (War Machine's bonus is no face). `pay_seeing`
+            // is false, the string restores the position from before the bill, and the research ends with nothing gained.
+            match self.before.take() {
+                Some(before) => {
+                    *s = *before;
+                    self.end_paid(s, false);
+                }
+                // (The position was not kept: not carried.)
+                None => {
+                    self.failed = true;
+                    self.stage = RStage::Done;
+                }
+            }
             return;
         };
         let paid = step.paid + worth;
