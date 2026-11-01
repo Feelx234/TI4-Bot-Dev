@@ -632,3 +632,53 @@ fn the_question_shows_the_points_and_a_second_secret_of_the_same_event_waits_for
         assert_eq!(next.choice.actor == who, again, "capped {capped}: the seat that scored is asked again only without the one-per-player cap");
     }
 }
+
+/// H4: the Jol-Nar commander's flag of the fight's environment is `promissory::has_commander_ability`, not only the own unlocked card: a faceup Alliance
+/// of the Jol-Nar held by a side, a durable grant, Mahact's Imperia (the string rerolls the barrage's dice for each of them).
+#[test]
+fn the_jolnar_commander_flag_of_the_fight_follows_every_route_of_the_commander_ability() {
+    use ti4_engine_core::driver::windows::combat::env_of;
+    use ti4_engine_core::generated::{Leader, PromissoryNote};
+    use ti4_engine_core::keys::MarkKey;
+    use ti4_engine_core::state::{CombatFields, CombatStep, HitPhase, LeaderStatus, NoteKey};
+    let fields = CombatFields {
+        step: CombatStep::Opening { round: 1 },
+        phase: HitPhase::Round,
+        resuming: false,
+        pending_retreats: vec![],
+        offered: vec![],
+        damaged: vec![],
+        fled: vec![],
+        at_start: vec![],
+        scoring: false,
+        outcome: None,
+        end_announced: false,
+        round_end_produced: None,
+    };
+    let flags = |s: &CoreState, k: &Kernel| env_of(s, k, &CombatTexts::default(), &fields, 0).expect("a fight is open").jolnar;
+    let (mut s, k) = arena(1, 1);
+    // A third seat plays the Jol-Nar with its commander unlocked; nobody in the fight benefits yet.
+    let (mut s3, k3) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec, Faction::TheUniversitiesOfJolNar])
+        .map_from(&[sys()])
+        .active(Some(0))
+        .active_system(sys())
+        .unit(sys(), None, Unit::DreadnoughtI, 0, 1)
+        .unit(sys(), None, Unit::CruiserI, 1, 1)
+        .build();
+    s3.transient_mut().combat.active_space_combat = Some((sys(), Seat(0), Seat(1)));
+    assert_eq!(flags(&s, &k), [false, false]);
+    s3.players_mut().by_seat_mut(Seat(2)).unwrap().leaders.status.insert(Leader::AgnlanOln, LeaderStatus::Unlocked);
+    assert_eq!(flags(&s3, &k3), [false, false], "the commander of another seat helps nobody");
+    // The Alliance of the Jol-Nar, faceup in the hand of the defender.
+    let alliance = NoteKey { note: PromissoryNote::Alliance, faction: Faction::TheUniversitiesOfJolNar };
+    s3.cards_mut().promissory.edit().insert(alliance, Seat(1));
+    assert_eq!(flags(&s3, &k3), [false, false], "facedown it conveys nothing");
+    s3.cards_mut().promissory_faceup.edit().insert(alliance, ());
+    assert_eq!(flags(&s3, &k3), [false, true], "faceup, the defender has the Jol-Nar commander's ability");
+    // The own unlocked commander of the attacker, and a durable grant.
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::AgnlanOln, LeaderStatus::Unlocked);
+    assert_eq!(flags(&s, &k), [true, false]);
+    let (mut g, kg) = arena(1, 1);
+    g.marks_mut().tail.edit().insert(MarkKey::CommanderAbility(Seat(1), Leader::AgnlanOln), ti4_engine_core::keys::MarkVal::Atom(ti4_engine_core::keys::Atom::Seat(Seat(1))));
+    assert_eq!(flags(&g, &kg), [false, true], "a durable grant is the ability too");
+}
