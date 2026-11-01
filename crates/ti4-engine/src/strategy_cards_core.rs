@@ -833,16 +833,6 @@ mod real {
         draw_hook(gs, content, player, count).is_none()
     }
 
-    /// Whether `player` draws `count` action cards with no hook and the hand stays within its limit: no question is asked and no card is
-    /// added or discarded (the draws that are not windows of their own: Exploration Probe's Lost Crew inside an action card's effect).
-    pub(crate) fn plain_draw_within_limit(gs: &GameState, content: &ContentStore, player: &PlayerId, count: usize) -> bool {
-        plain_draw(gs, content, player, count)
-            && !gs.player(player).is_some_and(|p| p.faction.as_str() == "yssaril")
-            && crate::factions::hooks_economy::action_card_draw_bonus(gs, content, player, count) == 0
-            && crate::factions::hooks_economy::action_card_limit(gs, content, player, crate::laws::action_card_limit(gs, crate::action_cards::HAND_LIMIT)) == crate::laws::action_card_limit(gs, crate::action_cards::HAND_LIMIT)
-            && gs.player(player).is_some_and(|p| p.action_cards.len() + count <= crate::action_cards::hand_limit(gs, content, player))
-    }
-
     /// The display facts of the Politics questions: the seat of each speaker option and the printed agenda.
     fn complete_politics(r: &Render, content: &ContentStore, c: &CoreChoice, rendered: &mut Choice) {
         match c.ask {

@@ -810,11 +810,34 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                         }
                     }
                 }
+                // The native steps asked more than the legacy step did, and the extra questions are the last ones of the group: a glued native step (the
+                // string ends its step after a seat's last question of the action and asks the first follower in the NEXT step). They open the next group,
+                // which the next legacy step must open with the same questions (a question the string never asks is a difference there, at the first
+                // question of that step). A step cut in two keeps its events with the later half (the events a native step pushes after its last answer).
+                let mut tail = Vec::new();
+                if have > used && used > 0 && run.info.error.is_none() {
+                    let mut before = 0;
+                    let cut = group.iter().enumerate().find_map(|(k, p)| {
+                        let at = before;
+                        before += p.asked.len();
+                        (!p.asked.is_empty() && at <= used && used < before).then_some((k, used - at))
+                    });
+                    if let Some((k, m)) = cut {
+                        tail = group.split_off(k);
+                        if m > 0 {
+                            let mut head = tail[0].clone();
+                            head.asked.truncate(m);
+                            head.events.clear();
+                            tail[0].asked.drain(..m);
+                            group.push(head);
+                        }
+                    }
+                }
                 if let Some(d) = compare_run(&mut legacy, &native, &base, &group, &run, &mut owed) {
                     first_difference = Some(d);
                     break End::Finished;
                 }
-                group.clear();
+                group = tail;
             }
             Step::Finished => break End::Finished,
             Step::Gap(g) => {
@@ -1085,13 +1108,13 @@ mod tests {
 
     /// The native game plays the setup, the draft, the announcement, the phase flip, the turn prelude, the action menu and the first round of actions (an Orbital
     /// Drop, tactical actions, a first claim with its exploration, strategic actions, Ggrocuto Rinn) on the core alone, and stops with a COUNTED gap at the first
-    /// body no lane has made native (Thunder's Edge Warfare's free tactical action: `TurnGap::StrategyAbility`), with the position as it was before the step.
+    /// body no lane has made native (a Xxcha seat uses its Diplomacy-ability annexation, Peace Accords: `TurnGap::PeaceAccords`; integration 12 stopped at step 54 on the Technology primary's Doctor Sucaban, lane H4 made it native), with the position as it was before the step.
     #[test]
     fn a_native_game_plays_the_first_turns_and_stops_with_a_counted_gap_at_an_unrouted_menu_option() {
         let mut g = game("sol", 4, 1);
         let played = play_game(&mut g, 2_000, 50);
         let End::Gap(gap) = &played.end else { panic!("a gap is the end of a game today, got {:?}", played.end) };
-        assert_eq!((gap.arm.as_str(), gap.kind, gap.cause.as_str()), ("ask.action_menu", GapKind::Bail, "TurnGap(StrategyAbility)"), "{gap:?}");
+        assert_eq!((gap.arm.as_str(), gap.kind, gap.cause.as_str()), ("ask.action_menu", GapKind::Bail, "TurnGap(PeaceAccords)"), "{gap:?}");
         let native = &played.matrix.native;
         assert!(native.get("ask.draft").copied().unwrap_or(0) >= 3, "the draft was asked natively: {native:?}");
         assert_eq!(native.get("strategy_announce"), Some(&1), "{native:?}");
@@ -1204,7 +1227,7 @@ mod tests {
         assert!(matches!(play_game(&mut g, 100, 1).end, End::Gap(_)), "round 1 is within a budget of one");
         let mut g = game("sol", 4, 1);
         let p = play_game(&mut g, 100, 50);
-        assert_eq!(p.steps, 54);
+        assert_eq!(p.steps, 90);
         assert!(g.decided >= p.matrix.native.get("ask.draft").copied().unwrap_or(0) as usize - 1 + p.matrix.native.get("ask.starting_tech").copied().unwrap_or(0) as usize, "the last card of the draft is not asked; the menu and the actions add their answers");
         // The shadow and the survey keep the same budgets.
         let s = shadow_play(&lobby_spec("sol", 4, 1), 3, 50).unwrap();
@@ -1416,7 +1439,7 @@ mod tests {
         turn::open_job(&mut g.core, TurnJob::Phase);
         assert!(g.asks(), "an open job is waiting on its step: the arm is Ask");
         let s = shadow_play(&lobby_spec("sol", 4, 1), 100, 50).unwrap();
-        assert_eq!((s.compared, s.played.steps), (36, 54), "fifty-four native steps; the glued ones, the ones that ask nothing while the legacy game stands at a question and the ones a lookahead groups with the step before are not legacy steps of their own");
+        assert_eq!((s.compared, s.played.steps), (57, 90), "ninety native steps; the glued ones, the ones that ask nothing while the legacy game stands at a question and the ones a lookahead groups with the step before are not legacy steps of their own");
         assert!(matches!(shadow_play(&lobby_spec("sol", 4, 1), 100, 1).unwrap().played.end, End::Gap(_)), "round 1 is within a budget of one");
         let survey = survey(&lobby_spec("sol", 4, 1), 400, 50).unwrap();
         assert!(survey.steps_by_arm.keys().all(|(label, _)| !label.contains('>') || label.starts_with("turn_prelude>") || label.starts_with("strategy_announce>")), "{:?}", survey.steps_by_arm);

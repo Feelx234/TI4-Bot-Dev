@@ -291,7 +291,8 @@ fn the_core_hooks_research_waiver_offer_and_paid_answer_like_the_string_for_rift
     let content = ti4_content::ContentStore::embedded();
     let hub = crate::fixtures::plain_hub();
     // The captured models (owner, unit) and the technology researched; each case differs in what the Cabal holds.
-    let cases: [(&str, &[(&str, &str)], &str, &str); 7] = [
+    type Case = (&'static str, &'static [(&'static str, &'static str)], &'static str, &'static str);
+    let cases: [Case; 7] = [
         ("a cruiser II, a cruiser held", &[("b", "cruiser")], "cr2", "a"),
         ("two owners, two forms", &[("b", "cruiser"), ("c", "cruiser"), ("b", "carrier")], "cr2", "a"),
         ("nothing of that type", &[("b", "carrier")], "cr2", "a"),
@@ -311,7 +312,7 @@ fn the_core_hooks_research_waiver_offer_and_paid_answer_like_the_string_for_rift
         // The core's.
         let mut cx = Ctx::of(&state).expect("a table the codecs carry");
         let positions = crate::game::Game::with_table(state.clone(), ti4_content::ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption))).rng_positions();
-        let mut core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&positions) }, SliceSet::ALL).expect("the position loads");
+        let core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&positions) }, SliceSet::ALL).expect("the position loads");
         let kernel = crate::live::kernel::kernel_for(ti4_model::content_types::DEFAULT);
         let seat = |name: &str| ti4_engine_core::Seat(u8::try_from(["a", "b", "c"].iter().position(|n| *n == name).unwrap()).unwrap());
         let core_tech = <ti4_engine_core::generated::Technology as crate::generated::IdStr>::from_id(tech).expect("a technology");
