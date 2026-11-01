@@ -158,9 +158,14 @@ impl<'a> Sx<'a> {
     /// # Errors
     /// What the resolver refuses with.
     pub fn emit_mirrored(&mut self, rec: EventRec) -> Result<EventRec, TimingError> {
+        let top = self.resolver.emission_stack().len() == self.resolver.base_depth();
         let mark = super::fx::journal_mark(self.resolver);
         let done = self.emit(rec)?;
         super::fx::mirror_journal(&mut *self.state, &*self.resolver, mark);
+        if top {
+            // `Live::emit_typed`: the card moves a faction effect staged in that event's windows are announced now, not at the next component action.
+            super::fx_cards::announce_staged_cards(self)?;
+        }
         Ok(done)
     }
 

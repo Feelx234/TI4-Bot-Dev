@@ -21,6 +21,7 @@ pub mod ability;
 pub mod children;
 pub mod fx;
 pub mod fx_agenda;
+pub mod fx_cards;
 pub mod fx_explore;
 pub mod fx_ground;
 pub mod fx_move;

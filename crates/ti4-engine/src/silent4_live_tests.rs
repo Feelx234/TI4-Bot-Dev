@@ -5,18 +5,15 @@ use ti4_model::state::GameState;
 
 use super::turn_live_tests::{action_table, assert_same, based, pid, reconcile_both, Run};
 
-/// The turn prelude of the string against the native prelude. A card move an ability stages (`ACTION_CARD_TAKEN`) is announced by the string's step before it stops at the action menu;
-/// the native side leaves the staged `cards:staged:*` row in the position for the host's next step (the rows are `hooks_cards::StagedCardEvent`s, announced by
-/// `reactions::announce_staged_card_events`): the rows are taken out of the native position and counted against the announced events of the string.
+/// The turn prelude of the string against the native prelude. A card move an ability stages (`ACTION_CARD_TAKEN`) is announced by both after the typed event
+/// whose window staged it (`Live::emit_typed` in the string, `Sx::emit_mirrored` natively, lane G5): the position holds no `cards:staged:*` row any more and the
+/// events agree. (Before lane G5 the native side left the row for the host's next step and this helper took it out and counted it.)
 fn prelude_both(state: &GameState, ids: &[&str]) -> (Run, Run) {
-    let (mut string, mut native) = super::turn_live_tests::prelude_both(state, ids);
-    let rows: Vec<String> = native.state["faction_marks"].as_object_mut().map(|marks| {
-        let keys: Vec<String> = marks.keys().filter(|k| k.starts_with("cards:staged:")).cloned().collect();
-        keys.iter().filter_map(|k| marks.remove(k)).filter_map(|v| v.as_str().map(str::to_owned)).collect()
-    }).unwrap_or_default();
-    let announced = string.events.iter().filter(|e| *e == "ACTION_CARD_TAKEN").count();
-    assert_eq!(rows.iter().filter(|r| r.starts_with("taken|")).count(), announced, "{rows:?}: each card taken is staged by the native side and announced by the string");
-    string.events.retain(|e| e != "ACTION_CARD_TAKEN");
+    let (string, native) = super::turn_live_tests::prelude_both(state, ids);
+    for (who, run) in [("string", &string), ("native", &native)] {
+        let rows = run.state["faction_marks"].as_object().map_or(0, |marks| marks.keys().filter(|k| k.starts_with("cards:staged:")).count());
+        assert_eq!(rows, 0, "{who}: every staged card move is announced");
+    }
     (string, native)
 }
 
@@ -203,6 +200,91 @@ fn the_core_hook_may_view_hand_answers_like_the_strings_for_the_maban_permission
                     assert!(string, "the permission is given in the case that is meant to give it");
                 }
             }
+        }
+    }
+}
+
+/// The cards another seat showed the viewer, as the string's observation reports them against the typed `Seen` (lane G5): the recorded reveals of
+/// the three kinds, a card the owner no longer holds, a note turned faceup, and M'aban's standing permission, merged or added.
+#[test]
+fn the_typed_seen_reports_the_revealed_cards_like_the_seat_observation() {
+    use crate::core_sync::{Codec, Ctx, Sources};
+    use crate::factions::hooks_cards::{reveal, RevealKind as SKind, RevealScope};
+    use ti4_engine_core::generated::Faction;
+    use ti4_engine_core::state::SliceSet;
+    use ti4_model::id::{ActionCardId, LeaderId, SecretObjectiveId};
+    use ti4_model::state::LeaderStatus;
+    let content = ti4_content::ContentStore::embedded();
+    let hub = crate::fixtures::plain_hub();
+    let (centre, near) = (ti4_model::id::SystemId::new(hub.centre.clone()), ti4_model::id::SystemId::new(hub.outer[0].clone()));
+    let note = |text: &str| text.to_owned();
+    // (label, standing permission, rows recorded, then edits to the position)
+    for (label, maban, recorded, faceup, spent) in [
+        ("nothing shown", false, false, false, false),
+        ("recorded reveals", false, true, false, false),
+        ("a card no longer held", false, true, false, true),
+        ("recorded reveals and the permission", true, true, false, false),
+        ("the permission alone", true, false, false, false),
+        ("a note faceup", true, true, true, false),
+    ] {
+        let mut state = action_table(&[("a", "naalu"), ("b", "hacan"), ("c", "sol")]);
+        for system in state.board.values_mut() {
+            system.units.clear();
+            system.planet_units.clear();
+        }
+        crate::fixtures::put(&mut state, &centre, "cruiser", &pid("a"), 1);
+        if maban {
+            crate::fixtures::put(&mut state, &near, "cruiser", &pid("b"), 1);
+            state.player_mut(&pid("a")).unwrap().leaders.insert(LeaderId::new("naalucommander"), LeaderStatus::Unlocked);
+        }
+        state.player_mut(&pid("b")).unwrap().action_cards = ["bribery", "dh1", "insub"].iter().map(|c| ActionCardId::new(*c)).collect();
+        state.player_mut(&pid("c")).unwrap().secret_objectives = vec![SecretObjectiveId::new("otf")];
+        state.promissory_notes.insert(note("spynet:yssaril"), pid("b"));
+        state.promissory_notes.insert(note("ra:hacan"), pid("b"));
+        state.promissory_notes.insert(note("ra:sol"), pid("c"));
+        let mut state = based(state);
+        if recorded {
+            assert!(reveal(&mut state, &pid("a"), &pid("b"), SKind::ActionCards, &["bribery".to_owned(), "dh1".to_owned()], RevealScope::Action, "yssarilcommander"));
+            assert!(reveal(&mut state, &pid("a"), &pid("b"), SKind::ActionCards, &["dh1".to_owned(), "insub".to_owned()], RevealScope::Choice, "mi"));
+            assert!(reveal(&mut state, &pid("a"), &pid("c"), SKind::SecretObjectives, &["otf".to_owned()], RevealScope::Standing, "spynet"));
+            assert!(reveal(&mut state, &pid("a"), &pid("c"), SKind::PromissoryNotes, &[note("ra:sol")], RevealScope::Standing, "spynet"));
+            assert!(reveal(&mut state, &pid("a"), &pid("b"), SKind::PromissoryNotes, &[note("ra:hacan")], RevealScope::Action, "mi"));
+        }
+        if faceup {
+            state.promissory_faceup.insert(note("ra:hacan"));
+        }
+        if spent {
+            state.player_mut(&pid("b")).unwrap().action_cards.retain(|c| c.as_str() != "dh1");
+        }
+        let observed = crate::choice::Observed::new(&state, content, ti4_model::content_types::DEFAULT, Some(&hub.galaxy));
+        let string = crate::choice::SeatObservation::bind(&observed, pid("a")).revealed_cards();
+        let mut want: Vec<(String, SKind, Vec<String>)> = string.iter().map(|r| (r.owner.to_string(), r.kind, { let mut ids = r.ids.clone(); ids.sort(); ids })).collect();
+        want.sort_by(|x, y| (&x.0, x.1 as u8).cmp(&(&y.0, y.1 as u8)));
+        assert_eq!(want.is_empty(), !(recorded || maban), "{label}: the string reports something exactly when something was shown or permitted: {want:?}");
+        let mut cx = Ctx::of(&state).expect("a table the codecs carry");
+        let positions = crate::game::Game::with_table(state.clone(), ti4_content::ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption))).rng_positions();
+        let core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&positions) }, SliceSet::ALL).expect("the position loads");
+        let kernel = crate::live::kernel::kernel_for(ti4_model::content_types::DEFAULT);
+        let owner_text = |s: ti4_engine_core::Seat| ["a", "b", "c"][usize::from(s.0)].to_owned();
+        let typed = ti4_engine_core::seen::Seen::new(&core, kernel, ti4_engine_core::Seat(0)).revealed_cards();
+        let mut got: Vec<(String, SKind, Vec<String>)> = typed
+            .iter()
+            .map(|r| {
+                use ti4_engine_core::seen::Shown;
+                let (kind, mut ids) = match &r.shown {
+                    Shown::ActionCards(v) => (SKind::ActionCards, v.iter().map(|c| crate::generated::IdStr::as_str(*c).to_owned()).collect::<Vec<_>>()),
+                    Shown::PromissoryNotes(v) => (SKind::PromissoryNotes, v.iter().map(|n| crate::render::cards::note_text(*n)).collect()),
+                    Shown::SecretObjectives(v) => (SKind::SecretObjectives, v.iter().map(|x| crate::generated::IdStr::as_str(*x).to_owned()).collect()),
+                };
+                ids.sort();
+                (owner_text(r.owner), kind, ids)
+            })
+            .collect();
+        got.sort_by(|x, y| (&x.0, x.1 as u8).cmp(&(&y.0, y.1 as u8)));
+        assert_eq!(got, want, "{label}");
+        let _ = Faction::ALL;
+        if label == "recorded reveals and the permission" {
+            assert!(want.iter().any(|(owner, kind, _)| owner == "b" && *kind == SKind::PromissoryNotes), "the permission or the record shows b's notes");
         }
     }
 }

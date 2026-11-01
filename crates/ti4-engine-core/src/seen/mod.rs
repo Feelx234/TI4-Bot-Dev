@@ -44,6 +44,7 @@ mod reach;
 pub use agenda::{AgendaFacts, InvasionFacts};
 pub use board::{PlanetView, SystemView};
 pub use facts::SeatView;
+pub use hand::{Revealed, Shown};
 pub use objectives::{ProgressRow, RowFamily};
 pub use reach::MoveCache;
 
