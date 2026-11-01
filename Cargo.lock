@@ -4117,6 +4117,7 @@ dependencies = [
  "ti4-engine-legacy",
  "ti4-model",
  "ts-rs",
+ "zstd 0.13.3",
 ]
 
 [[package]]

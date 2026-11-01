@@ -10,6 +10,12 @@ pub use ti4_engine_legacy::*;
 /// The generated adapter tables: one source file, included from the legacy directory (not copied; plan 1.4).
 #[path = "../../ti4-engine/src/generated/mod.rs"]
 pub mod generated;
+/// The wire and format types (copies; `tests/wire_parity.rs`).
+pub mod wire;
+/// The items of the legacy crate that the glue names outside itself (Appendix A of the plan): copies.
+pub mod ties;
+/// What a decider may see (8b3).
+pub mod observed;
 
 // ---- lane B (surface, 8d): constants, queries, previews ----
 
