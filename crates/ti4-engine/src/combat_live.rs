@@ -251,7 +251,7 @@ fn forms_of(base: ti4_engine_core::generated::UnitBaseType, faction: ti4_engine_
         scope.unit(*u).is_some_and(|d| d.base_type == base && d.faction.is_none_or(|tag| ti4_engine_core::query::tech::tag_is(tag, faction)) && match d.required_technology {
                 ti4_engine_core::generated::Requirement::Known(_) => true,
                 ti4_engine_core::generated::Requirement::None => with_plain,
-                ti4_engine_core::generated::Requirement::NotInCorpus => false,
+                ti4_engine_core::generated::Requirement::NotInCorpus => false, // mutants:skip: the one such unit (Combat Transport II) is Ghemina's, a faction nobody seats, so no form of any seat ever differs
             })
     })
 }
@@ -790,6 +790,60 @@ mod tests {
         state.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("yinagent"), ti4_model::state::LeaderStatus::Readied);
         let with_agent = named(&state);
         assert!(with_agent.contains(&fighter) && with_agent.contains(&ti4_engine_core::generated::Unit::FighterII), "the fighters of both seats are named: {with_agent:?}");
+    }
+
+    /// Lane Q (mutation of `combat_texts_in`): the texts name up to `MAX_TYPES` (ten) unit kinds with every combination of them as a roll group, and none at
+    /// all above it (the machine then stands at the first roller). Unit types are added one at a time until the kinds named pass ten.
+    #[test]
+    fn the_texts_of_a_fight_name_ten_kinds_and_every_combination_of_them_and_none_beyond() {
+        let (hub, _origin, target) = hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        let texts = |state: &GameState| {
+            let mut cx = Ctx::of(state).expect("owners");
+            let mut core = Codec::load(&mut cx, state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&crate::rng::RngPositions::default()) }, SliceSet::ALL).expect("the position loads");
+            let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+            let (seat_a, seat_b) = (render.seat("a").expect("a"), render.seat("b").expect("b"));
+            core.transient_mut().combat.active_space_combat = Some((<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(target.as_str()).expect("a system"), seat_a, seat_b));
+            super::combat_texts(&mut core, &render)
+        };
+        let mut sizes = Vec::new();
+        let mut beyond = None;
+        for kind in ["cruiser", "destroyer", "dreadnought", "carrier", "fighter", "warsun", "infantry", "mech", "pds", "spacedock", "flagship"] {
+            crate::fixtures::put(&mut state, &target, kind, &a(), 1);
+            let t = texts(&state);
+            if t.unit_codes.is_empty() {
+                assert!(t.groups.is_empty(), "no kind is named, no group either");
+                beyond = Some(sizes.len());
+                break;
+            }
+            assert_eq!(t.groups.len(), (1 << t.unit_codes.len()) - 1, "every non-empty combination of the {} kinds is a group, once", t.unit_codes.len());
+            assert!(t.groups.iter().all(|(kinds, _, _)| !kinds.is_empty()));
+            sizes.push(t.unit_codes.len());
+        }
+        assert!(sizes.contains(&10), "ten kinds are all named: {sizes:?}");
+        assert!(beyond.is_some_and(|at| at > 0 && sizes[at - 1] <= 10), "more than ten kinds are not named: {sizes:?}");
+    }
+
+    /// Lane Q (mutation of `hero_fight_types`): the pairs Airo Shir Aur can start a fight in name the SHIPS of the hero's fleet (fighters count as ships here, a
+    /// ground force or a rival's ship in the same system does not).
+    #[test]
+    fn the_texts_of_the_step_that_plays_airo_shir_aur_name_the_fleets_ships_and_fighters_only() {
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "mahact"), ("b", "hacan")]);
+        crate::fixtures::put(&mut state, &origin, "cruiser", &a(), 1);
+        crate::fixtures::put(&mut state, &origin, "fighter", &a(), 1);
+        crate::fixtures::put(&mut state, &origin, "infantry", &a(), 1);
+        crate::fixtures::put(&mut state, &origin, "destroyer", &b(), 1);
+        crate::fixtures::put(&mut state, &target, "dreadnought", &b(), 1);
+        state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("mahacthero"), ti4_model::state::LeaderStatus::Unlocked);
+        let mut cx = Ctx::of(&state).expect("owners");
+        let mut core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&crate::rng::RngPositions::default()) }, SliceSet::ALL).expect("the position loads");
+        let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+        let named: Vec<ti4_engine_core::generated::Unit> = super::combat_texts(&mut core, &render).unit_codes.iter().map(|(u, _)| *u).collect();
+        use ti4_engine_core::generated::Unit as U;
+        assert!(named.contains(&U::CruiserI) && named.contains(&U::FighterI) && named.contains(&U::DreadnoughtI), "{named:?}");
+        assert!(!named.contains(&U::InfantryI), "a ground force is no ship of the fleet: {named:?}");
+        assert!(!named.contains(&U::DestroyerI), "a rival's ship in the fleet's own system is not the fleet's: {named:?}");
     }
 
     /// Lane L: Airo Shir Aur starts a fight no step has opened yet (`active_space_combat` is written when the card moves the fleet), so the texts of the
