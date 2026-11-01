@@ -163,6 +163,7 @@ mod tests {
         d.run(&mut s, &k).unwrap();
         let Status::Asking(q) = d.resume(&mut s, &k, pick_ability()).unwrap() else { panic!("the ability asks") };
         assert_eq!(q.ask, Ask::Reaction(RAsk::AgentSwap { target: Some(Seat(1)) }));
+        assert!(!q.ctx.optional && !q.ctx.space_battle && q.ctx.invasion_seq.is_none() && q.ctx.target.is_none(), "the string asks it with a plain context");
         assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Reaction(ROpt::Use))).unwrap(), Status::Done);
         let units = board::planet_units(&s, PLANET);
         assert_eq!(units.len(), 1);
@@ -218,4 +219,39 @@ mod tests {
         let mut d = driver(table(), &spent, &[Seat(0), Seat(1)], activated());
         assert_eq!(d.run(&mut spent, &k).unwrap(), Status::Done);
     }
+    /// Lane L: the mech is the one of the sources in play (a table without a roster), the box must hold one (three on the board still leave the fourth,
+    /// four leave none), and the infantry replaced is the TARGET's (a rival's infantry or the target's own PDS standing before it is not).
+    #[test]
+    fn the_mech_is_the_one_of_the_scope_the_box_must_hold_one_and_the_infantry_is_the_targets_own() {
+        use crate::generated::Source;
+        let hacan = |s: &CoreState, k: &Kernel| faction_mech(s, k, None, Seat(1));
+        let mut s = game();
+        let mut pok = Kernel::plain();
+        pok.sources = crate::kernel::Sources::NONE.with(Source::Base).with(Source::Pok);
+        let mut naalu = game();
+        naalu.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheL1Z1XMindnet), Player::new(Seat(1), Faction::TheNaaluCollective)]);
+        assert_eq!(faction_mech(&naalu, &pok, None, Seat(1)), Ok(Some(Unit::Iconoclast)), "Prophecy of Kings holds one Naalu mech");
+        assert_eq!(faction_mech(&naalu, &Kernel::plain(), None, Seat(1)), Err(Unknown::MissingFact), "every source holds three of them: unknown");
+        let mech = hacan(&s, &Kernel::plain()).unwrap().expect("a Hacan mech");
+        // The box: three mechs on the board leave one, four leave none.
+        let k = Kernel::plain();
+        let scope = Scope(u32::MAX);
+        let before = fleet::remaining_all(&s, scope, Seat(1), mech);
+        for _ in 0..(before - 1) {
+            fx::place_unit(&mut s, Seat(1), SYSTEM, None, mech);
+        }
+        assert_eq!(fleet::remaining_all(&s, scope, Seat(1), mech), 1);
+        assert!(swap_site(&s, &k, None, Seat(1)).unwrap().is_some(), "one mech left in the box");
+        fx::place_unit(&mut s, Seat(1), SYSTEM, None, mech);
+        assert_eq!(swap_site(&s, &k, None, Seat(1)).unwrap(), None, "none left");
+        // Whose infantry: a rival's, then the target's own PDS, stand before the target's infantry on the planet.
+        let mut t = game();
+        t.board_mut().planet_mut(PLANET).units.clear();
+        fx::place_unit(&mut t, Seat(0), SYSTEM, Some(PLANET), Unit::InfantryI);
+        fx::place_unit(&mut t, Seat(1), SYSTEM, Some(PLANET), Unit::PDSI);
+        fx::place_unit(&mut t, Seat(1), SYSTEM, Some(PLANET), Unit::InfantryI);
+        let (planet, at, _) = swap_site(&t, &k, None, Seat(1)).unwrap().expect("the target's infantry");
+        assert_eq!((planet, at), (PLANET, 2), "the third unit of the planet is the target's infantry");
+    }
+
 }

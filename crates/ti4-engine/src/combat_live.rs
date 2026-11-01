@@ -240,7 +240,7 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
 
 /// Whether `seat` can gain a unit upgrade in the middle of a combat: it holds the action card Reveal Prototype, or it is the Nekro (Technological Singularity).
 fn researches_in_combat(core: &CoreState, seat: ti4_engine_core::ids::Seat) -> bool {
-    core.players().by_seat(seat).is_some_and(|p| p.faction == ti4_engine_core::generated::Faction::TheNekroVirus || p.cards.hand.iter().any(|c| *c == ti4_engine_core::generated::ActionCard::RevealPrototype))
+    core.players().by_seat(seat).is_some_and(|p| p.faction == ti4_engine_core::generated::Faction::TheNekroVirus || p.cards.hand.contains(&ti4_engine_core::generated::ActionCard::RevealPrototype))
 }
 
 /// The unit types of the space combat Airo Shir Aur (Mahact hero) can start from this position: the active seat holds the unlocked hero, and the fight

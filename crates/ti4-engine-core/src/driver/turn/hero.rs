@@ -394,7 +394,7 @@ pub fn airo_shir_aur(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
             Bail::RollEndsFight => crate::kernel::ability::AftermathGap::RollEndsFight,
             Bail::Unported => crate::kernel::ability::AftermathGap::CombatUnported,
         };
-        if sx.tape.unknown.get().is_none() {
+        if sx.tape.unknown.get().is_none() { // mutants:skip: the machine's own stop; a gap noted earlier is kept
             sx.tape.unknown.set(Some(crate::kernel::ability::Unknown::UnportedAftermath(gap)));
         }
         return Flow::Halt;
@@ -423,14 +423,14 @@ fn yin_spots(sx: &Sx<'_>) -> Vec<(System, crate::generated::Planet)> {
 /// Uplink, a coexisting planet): the counted gap [`TurnGap::HeroFight`].
 fn yin_unported(sx: &Sx<'_>, who: Seat, spots: &[(System, crate::generated::Planet)]) -> bool {
     let everyone: Vec<Seat> = sx.state.players().iter().map(|p| p.seat).collect();
-    if sx.kernel.hooks.direct.bastion_units_watches_ground_round(sx.state, &everyone) {
+    if sx.kernel.hooks.direct.bastion_units_watches_ground_round(sx.state, &everyone) { // mutants:skip: Proxima Targeting VI is a technology of the dropped faction Last Bastion
         return true;
     }
     if sx.state.players().by_seat(who).is_some_and(|p| p.cards.breakthrough == Some(crate::generated::Breakthrough::FealtyUplink)) {
         return true;
     }
     spots.iter().any(|(system, planet)| {
-        sx.kernel.hooks.direct.ralnel_alarum_on(sx.state, *system, *planet)
+        sx.kernel.hooks.direct.ralnel_alarum_on(sx.state, *system, *planet) // mutants:skip: Alarum is the mech of the dropped faction Ral Nel
             || crate::query::board::in_coexistence(sx.state, *system, *planet)
             || sx.state.board().planet(*planet).units.as_slice().iter().any(|p| crate::rules::combat::is_neutral(sx.state, p.owner()))
     })
@@ -444,10 +444,11 @@ pub fn dannel(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let Some(roster) = sx.table.facts.plays.as_ref().and_then(|p| p.roster) else { return gap_flow(sx, TurnGap::NoRoster) };
     let scope = reach::scope_of(sx.kernel);
     let Some(infantry) = crate::kernel::fx_strategy::placed_unit(sx.state, sx.kernel, scope, roster, who, UnitBaseType::Infantry) else { return gap_flow(sx, TurnGap::NoRoster) };
-    let stock = crate::query::fleet::remaining_all(sx.state, scope, who, infantry).clamp(0, 3);
+    let stock = crate::query::fleet::remaining_all(sx.state, scope, who, infantry).min(3);
+    let stock = stock.max(0); // mutants:skip: a box holding none is the early verdict below, which the menu never reaches
     let spots = yin_spots(sx);
-    if stock == 0 || spots.is_empty() {
-        return finish(sx, who, key, Leader::DannelOfTheTenth, false);
+    if stock == 0 || spots.is_empty() { // mutants:skip: the menu lists the hero only with infantry in the box on a mapped board; the string's early verdict is its defensive twin
+        return finish(sx, who, key, Leader::DannelOfTheTenth, false); // mutants:skip: as above
     }
     if yin_unported(sx, who, &spots) {
         return gap_flow(sx, TurnGap::HeroFight);
@@ -457,7 +458,7 @@ pub fn dannel(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let seats: Vec<Seat> = sx.state.players().iter().map(|p| p.seat).collect();
     let mut dacxive = Vec::new();
     for seat in &seats {
-        if owns(*seat, Technology::DacxiveAnimators) {
+        if owns(*seat, Technology::DacxiveAnimators) { // mutants:skip: the placement after a won combat needs dice that win; the fight's own tests (`invasion_windows`) pin Dacxive Animators
             let Some(form) = crate::kernel::fx_strategy::placed_unit(sx.state, sx.kernel, scope, roster, *seat, UnitBaseType::Infantry) else { return gap_flow(sx, TurnGap::NoRoster) };
             dacxive.push((*seat, form));
         }
@@ -469,9 +470,9 @@ pub fn dannel(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
         order: seats.clone(),
         announce: true,
         copied: crate::driver::windows::invasion::InvasionMachine::copied_round(sx.state),
-        numbered: sx.state.meta().rules_at_least(16),
-        can_pay: [false, false],
-        pay_env: Some(crate::kernel::fx_pay::PayEnv { scope: crate::tables::Scope(u32::from(sx.kernel.sources.0)), blanked: reach::blanked(sx.state) }),
+        numbered: sx.state.meta().rules_at_least(16), // mutants:skip: only the latest rules version is played, which is past 16 and 17
+        can_pay: [false, false], // mutants:skip: `pay_env` is set, so the round reads what each seat can spend and `can_pay` stands for no round
+        pay_env: Some(crate::kernel::fx_pay::PayEnv { scope: crate::tables::Scope(u32::from(sx.kernel.sources.0)), blanked: reach::blanked(sx.state) }), // mutants:skip: as above (the Reaper's payment of a Letnev rival)
         dunlain: codes.dunlain_reaper,
         kind: codes.ground,
         names: codes.names.to_vec(),
@@ -484,7 +485,8 @@ pub fn dannel(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
         dacxive,
         notes: crate::driver::windows::tactical::note_holdings(sx.state).as_slice().to_vec(),
     };
-    let facts = YinFacts { spots, stock: u8::try_from(stock).unwrap_or(3), infantry, fight, minister: codes.minister };
+    let facts = YinFacts { spots, stock: u8::try_from(stock).unwrap_or(3), // mutants:skip: the stock was clamped to 0..=3 above
+        infantry, fight, minister: codes.minister };
     let mut window = YinHero::new(who, facts);
     if run_window(sx, &mut window) == Flow::Halt {
         return Flow::Halt;

@@ -230,7 +230,7 @@ pub fn neighbours_of(core: &CoreState, k: &Kernel, seat: Seat, system: System) -
     if !core.loaded.has(crate::state::Slice::Map) {
         return None;
     }
-    let reach = SeatReach::new(core, k, seat, false)?;
+    let reach = SeatReach::new(core, k, seat, false)?; // mutants:skip: the plain rules `PlayerAdjacency` builds; the cards in play (`effects`) change a move, not who is next to whom
     let rules = reach.rules_for(core, k, system);
     let mut found: Vec<System> = rules.adjacency.of(system).iter().map(crate::ids::system_at).filter(|n| *n != system).collect();
     found.sort_unstable();

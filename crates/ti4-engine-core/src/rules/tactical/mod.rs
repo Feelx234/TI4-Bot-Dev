@@ -30,7 +30,6 @@ use crate::kernel::{Kernel, Next};
 use crate::query::transit::Hold;
 use crate::state::{Code, CoreState, Piece};
 
-pub use activate::holds_leave;
 pub use finish::{destroy_blockaded_mobile_docks, Closed};
 
 impl Machine {

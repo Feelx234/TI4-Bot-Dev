@@ -165,14 +165,14 @@ fn hero(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, used: bool) -> Flo
 fn zeu(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let homes = |s: System| sx.state.players().iter().any(|p| p.home_system == Some(s));
     // (A lend without the map slice -- the lockstep harness's -- has no system to name: the string without a galaxy offers the decline alone, too.)
+    // (Mahact's commander lets a seat activate a system holding its token, which Z'eu never names: the systems with the seat's token are left out.)
     let mapped = sx.state.loaded.has(crate::state::Slice::Map);
-    let leave = mapped && crate::rules::tactical::holds_leave(sx.state, sx.kernel, who);
     let systems: Vec<System> = mapped
-        .then(|| crate::query::transit::activatable(sx.state, sx.kernel, who, leave))
+        .then(|| crate::query::transit::activatable(sx.state, sx.kernel, who, false))
         .flatten()
         .unwrap_or_default()
         .into_iter()
-        .filter(|s| !board::has_token(sx.state, *s, who) && !homes(*s))
+        .filter(|s| !homes(*s))
         .collect();
     let mut window = ZeuAction::new(who, systems);
     if run_window(sx, &mut window) == Flow::Halt {
