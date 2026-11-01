@@ -10,8 +10,8 @@
 //! use of PRODUCTION made are announced by the production lane (`UNITS_PRODUCED`); until that lane's window carries the list the core stops
 //! with the counted gap [`TurnGap::ProductionAnnounce`].
 
-use crate::driver::turn::inline::{gap, halted, Flow};
-use crate::generated::{Faction, StrategyCard, StrategyCardKind, System};
+use crate::driver::turn::inline::{gap, gap_flow, halted, run as run_window, Flow};
+use crate::generated::{StrategyCard, StrategyCardKind, System};
 use crate::ids::Seat;
 use crate::kernel::children::ErasedChild;
 use crate::kernel::fx;
@@ -153,35 +153,41 @@ fn place_tokens(sx: &mut Sx<'_>, system: System, seats: &[Seat]) {
 }
 
 /// `Game::resolve_faction_strategy`: what a faction does when a strategy card finishes for it (`faction_abilities::strategy_resolved`): the hooks of
-/// the modules, then Xxcha's Peace Accords after Diplomacy.
+/// the modules, then Xxcha's Peace Accords after Diplomacy: the annexation window, and the exploration of the planet taken (by its first trait,
+/// announced to nobody: the string explores with no timing handle).
 pub fn resolved(sx: &mut Sx<'_>, who: Seat, kind: StrategyCardKind) -> Flow {
     let kernel = sx.kernel;
     {
         let mut cx = sx.cx();
         kernel.hooks.general.strategy_resolved(&mut cx, who, Some(kind));
     }
-    if kind == StrategyCardKind::Diplomacy && sx.state.players().by_seat(who).is_some_and(|p| p.faction == Faction::TheXxchaKingdom) && annexable_exists(sx.state, who) {
-        gap(sx, TurnGap::PeaceAccords);
-        return Flow::Halt;
+    if kind != StrategyCardKind::Diplomacy {
+        return Flow::Done;
     }
-    Flow::Done
+    peace_accords(sx, who)
 }
 
-/// Whether Xxcha's Peace Accords (`faction_abilities::annexable`) has a planet to offer: an uncontrolled planet with no units on it, in or next
-/// to a system with a planet the seat controls ("in or next to" needs the map; Mecatol Rex is never annexed). A Space Station is counted
-/// (the gap is conservative there).
-fn annexable_exists(core: &crate::state::CoreState, who: Seat) -> bool {
-    use crate::query::board;
-    // (A position without the map slice is a game without a galaxy: "in or next to" needs the map.)
-    let Some(galaxy) = core.loaded.has(crate::state::Slice::Map).then(|| core.galaxy()).flatten() else { return false };
-    let mine: Vec<System> = board::controlled_planets(core, who).as_slice().iter().map(|(system, _)| *system).collect();
-    let mut reachable = mine.clone();
-    for system in &mine {
-        reachable.extend(galaxy.adjacent(*system).iter().map(crate::ids::system_at));
+/// Xxcha's Peace Accords (`faction_abilities::strategy_resolved`): the window, then the exploration of the planet taken.
+fn peace_accords(sx: &mut Sx<'_>, who: Seat) -> Flow {
+    use crate::rules::explore_windows::{traits_now, Exploring};
+    use crate::rules::peace_accords::PeaceAccords;
+    use crate::state::EDeck;
+    let mut window = PeaceAccords::new(who);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
     }
-    reachable.iter().any(|system| {
-        board::planets_of(core, *system).any(|planet| {
-            planet != crate::generated::Planet::MecatolRex && board::control(core, planet).is_none() && board::planet_units(core, planet).is_empty()
-        })
-    })
+    let Some((_, planet)) = window.annexed else { return Flow::Done };
+    // (Integrated Economy's production and the Thunder's Edge planet's breakthrough are not carried: a counted gap, the step is rolled back.)
+    if window.unsupported {
+        return gap_flow(sx, TurnGap::PeaceAccords);
+    }
+    let Some(deck) = traits_now(sx.state, crate::query::reach::scope_of(sx.kernel), planet).as_slice().first().copied() else { return Flow::Done };
+    let mut exploring = Exploring::planet(who, planet, EDeck::Fixed(deck), false);
+    if run_window(sx, &mut exploring) == Flow::Halt {
+        return Flow::Halt;
+    }
+    if exploring.unsupported().is_some() {
+        return gap_flow(sx, TurnGap::PeaceAccords);
+    }
+    Flow::Done
 }

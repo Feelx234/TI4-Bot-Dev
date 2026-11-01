@@ -55,6 +55,8 @@ pub enum Ask {
     PdsAlternative { system: System, planet: Planet },
     /// Imperial primary: "score a public objective with Imperial".
     ImperialScore,
+    /// Xxcha's Peace Accords after Diplomacy: "annex a planet" (`controlled`: the planets the seat controls now, for the preview of the gain).
+    PeaceAccords { controlled: u8 },
     /// Thunder's Edge Construction: "a structure or a production" (the first of its two abilities).
     ConstructionAbility,
     /// Thunder's Edge Warfare: the final split of the `total` command tokens before the free tactical action, at least
@@ -103,6 +105,8 @@ pub enum Opt {
     Alternative,
     /// Imperial: score this public objective.
     Objective(PublicObjective),
+    /// Peace Accords: gain control of this planet of this system (the answer is the planet's id).
+    Annex(System, Planet),
     /// Thunder's Edge Construction: place a structure (the answer `structure`).
     Build,
     /// Thunder's Edge Construction: use PRODUCTION in this system (the answer `produce|<system>`).
@@ -144,6 +148,8 @@ pub enum Subtype {
     /// `place_structure_pds_alternative`.
     PlaceStructurePdsAlternative,
     ImperialScoreObjective,
+    /// `peace_accords_annex`.
+    PeaceAccordsAnnex,
     ResearchTechnology,
     /// A follower's question (Leadership's is `BuyTokenWithInfluence`).
     FollowSecondary,
@@ -163,6 +169,12 @@ pub fn ctx(card: StrategyCard, secondary: bool, subtype: Subtype) -> Ctx {
 #[must_use]
 pub fn rule_ctx(rule: Rule, subtype: Subtype) -> Ctx {
     ctx_from(Origin::Rule(rule), subtype)
+}
+
+/// The context of a question a faction ability raises (`DecisionSource::FactionAbility`).
+#[must_use]
+pub fn ability_ctx(ability: crate::generated::Ability, subtype: Subtype) -> Ctx {
+    ctx_from(Origin::FactionAbility(super::generic::Content::Ability(ability)), subtype)
 }
 
 fn ctx_from(origin: Origin, subtype: Subtype) -> Ctx {

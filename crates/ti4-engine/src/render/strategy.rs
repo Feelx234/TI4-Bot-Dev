@@ -112,6 +112,7 @@ impl Family for Fam {
             Ask::PlaceStructure { .. } => "place a structure".to_owned(),
             Ask::PdsAlternative { .. } => "place a PDS or an alternative".to_owned(),
             Ask::ImperialScore => "score a public objective with Imperial".to_owned(),
+            Ask::PeaceAccords { .. } => "Peace Accords: annex a planet".to_owned(),
             Ask::ConstructionAbility => "Construction: a structure or a production".to_owned(),
             Ask::TeWarfareRedistribute { .. } => "Warfare: redistribute your command tokens before the tactical action".to_owned(),
             Ask::TeWarfareRedistributeAfter { .. } => "Warfare: redistribute your command tokens after the tactical action".to_owned(),
@@ -137,6 +138,7 @@ impl Family for Fam {
             Subtype::PlaceStructure => "place_structure",
             Subtype::PlaceStructurePdsAlternative => "place_structure_pds_alternative",
             Subtype::ImperialScoreObjective => "imperial_score_objective",
+            Subtype::PeaceAccordsAnnex => "peace_accords_annex",
             Subtype::ResearchTechnology => "research_technology",
             Subtype::FollowSecondary => "strategy_secondary",
             Subtype::ConstructionChooseAbility => "construction_choose_ability",
@@ -217,6 +219,17 @@ impl Family for Fam {
                 option
             }
             Opt::Objective(o) => ChoiceOption::labelled(o.as_str(), "objective", o.as_str()),
+            Opt::Annex(system, planet) => {
+                // `faction_abilities::strategy_resolved`: the planet's id, "annex", the system and the planet as details, and the gain of one planet.
+                let controlled = match a {
+                    Ask::PeaceAccords { controlled } => i64::from(*controlled),
+                    _ => 0,
+                };
+                ChoiceOption::labelled(planet.as_str(), "annex", format!("gain control of {}", planet.as_str()))
+                    .with("system", system.as_str())
+                    .with("planet", planet.as_str())
+                    .previewed(Preview::certain(vec![Delta::new(Quantity::PlanetsControlled, controlled, controlled + 1)]))
+            }
             Opt::Card(card) => ChoiceOption::labelled(card.as_str(), crate::draft::STRATEGY_CARD_KIND, crate::draft::strategy_card_label(ti4_content::ContentStore::embedded(), card.as_str())),
             Opt::Build => ChoiceOption::labelled("structure", "build", "place a structure"),
             Opt::Produce(system) => ChoiceOption::labelled(format!("produce|{}", system.as_str()), "build", format!("use PRODUCTION in {}", system.as_str())),
@@ -280,6 +293,7 @@ impl Family for Fam {
             },
             Ask::Draft => StrategyCard::from_id(id).map(Opt::Card),
             Ask::ImperialScore => PublicObjective::from_id(id).map(Opt::Objective),
+            Ask::PeaceAccords { .. } => Planet::from_id(id).and_then(|planet| planet.data().system.map(|system| Opt::Annex(system, planet))),
             Ask::ResearchTechnology { .. } => Technology::from_id(id).map(Opt::Research),
             Ask::Follow { .. } => match id {
                 "no" => Some(Opt::Skip),
