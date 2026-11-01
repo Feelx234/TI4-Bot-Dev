@@ -292,7 +292,12 @@ impl NativeGame {
         }
         let mut cx = Ctx::of(&game.state).map_err(|e| format!("no owners table: {e}"))?;
         let positions = game.rng_positions();
-        let core = Codec::load(&mut cx, &game.state, Sources { galaxy: game.galaxy(), rng: Some(&positions) }, slices_for(true))
+        // The string applies the laws and the rules version to its galaxy at the start of every step (`laws::apply_to_galaxy`: the printed lanes of the
+        // hyperlane tiles from rules version 22, the wormhole switches): a game it has not stepped yet carries the lanes off, and the core would find no
+        // route through a lane on a hyperlane map.
+        let mut galaxy = game.galaxy().cloned().ok_or_else(|| "the game has no galaxy".to_owned())?;
+        ti4_engine::laws::apply_to_galaxy(&game.state, &mut galaxy);
+        let core = Codec::load(&mut cx, &game.state, Sources { galaxy: Some(&galaxy), rng: Some(&positions) }, slices_for(true))
             .map_err(|e| format!("the position does not load: {e}"))?;
         // (The options that name a seat by faction -- Politics' speaker, Trade's refreshed seats -- need the faction texts.)
         let factions = cx.owners.ids().iter().map(|id| game.state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned())).collect();
@@ -782,7 +787,9 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 // The native steps ran on where the string takes a step of its own with no question (the close of an action): that step uses no
                 // answer; its events meet what the native pushed ahead, and the legacy game is stepped again with the same answers.
                 let mut catch_up = 0;
-                while run.records.is_empty() && !owed.native.is_empty() && run.info.error.is_none() && !group.iter().all(|p| p.asked.is_empty()) && catch_up < 4 {
+                // (Or the string took a step that did and said nothing -- the scoring window of an event nobody scores, ahead of the phase flip --
+                // where the native loop has a step of its own: the answers are still unused.)
+                while run.records.is_empty() && (!owed.native.is_empty() || run.events.is_empty()) && run.info.error.is_none() && !group.iter().all(|p| p.asked.is_empty()) && catch_up < 4 {
                     let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
                     let _ = (legacy.decisions_since(), legacy.events_since());
                     if let Some((at, n, l)) = owed.settle(Vec::new(), run.events.clone()) {
@@ -1097,6 +1104,19 @@ mod tests {
                 assert!(!gap.cause.contains("FreeTactical") && !gap.cause.contains("WarfareSecondary") && !gap.cause.contains("LeaderStrategy"), "seed {seed}: {gap:?}");
             }
         }
+    }
+
+    /// The string applies the rules version to its galaxy at the start of its steps (`laws::apply_to_galaxy`); the position of a game it has not stepped
+    /// yet carries the printed lanes of the hyperlane tiles off, and a core loaded from it found no route through a lane (J: the movement options of
+    /// the 4-player hyperlane map were `done_moving` alone).
+    #[test]
+    fn a_core_loaded_from_an_unstepped_game_knows_the_printed_lanes_of_the_hyperlane_map() {
+        let spec = lobby_spec("xxcha", 4, 1);
+        assert_eq!(spec.map, "4pHyperlanes");
+        let legacy = spec.build().expect("builds");
+        assert!(!legacy.galaxy().expect("a galaxy").hyperlane_lanes, "the string has not applied its laws to the galaxy yet");
+        let g = game("xxcha", 4, 1);
+        assert!(g.core.galaxy().expect("a map").hyperlane_lanes, "the core's map holds the lanes");
     }
 
     #[test]

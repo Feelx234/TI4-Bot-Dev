@@ -475,6 +475,11 @@ fn advance_inner(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> R
             Live::Asks(a) => {
                 if a.nested.is_none() {
                     flush_open(core, &typed);
+                } else {
+                    // A question from inside an emission suspends the string's step, and the call that resumes it starts with an empty list: what the
+                    // earlier sub-windows of this call emitted (`INVASION_BEGAN` before a reaction to `PRODUCTION_USED`) is mirrored now, or it is lost.
+                    // (The aftermath's plain log stays in the window: it is drained when the step ends.)
+                    fx::mirror_recs(core, std::mem::take(&mut *typed.borrow_mut()));
                 }
                 return Ok((Live::Asks(a), out));
             }

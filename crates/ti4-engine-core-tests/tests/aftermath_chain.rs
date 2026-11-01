@@ -420,6 +420,37 @@ fn a_production_capacity_hands_the_step_to_the_production_use_and_announces_it_r
     assert_eq!(plain_kinds(&core), [PlainKind::ProductionResolved], "only the production step was run, and announced once, when the use had left the stack");
 }
 
+/// A question asked from inside the step (a reaction to `PRODUCTION_USED`) suspends the step: the events the invasion step emitted before it are the
+/// string's too (`INVASION_BEGAN` comes before `PRODUCTION_USED`), and the step's call that is resumed must not have lost them.
+#[test]
+fn the_events_an_earlier_step_of_the_chain_emitted_survive_a_reaction_question_of_a_later_one() {
+    covers!("driver::windows::chain::AftermathChain");
+    use ti4_engine_core::choice::reaction::{AbilityId, AbilityKind, Relation};
+    use ti4_engine_core::kernel::resolver::AbilityDef;
+    use ti4_engine_core::kernel::stage::{Slot, Spec};
+    use ti4_engine_core::state::EventKind;
+    let (mut core, k) = dock_arena();
+    let mut env = env(&k, 3, &[]);
+    let id = AbilityId { kind: AbilityKind::Ability, key: Code(1) };
+    let mut resolver = ti4_engine_core::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
+    resolver.register([AbilityDef::new(id, Seat(1), EventKind::ProductionUsed, Relation::After).with_optional(true).with_arg(1)]);
+    env.registry = Cow::new(resolver.registry().clone());
+    env.table.add(Spec::new(Slot(1), AbilityKind::Ability, EventKind::ProductionUsed, Relation::After, |_| Ok(())).optional());
+    let mut a = Aftermath::new(Seat(0), sys(), AStage::Invading, Before::default(), NoteHold::new());
+    a.fight = AFight::Over;
+    a.feats_noted = true;
+    a.holds = true;
+    AftermathChain::new(a).to_pending(&mut core);
+    let (asked, end) = play(&mut core, &env, &mut |c: &Choice| {
+        if matches!(c.ask, Ask::Reaction(_)) { c.opts.as_slice().iter().position(|o| *o == Opt::Decline).unwrap_or(0) } else { stop_producing(c) }
+    });
+    assert_eq!(end, Ok(()));
+    assert!(asked.iter().any(|c| matches!(c.ask, Ask::Reaction(_))), "the reaction to the use of production is asked from inside the step");
+    let typed: Vec<EventKind> = core.ledger().events.iter().filter_map(|e| if let Emit::Typed(t) = e { Some(t.kind) } else { None }).collect();
+    let at = |kind| typed.iter().position(|k| *k == kind).unwrap_or_else(|| panic!("{kind:?} in {typed:?}"));
+    assert!(at(EventKind::InvasionBegan) < at(EventKind::ProductionUsed), "{typed:?}");
+}
+
 /// A unit built in the step is made (and announced) before `PRODUCTION_RESOLVED`; a clone in the middle of the use continues identically.
 #[test]
 fn a_unit_built_in_the_aftermath_production_step_is_announced_before_it_is_resolved() {
