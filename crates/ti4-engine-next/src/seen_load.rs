@@ -46,12 +46,39 @@ impl SeenOwned {
     /// [`Unmapped`] for a value the typed state cannot hold.
     pub fn of(observed: &Observed<'_>) -> Result<Self, Unmapped> {
         let (state, _content, sources, galaxy) = observed.parts();
+        Self::from_parts(state, sources, galaxy)
+    }
+
+    /// Load the typed copy of a position given by its parts (the objectives queries of the surface build theirs from a state, a
+    /// source scope and a map, without an `Observed`).
+    ///
+    /// # Errors
+    /// [`Unmapped`] for a value the typed state cannot hold.
+    pub fn from_parts(state: &ti4_model::state::GameState, sources: ti4_model::content_types::SourceSet, galaxy: Option<&ti4_content::galaxy::Galaxy>) -> Result<Self, Unmapped> {
         let mut cx = Ctx::of(state)?;
         // A decision asked without a map (some nested windows build their `Observed` without one) loads without the
         // map slice; the movement accessors of the view then answer as the string side does without a galaxy.
         let reads = if galaxy.is_some() { READS } else { SliceSet::of_without(READS, Slice::Map) };
         let core = CoreView::of(state, &mut cx, Sources { galaxy, rng: None }, reads)?.into_state();
         Ok(Self { core, cx, kernel: kernel_for(sources), blanked: crate::ties::laws::blanked(state) })
+    }
+
+    /// The loaded typed state.
+    #[must_use]
+    pub(crate) const fn core(&self) -> &CoreState {
+        &self.core
+    }
+
+    /// The hook table of the position's source scope.
+    #[must_use]
+    pub(crate) const fn kernel(&self) -> &'static Kernel {
+        self.kernel
+    }
+
+    /// Whether all laws are blank this turn (Law's Order).
+    #[must_use]
+    pub(crate) const fn blanked(&self) -> bool {
+        self.blanked
     }
 
     /// The view for the bound player; `None` when the id is not an owner of the game.

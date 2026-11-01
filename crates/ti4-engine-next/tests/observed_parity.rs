@@ -70,9 +70,9 @@ fn every_accessor_answers_as_the_legacy_one_does() {
             same!(o.production_system_count(player), t.production_system_count(player), who("production_system_count"));
             same!(o.agenda_prediction_of(player), t.agenda_prediction_of(player), who("agenda_prediction_of"));
             same!(o.available_spend(player, old::production::Spend::Resources), t.available_spend(player, thin::queries::production::Spend::Resources), who("available_spend"));
-            same!(o.fleet_supply_limit(player), t.fleet_supply_limit(player), who("fleet_supply_limit (delegate)"));
-            same!(o.scoreable_public(player), t.scoreable_public(player), who("scoreable_public (delegate)"));
-            same!(o.scoreable_secret(player), t.scoreable_secret(player), who("scoreable_secret (delegate)"));
+            same!(o.fleet_supply_limit(player), t.fleet_supply_limit(player), who("fleet_supply_limit"));
+            same!(o.scoreable_public(player), t.scoreable_public(player), who("scoreable_public"));
+            same!(o.scoreable_secret(player), t.scoreable_secret(player), who("scoreable_secret"));
             for other in state.players.iter().map(|p| &p.id) {
                 same!(format!("{:?}", o.opponent_relationship(player, other)), format!("{:?}", t.opponent_relationship(player, other)), who("opponent_relationship"));
                 same!(o.recent_diplomacy_attack(player, other), t.recent_diplomacy_attack(player, other), who("recent_diplomacy_attack"));

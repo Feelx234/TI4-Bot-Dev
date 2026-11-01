@@ -14,3 +14,6 @@ pub mod fleet;
 pub mod content;
 pub mod fleet_strength;
 pub mod technology;
+pub mod objectives;
+pub mod secrets;
+pub mod cards;
