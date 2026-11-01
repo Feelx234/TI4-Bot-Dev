@@ -45,11 +45,6 @@ impl crate::choice::Decider for Chooser {
     }
 }
 
-/// The string's agenda phase on a copy of `state`: `Game::step` until `AGENDA_PHASE_RESOLVED`. The answers it took.
-fn string_agenda(state: &GameState, ids: &[&str]) -> (Run, Vec<String>) {
-    string_agenda_preferring(state, ids, &[])
-}
-
 fn string_agenda_preferring(state: &GameState, ids: &[&str], prefer: Policy) -> (Run, Vec<String>) {
     let _serial = crate::dual::tests::serial();
     let seen: Rc<std::cell::RefCell<Vec<crate::choice::Choice>>> = Rc::default();

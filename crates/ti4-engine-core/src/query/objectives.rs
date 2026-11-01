@@ -1406,7 +1406,7 @@ pub fn secret_progress(pos: &Pos<'_>, obj: SecretObjective) -> Result<Option<Pro
 /// Whether the seat's progress on a secret reads [`Terms::capacity`]: Produce en Masse in its hand, or revealed (a leaked secret is scored by whoever meets it).
 #[must_use]
 pub fn wants_capacity(core: &CoreState, seat: Seat) -> bool {
-    let mine = core.players().by_seat(seat).is_some_and(|p| p.cards.secrets.iter().any(|s| *s == SecretObjective::ProduceEnMasse));
+    let mine = core.players().by_seat(seat).is_some_and(|p| p.cards.secrets.contains(&SecretObjective::ProduceEnMasse));
     mine || core.objectives().revealed.iter().any(|r| matches!(r, ObjectiveRef::Secret(SecretObjective::ProduceEnMasse)))
 }
 

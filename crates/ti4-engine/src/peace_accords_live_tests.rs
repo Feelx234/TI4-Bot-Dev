@@ -23,9 +23,12 @@ use crate::core_sync::{materialize, Codec, Ctx, Sources};
 use crate::live::{self, Scripted};
 use crate::render::Render;
 
+/// The rule a table answers by: the id to take at a question, or `None` for the first option.
+type Want = Box<dyn Fn(&Choice) -> Option<String>>;
+
 /// Answers by `want` (the id to take, or the first option) and records the questions and the ids taken.
 struct Picker {
-    want: Box<dyn Fn(&Choice) -> Option<String>>,
+    want: Want,
     seen: Seen,
     taken: Rc<RefCell<Vec<String>>>,
 }
@@ -70,7 +73,7 @@ fn card_id(card: &str) -> StrategyCardId {
 }
 
 /// The string's steps from the state, until `STRATEGIC_ACTION_COMPLETE`.
-fn string_run(state: &GameState, galaxy: &ti4_content::galaxy::Galaxy, want: Box<dyn Fn(&Choice) -> Option<String>>, open: impl FnOnce(&mut super::Game<'static>)) -> (Run, Vec<String>) {
+fn string_run(state: &GameState, galaxy: &ti4_content::galaxy::Galaxy, want: Want, open: impl FnOnce(&mut super::Game<'static>)) -> (Run, Vec<String>) {
     let _serial = crate::dual::tests::serial();
     let seen: Seen = Rc::default();
     let taken: Rc<RefCell<Vec<String>>> = Rc::default();
@@ -163,7 +166,7 @@ fn is_annex(c: &Choice) -> bool {
 }
 
 /// The planet id the picker takes at the Peace Accords question: the first with a trait if `explored`, else the first without one.
-fn annex_pick(explored: bool) -> Box<dyn Fn(&Choice) -> Option<String>> {
+fn annex_pick(explored: bool) -> Want {
     Box::new(move |c| {
         if c.player.as_str() == "a" && c.context.as_ref().is_some_and(|x| x.subtype == "action_menu") {
             return Some("strategic".to_owned());
@@ -175,11 +178,11 @@ fn annex_pick(explored: bool) -> Box<dyn Fn(&Choice) -> Option<String>> {
     })
 }
 
-fn primary_case(want: Box<dyn Fn(&Choice) -> Option<String>>, seats: &[(&str, &str); 4]) -> (Run, Run) {
+fn primary_case(want: Want, seats: &[(&str, &str); 4]) -> (Run, Run) {
     primary_case_with(want, seats, |_| {})
 }
 
-fn primary_case_with(want: Box<dyn Fn(&Choice) -> Option<String>>, seats: &[(&str, &str); 4], tweak: impl FnOnce(&mut GameState)) -> (Run, Run) {
+fn primary_case_with(want: Want, seats: &[(&str, &str); 4], tweak: impl FnOnce(&mut GameState)) -> (Run, Run) {
     let hub = crate::fixtures::plain_hub();
     let state = table(seats, "a", &hub, tweak);
     let (mut string, taken) = string_run(&state, &hub.galaxy, want, |_| {});
@@ -223,7 +226,7 @@ fn resources_of(planet: &str) -> i64 {
 
 #[test]
 fn the_xxcha_with_integrated_economy_produces_on_the_annexed_planet_before_exploring_it_like_the_string() {
-    let want: Box<dyn Fn(&Choice) -> Option<String>> = Box::new(|c| {
+    let want: Want = Box::new(|c| {
         if c.player.as_str() == "a" && c.context.as_ref().is_some_and(|x| x.subtype == "action_menu") {
             return Some("strategic".to_owned());
         }
@@ -270,7 +273,7 @@ fn a_follower_xxcha_annexes_after_the_diplomacy_secondary_like_the_string() {
     let held = planets_of(&hub.centre).remove(0);
     state.system_mut(&SystemId::new(&hub.centre)).set_control(PlanetId::new(&held), pid("b"));
     let state = based(state);
-    let want: Box<dyn Fn(&Choice) -> Option<String>> = Box::new(|c| if c.player.as_str() == "b" && c.details.get("kind").and_then(|v| v.as_str()) == Some("strategy_secondary") { Some("yes".to_owned()) } else if is_annex(c) { c.options.iter().find(|o| o.kind == "annex" && has_trait(&o.id)).map(|o| o.id.clone()) } else { None });
+    let want: Want = Box::new(|c| if c.player.as_str() == "b" && c.details.get("kind").and_then(|v| v.as_str()) == Some("strategy_secondary") { Some("yes".to_owned()) } else if is_annex(c) { c.options.iter().find(|o| o.kind == "annex" && has_trait(&o.id)).map(|o| o.id.clone()) } else { None });
     let (string, taken) = string_run(&state, &hub.galaxy, want, |g| {
         let answer = ChoiceOption::labelled(crate::strategy::STRATEGIC_ACTION_ID, crate::strategy::ACTION_KIND, "strategic");
         let window = crate::strategy::begin_strategic_action(&mut g.state, g.content, &pid("a"), answer).expect("the seat holds the card");
@@ -311,9 +314,12 @@ mod secrets {
         PlayerId::new("a")
     }
 
+    /// The string's progress, the typed view's answer, the differences the Dual comparison reported.
+    type Both = (Option<RequirementProgress>, Option<Option<RequirementProgress>>, u64);
+
     /// The string's progress of `alias` for `a`, the typed view's answer next to it (both through the Dual backend of the objectives area,
     /// which compares them), and the count of differences the comparison reported.
-    fn both(state: &GameState, alias: &str) -> (Option<RequirementProgress>, Option<Option<RequirementProgress>>, u64) {
+    fn both(state: &GameState, alias: &str) -> Both {
         let _guard = crate::dual::tests::serial();
         let _ = take_report();
         let content = ti4_content::ContentStore::embedded();
