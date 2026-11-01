@@ -667,6 +667,7 @@ impl Machine {
                 // A roller the settle's unit texts do not name (an upgrade gained at the start of the combat): the string stands.
                 let rd = Self::rd(sx.state, sx.kernel);
                 if !super::barrage::every_roller_is_named(rd, [self.env.attacker, self.env.defender], self.env.system, &self.env.unit_codes) {
+                    if std::env::var_os("TI4_MF").is_some() { eprintln!("CU open_round roller unnamed: codes {:?} plan a {:?} d {:?}", self.env.unit_codes.iter().map(|(u, _)| *u).collect::<Vec<_>>(), super::barrage_plan(rd, self.env.attacker, self.env.system).iter().map(|r| r.unit).collect::<Vec<_>>(), super::barrage_plan(rd, self.env.defender, self.env.system).iter().map(|r| r.unit).collect::<Vec<_>>()); } // TEMPDEBUG
                     return None;
                 }
                 self.start_barrage(round);
@@ -1194,6 +1195,7 @@ impl Machine {
         match self.run(sx) {
             Some(_) => {}
             None => {
+                if std::env::var_os("TI4_MF").is_some() { eprintln!("CU step_live: stage {:?} fields {:?} sys {:?} sides {:?} {:?} units {:?}", self.stage, self.fields, self.env.system, self.env.attacker, self.env.defender, sx.state.board().sys(self.env.system).units.as_slice()); } // TEMPDEBUG
                 if self.stop.is_none() {
                     self.stop = Some(Stop::Bailed(Bail::Unported));
                 }

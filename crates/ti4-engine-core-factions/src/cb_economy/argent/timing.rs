@@ -26,9 +26,13 @@ fn ready_card(s: &CoreState, who: Seat, card: Leader) -> bool {
 }
 
 /// `agent_planets`: the planets `recipient` controls in a system adjacent to `producing`, not demilitarized and
-/// not a space station, sorted by system and planet. `None`: the adapter did not compute the neighbours.
-fn destinations(s: &CoreState, facts: &ti4_engine_core::kernel::ability::AdapterFacts, recipient: Seat, producing: System) -> Option<Vec<(System, Planet)>> {
-    let allowed = facts.reach(recipient, producing)?;
+/// not a space station, sorted by system and planet. The neighbours are the adapter's when it recorded them, else the position's own movement map
+/// (a live game holds the galaxy); `None`: neither knows.
+fn destinations(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, facts: &ti4_engine_core::kernel::ability::AdapterFacts, recipient: Seat, producing: System) -> Option<Vec<(System, Planet)>> {
+    let allowed: Vec<System> = match facts.reach(recipient, producing) {
+        Some(recorded) => recorded.to_vec(),
+        None => reach::neighbours_of(s, k, recipient, producing)?,
+    };
     let blanked = reach::blanked(s);
     Some(
         board::controlled_planets(s, recipient)
@@ -57,7 +61,7 @@ fn when_by(c: &CondCx<'_>, card: Leader, lent: bool) -> bool {
     if count <= 0 || !lent || !ready_card(c.state, c.def.owner, card) {
         return false;
     }
-    let Some(found) = destinations(c.state, c.facts, recipient, system) else { return c.unknown(Unknown::MissingFact) };
+    let Some(found) = destinations(c.state, c.kernel, c.facts, recipient, system) else { return c.unknown(Unknown::MissingFact) };
     if found.is_empty() {
         return false;
     }
@@ -81,7 +85,7 @@ fn agent_by(eff: &mut Eff<'_, '_>, card: Leader) -> Result<(), TimingError> {
     let owner = eff.owner();
     let (Some(recipient), Some(system)) = (eff.event.payload.seat(Key::Player), eff.event.payload.system(Key::System)) else { return Ok(()) };
     let facts = eff.adapter_facts().clone();
-    let found = destinations(eff.state(), &facts, recipient, system).unwrap_or_default();
+    let found = { let (state, kernel) = eff.read(); destinations(state, kernel, &facts, recipient, system).unwrap_or_default() };
     if found.is_empty() || !ready_card(eff.state(), owner, card) {
         return Ok(());
     }

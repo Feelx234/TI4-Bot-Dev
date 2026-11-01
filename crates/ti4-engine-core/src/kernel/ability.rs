@@ -189,7 +189,9 @@ pub struct CondCx<'a> {
 impl CondCx<'_> {
     /// The condition cannot be answered by the core (a documented bail of the rule it reads): the answer given
     /// stands for nothing, and the driver reports `why` (the dual falls back to the string run).
+    #[track_caller]
     pub fn unknown(&self, why: Unknown) -> bool {
+        if matches!(why, Unknown::MissingFact) && std::env::var_os("TI4_MF").is_some() { eprintln!("MF at {}", std::panic::Location::caller()); } // TEMPDEBUG
         if self.unknown.get().is_none() {
             self.unknown.set(Some(why));
         }
@@ -1192,7 +1194,9 @@ impl<'a> Eff<'_, 'a> {
     }
 
     /// The window cannot be followed (the same reason a condition gives with `CondCx::unknown`).
+    #[track_caller]
     pub fn unknown(&self, why: Unknown) {
+        if matches!(why, Unknown::MissingFact) && std::env::var_os("TI4_MF").is_some() { eprintln!("MF at {}", std::panic::Location::caller()); } // TEMPDEBUG
         if self.host.tape.unknown.get().is_none() {
             self.host.tape.unknown.set(Some(why));
         }
@@ -1349,6 +1353,7 @@ pub trait Runner {
     /// Put a question to the tape and take the answer.
     fn ask(&mut self, choice: &Choice) -> Pick;
     /// The run cannot be trusted (a documented bail of the rule being run): the adapter falls back to the string.
+    #[track_caller]
     fn unknown(&mut self, why: Unknown);
     /// Change the state with the seeds of the random streams at hand (a rule that rolls while it writes).
     fn with_seeds<T>(&mut self, f: impl FnOnce(&mut CoreState, &dyn SeedSource) -> T) -> T;
@@ -1413,7 +1418,9 @@ impl Runner for Inline<'_, '_> {
         self.host.tape.pick_with(state, choice, self.facts.clone())
     }
 
+    #[track_caller]
     fn unknown(&mut self, why: Unknown) {
+        if matches!(why, Unknown::MissingFact) && std::env::var_os("TI4_MF").is_some() { eprintln!("MF at {}", std::panic::Location::caller()); } // TEMPDEBUG
         if self.host.tape.unknown.get().is_none() {
             self.host.tape.unknown.set(Some(why));
         }

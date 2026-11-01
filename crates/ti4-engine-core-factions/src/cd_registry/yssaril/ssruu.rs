@@ -145,7 +145,7 @@ fn l1z1x_lends(s: &CoreState, borrower: Seat, lender: Seat) -> bool {
 fn l1z1x_when(c: &CondCx<'_>) -> bool {
     let p = &c.event.payload;
     let (Some(beneficiary), Some(system)) = (p.seat(ti4_engine_core::state::Key::Player), p.system(ti4_engine_core::state::Key::System)) else { return false };
-    l1z1x_plan_of(c.state, c.kernel, c.def.owner, c.def.pair_source(), beneficiary, system).is_some()
+    l1z1x_plan_of(c.state, c.kernel, c.facts.roster, c.def.owner, c.def.pair_source(), beneficiary, system).is_some()
 }
 
 fn l1z1x_copy(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
@@ -156,11 +156,12 @@ fn l1z1x_copy(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let me = eff.owner();
     let lender = eff.def.pair_source();
     // The plan is read again on the effect's position (the condition ran on the position of the window).
+    let roster = eff.adapter_facts().roster;
     let found = {
         let (s, k) = eff.read();
         let p = &eff.event.payload;
         let (Some(beneficiary), Some(system)) = (p.seat(ti4_engine_core::state::Key::Player), p.system(ti4_engine_core::state::Key::System)) else { return Ok(()) };
-        l1z1x_plan_of(s, k, me, lender, beneficiary, system)
+        l1z1x_plan_of(s, k, roster, me, lender, beneficiary, system)
     };
     let Some((beneficiary, system, mech, planets)) = found else { return Ok(()) };
     let planet = if let [only] = planets[..] {
@@ -197,12 +198,12 @@ fn l1z1x_copy(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
-fn l1z1x_plan_of(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, borrower: Seat, lender: Option<Seat>, beneficiary: Seat, system: ti4_engine_core::generated::System) -> Option<(Seat, ti4_engine_core::generated::System, Unit, Vec<ti4_engine_core::generated::Planet>)> {
+fn l1z1x_plan_of(s: &CoreState, k: &ti4_engine_core::kernel::Kernel, roster: Option<&ti4_engine_core::query::tech::UnitRoster>, borrower: Seat, lender: Option<Seat>, beneficiary: Seat, system: ti4_engine_core::generated::System) -> Option<(Seat, ti4_engine_core::generated::System, Unit, Vec<ti4_engine_core::generated::Planet>)> {
     use ti4_engine_core::query::{board, fleet};
     if s.meta().active != Some(beneficiary) || s.meta().active_system != Some(system) || !borrowable(s, borrower, lender, Leader::I48S) {
         return None;
     }
-    let mech = ti4_engine_core::rules::reactions::l1z1x_agent::faction_mech(s, beneficiary).ok().flatten()?;
+    let mech = ti4_engine_core::rules::reactions::l1z1x_agent::faction_mech(s, k, roster, beneficiary).ok().flatten()?;
     let mut planets: Vec<_> = board::planets_of(s, system).filter(|planet| board::planet_units(s, *planet).iter().any(|u| u.owner() == beneficiary && u.kind().data().base_type == UnitBaseType::Infantry)).collect();
     planets.sort_unstable();
     let sc = crate::common::scope(k);

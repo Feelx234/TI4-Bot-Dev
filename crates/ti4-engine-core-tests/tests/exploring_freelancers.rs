@@ -97,35 +97,27 @@ fn the_unit_in_production_is_kept_in_the_run_and_a_rebuilt_window_asks_the_same_
     assert_eq!(w.run(), one);
 }
 
-/// Lane L: a unit that stands over the fleet supply of its system no longer ends the exploration in the counted bail `EWhy::Freelancers`: the
-/// enforcement of the system (`Spawn::Seeing`, the string's `fleet::enforce_seeing`) is a child of the card, which asks which ships go.
+/// Lane L: a unit that stands over the capacity of its system (Freelancers makes two fighters for one cost; a lone cruiser carries one) no longer ends the
+/// exploration in the counted bail `EWhy::Freelancers`: the enforcement of the system (`Spawn::Seeing`, the string's `fleet::enforce_seeing`) is a child of
+/// the card, which takes the units that do not fit away. (A ship over the fleet supply is never offered: `Why::FleetFull`.)
 #[test]
-fn a_unit_over_the_fleet_supply_is_followed_by_the_enforcement_of_the_system() {
+fn a_unit_over_the_capacity_of_its_system_is_followed_by_the_enforcement_of_the_system() {
     covers!("rules::explore_windows::Exploring");
     let (mut state, kernel, system, planet) = position();
-    // Two cruisers fill the fleet pool of two; a third ship stands over it.
-    state.board_mut().sys_mut(system).units.push(ti4_engine_core::state::Piece::new(Unit::CruiserI, Seat(0)));
     state.board_mut().sys_mut(system).units.push(ti4_engine_core::state::Piece::new(Unit::CruiserI, Seat(0)));
     let window = Exploring::planet(Seat(0), planet, EDeck::Fixed(ExploreType::Cultural), false);
     let mut driver = Driver::new(window, resolver(), table(), 1);
     let Status::Asking(c) = driver.run(&mut state, &kernel).unwrap() else { panic!("the unit is asked") };
-    let ship = c
-        .opts
-        .iter()
-        .copied()
-        .find(|o| matches!(o, Opt::Production(POpt::One { unit, .. }) if unit.data().ship))
-        .expect("a ship is offered");
-    let mut status = driver.resume(&mut state, &kernel, Pick::Opt(ship)).unwrap();
-    let mut asks = Vec::new();
+    let fighter = c.opts.iter().copied().find(|o| matches!(o, Opt::Production(POpt::One { unit: Unit::FighterI, .. }))).expect("fighters are offered");
+    let mut status = driver.resume(&mut state, &kernel, Pick::Opt(fighter)).unwrap();
     for _ in 0..16 {
         let Status::Asking(c) = status else { break };
-        asks.push(c.ask);
         let pick = Pick::Opt(c.opts.as_slice()[0]);
         status = driver.resume(&mut state, &kernel, pick).unwrap();
     }
     assert!(matches!(status, Status::Done), "the card ends: {status:?}");
     assert!(driver.window.unsupported().is_none(), "no bail: {:?}", driver.window.unsupported());
-    assert!(asks.iter().any(|a| !matches!(a, Ask::Production(_))), "the enforcement asks which ships go: {asks:?}");
-    let ships = state.board().sys(system).units.as_slice().iter().filter(|p| p.owner() == Seat(0) && p.kind().data().ship).count();
-    assert!(ships <= 2, "the fleet is back at its supply: {ships}");
+    let fighters = state.board().sys(system).units.as_slice().iter().filter(|p| p.owner() == Seat(0) && p.kind() == Unit::FighterI).count();
+    assert!(fighters <= 1, "the cruiser carries one: {fighters}");
+    assert_eq!(driver.window.run().how, ti4_engine_core::state::EHow::Resolved, "the card resolved: a unit stood");
 }

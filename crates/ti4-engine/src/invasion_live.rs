@@ -382,6 +382,24 @@ mod tests {
         }
     }
 
+    /// Lane L: a planet taken while the invader owns Integrated Economy (it was `Unported(IntegratedEconomy)`): the production on the planet gained is a
+    /// window of the control gain, asked and paid on the native path as the string's `technology::control_gained` does, for several seeds.
+    #[test]
+    fn a_conquest_with_integrated_economy_asks_the_production_natively_as_the_string_window_does() {
+        let _guard = crate::dual::tests::serial();
+        for (seed, invader) in (1..=6_u64).zip(["hacan", "sardakk", "mentak", "letnev", "sol", "naalu"]) {
+            let (mut state, system, planet) = game(&[("a", invader), ("b", "jolnar")], seed);
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
+            crate::fixtures::put(&mut state, &system, "infantry", &a, 6);
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 1);
+            state.player_mut(&a).unwrap().technologies.insert(ti4_model::TechnologyId::new("ie"));
+            state.player_mut(&a).unwrap().trade_goods = 10;
+            check(invader, &state, seed, &system, false, prefer(&[]));
+        }
+    }
+
     /// Infiltrate, held by the invader: when the planet is taken, the native invasion's control step opens the window the card is played in (the play
     /// facts and the previous owner's structures are the position's), and the previous owner's space dock and PDS become the invader's, as the
     /// string window does it.

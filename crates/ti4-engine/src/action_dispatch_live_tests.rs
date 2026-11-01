@@ -339,6 +339,15 @@ fn letani_miasmiala_chosen_from_the_menu_produces_where_the_ground_forces_stand_
     lockstep(&state, &["component|leader|arborechero"], "COMPONENT_ACTION_RESOLVED");
 }
 
+/// Lane L: Z'eu asks the system of the free tactical action (this harness loads no map, so the question stands with the decline alone, as the string
+/// asks it); declining fails the action and the card stays readied.
+#[test]
+fn zeu_chosen_from_the_menu_asks_the_system_and_a_decline_fails_the_action_like_the_string() {
+    let state = leader_table(&[("a", "naalu"), ("b", "sol"), ("c", "hacan")], "naaluagent", LeaderStatus::Readied);
+    let run = lockstep(&state, &["component|leader|naaluagent"], "COMPONENT_ACTION_FAILED");
+    assert!(!has(&run, "COMPONENT_ACTION_RESOLVED"), "{:?}", run.events);
+}
+
 // ---- lane F2e: the relics with a question of their own, and Rin, against the string ----
 
 #[test]

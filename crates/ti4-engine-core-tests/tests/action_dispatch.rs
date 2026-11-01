@@ -109,9 +109,44 @@ fn a_strategic_action_chosen_from_the_menu_stops_nowhere_and_opens_the_follower_
     assert!(s.pending().window(WindowKind::StrategySecondary).is_some() || outcome == Ok(true), "the follower window stands");
 }
 
+/// Texts for the unit types in `present` (every code distinct; the core never resolves them): what the adapter interns before a space combat.
+fn combat_texts(present: &[Unit]) -> ti4_engine_core::kernel::ability::CombatTexts {
+    use ti4_engine_core::state::Code;
+    let mut next = 100_u16;
+    let mut mint = || {
+        next += 1;
+        Code(next)
+    };
+    let mut t = ti4_engine_core::kernel::ability::CombatTexts::default();
+    for p in &mut t.phases {
+        *p = mint();
+    }
+    let mut sorted = present.to_vec();
+    sorted.sort_unstable();
+    for u in &sorted {
+        t.unit_codes.push((*u, mint()));
+        t.shown_codes.push((*u, mint()));
+    }
+    for mask in 1_u32..(1 << sorted.len()) {
+        let kinds: Vec<Unit> = sorted.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0).map(|(_, u)| *u).collect();
+        t.groups.push((kinds, mint(), mint()));
+    }
+    for slot in [&mut t.barrage_extra, &mut t.retreat_cause, &mut t.barrage_extra_shown, &mut t.barrage_cause, &mut t.barrage_kind, &mut t.roll_cause, &mut t.hacan, &mut t.retreat_event, &mut t.retreat_pool, &mut t.raid, &mut t.ac_subtype, &mut t.ac_cause, &mut t.ambush, &mut t.cause_core, &mut t.cause_devotion, &mut t.casualty, &mut t.commander, &mut t.opponents] {
+        *slot = mint();
+    }
+    for e in &mut t.end {
+        *e = mint();
+    }
+    t
+}
+
+/// Lane L: Airo Shir Aur (Mahact hero) was the example of an option no window ran ("a gap that names it"); the combat facts it needed are prepared from the
+/// core now: the only pair (the Mahact cruisers' system and the adjacent system with one rival's ships) is taken unasked, the fleet moves, the fight is
+/// fought to its end and the card is purged.
 #[test]
-fn an_option_no_window_runs_yet_is_a_gap_that_names_it_and_leaves_the_position() {
-    // Airo Shir Aur runs a space combat as a child: its facts are the combat lane's, so the menu offers it and the dispatch names it.
+fn airo_shir_aur_chosen_from_the_menu_moves_the_fleet_fights_and_is_purged() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
     let ps = ti4_engine_core_tests::scenario::plain_systems();
     let (mut s, k) = Scenario::new(&[Faction::TheMahactGeneSorcerers, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
         .phase(Phase::Action)
@@ -124,12 +159,16 @@ fn an_option_no_window_runs_yet_is_a_gap_that_names_it_and_leaves_the_position()
     for system in [ps[0], ps[1]] {
         s.board_mut().sys_mut(system).flags.set(ti4_engine_core::state::SysFlags::TOUCHED, true);
     }
-    s.players_mut().edit(0).leaders.status.insert(ti4_engine_core::generated::Leader::AiroShirAur, ti4_engine_core::state::LeaderStatus::Unlocked);
-    let e = env_r(&k);
-    let held = s.clone();
-    let result = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(ti4_engine_core::generated::Leader::AiroShirAur))));
-    assert!(matches!(result, Err(LiveError::Unknown(Unknown::TurnGap(TurnGap::Menu(MenuGap::Unrouted(5, _)))))), "{result:?}");
-    assert_eq!(s, held, "nothing was written");
+    s.players_mut().edit(0).leaders.status.insert(Leader::AiroShirAur, LeaderStatus::Unlocked);
+    let mut e = env_r(&k);
+    e.table.facts.combat = combat_texts(&[Unit::CruiserI]);
+    let active_before = s.meta().active_system;
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::AiroShirAur)))).expect("the hero is native");
+    first_options(&mut s, &e, live, 60);
+    assert_eq!(status(&s, 0, Leader::AiroShirAur), Some(LeaderStatus::Purged), "the card resolved");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+    assert_eq!(s.board().sys(ps[0]).units.as_slice().iter().filter(|u| u.owner() == Seat(0)).count(), 0, "the fleet left its system");
+    assert_eq!(s.meta().active_system, active_before, "the active system is back after the fight");
 }
 
 /// Found by the shadow behind a real game of ghost/argent/cabal/empyrean (lane F2b): the Trade primary of the strategic action replenished without
@@ -1599,6 +1638,69 @@ fn mathis_mathinus_chosen_from_the_menu_performs_the_primary_and_asks_who_may_fo
     assert!(s.pending().window(WindowKind::LeaderStrategy).is_some(), "the hero stays in play while the secondary is followed");
     assert!(s.pending().window(WindowKind::LeaderFollowers).is_some() || s.pending().window(WindowKind::StrategySecondary).is_some());
     assert_eq!(status(&s, 0, Leader::MathisMathinus), Some(LeaderStatus::Unlocked), "not purged yet");
+}
+
+/// Lane L: Dannel of the Tenth (Yin hero) was routed to the counted gap (`Unrouted(5, ..)`): its commitment window takes the facts of a ground fight, which
+/// are built from the core's tables now. Three infantry are committed to the planets that are not in a home system, each planet chosen is fought for, and
+/// the planet nobody held is taken; the card is purged.
+#[test]
+fn dannel_of_the_tenth_chosen_from_the_menu_commits_infantry_to_an_empty_planet_and_takes_it() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let ps = ti4_engine_core_tests::scenario::plain_systems();
+    let system = ps.iter().copied().find(|s| !s.data().planets.is_empty() && !s.data().home_system).expect("a system with a planet");
+    let (mut s, k) = Scenario::new(&[Faction::TheYinBrotherhood, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[system])
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::DannelOfTheTenth, LeaderStatus::Unlocked);
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::DannelOfTheTenth)))).expect("the hero is native");
+    assert!(matches!(live, Live::Asks(_)), "where the infantry goes is asked");
+    let q = ask_ask(&s, &e).unwrap().unwrap().choice;
+    assert!(q.opts.as_slice().contains(&Opt::Decline), "a decline stops the asking");
+    first_options(&mut s, &e, live, 40);
+    assert_eq!(status(&s, 0, Leader::DannelOfTheTenth), Some(LeaderStatus::Purged), "the card resolved");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+    let held = system.data().planets.iter().filter(|p| s.board().planet(**p).control == Some(Seat(0))).count();
+    assert!(held >= 1, "an empty planet the infantry landed on is taken");
+}
+
+/// Lane L: Mathis Mathinus with the Thunder's Edge Warfare primary was the counted gap `TurnGap::FreeTactical`: the free tactical action begins inside the
+/// hero's action (no token, the activation announced), the hero stays in play, and the followers are selected only when the action has ended.
+#[test]
+fn mathis_mathinus_with_the_thunders_edge_warfare_primary_begins_the_free_tactical_action_and_waits_for_its_end() {
+    use ti4_engine_core::generated::{Leader, StrategyCard};
+    use ti4_engine_core::state::{LeaderStatus, WindowKind};
+    let ps = ti4_engine_core_tests::scenario::plain_systems();
+    let (mut s, k) = Scenario::new(&[Faction::TheWinnu, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_ring(7)
+        .unit(ps[0], None, Unit::CruiserI, 0, 1)
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::MathisMathinus, LeaderStatus::Unlocked);
+    s.strategy_mut().unclaimed.push(StrategyCard::WarfareThundersEdge);
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::MathisMathinus)))).unwrap();
+    assert!(matches!(live, Live::Asks(_)), "the card is asked");
+    pick(&mut s, &e, |o| matches!(o, Opt::Leaders(ti4_engine_core::choice::leaders::Opt::HeroCard(c)) if *c == StrategyCard::WarfareThundersEdge)).unwrap();
+    for _ in 0..12 {
+        if s.pending().window(WindowKind::Tactical).is_some() {
+            break;
+        }
+        if pick(&mut s, &e, |_| true).is_err() {
+            break;
+        }
+    }
+    assert!(s.pending().window(WindowKind::Tactical).is_some(), "the free tactical action is open at its movement");
+    assert!(s.pending().window(WindowKind::LeaderStrategy).is_some(), "the hero stays in play");
+    assert!(s.pending().window(WindowKind::LeaderFollowers).is_none() && s.pending().window(WindowKind::StrategySecondary).is_none(), "the followers wait for the end of the action");
+    assert!(plain(&s).contains(&PlainKind::FreeTacticalAction));
+    assert_eq!(typed(&s, EventKind::SystemActivated), 1, "the activation is announced once, without a token");
 }
 
 /// Lane F2e (mutation debt): Riftwalker Meian names the systems that hold a wormhole or the seat's units, and never the Creuss systems.
