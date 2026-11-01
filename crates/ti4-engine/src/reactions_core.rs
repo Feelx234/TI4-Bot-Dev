@@ -123,6 +123,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::winnu::RECLAIMER, kind: "unit", card: "winnu_mech" },
     Named { slot: ti4_engine_core_factions::silent::winnu::HTP, kind: "technology", card: "htp" },
     Named { slot: ti4_engine_core_factions::silent::winnu::AGENT, kind: "leader", card: "winnuagent" },
+    Named { slot: ti4_engine_core_factions::silent::winnu::RECLAMATION_TACTICAL, kind: "ability", card: "reclamation_tactical" },
     Named { slot: ti4_engine_core_factions::silent::naaz::AGENT, kind: "leader", card: "naazagent" },
     Named { slot: ti4_engine_core_factions::silent::naaz::COMMANDER, kind: "leader", card: "naazcommander" },
     Named { slot: ti4_engine_core_factions::silent::sol::CLAIRE_GIBSON, kind: "leader", card: "solcommander" },
@@ -161,6 +162,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR, kind: "promissory", card: "tekklar" },
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR_END, kind: "promissory", card: "tekklar_end" },
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR_TURN, kind: "promissory", card: "tekklar_turn" },
+    Named { slot: ti4_engine_core_factions::silent::g3::tro_marks::MARK, kind: "leader", card: "sardakkagent_mark" },
     Named { slot: ti4_engine_core_factions::silent::g3::tro_marks::TURN, kind: "leader", card: "sardakkagent_turn" },
     Named { slot: ti4_engine_core_factions::silent::g3::tro_marks::STRATEGIC, kind: "leader", card: "sardakkagent_strategic" },
     Named { slot: ti4_engine_core_factions::silent::g4::propagation::PROPAGATION, kind: "ability", card: "propagation" },
@@ -1081,7 +1083,6 @@ mod tests {
     /// The string abilities of `SYSTEM_ACTIVATED` the core table has no slot for, sorted as the test sorts them, each with what carries it.
     const ACTIVATION_ACCOUNTED: &[(&str, Status)] = &[
         ("ability:*:incursion:SYSTEM_ACTIVATED:when", Status::Dropped("Crimson Rebellion")),
-        ("ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the Winnu mark Reclamation reads)")),
         ("ability:*:survivalinstinct:SYSTEM_ACTIVATED:after", Status::Dropped("Ral Nel")),
         ("breakthrough:*:argentbt:SYSTEM_ACTIVATED:when", Status::Dropped("Thunder's Edge breakthrough")),
         ("breakthrough:*:argentbt_mark:SYSTEM_ACTIVATED:when", Status::Dropped("Thunder's Edge breakthrough")),
@@ -1089,7 +1090,6 @@ mod tests {
         ("breakthrough:*:empyreanbt_allow:SYSTEM_ACTIVATED:after", Status::Dropped("Thunder's Edge breakthrough")),
         ("breakthrough:*:winnubt:SYSTEM_ACTIVATED:after", Status::Dropped("Thunder's Edge breakthrough")),
         ("leader:*:firmamentagent:SYSTEM_ACTIVATED:after", Status::Dropped("Firmament")),
-        ("leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the T'ro mark of the end of the action)")),
         ("promissory:*:nanolink:SYSTEM_ACTIVATED:after", Status::Dropped("Ral Nel")),
         ("unit:*:deepwrought_mech:SYSTEM_ACTIVATED:when", Status::Dropped("Deepwrought")),
         ("unit:*:keleres_flagship:SYSTEM_ACTIVATED:when", Status::Dropped("Keleres")),

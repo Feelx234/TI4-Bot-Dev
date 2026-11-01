@@ -79,6 +79,27 @@ fn a_batch_of_ground_hits_opens_its_window_then_sustains_then_destroys_and_stage
     assert_eq!((destroyed.unit(Key::Unit), destroyed.flag(Key::Damaged)), (Some(Unit::InfantryI), Some(false)));
 }
 
+/// Found by the whole-game shadow (jolnar 5p, saar 4p): a retreat stages its `COMMAND_TOKEN_PLACED`; the string announces it at the start of its next step. The
+/// string's hit batch flushes a log of its own (the sustained and destroyed ground forces), the core's flush took the state's whole staged list and announced
+/// the retreat's token right after `INVASION_BEGAN`.
+#[test]
+fn the_flush_of_a_hit_batch_announces_the_hit_events_only_and_leaves_the_other_staged_events_for_the_next_step() {
+    covers!("rules::invasion::hits::GroundHits");
+    let (p1, _) = planets();
+    let sc = arena().unit(sys(), Some(p1), Unit::InfantryI, 1, 2).control(p1, 1);
+    let mut w = GroundHits::new(batch(1, p1, false, true), 2, false, true);
+    w.flush = true;
+    let (mut state, kernel) = sc.build();
+    let token = ti4_engine_core::kernel::fx::event(EventKind::CommandTokenPlaced, ti4_engine_core::state::Payload::new().with(Key::Player, ti4_engine_core::state::Val::Seat(Seat(0))).with(Key::System, ti4_engine_core::state::Val::System(sys())));
+    ti4_engine_core::kernel::fx::stage(&mut state, token);
+    let mut rig = Rig::from_parts(state, kernel, w);
+    rig.run();
+    let kinds: Vec<EventKind> = rig.driver.emitted.iter().map(|e| e.kind).collect();
+    assert_eq!(kinds, vec![EventKind::GroundForceDestroyed, EventKind::GroundForceDestroyed], "only the hits of the batch are announced");
+    let waiting: Vec<EventKind> = rig.state.pending().staged.iter().map(|e| e.kind).collect();
+    assert_eq!(waiting, vec![EventKind::CommandTokenPlaced], "the retreat's token waits for the next step");
+}
+
 #[test]
 fn cancellations_granted_in_the_hits_window_are_spent_first_and_the_open_and_apply_parts_are_independent() {
     covers!("rules::invasion::hits::GroundHits");

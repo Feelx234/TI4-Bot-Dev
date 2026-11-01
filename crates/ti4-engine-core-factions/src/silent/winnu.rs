@@ -39,6 +39,8 @@ pub const RECLAIMER: Slot = Slot(43_004);
 pub const HTP: Slot = Slot(43_005);
 /// `leader:*:winnuagent:PRODUCTION_USED:after`.
 pub const AGENT: Slot = Slot(43_006);
+/// `ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after`.
+pub const RECLAMATION_TACTICAL: Slot = Slot(43_008);
 /// Ssruu copying Berekar Berekon (`leader:{lender faction}:{lender}:yssarilagent:winnuagent:PRODUCTION_USED:after`).
 pub const AGENT_COPY: Slot = Slot(43_007);
 
@@ -79,6 +81,18 @@ fn gained_marked(s: &CoreState, who: Seat) -> bool {
 fn mark_when(c: &CondCx<'_>) -> bool {
     let me = c.def.owner;
     is_winnu(c.state, me) && c.event.payload.seat(Key::Player) == Some(me) && c.state.meta().active == Some(me) && tactical_marked(c.state, me)
+}
+
+/// `tactical_mark`: the Winnu's own activation notes that a tactical action began, so that control gained counts for Reclamation and the Reclaimer. Mandatory (see
+/// `g3::tro_marks::MARK`): an ability like the others of the window, skipped when the Winnu passes over it in a window that offers it with another.
+fn tactical_when(c: &CondCx<'_>) -> bool {
+    is_winnu(c.state, c.def.owner) && c.event.payload.seat(Key::Player) == Some(c.def.owner)
+}
+
+fn tactical_note(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let me = eff.owner();
+    eff.state().marks_mut().tail.edit().insert(MarkKey::PrivateSeat(me, Word::WinnuTactical), MarkVal::Atom(Atom::Num(1)));
+    Ok(())
 }
 
 fn mark_gained(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
@@ -330,6 +344,7 @@ pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(RECLAIMER, AbilityKind::Unit, E::ActionCompleted, Relation::After, reclaimer).optional().when(reclaimer_when));
     t.add(Spec::new(HTP, AbilityKind::Technology, E::ProductionUsed, Relation::After, htp).optional().when(htp_when));
     t.add(Spec::new(AGENT, AbilityKind::Leader, E::ProductionUsed, Relation::After, agent).optional().when(agent_when));
+    t.add(Spec::new(RECLAMATION_TACTICAL, AbilityKind::Ability, E::SystemActivated, Relation::After, tactical_note).when(tactical_when));
     t.add(Spec::new(AGENT_COPY, AbilityKind::Leader, E::ProductionUsed, Relation::After, copy).applies(Applies::Faction(Faction::TheWinnu)).pair(lends).optional().when(copy_when));
 }
 

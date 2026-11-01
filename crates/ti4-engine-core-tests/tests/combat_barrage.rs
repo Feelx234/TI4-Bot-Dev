@@ -48,6 +48,36 @@ fn a_destroyer_barrages_with_the_printed_number_and_dice_and_other_ships_do_not(
     assert_eq!(barrage_plan(Rd::new(&state, &kernel), Seat(1), sys()), vec![], "nobody else has a ship here");
 }
 
+/// Found by the whole-game shadow (muaat 3p, ghost 4p): the Letnev agent's extra die (a Ssruu round-agent mark) is a COMBAT die. The string reads it at the space
+/// combat roll and the ground combat roll only; the core's dice seam added it to every kind of roll, so a destroyer the agent named barraged with a third die.
+#[test]
+fn the_extra_die_of_a_round_agent_is_not_a_barrage_die() {
+    covers!("rules::combat::barrage_plan");
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::keys::{Atom, DecimalTextOrd, MarkKey, MarkVal};
+    let (mut state, kernel) = arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::DestroyerI, 0, 1).build();
+    let plain = barrage_plan(Rd::new(&state, &kernel), Seat(0), sys());
+    assert_eq!(plain, vec![BarrageRoll { unit: Some(Unit::DestroyerI), hits_on: 9, dice: 2 }]);
+    // The Letnev agent was used by seat 1 on seat 0's destroyer (ordinal 0 of its ships here) in combat round 3.
+    let mark = MarkVal::Rec(vec![
+        MarkVal::Atom(Atom::Seat(Seat(1))),
+        MarkVal::Atom(Atom::Seat(Seat(1))),
+        MarkVal::Atom(Atom::Leader(Leader::ViscountUnlenn)),
+        MarkVal::Atom(Atom::System(sys())),
+        MarkVal::Atom(Atom::Absent),
+        MarkVal::Atom(Atom::Absent),
+        MarkVal::Atom(Atom::Seat(Seat(0))),
+        MarkVal::Atom(Atom::Unit(Unit::DestroyerI)),
+        MarkVal::Atom(Atom::Num(0)),
+        MarkVal::Atom(Atom::Num(0)),
+        MarkVal::Atom(Atom::Num(0)),
+        MarkVal::Atom(Atom::Num(3)),
+    ]);
+    state.meta_mut().combat_round_seq = 3;
+    state.marks_mut().tail.edit().insert(MarkKey::YssarilSsruuRoundAgent(Seat(1), Leader::ViscountUnlenn, DecimalTextOrd(3)), mark);
+    assert_eq!(barrage_plan(Rd::new(&state, &kernel), Seat(0), sys()), plain, "the extra die is rolled with the combat dice, not with the barrage");
+}
+
 #[test]
 fn iconoclast_omega_forbids_the_barrage_against_its_owner_from_rules_version_17() {
     covers!("rules::combat::barrage_plan");

@@ -79,7 +79,9 @@ pub fn bridge_legacy(seams: &mut Seams) {
             // The string hook takes the unit as the board holds it; the site names its type and owner.
             i64::try_from(q.k.hooks.direct.bastion_extra_die(q.s, Piece::new(u.unit, u.owner))).unwrap_or(0)
         });
-        let agent = u.system.map_or(0, |sys| {
+        // The round agents' extra die (the Letnev agent, the Sol agent) is a combat die: a space combat roll or a ground combat roll. The string reads it at those two
+        // sites only (`combat::roll_dice`, `invasion`): not at a SPACE CANNON, BOMBARDMENT or ANTI-FIGHTER BARRAGE roll.
+        let agent = u.system.filter(|_| matches!(site.kind, RollKind::Combat | RollKind::Ground)).map_or(0, |sys| {
             q.k.hooks.direct.borrowed_round_agents_extra_die_for(q.s, q.k, sys, u.planet, u.owner, u.unit, usize::from(site.unit_index), site.round)
         });
         add(bastion + agent)
