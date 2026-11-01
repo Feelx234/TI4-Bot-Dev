@@ -5,18 +5,16 @@ use ti4_model::state::GameState;
 
 use super::turn_live_tests::{action_table, assert_same, based, pid, reconcile_both, Run};
 
-/// The turn prelude of the string against the native prelude. A card move an ability stages (`ACTION_CARD_TAKEN`) is announced by the string's step before it stops at the action menu;
-/// the native side leaves the staged `cards:staged:*` row in the position for the host's next step (the rows are `hooks_cards::StagedCardEvent`s, announced by
-/// `reactions::announce_staged_card_events`): the rows are taken out of the native position and counted against the announced events of the string.
+/// The turn prelude of the string against the native prelude. A card move an ability stages (`ACTION_CARD_TAKEN`) is announced by the string's step before it stops at the
+/// action menu, right after the typed event whose window staged it (`Live::emit_typed` ends with `announce_staged_cards`); since lane J the native turn flow does the same
+/// (`inline::emit_typed`), so the two event lists carry the announcement and nothing is left staged in the position. (Before, the native side left the `cards:staged:*` row
+/// for the host's next step, and this helper took the rows out of the position and counted them against the announced events of the string.)
 fn prelude_both(state: &GameState, ids: &[&str]) -> (Run, Run) {
-    let (mut string, mut native) = super::turn_live_tests::prelude_both(state, ids);
-    let rows: Vec<String> = native.state["faction_marks"].as_object_mut().map(|marks| {
-        let keys: Vec<String> = marks.keys().filter(|k| k.starts_with("cards:staged:")).cloned().collect();
-        keys.iter().filter_map(|k| marks.remove(k)).filter_map(|v| v.as_str().map(str::to_owned)).collect()
-    }).unwrap_or_default();
-    let announced = string.events.iter().filter(|e| *e == "ACTION_CARD_TAKEN").count();
-    assert_eq!(rows.iter().filter(|r| r.starts_with("taken|")).count(), announced, "{rows:?}: each card taken is staged by the native side and announced by the string");
-    string.events.retain(|e| e != "ACTION_CARD_TAKEN");
+    let (string, native) = super::turn_live_tests::prelude_both(state, ids);
+    let staged = native.state["faction_marks"].as_object().map_or(0, |marks| marks.keys().filter(|k| k.starts_with("cards:staged:")).count());
+    assert_eq!(staged, 0, "the native side announced what it staged");
+    let announced = |run: &Run| run.events.iter().filter(|e| *e == "ACTION_CARD_TAKEN").count();
+    assert_eq!(announced(&native), announced(&string), "each card taken is announced by both sides");
     (string, native)
 }
 

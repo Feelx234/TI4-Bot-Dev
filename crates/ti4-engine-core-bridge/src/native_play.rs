@@ -1259,7 +1259,8 @@ mod tests {
         assert!(matches!(play_game(&mut g, 100, 1).end, End::Gap(_)), "round 1 is within a budget of one");
         let mut g = game("sol", 4, 1);
         let p = play_game(&mut g, 100, 50);
-        assert_eq!(p.steps, 90);
+        // (90 before lane J: three follower windows now end their call with the answer and close in a step of their own, as the string does.)
+        assert_eq!(p.steps, 93);
         assert!(g.decided >= p.matrix.native.get("ask.draft").copied().unwrap_or(0) as usize - 1 + p.matrix.native.get("ask.starting_tech").copied().unwrap_or(0) as usize, "the last card of the draft is not asked; the menu and the actions add their answers");
         // The shadow and the survey keep the same budgets.
         let s = shadow_play(&lobby_spec("sol", 4, 1), 3, 50).unwrap();
@@ -1471,7 +1472,7 @@ mod tests {
         turn::open_job(&mut g.core, TurnJob::Phase);
         assert!(g.asks(), "an open job is waiting on its step: the arm is Ask");
         let s = shadow_play(&lobby_spec("sol", 4, 1), 100, 50).unwrap();
-        assert_eq!((s.compared, s.played.steps), (57, 90), "ninety native steps; the glued ones, the ones that ask nothing while the legacy game stands at a question and the ones a lookahead groups with the step before are not legacy steps of their own");
+        assert_eq!((s.compared, s.played.steps), (60, 93), "ninety-three native steps (90 before the held follower windows of lane J); the glued ones, the ones that ask nothing while the legacy game stands at a question and the ones a lookahead groups with the step before are not legacy steps of their own");
         assert!(matches!(shadow_play(&lobby_spec("sol", 4, 1), 100, 1).unwrap().played.end, End::Gap(_)), "round 1 is within a budget of one");
         let survey = survey(&lobby_spec("sol", 4, 1), 400, 50).unwrap();
         assert!(survey.steps_by_arm.keys().all(|(label, _)| !label.contains('>') || label.starts_with("turn_prelude>") || label.starts_with("strategy_announce>")), "{:?}", survey.steps_by_arm);
