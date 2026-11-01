@@ -263,7 +263,7 @@ fn every_card(sx: &Sx<'_>) -> Vec<StrategyCard> {
 
 /// Mathis Mathinus (Winnu hero): the seat chooses a strategy card and performs its primary; each other player may then follow its secondary. The hero stays in
 /// play (`LeaderStrategy`) until the follower window is over, which is the strategic lane's (`complete_leader_strategy` purges it and tells the table). The
-/// Thunder's Edge Warfare primary leads to a free tactical action, which is the tactical lane's (`TurnGap::FreeTactical`).
+/// Thunder's Edge Warfare primary leads to a free tactical action ([`crate::driver::windows::tactical::begin_free`]), after which the followers are selected.
 pub fn mathis_mathinus(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let cards = every_card(sx);
     let facts = perform_facts(sx, who, &cards);
@@ -288,8 +288,11 @@ pub fn mathis_mathinus(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     if let Some((system, made)) = window.produced.clone().filter(|(_, made)| !made.as_slice().is_empty()) {
         crate::driver::windows::strategic::perform::announce_made(sx, who, system, &made);
     }
-    if window.free.is_some() {
-        return gap_flow(sx, TurnGap::FreeTactical);
+    // Thunder's Edge Warfare: the free tactical action begins now (the string activates the system inside the hero's arm, before the staged events are
+    // told); the follower window waits for its end (`strategic::after`), so the hero's strategy is open but its followers are not selected yet.
+    let free = window.free;
+    if let Some(system) = free {
+        crate::driver::windows::tactical::begin_free(sx, who, system);
     }
     // An ACTION: what the body staged is announced (the events at once, as the string's adapter applies them) and Extreme Duress settles now; the action ends
     // when the follower window does.
@@ -297,7 +300,9 @@ pub fn mathis_mathinus(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
         return Flow::Halt;
     }
     sx.state.pending_mut().open(crate::state::Window::LeaderStrategy { player: who, leader: Leader::MathisMathinus, card });
-    crate::driver::windows::strategic::select_leader_strategy_followers(sx.state);
+    if free.is_none() {
+        crate::driver::windows::strategic::select_leader_strategy_followers(sx.state);
+    }
     Flow::Done
 }
 
@@ -305,4 +310,187 @@ pub fn mathis_mathinus(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
 // mutants:skip: a window with cards always ends on an answer; the verdict is the defensive twin of the string's
 fn conclude_failed(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     conclude_announced(sx, who, key, super::component::Verdict::Failed { withhold: true })
+}
+
+/// Airo Shir Aur (Mahact hero): the `(origin, destination)` pairs, in board order: the seat has ships in the origin's space area, the destination is
+/// adjacent and holds exactly one other seated player's ships and no neutral ones (`mahact_units::hero_pairs`).
+fn mahact_pairs(sx: &Sx<'_>, who: Seat) -> Vec<(System, System)> {
+    use crate::rules::combat::{combatants, is_neutral, ships_of, Rd};
+    let rd = Rd::new(sx.state, sx.kernel).with_blanked(reach::blanked(sx.state));
+    let origins: Vec<System> = sx.state.board().systems().map(|(system, _)| system).filter(|system| crate::query::leader_reads::has_entry(sx.state, *system)).collect();
+    let mut pairs: Vec<(System, System)> = Vec::new();
+    for origin in origins {
+        if ships_of(rd, who, origin).is_empty() {
+            continue;
+        }
+        let Some(near) = board::neighbours(sx.state, origin) else { continue };
+        for index in near.iter() {
+            let Some(destination) = System::ALL.get(index).copied() else { continue };
+            let others: Vec<Seat> = combatants(rd, destination).as_slice().iter().copied().filter(|side| *side != who).collect();
+            if let [other] = others.as_slice()
+                && !is_neutral(sx.state, *other)
+                && !pairs.contains(&(origin, destination))
+            {
+                pairs.push((origin, destination));
+            }
+        }
+    }
+    pairs
+}
+
+/// What the fight of one pair needs of the position (`dual_window::mahact_hero`'s preparation): the position the fight starts from (the fleet moved,
+/// the destination the active system, the barring mark set, the two sides written), the limits of the enforcement there, the environment of the machine
+/// and the fields of a fresh window, and the notes held now.
+fn mahact_prepared(sx: &Sx<'_>, who: Seat, from: System, to: System) -> Option<crate::rules::combat::mahact_hero::Prepared> {
+    use crate::keys::{Atom, MarkKey, MarkVal};
+    use crate::rules::combat::{combatants, Rd};
+    use crate::state::{CombatFields, CombatStep, HitPhase};
+    let mut sim = sx.state.clone();
+    let fleet: Vec<Piece> = sim.board().sys(from).units.as_slice().iter().copied().filter(|p| p.owner() == who).collect();
+    for piece in fleet {
+        crate::kernel::fx_move::move_ship(&mut sim, from, to, piece);
+    }
+    sim.meta_mut().active_system = Some(to);
+    sim.marks_mut().tail.edit().insert(MarkKey::MahactBenediction(), MarkVal::Atom(Atom::System(to)));
+    let rd = Rd::new(&sim, sx.kernel).with_blanked(reach::blanked(&sim));
+    let defender = combatants(rd, to).as_slice().iter().copied().find(|side| *side != who)?;
+    sim.transient_mut().combat.active_space_combat = Some((to, who, defender));
+    let limits = crate::driver::windows::tactical::limits(&sim, sx.kernel, who, to);
+    let fields = CombatFields {
+        step: CombatStep::Opening { round: 1 },
+        phase: HitPhase::Round,
+        resuming: false,
+        pending_retreats: Vec::new(),
+        offered: Vec::new(),
+        damaged: Vec::new(),
+        fled: Vec::new(),
+        at_start: Vec::new(),
+        scoring: false,
+        outcome: None,
+        end_announced: false,
+        round_end_produced: None,
+    };
+    let env = crate::driver::windows::combat::env_of(&sim, sx.kernel, &sx.table.facts.combat, &fields, 0)?;
+    let before = crate::state::Before { sides: crate::containers::SmallList::new(), capitals: crate::containers::SmallList::new(), notes: crate::driver::windows::tactical::note_holdings(&sim) };
+    Some(crate::rules::combat::mahact_hero::Prepared { from, to, limits: SeeingLimits { enforce: limits.enforce, shown: limits.shown, halves: limits.halves }, env, fields, before })
+}
+
+/// Airo Shir Aur (Mahact hero, an ACTION): the fleet of the seat in one system moves to an adjacent system that holds exactly one other player's ships,
+/// the destination is enforced and the space combat is fought there (neither side may retreat). Purged when the card resolved.
+pub fn airo_shir_aur(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    use crate::rules::combat::machine::Bail;
+    let pairs = mahact_pairs(sx, who);
+    let mut prepared = Vec::new();
+    for (from, to) in &pairs {
+        let Some(one) = mahact_prepared(sx, who, *from, *to) else { return gap_flow(sx, TurnGap::NoLink) };
+        prepared.push(one);
+    }
+    let mut window = crate::rules::combat::mahact_hero::MahactHero::new(who, pairs, prepared);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    if let Some(why) = window.bailed {
+        let gap = match why {
+            Bail::RollEndsFight => crate::kernel::ability::AftermathGap::RollEndsFight,
+            Bail::Unported => crate::kernel::ability::AftermathGap::CombatUnported,
+        };
+        if sx.tape.unknown.get().is_none() {
+            sx.tape.unknown.set(Some(crate::kernel::ability::Unknown::UnportedAftermath(gap)));
+        }
+        return Flow::Halt;
+    }
+    if window.unsupported {
+        return gap_flow(sx, TurnGap::HeroFight);
+    }
+    finish(sx, who, key, Leader::AiroShirAur, window.used)
+}
+
+/// Dannel of the Tenth (Yin hero): every planet that is not in a home system, in the order of the map (`yin::hero_spots`).
+fn yin_spots(sx: &Sx<'_>) -> Vec<(System, crate::generated::Planet)> {
+    let Some(galaxy) = sx.state.galaxy() else { return Vec::new() };
+    let mut spots = Vec::new();
+    for index in galaxy.in_play().iter() {
+        let Some(system) = System::ALL.get(index).copied() else { continue };
+        if system.data().home_system {
+            continue;
+        }
+        spots.extend(system.data().planets.iter().map(|planet| (system, *planet)));
+    }
+    spots
+}
+
+/// The positions of Thunder's Edge content the commitment window does not carry (a neutral side, Proxima Targeting VI, Alarum, L1Z1X's Fealty
+/// Uplink, a coexisting planet): the counted gap [`TurnGap::HeroFight`].
+fn yin_unported(sx: &Sx<'_>, who: Seat, spots: &[(System, crate::generated::Planet)]) -> bool {
+    let everyone: Vec<Seat> = sx.state.players().iter().map(|p| p.seat).collect();
+    if sx.kernel.hooks.direct.bastion_units_watches_ground_round(sx.state, &everyone) {
+        return true;
+    }
+    if sx.state.players().by_seat(who).is_some_and(|p| p.cards.breakthrough == Some(crate::generated::Breakthrough::FealtyUplink)) {
+        return true;
+    }
+    spots.iter().any(|(system, planet)| {
+        sx.kernel.hooks.direct.ralnel_alarum_on(sx.state, *system, *planet)
+            || crate::query::board::in_coexistence(sx.state, *system, *planet)
+            || sx.state.board().planet(*planet).units.as_slice().iter().any(|p| crate::rules::combat::is_neutral(sx.state, p.owner()))
+    })
+}
+
+/// Dannel of the Tenth (Yin hero, an ACTION): up to three infantry from the reinforcements are committed to planets outside the home systems and each
+/// planet chosen is fought to the end. Purged when some infantry was committed (the card resolved).
+pub fn dannel(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    use crate::rules::invasion::fight::FightFacts;
+    use crate::rules::invasion::yin_hero::{YinFacts, YinHero};
+    let Some(roster) = sx.table.facts.plays.as_ref().and_then(|p| p.roster) else { return gap_flow(sx, TurnGap::NoRoster) };
+    let scope = reach::scope_of(sx.kernel);
+    let Some(infantry) = crate::kernel::fx_strategy::placed_unit(sx.state, sx.kernel, scope, roster, who, UnitBaseType::Infantry) else { return gap_flow(sx, TurnGap::NoRoster) };
+    let stock = crate::query::fleet::remaining_all(sx.state, scope, who, infantry).clamp(0, 3);
+    let spots = yin_spots(sx);
+    if stock == 0 || spots.is_empty() {
+        return finish(sx, who, key, Leader::DannelOfTheTenth, false);
+    }
+    if yin_unported(sx, who, &spots) {
+        return gap_flow(sx, TurnGap::HeroFight);
+    }
+    let codes = sx.table.codes.invasion;
+    let owns = |seat: Seat, tech: Technology| sx.state.players().by_seat(seat).is_some_and(|p| p.tech.owned.contains(tech));
+    let seats: Vec<Seat> = sx.state.players().iter().map(|p| p.seat).collect();
+    let mut dacxive = Vec::new();
+    for seat in &seats {
+        if owns(*seat, Technology::DacxiveAnimators) {
+            let Some(form) = crate::kernel::fx_strategy::placed_unit(sx.state, sx.kernel, scope, roster, *seat, UnitBaseType::Infantry) else { return gap_flow(sx, TurnGap::NoRoster) };
+            dacxive.push((*seat, form));
+        }
+    }
+    let fight = FightFacts {
+        invader: who,
+        system: spots[0].0,
+        planet: spots[0].1,
+        order: seats.clone(),
+        announce: true,
+        copied: crate::driver::windows::invasion::InvasionMachine::copied_round(sx.state),
+        numbered: sx.state.meta().rules_at_least(16),
+        can_pay: [false, false],
+        pay_env: Some(crate::kernel::fx_pay::PayEnv { scope: crate::tables::Scope(u32::from(sx.kernel.sources.0)), blanked: reach::blanked(sx.state) }),
+        dunlain: codes.dunlain_reaper,
+        kind: codes.ground,
+        names: codes.names.to_vec(),
+        unit_codes: crate::generated::Unit::ALL.iter().map(|u| (*u, codes.unit(*u))).collect(),
+        cause: sx.table.codes.ground_combat,
+        harrow_cause: sx.table.codes.harrow,
+        step_kind: codes.ground_round,
+        harrow: sx.state.players().by_seat(who).is_some_and(|p| p.faction.data().abilities.contains(&Ability::Harrow)),
+        x89: seats.iter().copied().filter(|seat| owns(*seat, Technology::X89BacterialWeapon)).collect(),
+        dacxive,
+        notes: crate::driver::windows::tactical::note_holdings(sx.state).as_slice().to_vec(),
+    };
+    let facts = YinFacts { spots, stock: u8::try_from(stock).unwrap_or(3), infantry, fight, minister: codes.minister };
+    let mut window = YinHero::new(who, facts);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    if window.unsupported {
+        return gap_flow(sx, TurnGap::HeroFight);
+    }
+    finish(sx, who, key, Leader::DannelOfTheTenth, window.used)
 }

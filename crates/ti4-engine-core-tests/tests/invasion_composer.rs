@@ -524,3 +524,52 @@ fn losing_a_home_planet_does_not_end_the_chain_of_control() {
     let lost = core.players().by_seat(Seat(1)).unwrap().misc.event_feats.as_slice().iter().filter(|(feat, _)| *feat == ti4_engine_core::state::Feat::LostAHomePlanet).count();
     assert_eq!(lost, 2, "each home planet lost is a feat of the holder, noted against its own occurrence");
 }
+
+/// Lane L: a planet taken by invasion while the invader owns Integrated Economy no longer bails (`Unported(IntegratedEconomy)`): the production on the
+/// planet gained is asked in the control gain (the body of Peace Accords' too, `strategic::perform::integrated_economy`), then the invasion ends.
+#[test]
+fn a_planet_taken_with_integrated_economy_asks_the_production_and_the_invasion_goes_on() {
+    use ti4_engine_core::choice::production::{Ask as PAsk, Opt as POpt};
+    use ti4_engine_core::kernel::ability::{PlayFacts, PlaysProvider, SharedPlay};
+    covers!("driver::windows::invasion::InvasionMachine");
+    let (p1, p2) = planets();
+    let target = if p1.data().resources > 0 { p1 } else { p2 };
+    assert!(target.data().resources > 0, "a planet with resources on the tile");
+    let (mut core, k) = conquest(6, 1);
+    // The taken planet must be the one with resources: hold it with the defender.
+    core.board_mut().planet_mut(p1).control = None;
+    core.board_mut().planet_mut(target).control = Some(Seat(1));
+    core.board_mut().planet_mut(target).units.push(Piece::new(Unit::InfantryI, Seat(1)));
+    core.board_mut().planet_mut(p1).units.clear();
+    if p1 != target {
+        core.board_mut().planet_mut(p1).control = None;
+    }
+    let edit = core.players_mut().edit(0);
+    edit.tech.owned.insert(Technology::IntegratedEconomy);
+    edit.econ.trade_goods = 8;
+    let roster: &'static ti4_engine_core::query::tech::UnitRoster = Box::leak(Box::default());
+    let mut env = env(&k, 3);
+    env.table.facts.plays_provider = Some(PlaysProvider(std::sync::Arc::new(move |c, _| {
+        Some(PlayFacts {
+            scope: 0,
+            blanked: false,
+            action_card: Code(0),
+            supply_base: Code(0),
+            note_order: |a, b| a.cmp(&b),
+            seats: Vec::new(),
+            name_group: Vec::new(),
+            has_effect: Vec::new(),
+            skimmer: false,
+            roster: Some(roster),
+            rules_version: c.meta().rules_version,
+            tech_order: |a, b| a.cmp(&b),
+            shared: SharedPlay::default(),
+        })
+    })));
+    open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
+    let mut stop = |c: &Choice| -> usize { c.opts.as_slice().iter().position(|o| matches!(o, Opt::Production(POpt::Stop))).unwrap_or(0) };
+    let (asked, end) = play(&mut core, &env, &mut stop);
+    assert_eq!(end, Ok(()), "the invasion is native with Integrated Economy");
+    assert_eq!(core.board().planet(target).control, Some(Seat(0)), "the planet is taken");
+    assert!(asked.iter().any(|c| matches!(c.ask, Ask::Production(PAsk::Economy(_)))), "the production on the planet gained is asked: {:?}", asked.iter().map(|c| c.ask).collect::<Vec<_>>());
+}

@@ -196,7 +196,7 @@ fn peace_accords(sx: &mut Sx<'_>, who: Seat) -> Flow {
 
 /// Integrated Economy (`technology::control_gained`, `production::integrated_economy`): units up to the resource value of the planet gained, paid
 /// for as usual, then the fleet supply of the system is enforced (it asks only when a form is over).
-fn integrated_economy(sx: &mut Sx<'_>, who: Seat, system: System, planet: crate::generated::Planet) -> Flow {
+pub(crate) fn integrated_economy(sx: &mut Sx<'_>, who: Seat, system: System, planet: crate::generated::Planet) -> Flow {
     use crate::kernel::children::{Report, SeeingLimits, Spawn};
     use crate::query::economy::Spend;
     use crate::rules::production::{self, triggered::EconomyWindow, Cx as ProdCx};

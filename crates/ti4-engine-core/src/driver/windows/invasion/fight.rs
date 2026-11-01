@@ -105,7 +105,7 @@ impl InvasionMachine {
 
     // -- the ground round -----------------------------------------------------------------------------------------------
 
-    fn copied_round(s: &CoreState) -> bool {
+    pub(crate) fn copied_round(s: &CoreState) -> bool {
         let status = |p: &crate::state::Player, card: Leader| p.leaders.status.get(&card).copied();
         let ready = Some(crate::state::LeaderStatus::Readied);
         let owner = s.meta().rules_at_least(RULES_FACTION_EFFECTS)
@@ -561,15 +561,20 @@ impl InvasionMachine {
     /// a first claim of a planet with a trait to explore into (35.1): the exploration to run next.
     pub(super) fn finish_control_gain(&mut self, sx: &mut Sx<'_>, planet: Planet, previous: Option<Seat>) -> Result<Option<ExploreRun>, Bail> {
         let (invader, system) = (self.p.invader, self.p.system);
-        if sx.state.players().by_seat(invader).is_some_and(|p| p.tech.owned.contains(Technology::IntegratedEconomy)) {
-            return Err(Why::IntegratedEconomy);
-        }
         let infiltrate_fix = sx.state.meta().rules_at_least(1); // mutants:skip: only the latest rules version is played, which is past version 2 as well
         let roster = sx.table.facts.roster.or_else(|| sx.table.facts.plays.as_ref().and_then(|p| p.roster));
         let mut w = ControlGained::new(ControlFacts { invader, system, planet, previous, infiltrate_fix, announce: true }, roster);
         let _ = w.step(sx);
         if w.unsupported {
             return Err(Why::AssimilateRoster);
+        }
+        // "After you gain control of a planet" (`technology::control_gained`): Integrated Economy's production on the planet and the enforcement of the
+        // fleet supply of its system, asked on the tape (`strategic::perform::integrated_economy`, the one body of Peace Accords too). A step the tape
+        // doomed (a question waits, a gap was noted) is rolled back by the driver, so the rest of it only has to end.
+        if sx.state.players().by_seat(invader).is_some_and(|p| p.tech.owned.contains(Technology::IntegratedEconomy))
+            && crate::driver::windows::strategic::perform::integrated_economy(sx, invader, system, planet) == crate::driver::turn::inline::Flow::Halt
+        {
+            return Ok(None);
         }
         // 35.1: a planet nobody controlled is explored (when it has a trait to explore into: the deck is asked among the traits now).
         if previous.is_none() && self.explorable(sx.state, sx.kernel, planet) {

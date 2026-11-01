@@ -41,6 +41,10 @@ pub fn one_link() -> OneLink {
             let limit = i32::try_from(crate::rules::production::home::fleet_limit(core, k, blanked, who)).ok()?;
             Some((buildable, limit))
         },
+        limits: |core, k, who, system| {
+            let l = crate::driver::windows::tactical::limits(core, k, who, system);
+            crate::kernel::children::SeeingLimits { enforce: l.enforce, shown: l.shown, halves: l.halves }
+        },
         step: |run, sx| {
             let mut window = ProduceOne::resume(run);
             let next = window.step(sx);

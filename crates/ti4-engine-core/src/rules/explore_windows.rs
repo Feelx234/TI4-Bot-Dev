@@ -1172,13 +1172,15 @@ impl Exploring {
         let who = self.run.who;
         sx.state.meta_mut().influence_pays_for_units.remove(who);
         let Some(run) = self.run.one.take() else { return self.fail(EWhy::NoLink) };
-        // A unit that stands over the supply or the capacity of its system: the string asks which units go, which the window cannot.
-        if run.unsupported {
-            return self.fail(EWhy::Freelancers);
-        }
         // The card resolved when a unit stands (the string's `produce_one_paying_with_influence` answers whether one was made).
         if run.made.is_none() {
             self.run.how = EHow::Unresolved;
+        }
+        // A unit that stands over the supply or the capacity of its system: the string asks which units go (`fleet::enforce_seeing`), a child.
+        if run.unsupported {
+            let Some(link) = self.one else { return self.fail(EWhy::NoLink) };
+            let limits = (link.limits)(sx.state, sx.kernel, who, run.system);
+            return self.link(sx, &Spawn::Seeing { who, system: run.system, limits }, EThen::Enforced);
         }
         self.close(sx);
     }

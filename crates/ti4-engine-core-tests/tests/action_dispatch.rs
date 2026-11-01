@@ -536,6 +536,75 @@ fn gurno_aggero_chosen_from_the_menu_destroys_the_rivals_fighters_next_to_a_dock
     assert_eq!(status(&s, 0, Leader::GurnoAggero), Some(LeaderStatus::Purged));
 }
 
+/// Lane L: Z'eu (Naalu agent, an ACTION) asks the system of a free tactical action: neither a home system nor one holding the seat's own token is offered
+/// (and the decline); the card exhausts, Extreme Duress settles, the action resolves and the activation is announced WITHOUT a command token.
+#[test]
+fn zeu_chosen_from_the_menu_begins_a_free_tactical_action_without_a_token_in_a_system_without_the_seats_token() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let sys = ti4_engine_core_tests::scenario::plain_systems();
+    let (held, target) = (sys[0], sys[1]);
+    let (mut s, k) = Scenario::new(&[Faction::TheNaaluCollective, Faction::TheArborec, Faction::TheYinBrotherhood])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_ring(19)
+        .unit(held, None, Unit::CruiserI, 0, 1)
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.board_mut().sys_mut(held).cmd.insert(Seat(0));
+    s.players_mut().edit(0).leaders.status.insert(Leader::Zeu, LeaderStatus::Readied);
+    s.players_mut().edit(0).econ.duress_by = Some(Seat(1));
+    s.players_mut().edit(0).econ.trade_goods = 2;
+    let e = env_r(&k);
+    let tokens_before = s.players().by_seat(Seat(0)).unwrap().econ.tactic_tokens;
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::Zeu)))).unwrap();
+    assert!(matches!(live, Live::Asks(_)), "the system is asked");
+    pick(&mut s, &e, |o| matches!(o, Opt::Leaders(ti4_engine_core::choice::leaders::Opt::System(x)) if *x == target)).unwrap();
+    assert_eq!(status(&s, 0, Leader::Zeu), Some(LeaderStatus::Exhausted));
+    assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.tactic_tokens, tokens_before, "no command token is spent");
+    assert!(!s.board().sys(target).cmd.contains(Seat(0)), "no token is placed in the system");
+    assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 0, "Extreme Duress settled");
+    let kinds = plain(&s);
+    let at = |kind| kinds.iter().position(|k| *k == kind).expect("announced");
+    assert!(at(PlainKind::ComponentActionResolved) < at(PlainKind::FreeTacticalAction), "the action resolves, then the free activation");
+    assert_eq!(typed(&s, EventKind::SystemActivated), 1);
+    assert!(s.pending().window(WindowKind::Tactical).is_some(), "the movement of the free action is next");
+}
+
+/// Lane L: the Z'eu question lists the systems the seat could activate except home systems and its own tokens; declining fails the action, which is
+/// withheld for the turn, and the card stays readied.
+#[test]
+fn zeu_offers_no_home_or_tokened_system_and_a_decline_fails_the_action() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let sys = ti4_engine_core_tests::scenario::plain_systems();
+    let (held, free) = (sys[0], sys[1]);
+    let (mut s, k) = Scenario::new(&[Faction::TheNaaluCollective, Faction::TheArborec, Faction::TheYinBrotherhood])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_ring(19)
+        .unit(held, None, Unit::CruiserI, 0, 1)
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.board_mut().sys_mut(held).cmd.insert(Seat(0));
+    s.players_mut().edit(0).leaders.status.insert(Leader::Zeu, LeaderStatus::Readied);
+    let e = env_r(&k);
+    pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::Zeu)))).unwrap();
+    let q = ask_ask(&s, &e).unwrap().unwrap().choice;
+    let systems: Vec<_> = q.opts.as_slice().iter().filter_map(|o| if let Opt::Leaders(ti4_engine_core::choice::leaders::Opt::System(x)) = o { Some(*x) } else { None }).collect();
+    assert!(systems.contains(&free), "a system without the seat's token is offered");
+    assert!(!systems.contains(&held), "a system holding the seat's own token is not");
+    assert!(systems.iter().all(|x| s.players().iter().all(|p| p.home_system != Some(*x))), "no home system is offered");
+    assert!(q.opts.as_slice().contains(&Opt::Decline), "and the decline");
+    assert!(q.ctx.optional, "the string asks it as optional");
+    pick(&mut s, &e, |o| matches!(o, Opt::Decline)).unwrap();
+    assert_eq!(status(&s, 0, Leader::Zeu), Some(LeaderStatus::Readied), "the card is not spent");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionFailed));
+    assert_eq!(s.pending().window(WindowKind::Tactical), None);
+    let again = ask_ask(&s, &e).unwrap().unwrap().choice;
+    assert!(!again.opts.as_slice().contains(&Opt::Turn(TuOpt::Leader(Leader::Zeu))), "a failed action is withheld for the rest of the turn");
+}
+
 /// Lane F2d: Xxekir Grom (the Thunder's Edge hero) places units on controlled planets and is purged; he is offered only with a planet to place on.
 #[test]
 fn xxekir_grom_chosen_from_the_menu_places_a_pds_readies_the_planet_and_is_purged() {

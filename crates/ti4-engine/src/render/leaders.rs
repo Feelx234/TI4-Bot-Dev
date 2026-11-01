@@ -159,6 +159,7 @@ impl Family for Fam {
             Ask::FlockCargo => "Flock Migration: carry a unit aboard (it cannot be landed)".to_owned(),
             Ask::MahactMove => "Airo Shir Aur: which fleet moves where".to_owned(),
             Ask::YinCommit { n, stock } => format!("Quantum Dissemination: commit infantry {} of {stock}", u32::from(*n) + 1),
+            Ask::ZeuSystem => "Z'eu: perform a tactical action without placing a command token".to_owned(),
         }
     }
 
@@ -192,6 +193,7 @@ impl Family for Fam {
             Subtype::FlockCargo => "flock_migration_cargo".to_owned(),
             Subtype::MahactMove => "mahact_hero_move".to_owned(),
             Subtype::YinCommit => "yin_hero_commit".to_owned(),
+            Subtype::ZeuSystem => "zeu_activate_system".to_owned(),
         }
     }
 
@@ -201,6 +203,9 @@ impl Family for Fam {
             Opt::Planet(p, system) => {
                 let id = p.as_str();
                 ChoiceOption::labelled(id, "planet", id).with_planet(id, system.system.map(|s| s.as_str()))
+            }
+            Opt::System(system) if matches!(a, Ask::ZeuSystem) => {
+                ChoiceOption::labelled(system.as_str(), crate::tactical::ACTIVATE_KIND, format!("activate {} without a command token", system.as_str()))
             }
             Opt::System(system) if matches!(a, Ask::SaarHero | Ask::GhostSwapFirst | Ask::GhostSwapSecond | Ask::UmbatSystem) => ChoiceOption::labelled(system.as_str(), "system", format!("system {}", system.as_str())),
             Opt::System(system) => ChoiceOption::labelled(system.as_str(), "system", system.as_str()),
@@ -315,7 +320,7 @@ impl Family for Fam {
                 "keep" => Some(Opt::Keep),
                 _ => None,
             },
-            Ask::L1z1xDestination | Ask::SaarHero | Ask::GhostSwapFirst | Ask::GhostSwapSecond | Ask::UmbatSystem => System::from_id(id).map(Opt::System),
+            Ask::L1z1xDestination | Ask::ZeuSystem | Ask::SaarHero | Ask::GhostSwapFirst | Ask::GhostSwapSecond | Ask::UmbatSystem => System::from_id(id).map(Opt::System),
             Ask::JolnarSwap { held } => match id.strip_prefix("keep|") {
                 Some(kept) => (kept == held.as_str()).then_some(Opt::Keep),
                 None => Technology::from_id(id).map(Opt::Trade),

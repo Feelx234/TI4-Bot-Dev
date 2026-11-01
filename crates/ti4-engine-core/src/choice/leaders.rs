@@ -82,6 +82,8 @@ pub enum Ask {
     MahactMove,
     /// Quantum Dissemination (Yin hero): where the `n`th (from 0) of `stock` infantry is committed.
     YinCommit { n: u8, stock: u8 },
+    /// Z'eu (Naalu agent): the system the free tactical action is performed in (or decline).
+    ZeuSystem,
 }
 
 /// The kind of unit Xxekir Grom places.
@@ -184,4 +186,5 @@ pub enum Subtype {
     FlockCargo,
     MahactMove,
     YinCommit,
+    ZeuSystem,
 }
