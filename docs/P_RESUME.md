@@ -52,12 +52,34 @@ No assertion was loosened. The only comparison that became less strict is the ha
 | bridge `--lib native_play` | 41 passed (18 s) |
 | `ti4-engine --lib` (plain, at `d749d40bc`) | **5286 passed**, 0 failed, 7 ignored (the first run at `e0f3c3c53`: 1 failed, `resolver_sync::random_play_of_a_seated_game_has_no_dual_difference`, the S1 order in the kernel dual: fixed by handing the dual's core resolver the string's rotated list, `kernel_sync/shim.rs`, `reactions_core::resolver_of`) |
 | `ti4-engine-core-factions --lib`, `ti4-rule-bot-typed --lib` | 151, 1 passed |
-| not run (user rule) | the `TI4_AREAS=all=dual` whole-lib run, golden / wide dual, benches, soak, census, ratchet, workspace clippy; `clippy_core.sh`, `check_layers.py`, `lint_core.sh` (see the end) |
+| `clippy_core.sh`, `check_layers.py core`, `lint_core.sh` | ok (engine 41 = baseline 41, core crates 0 warnings); 574 files 0 violations; 576 files 0 hits |
+| final binary, `--factions all --players 3,4,5,6 --seeds 1 --shadow` | 27 first differences, 9 known S1, 94 games without a gap (2 gaps as in int. 15: Doctor Sucaban's research) |
+| not run (user rule) | the `TI4_AREAS=all=dual` whole-lib run, golden / wide dual, benches, soak, census, ratchet, workspace clippy |
 | mutation | see below |
 
-## Mutation
+## Mutation (`tools/engine_core/mutants.sh`, single ranges, snapshot `d5e0e9c64` and `38e6cde0f`, `D4_COVERS_FILE=/dev/null`, Haiku-run queue plus a manual check)
 
-(see below)
+Set A = the D4 tests (`aftermath_chain`, `resolver_basics`, `tactical_composer`), set B = the bridge `native_play` tests (the shadow tests of this lane; they ARE the lockstep of
+the harness and of the core halves that only a whole game reaches: `TEST_CRATE=ti4-engine-core-bridge`). The engine lockstep filters (J's set B) were run as plain
+`ti4-engine --lib`: 5286 passed.
+
+| range | mutants | killed | survivors |
+|---|---|---|---|
+| `chain.rs` 405-420 (`sync_initiative`, `merge`; A) | 2 | 2 (the first run, before the new test `the_chain_syncs_the_resolver_with_the_initiative_order_of_the_position`: 1 of 2, the survivor was the pre-existing body of `sync_initiative`; the re-run at `d5e0e9c64` killed both) | none |
+| `chain.rs` 455-495 (journal extends, the nested condition; A) | 5 | 5 | none |
+| `resolver.rs` 816-845 (`player_order`; A) | 8 | 8 | none |
+| `fx.rs` 100-140 (`journal_recs`, `mirror_journal`; A) | 9, then 8 at `d5e0e9c64` | 7 of 9 at `d749d40bc`; 8 of 8 at `d5e0e9c64` (the nested-events test now checks each event's own payload) | the fallback record of a failed emission (`cancelled: false`, now `// mutants:skip` with the reason: a trace line without a journal entry is the string's bare name) |
+| `native_play.rs` 740-780 (S1 recognition; B) | 27 | 26 (the survivor, the missing offer in `s1_in_error`, got an assertion at `38e6cde0f`: not re-run) | `s1_in_error` line 755 `return false` -> true (assertion added, not re-run) |
+| `native_play.rs` 935-955 (`opens_a_step_of_its_own`, `steps_idle`; B) | 11 | 10 (the survivor, `steps_idle` -> false, got a unit test at `38e6cde0f`: not re-run) | `steps_idle` body (test added, not re-run) |
+| `native_play.rs` 400-430, 480-492 (`after_glue`; B) | 2 (+2 not compilable), 9 | all | none |
+| `native_play.rs` 815-835, 868-905 (the shadow loop; B) | 8, 17 | 5, 9 (of the 25 only the lines named here are lane P's) | pre-existing lines (`native.steps >= max_steps`, the cut conditions `have > used && used > 0`, the trace print) and `flush_first = true` (now `// mutants:skip`: a defensive bound, a held-back step is never held back twice) |
+| `component.rs` 60-90 (`announce_staged`; B) | 5 | 2 | 3 pre-existing lines (the destruction drain, `halted`) |
+| `facts.rs` 108-130 (B) | 1 (+1 not compilable) | 0 | `announce: true`, pre-existing |
+| `combat_live.rs` 170-200 (`guns`; B) | 2 | 0 with the first test (the game it reached at step 178 had moved on with the ruling); killed (checked by hand: the condition replaced by `false && ..`, the test fails) once the test runs to the native step 195 | none |
+
+The cross-crate runs of `mutants.sh` (`TEST_CRATE` another crate) report the engine mutants of `combat_live.rs` as survivors when the test cannot reach the code; the manual
+check above is the evidence for that range.
+
 
 ## What is left, by class (owner: the next shadow lane unless stated)
 
@@ -71,3 +93,7 @@ First differences of the 96-game set (27) and of the 288-game set (69) that are 
 * **Technology follower eligibility (quick game, step 448)**: the string does not ask seat `c` for the Technology secondary (`c` holds 3 strategic tokens), the core does.
 * retreat announcements / hits (`announce a retreat from 62`, `assign a hit`, `HITS_TO_ASSIGN`, `munitions`), the Cabal secondary, the 82a option: one game each in the 96 set, not traced.
 * The gap of the 288 set (`TurnGap::StrategyAbility`, mahact 3p seed 67 among them) is lane N's (Jae Mir Kan's waiver).
+
+## Tip
+
+`git log -1 core-p-shadow2` (the last commit is this note's). Private targets `/root/deploytmp/core-p*` and the scratch worktree `/root/deploytmp/core-p-t-wt` are deleted at the end.

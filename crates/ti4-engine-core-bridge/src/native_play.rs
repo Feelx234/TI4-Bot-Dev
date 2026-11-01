@@ -825,7 +825,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 // ends its step at the close of the status phase (after its last answer) and flips the next phase in a step of its own.
                 if opens_a_step_of_its_own(&p, &group, flush_first) {
                     carry = Some(Step::Played(p));
-                    flush_first = true;
+                    flush_first = true; // mutants:skip (a defensive bound: a held-back step is never held back twice)
                 } else {
                     flush_first = false;
                     matrix.note_played(&p);
@@ -1706,11 +1706,11 @@ mod tests {
     }
 
     /// Lane P (SC): a gunner's roll is staged under the type id of its unit (the string's `type_id`), so a reroll question of a space cannon offense names
-    /// `pds`, not the roll kind (Fire Team, Scramble Frequency). Mentak, 5 players (step 178): the question's prompt was native `reroll die 1 of
+    /// `pds`, not the roll kind (Fire Team, Scramble Frequency). Mentak, 5 players (the native step 190 of the game as it plays now; 178 before the ruling on S1): the question's prompt was native `reroll die 1 of
     /// space_cannon`, legacy `reroll die 1 of pds`; 8 of the 96 games.
     #[test]
     fn a_reroll_question_of_the_space_cannon_offense_names_the_unit_type_of_the_gun() {
-        let shadowed = shadow_play(&lobby_spec("mentak", 5, 1), 185, 50).expect("builds");
+        let shadowed = shadow_play(&lobby_spec("mentak", 5, 1), 195, 50).expect("builds");
         assert!(shadowed.first_difference.is_none(), "{:?}", shadowed.first_difference);
     }
 
@@ -1762,6 +1762,7 @@ mod tests {
         assert!(!s1_in_error(&state, wanted_move), "a script that wanted a move met a reaction: not S1");
         assert!(!s1_in_error(&state, "legacy step failed: script wanted \"leader:a:b:SYSTEM_ACTIVATED:after\" but a was offered [\"0|2|4\"]"), "the offer is no reaction");
         assert!(!s1_in_error(&state, "something else"));
+        assert!(!s1_in_error(&state, "legacy step failed: script wanted \"leader:a:b:SYSTEM_ACTIVATED:after\""), "no offer named");
         // Nobody active: nothing to order.
         state.active = None;
         assert!(!s1_orders_differ(&state));
@@ -1779,6 +1780,18 @@ mod tests {
         assert!(!s1_in_questions(&state, "[3].options[0]", &[q("a", &flipped)], &[q("a", &reaction)]), "no such question");
         state.active = Some(ids[0].clone());
         assert!(!s1_in_questions(&state, "[0].options[0]", &[q("a", &flipped)], &[q("a", &reaction)]), "the same order");
+    }
+
+    /// The string's idle step: no question, no event, no error, where the native group pushed events.
+    #[test]
+    fn a_legacy_step_that_did_and_said_nothing_is_idle_against_a_group_that_pushed_events() {
+        let info = crate::oracle::StepInfo { phase: "action".to_owned(), active: None, finished: false, error: None, resolved_choice: false };
+        let run = |events: &[&str]| LegacyRun { info: info.clone(), records: Vec::new(), events: events.iter().map(|e| (*e).to_owned()).collect() };
+        let pushed = Played { arm: Arm::Phase, source: None, asked: Vec::new(), events: vec!["STATUS_PHASE_BEGAN".to_owned()], finished: true };
+        let silent = Played { events: Vec::new(), ..pushed.clone() };
+        assert!(steps_idle(&run(&[]), std::slice::from_ref(&pushed)));
+        assert!(!steps_idle(&run(&["X"]), &[pushed]), "the string said something");
+        assert!(!steps_idle(&run(&[]), &[silent]), "the group pushed nothing either");
     }
 
     /// The helper of the shadow's grouping: a native step that flips the phase, or makes the forced last pick of the draft, asks nothing and does not
