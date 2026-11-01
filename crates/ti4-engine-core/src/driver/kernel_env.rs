@@ -113,8 +113,18 @@ impl strategy::Env for KernelEnv<'_> {
     fn has_specialty_research_planet(&self, _: Seat) -> bool {
         false
     }
+    /// `payment::affordable(TECHNOLOGY_SECONDARY_COST, Resources)`: the printed resources of the planets the seat can spend and its trade goods. NOT
+    /// `production::available`, which adds what a production step may spend: War Machine's +5, the Triad and the larger face of a planet. Found by the shadow
+    /// (sol 4p, arborec 4p, cabal 4p): a seat that had played War Machine in the activation was asked to follow the Technology card and could not pay.
     fn technology_secondary_affordable(&self, who: Seat) -> bool {
-        self.available(who, Spend::Resources) >= TECHNOLOGY_SECONDARY_COST
+        let cx = crate::rules::production::Cx::new(self.core, self.kernel, reach::scope_of(self.kernel), reach::blanked(self.core));
+        let planets: i64 = crate::rules::production::spendable_planets(&cx, who, &crate::rules::production::Extras::default())
+            .as_slice()
+            .iter()
+            .map(|p| crate::rules::production::planet_value(&cx, who, *p, Spend::Resources))
+            .sum();
+        let goods = self.core.players().by_seat(who).map_or(0, |p| i64::from(p.econ.trade_goods)) * crate::rules::production::trade_good_worth(&cx, who);
+        planets + goods >= TECHNOLOGY_SECONDARY_COST
     }
     fn secret_hand_all_scored(&self, who: Seat) -> bool {
         let limit = objectives::HAND_LIMIT + crate::query::relic::secret_objective_bonus(self.core, who);

@@ -236,6 +236,26 @@ fn hacans_printed_abilities_are_read_by_the_strategy_and_trade_envs() {
     assert!(!StrategyEnv::substitutes_primary(&env, Seat(0), Some(ti4_engine_core::generated::StrategyCardKind::Trade)));
 }
 
+/// Found by the whole-game shadow (sol 4p, arborec 4p, cabal 4p): the string gates the Technology secondary on `payment::affordable` (planets and trade goods), the core
+/// on `production::available`, which also counts War Machine's +5 of the activation it was played in. A seat that had played the card was asked to follow and could not pay.
+#[test]
+fn war_machine_does_not_pay_for_the_technology_secondary() {
+    use ti4_engine_core::driver::kernel_env::KernelEnv;
+    use ti4_engine_core::rules::strategy::Env as StrategyEnv;
+    use ti4_engine_core::state::RoundKind;
+    let (mut s, k) = Scenario::new(&[Faction::TheXxchaKingdom, Faction::TheFederationOfSol]).build();
+    s.meta_mut().activation_seq = 3;
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().round_marks.push(RoundKind::WarMachine, 3);
+    let env = KernelEnv::new(&s, &k);
+    assert!(!StrategyEnv::technology_secondary_affordable(&env, Seat(0)), "no planet and no trade good: War Machine's 5 are for the production step");
+    let (mut s, k) = Scenario::new(&[Faction::TheXxchaKingdom, Faction::TheFederationOfSol]).goods(0, 4).build();
+    let env = KernelEnv::new(&s, &k);
+    assert!(StrategyEnv::technology_secondary_affordable(&env, Seat(0)), "four trade goods pay");
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = 3;
+    let env = KernelEnv::new(&s, &k);
+    assert!(!StrategyEnv::technology_secondary_affordable(&env, Seat(0)), "three do not");
+}
+
 // -- a question the follower's ability asks ----------------------------------------------------------------------------------------
 
 #[test]

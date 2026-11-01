@@ -306,6 +306,83 @@ mod tro_marks {
     }
 }
 
+mod tro_activation_mark {
+    use super::*;
+    use ti4_engine_core::choice::reaction::Relation;
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    use ti4_engine_core::state::LeaderStatus;
+
+    fn activated(seat: u8, system: System) -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::SystemActivated, Payload::new().with(Key::Player, Val::Seat(Seat(seat))).with(Key::System, Val::System(system)))
+    }
+
+    fn remembered(r: &Rig<EmitEvent>, seat: u8) -> Option<MarkVal> {
+        r.state.marks().tail.get(&MarkKey::SardakkAgentTactical(Seat(seat))).cloned()
+    }
+
+    fn with_agent(status: LeaderStatus) -> impl FnOnce(&mut CoreState) {
+        move |s| {
+            s.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::Tro, status);
+        }
+    }
+
+    /// The string registers the mark as an ability of the Sardakk seat (`leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after`): it runs on whoever's activation,
+    /// while the card is held readied or exhausted (an exhausted T'ro may still be copied), and stays unasked when it is the owner's only ability of the window.
+    #[test]
+    fn the_activation_of_any_player_is_remembered_as_a_registered_ability_of_the_agents_owner() {
+        covers!("silent::g3::tro_marks::MARK");
+        let (system, _) = two_planet_system();
+        let scenario = || Scenario::new(&[Faction::SardakkNorr, Faction::TheEmiratesOfHacan]);
+        for owner_active in [0u8, 1] {
+            let r = rig(scenario(), with_agent(LeaderStatus::Readied), activated(owner_active, system));
+            assert!(r.is_done(), "{owner_active}: the mark alone is not asked: {}", r.transcript());
+            assert_eq!(remembered(&r, owner_active), Some(MarkVal::Atom(Atom::System(system))), "the system the activating player activated");
+        }
+        let spent = rig(scenario(), with_agent(LeaderStatus::Exhausted), activated(1, system));
+        assert!(remembered(&spent, 1).is_some(), "an exhausted agent is still tracked");
+        let locked = rig(scenario(), with_agent(LeaderStatus::Locked), activated(1, system));
+        assert!(remembered(&locked, 1).is_none(), "a locked or absent agent leaves no mark");
+    }
+
+    /// The string offers a window's abilities of one owner as ONE choice: with another ability of the owner eligible, the mark is an option (the string asks
+    /// `[the other, the mark, decline]`) and a pass over the window skips it. A mark that is only a hook of the core's activation chain was not offered.
+    #[test]
+    fn with_another_ability_in_the_window_the_mark_is_one_of_the_offers_and_a_decline_skips_it() {
+        covers!("silent::g3::tro_marks::MARK");
+        use ti4_engine_core::choice::reaction::AbilityKind;
+        use ti4_engine_core::kernel::ability::{no_effect, Slot, Spec};
+        let (system, _) = two_planet_system();
+        let mut table = table();
+        // An optional ability of every seat that is eligible at every activation: a stand-in for a reaction card in the owner's hand.
+        table.add(Spec::new(Slot(60_000), AbilityKind::Other, EventKind::SystemActivated, Relation::After, no_effect).optional());
+        let start = |table: &ti4_engine_core::kernel::ability::AbilityTable| {
+            let (mut state, kernel) = Scenario::new(&[Faction::SardakkNorr, Faction::TheEmiratesOfHacan]).build();
+            with_agent(LeaderStatus::Readied)(&mut state);
+            let mut r = Rig::from_parts(state, kernel, EmitEvent::new(activated(1, system))).with_abilities(table.clone());
+            r.run();
+            // The window asks the seats one after the other; the question of the Sardakk seat is the one with the mark among its offers.
+            while !r.is_done() && r.asked().actor != Seat(0) {
+                r.decline();
+            }
+            r
+        };
+        let mut declined = start(&table);
+        assert_eq!(declined.opts().len(), 3, "the stand-in, the mark and decline: {}", declined.transcript());
+        declined.decline();
+        while !declined.is_done() {
+            declined.decline();
+        }
+        assert_eq!(remembered(&declined, 1), None, "the owner passed over the window: the mark is skipped, as in the string");
+        let mut played = start(&table);
+        played.pick(0);
+        while !played.is_done() {
+            played.decline();
+        }
+        assert_eq!(remembered(&played, 1), Some(MarkVal::Atom(Atom::System(system))), "after the stand-in resolved, the mark is the owner's only ability left: it runs unasked");
+    }
+}
+
 // -- The Alastor ---------------------------------------------------------------------------------------------------------------
 
 mod alastor {
