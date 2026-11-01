@@ -26,11 +26,21 @@ hook_group! {
         any scores_without_home(s: &CoreState, who: Seat) -> bool;
         /// Extra prerequisite colours `who` counts. String: `technology`.
         concat extra_prerequisite_colours(s: &CoreState, k: &Kernel, who: Seat) -> Colours;
-        /// A research waiver offered for a technology (first module that has one). String: `technology`.
+        /// A research waiver offered for a technology (first module that has one; the research window asks every module's, see
+        /// [`StrategyHooks::research_waiver_offers`]). String: `technology`.
         first research_waiver_offer(s: &CoreState, k: &Kernel, who: Seat, tech: Technology) -> Option<ResearchWaiver>;
         /// A research waiver was paid with `payment`. String: `technology`.
         any research_waiver_paid(cx: &mut Cx<'_>, who: Seat, tech: Technology, payment: Waiver) -> bool;
         /// The form a unit takes when `who` builds `from` as `to` (first module that overrides). String: `production`.
         first unit_form_override(s: &CoreState, k: &Kernel, who: Seat, base: UnitBaseType, unit: Unit) -> Option<Unit>;
+    }
+}
+
+impl StrategyHooks {
+    /// Every module's research waiver for `tech`, in module order (`hooks_strategy::research_waiver_offers`: the place in this list is the
+    /// index of the answer `waiver|{index}`, and `first research_waiver_offer` keeps only the first).
+    #[must_use]
+    pub fn research_waiver_offers(&self, s: &CoreState, k: &Kernel, who: Seat, tech: Technology) -> Vec<ResearchWaiver> {
+        self.research_waiver_offer.iter().filter_map(|offer| offer(s, k, who, tech)).collect()
     }
 }

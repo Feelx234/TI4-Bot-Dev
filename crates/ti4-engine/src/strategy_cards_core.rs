@@ -585,7 +585,7 @@ mod real {
     /// The core half of the two Technology abilities (`primary`: the free research and the six-resource one,
     /// else the secondary's four-resource one). `None` as for Leadership, and where [`research_unported`]
     /// says so, where the faction hooks of the core and the string differ (a game below `RULES_TECH_PAYMENT_CHOICE`, where the cheapest
-    /// plan is spent unasked, is the window's own since W12), and where an answer leaves the carried paths (a technology only a faction waiver opens).
+    /// plan is spent unasked, is the window's own since W12), and where an answer leaves the carried paths (a research Inheritance Systems can no longer pay after the bill).
     pub fn research(
         gs: &mut GameState,
         content: &ContentStore,
@@ -624,7 +624,7 @@ mod real {
             }
         })?;
         if window.failed {
-            crate::dual::note_bail_here("the research window left the path the core carries (a research only a faction waiver opens)");
+            crate::dual::note_bail_here("the research window left the path the core carries (a research Inheritance Systems can no longer pay after the bill)");
             return None;
         }
         Some(finish(&driven, &window))

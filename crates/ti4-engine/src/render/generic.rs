@@ -163,6 +163,9 @@ pub fn content_of(r: &Render, alias: &str) -> Content {
     if let Some(step) = super::explore::step_of(alias) {
         return Content::Step(step);
     }
+    if alias == RESEARCH_WAIVER {
+        return Content::ResearchWaiver;
+    }
     Content::Other(r.code(alias))
 }
 
@@ -180,8 +183,12 @@ fn content_text(r: &Render, c: Content) -> String {
         Content::ActionCard(x) => id_of(x),
         Content::Step(s) => super::explore::step_text(s).to_owned(),
         Content::Other(c) => r.code_text(c),
+        Content::ResearchWaiver => RESEARCH_WAIVER.to_owned(),
     }
 }
+
+/// The source text of the research window's waiver questions (`strategy_cards::resolve_research`).
+const RESEARCH_WAIVER: &str = "research_waiver";
 
 fn card_of(name: &str) -> Option<StrategyCard> {
     (0..StrategyCard::COUNT)

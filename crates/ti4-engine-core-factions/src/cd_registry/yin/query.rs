@@ -76,6 +76,33 @@ pub fn infantry_payments(s: &CoreState, who: Seat) -> SmallList<(u16, System, Op
     out
 }
 
+/// Where a payment of the research waiver returns the infantry from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaymentPlace {
+    /// A planet's ground forces.
+    Planet(ti4_engine_core::generated::Planet),
+    /// The space area of a system.
+    Space(System),
+}
+
+/// The code of a payment (the inverse of [`payment_place`]).
+#[must_use]
+pub fn place_code(place: PaymentPlace) -> u16 {
+    match place {
+        PaymentPlace::Planet(planet) => u16::try_from(planet.index() + 1).unwrap_or(0), // mutants:skip -- an index always fits a u16, the fallback is never taken
+        PaymentPlace::Space(system) => SPACE | u16::try_from(system.index()).unwrap_or(0), // mutants:skip -- an index always fits a u16, the fallback is never taken
+    }
+}
+
+/// The place a payment code names (see the module doc for the codes).
+#[must_use]
+pub fn payment_place(code: u16) -> Option<PaymentPlace> {
+    if code & SPACE != 0 {
+        return System::from_index(usize::from(code & !SPACE)).map(PaymentPlace::Space);
+    }
+    ti4_engine_core::generated::Planet::from_index(usize::from(code).checked_sub(1)?).map(PaymentPlace::Planet)
+}
+
 /// Brother Omar: "When you research a tech owned by another player, you may return 1 of your infantry to reinforcements
 /// to ignore its prerequisites."
 pub fn research_waiver_offer(s: &CoreState, _: &Kernel, who: Seat, tech: Technology) -> Option<ResearchWaiver> {

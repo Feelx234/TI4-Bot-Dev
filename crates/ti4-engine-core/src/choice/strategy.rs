@@ -8,9 +8,17 @@ use super::agenda::Shown;
 use super::generic::Rule;
 use super::{Ask as AnyAsk, Choice, Ctx, Opt as AnyOpt, Opts, Origin, Subtype as AnySubtype};
 use crate::containers::SmallList;
-use crate::generated::{Agenda, Planet, PublicObjective, StrategyCard, System, Technology};
+use crate::generated::{Agenda, Faction, Planet, PublicObjective, StrategyCard, System, Technology};
 use crate::ids::Seat;
 use crate::state::Code;
+
+/// A waiver a faction module offers (with a secondary, or on a research; `hooks_strategy::SecondaryWaiver` and `ResearchWaiverPayment`,
+/// `{id, label}`): the module and its code; the label is the adapter's. (Re-exported by `kernel::hooks`.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Waiver {
+    pub module: Faction,
+    pub code: u16,
+}
 
 /// A command token pool (`TokenPool`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -81,6 +89,11 @@ pub enum Ask {
     /// 82: a follower's question on the secondary of `card`, played by `primary` (every kind; Leadership's is the
     /// purchase question itself). `costs_token`: the follow takes a strategy token.
     Follow { card: StrategyCard, primary: Seat, costs_token: bool },
+    /// `strategy_cards::resolve_research`: "research {tech}: choose a prerequisite waiver", the waivers the modules offer (in the string's
+    /// order: the index of an answer `waiver|{index}` is the place in this list; two modules at most).
+    ResearchWaiver { tech: Technology, offered: [Option<Waiver>; 2] },
+    /// `strategy_cards::resolve_research`: "{waiver label}: choose the payment" of the waiver chosen.
+    ResearchWaiverPayment { tech: Technology, waiver: Waiver },
 }
 
 /// One answer the area offers (not stored in the state).
@@ -139,6 +152,10 @@ pub enum Opt {
     WaiveBy(crate::generated::Faction, u16),
     /// Enervate: the follower performs the primary ability instead (`follow|enervate_primary`).
     PrimaryInstead,
+    /// A prerequisite waiver of a faction module, the place in the offered list (the answer `waiver|{index}`).
+    ResearchWaiver(u8),
+    /// The payment of a research waiver, the module's own code (the Cabal's captured model, Yin's infantry; the answer is the module's id).
+    ResearchPayment(Waiver),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -175,6 +192,10 @@ pub enum Subtype {
     /// The two questions of Imperial Arbiter's swap (the string asks them without a context; the live layer drops it).
     ArbiterGive,
     ArbiterTake,
+    /// `research_waiver`.
+    ResearchWaiver,
+    /// `research_waiver_payment`.
+    ResearchWaiverPayment,
 }
 
 /// The context of a strategy card question.
@@ -193,6 +214,12 @@ pub fn leader_ctx(leader: crate::generated::Leader, subtype: Subtype) -> Ctx {
 #[must_use]
 pub fn rule_ctx(rule: Rule, subtype: Subtype) -> Ctx {
     ctx_from(Origin::Rule(rule), subtype)
+}
+
+/// The context of the research window's waiver questions (`DecisionSource::FactionAbility("research_waiver")`).
+#[must_use]
+pub fn waiver_ctx(subtype: Subtype) -> Ctx {
+    ctx_from(Origin::FactionAbility(super::generic::Content::ResearchWaiver), subtype)
 }
 
 fn ctx_from(origin: Origin, subtype: Subtype) -> Ctx {

@@ -91,4 +91,7 @@ pub enum Content {
     /// A step of the exploration area that is no card (`exploration`, `ion_storm`, ...).
     Step(super::explore::Step),
     Other(Code),
+    /// The faction ability `research_waiver` (`DecisionSource::FactionAbility("research_waiver")`): the source of the
+    /// research window's waiver and payment questions (`strategy_cards::resolve_research`), which names no card.
+    ResearchWaiver,
 }
