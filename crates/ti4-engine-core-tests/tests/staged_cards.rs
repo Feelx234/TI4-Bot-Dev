@@ -15,6 +15,10 @@ use ti4_engine_core_tests::prelude::*;
 struct Probe {
     direct: bool,
     done: bool,
+    /// Only seat 1's discard is staged.
+    solo: bool,
+    /// What the direct announcement returned.
+    count: Option<usize>,
 }
 
 impl Window for Probe {
@@ -27,11 +31,13 @@ impl Window for Probe {
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         if !self.done {
             self.done = true;
-            assert!(fx::discard_action_card_staged(sx.state, Seat(0), C::Rally));
-            assert!(fx::take_action_card_staged(sx.state, Seat(1), Seat(0), C::Sabotage1));
+            if !self.solo {
+                assert!(fx::discard_action_card_staged(sx.state, Seat(0), C::Rally));
+                assert!(fx::take_action_card_staged(sx.state, Seat(1), Seat(0), C::Sabotage1));
+            }
             assert!(fx::discard_action_card_staged(sx.state, Seat(1), C::Spy));
             if self.direct {
-                announce_staged_cards(sx).expect("announces");
+                self.count = Some(announce_staged_cards(sx).expect("announces"));
             } else {
                 sx.emit_mirrored(fx::event(EventKind::TurnBegan, Payload::new().with(Key::Player, Val::Seat(Seat(0))))).expect("emits");
             }
@@ -50,7 +56,7 @@ impl Window for Probe {
 
 fn rig(direct: bool) -> Rig<Probe> {
     let sc = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).hand(0, &[C::Rally, C::Sabotage1]).hand(1, &[C::Spy]);
-    Rig::new(sc, Probe { direct, done: false })
+    Rig::new(sc, Probe { direct, done: false, solo: false, count: None })
 }
 
 fn typed(rig: &Rig<Probe>) -> Vec<(EventKind, Payload)> {
@@ -86,15 +92,25 @@ fn an_announcement_in_the_middle_of_a_window_is_the_same_as_after_an_event_and_n
     let kinds: Vec<EventKind> = typed(&direct).into_iter().map(|(k, _)| k).collect();
     assert_eq!(kinds, [EventKind::ActionCardDiscarded, EventKind::ActionCardTaken, EventKind::ActionCardDiscarded]);
     assert_eq!(direct.state.cards().discarded_action.as_slice(), &[C::Rally, C::Spy]);
+    assert_eq!(direct.driver.window.count, Some(3), "it says how many moves it announced");
     // A second look finds nothing, so it announces nothing twice.
     let mut empty = rig(false);
     empty.run();
     let before = typed(&empty).len();
-    let mut probe = Probe { direct: true, done: true };
-    let mut rig2 = Rig::from_parts(empty.state.clone(), ti4_engine_core::kernel::Kernel::plain(), Probe { direct: true, done: true });
+    let mut probe = Probe { direct: true, done: true, solo: false, count: None };
+    let mut rig2 = Rig::from_parts(empty.state.clone(), ti4_engine_core::kernel::Kernel::plain(), Probe { direct: true, done: true, solo: false, count: None });
     rig2.run();
     let _ = &mut probe;
     assert_eq!(typed(&rig2).len(), before, "nothing staged: nothing announced");
+    // Nothing staged at all: the call announces (and counts) zero.
+    let mut none = Rig::new(Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]), Probe { direct: true, done: false, mode: Mode::Nothing });
+    none.run();
+    assert!(typed(&none).is_empty());
+    assert_eq!(rig2.driver.window.count, None);
+    let mut none = Rig::from_parts(empty.state.clone(), ti4_engine_core::kernel::Kernel::plain(), Probe { direct: true, done: false, solo: true, count: None });
+    none.state.players_mut().by_seat_mut(Seat(1)).unwrap().cards.hand.push(C::Spy);
+    none.run();
+    assert_eq!(none.driver.window.count, Some(1));
 }
 
 #[test]
@@ -121,18 +137,20 @@ fn bail_a_discard_the_data_skimmer_could_take_is_unknown_and_only_then() {
     use ti4_engine_core::generated::Breakthrough;
     use ti4_engine_core::kernel::ability::Unknown;
     use ti4_engine_core::state::Phase;
-    let skim = |phase: Phase, passed: bool, holder: u8| {
+    let skim = |phase: Phase, passed: bool, holder: u8, solo: bool| {
         let (mut s, k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).hand(0, &[C::Rally, C::Sabotage1]).hand(1, &[C::Spy]).phase(phase).build();
         s.players_mut().by_seat_mut(Seat(holder)).unwrap().cards.breakthrough = Some(Breakthrough::DataSkimmer);
         s.players_mut().by_seat_mut(Seat(holder)).unwrap().econ.passed = passed;
-        let mut rig = Rig::from_parts(s, k, Probe { direct: true, done: false });
+        let mut rig = Rig::from_parts(s, k, Probe { direct: true, done: false, solo, count: None });
         rig.run();
         rig.driver.unknown()
     };
-    assert_eq!(skim(Phase::Action, false, 1), Some(Unknown::DataSkimmer), "another seat holds it, not passed, during the action phase");
-    assert_eq!(skim(Phase::Action, false, 0), Some(Unknown::DataSkimmer), "the other seat discards too");
-    assert_eq!(skim(Phase::Action, true, 1), None, "the holder passed (and the holder's own discard is never taken)");
-    assert_eq!(skim(Phase::Status, false, 1), None, "only during the action phase");
+    assert_eq!(skim(Phase::Action, false, 1, false), Some(Unknown::DataSkimmer), "another seat holds it, not passed, during the action phase");
+    assert_eq!(skim(Phase::Action, false, 0, false), Some(Unknown::DataSkimmer), "the other seat discards too");
+    assert_eq!(skim(Phase::Action, true, 1, false), None, "the holder passed (and the holder's own discard is never taken)");
+    assert_eq!(skim(Phase::Status, false, 1, false), None, "only during the action phase");
+    assert_eq!(skim(Phase::Action, false, 1, true), None, "the holder's own discard is never taken");
+    assert_eq!(skim(Phase::Action, false, 0, true), Some(Unknown::DataSkimmer), "another seat's discard could be");
 }
 
 /// Regression: a footprint that does not load the marks (an agenda or a tactical window) must not trip the check for staged rows after an event.

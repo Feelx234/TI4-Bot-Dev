@@ -97,6 +97,12 @@ fn a_standing_permission_shows_the_notes_in_the_neighbours_hands_and_merges_with
     let rows = seen(&s, &k, 0);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].shown, Shown::PromissoryNotes(vec![other, theirs]));
+    // An action-card row of the same owner does not take the notes' place: the permission still merges into the NOTES row.
+    reveal(&mut s, Word::Action, Word::Spynet, 0, 1, Word::ActionCards, cards(&[C::Sabotage1]));
+    let rows = seen(&s, &k, 0);
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!(rows[0].shown.kind(), RevealKind::ActionCards);
+    assert_eq!(rows[1].shown, Shown::PromissoryNotes(vec![other, theirs]));
     // Without the hook nothing is shown of the same hands; and the viewer's own hand is never "shown" to it.
     let (mut plain, k2) = table();
     plain.cards_mut().promissory.edit().insert(theirs, Seat(1));
