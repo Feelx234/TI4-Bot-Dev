@@ -1037,6 +1037,31 @@ mod tests {
         NativeGame::from_spec(&lobby_spec(faction, players, seed)).expect("a lobby game builds and loads")
     }
 
+    /// The E-to-M6 join in a whole game (integration 12): a Thunder's Edge Warfare primary begins its free tactical action inside the strategic job
+    /// (`strategic::begin` calls `tactical::begin_free`, no `TurnGap::FreeTactical`), the tactical tail opens the job after it (`strategic::after::open_after`,
+    /// no `TacticalGap::{LeaderStrategy, WarfareSecondary}`), and the follower window and the end of the action follow, in the string's order. Seed 4 of the
+    /// 4-player sol table plays the card on its 47th step; before the join the same game stopped there with the counted gap `FreeTactical`.
+    #[test]
+    fn a_thunders_edge_warfare_primary_plays_its_free_tactical_action_inside_a_whole_native_game() {
+        let mut g = game("sol", 4, 4);
+        let p = play_game(&mut g, 600, 50);
+        let at = g.events.iter().position(|e| e == "FREE_TACTICAL_ACTION").expect("the Warfare primary of this game begins its free tactical action natively");
+        let order = ["FREE_TACTICAL_ACTION", "STRATEGIC_ACTION_BEGAN", "MOVEMENT_FINISHED", "PRODUCTION_RESOLVED", "TACTICAL_ACTION_COMPLETE", "STRATEGY_SECONDARY_DECLINED", "STRATEGIC_ACTION_COMPLETE", "ACTION_COMPLETED", "TURN_PASSED"];
+        let mut from = at;
+        for name in order {
+            let found = g.events[from..].iter().position(|e| e == name).unwrap_or_else(|| panic!("{name} after the free tactical action: {:?}", &g.events[at..(at + 30).min(g.events.len())]));
+            from += found + 1;
+        }
+        assert!(p.steps > 50, "the game goes on past the card: {} steps", p.steps);
+        // No game of the table stops AT the card any more.
+        for seed in 1..=12 {
+            let mut game = game("sol", 4, seed);
+            if let End::Gap(gap) = play_game(&mut game, 600, 50).end {
+                assert!(!gap.cause.contains("FreeTactical") && !gap.cause.contains("WarfareSecondary") && !gap.cause.contains("LeaderStrategy"), "seed {seed}: {gap:?}");
+            }
+        }
+    }
+
     #[test]
     fn a_lobby_spec_is_the_game_the_server_creates() {
         for players in 3..=6 {
