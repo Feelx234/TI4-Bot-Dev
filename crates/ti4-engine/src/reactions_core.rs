@@ -102,6 +102,23 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::mitosis::MITOSIS, kind: "ability", card: "mitosis" },
     Named { slot: ti4_engine_core_factions::silent::pillage::PILLAGE_GAINED, kind: "ability", card: "pillage" },
     Named { slot: ti4_engine_core_factions::silent::pillage::PILLAGE_TRANSACTION, kind: "ability", card: "pillage" },
+    Named { slot: ti4_engine_core_factions::silent::winnu::RECLAMATION_MARK, kind: "ability", card: "reclamation_mark" },
+    Named { slot: ti4_engine_core_factions::silent::winnu::RECLAMATION_CLEAR, kind: "ability", card: "reclamation_clear" },
+    Named { slot: ti4_engine_core_factions::silent::winnu::RECLAMATION, kind: "ability", card: "reclamation" },
+    Named { slot: ti4_engine_core_factions::silent::winnu::RECLAIMER, kind: "unit", card: "winnu_mech" },
+    Named { slot: ti4_engine_core_factions::silent::winnu::HTP, kind: "technology", card: "htp" },
+    Named { slot: ti4_engine_core_factions::silent::winnu::AGENT, kind: "leader", card: "winnuagent" },
+    Named { slot: ti4_engine_core_factions::silent::naaz::AGENT, kind: "leader", card: "naazagent" },
+    Named { slot: ti4_engine_core_factions::silent::naaz::COMMANDER, kind: "leader", card: "naazcommander" },
+    Named { slot: ti4_engine_core_factions::silent::sol::CLAIRE_GIBSON, kind: "leader", card: "solcommander" },
+    Named { slot: ti4_engine_core_factions::silent::cabal::STILLNESS, kind: "leader", card: "cabalagent" },
+    Named { slot: ti4_engine_core_factions::silent::empyrean::ACAMAR, kind: "leader", card: "empyreanagent" },
+    Named { slot: ti4_engine_core_factions::silent::empyrean::VOIDWATCH, kind: "technology", card: "vw" },
+    Named { slot: ti4_engine_core_factions::silent::empyrean::XUANGE, kind: "leader", card: "empyreancommander" },
+    Named { slot: ti4_engine_core_factions::silent::ghost::MOVED, kind: "leader", card: "ghostcommander" },
+    Named { slot: ti4_engine_core_factions::silent::ghost::FINISHED, kind: "leader", card: "ghostcommander" },
+    Named { slot: ti4_engine_core_factions::silent::muaat::MAGMUS, kind: "leader", card: "muaatcommander" },
+    Named { slot: ti4_engine_core_factions::silent::muaat::UNLOCK, kind: "leader", card: "muaatcommander_unlock" },
     Named { slot: cabal::DEVOUR_SHIPS, kind: "ability", card: "devour" },
     Named { slot: cabal::DEVOUR_GROUND, kind: "ability", card: "devour" },
     Named { slot: cabal::TERROR_SHIPS, kind: "unit", card: "cabal_flagship" },
@@ -143,6 +160,8 @@ const PAIRS: &[(Slot, &str, PairStyle)] = &[
     (ti4_engine_core_factions::ce_movement::saar::timing::MENDOSA_COPY, "saaragent", PairStyle::C),
     (ti4_engine_core_factions::cc_ground::ghost::timing::TAIVRA_COPY, "ghostagent", PairStyle::A),
     (ti4_engine_core_factions::cd_registry::sardakk::timing::TRO_COPY, "sardakkagent", PairStyle::A),
+    (ti4_engine_core_factions::silent::winnu::AGENT_COPY, "winnuagent", PairStyle::A),
+    (ti4_engine_core_factions::silent::naaz::AGENT_COPY, "naazagent", PairStyle::A),
 ];
 
 fn is_reaction_slot(slot: Slot) -> bool {
@@ -597,6 +616,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.activation = ti4_engine_core::kernel::ability::ActivationCodes { ghost_mech: r.code("ghost_mech"), saar_agent: r.code("saaragent"), sardakk_agent: r.code("sardakkagent"), edict: r.code("edict") };
         table.codes.turn = crate::live::turn::codes(r);
         table.codes.agenda = crate::live::agenda::codes(r);
+        table.codes.g2 = ti4_engine_core::kernel::ability::G2Codes { winnu_mech: r.code("winnu_mech"), muaat: r.code("muaat"), cabal_agent: r.code("cabalagent") };
         table.codes.silent = ti4_engine_core::kernel::ability::SilentCodes {
             lw2: r.code("lw2"),
             scavenge: r.code("scavenge"),
@@ -870,7 +890,7 @@ mod tests {
         use ti4_engine_core::state::Slice;
         let content = ti4_content::ContentStore::embedded();
         let _ = content;
-        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "mentak"), ("b", "sol")], [("a", "sol"), ("b", "mentak")], [("a", "sol"), ("b", "cabal")], [("a", "naalu"), ("b", "sol")], [("a", "ghost"), ("b", "sol")], [("a", "saar"), ("b", "sol")], [("a", "sol"), ("b", "saar")], [("a", "mahact"), ("b", "sol")], [("a", "sol"), ("b", "mahact")], [("a", "ghost"), ("b", "yssaril")], [("a", "yssaril"), ("b", "ghost")], [("a", "sardakk"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sardakk")]] {
+        for factions in [[("a", "sol"), ("b", "hacan")], [("a", "cabal"), ("b", "sol")], [("a", "hacan"), ("b", "cabal")], [("a", "nekro"), ("b", "hacan")], [("a", "hacan"), ("b", "nekro")], [("a", "sardakk"), ("b", "hacan")], [("a", "hacan"), ("b", "sardakk")], [("a", "empyrean"), ("b", "hacan")], [("a", "hacan"), ("b", "empyrean")], [("a", "mentak"), ("b", "hacan")], [("a", "hacan"), ("b", "mentak")], [("a", "yin"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sol")], [("a", "letnev"), ("b", "yssaril")], [("a", "argent"), ("b", "yssaril")], [("a", "yssaril"), ("b", "yin")], [("a", "yssaril"), ("b", "letnev")], [("a", "nomad"), ("b", "hacan")], [("a", "hacan"), ("b", "nomad")], [("a", "winnu"), ("b", "nekro")], [("a", "yin"), ("b", "winnu")], [("a", "mentak"), ("b", "sol")], [("a", "sol"), ("b", "mentak")], [("a", "sol"), ("b", "cabal")], [("a", "naalu"), ("b", "sol")], [("a", "ghost"), ("b", "sol")], [("a", "saar"), ("b", "sol")], [("a", "sol"), ("b", "saar")], [("a", "mahact"), ("b", "sol")], [("a", "sol"), ("b", "mahact")], [("a", "ghost"), ("b", "yssaril")], [("a", "yssaril"), ("b", "ghost")], [("a", "sardakk"), ("b", "yssaril")], [("a", "yssaril"), ("b", "sardakk")], [("a", "yssaril"), ("b", "winnu")], [("a", "winnu"), ("b", "yssaril")], [("a", "winnu"), ("b", "hacan")], [("a", "hacan"), ("b", "winnu")], [("a", "muaat"), ("b", "hacan")], [("a", "hacan"), ("b", "muaat")], [("a", "naaz"), ("b", "yssaril")], [("a", "yssaril"), ("b", "naaz")], [("a", "ghost"), ("b", "hacan")]] {
             let mut gs = crate::fixtures::seated_game(&factions, ti4_model::content_types::POK);
             gs.promissory_notes.clear();
             gs.promissory_faceup.clear();

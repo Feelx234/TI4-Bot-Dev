@@ -142,3 +142,145 @@ fn mitosis_asks_where_the_infantry_goes_at_the_start_of_the_status_phase_like_th
         assert_eq!(string.questions.len(), 1, "{answer}");
     }
 }
+
+// -- Winnu (lane G2): Reclamation, the Reclaimer, the marks, Hegemonic Trade Policy and Berekar Berekon -----------------------------------------
+
+/// `assert_same` looks at the source and the subtype of a question's context; the questions of these abilities agree on the whole context (optional, battle,
+/// invasion, target, trigger).
+fn assert_same_contexts(string: &super::turn_live_tests::Run, native: &super::turn_live_tests::Run) {
+    let contexts = |run: &super::turn_live_tests::Run| run.questions.iter().map(|q| serde_json::to_value(&q.context).expect("serializes")).collect::<Vec<_>>();
+    assert_eq!(contexts(string), contexts(native), "the contexts of the questions");
+}
+
+use ti4_engine_core::driver::turn::open_job;
+use ti4_engine_core::state::TurnJob;
+
+/// A table in the action phase where seat `a` (Winnu) took Mecatol Rex this turn: it controls the planet and the notes name it.
+fn winnu_took_mecatol() -> GameState {
+    let mut state = crate::fixtures::seated_dealt(&[("a", "winnu"), ("b", "hacan"), ("c", "sol")], ti4_model::content_types::DEFAULT);
+    state.phase = StringPhase::Action;
+    state.active = Some(pid("a"));
+    let mecatol = SystemId::new(crate::seating::MECATOL);
+    state.system_mut(&mecatol).set_control(PlanetId::new("mr"), pid("a"));
+    state.faction_marks.insert("private:a:winnu:gained".to_owned(), format!("{}|mr", crate::seating::MECATOL));
+    state.faction_marks.insert("private:a:winnu:tactical".to_owned(), "1".to_owned());
+    based(state)
+}
+
+/// The end of the action in both engines with scripted answers.
+fn finish_with(state: &GameState, ids: &[&str]) -> (super::turn_live_tests::Run, super::turn_live_tests::Run) {
+    let string = super::turn_live_tests::string_run(state, ids, |g| g.finish_action().expect("the action finishes"));
+    let native = super::turn_live_tests::native_run(state, ti4_engine_core::driver::session::Arm::Ask, Some(TurnJob::Finish), ids);
+    (string, native)
+}
+
+#[test]
+fn reclamation_places_a_pds_and_a_space_dock_on_mecatol_rex_like_the_string() {
+    let _ = open_job;
+    for answer in ["ability:winnu:reclamation:ACTION_COMPLETED:after", "decline"] {
+        let state = winnu_took_mecatol();
+        let (string, native) = finish_with(&state, &[answer]);
+        assert_same(&string, &native);
+        assert_eq!(string.questions.len(), 1, "{answer}");
+        let placed = answer != "decline";
+        assert_eq!(string.state["board"][crate::seating::MECATOL]["planet_units"].get("mr").is_some(), placed, "{answer}: {}", string.state["board"][crate::seating::MECATOL]);
+    }
+}
+
+#[test]
+fn reclamation_needs_a_pds_and_a_space_dock_in_the_box_and_room_on_the_planet_like_the_string() {
+    // A planet that already holds a space dock of the seat takes no second one: both structures or nothing, so no window opens.
+    let mut state = winnu_took_mecatol();
+    crate::fixtures::put_on_planet(&mut state, &SystemId::new(crate::seating::MECATOL), &PlanetId::new("mr"), "spacedock", &pid("a"), 1);
+    let (string, native) = finish_with(&state, &[]);
+    assert_same(&string, &native);
+    assert!(string.questions.is_empty(), "{:?}", string.questions.iter().map(|q| q.prompt.clone()).collect::<Vec<_>>());
+}
+
+#[test]
+fn the_turn_marks_of_the_winnu_are_cleared_at_the_next_turn_like_the_string() {
+    let state = winnu_took_mecatol();
+    let (string, native) = prelude_both(&state, &[]);
+    assert_same(&string, &native);
+    assert!(string.state["faction_marks"].get("private:a:winnu:gained").is_none(), "{}", string.state["faction_marks"]);
+}
+
+/// [`finish_with`] where every question after the scripted answers takes its first option (and the native run is given the same answers).
+fn finish_first(state: &GameState, ids: &[&str]) -> (super::turn_live_tests::Run, super::turn_live_tests::Run) {
+    let (string, all) = super::turn_live_tests::string_run_first(state, ids, |g| g.finish_action().expect("the action finishes"));
+    let all: Vec<&str> = all.iter().map(String::as_str).collect();
+    let native = super::turn_live_tests::native_run(state, ti4_engine_core::driver::session::Arm::Ask, Some(TurnJob::Finish), &all);
+    (string, native)
+}
+
+#[test]
+fn the_reclaimer_places_one_structure_on_a_planet_it_stands_on_like_the_string() {
+    for (answers, owns_mech) in [(vec!["unit:winnu:winnu_mech:ACTION_COMPLETED:after", "spacedock|18|mr"], true), (vec!["unit:winnu:winnu_mech:ACTION_COMPLETED:after", "pds|18|mr"], true), (vec!["decline"], true), (vec![], false)] {
+        let mut state = winnu_took_mecatol();
+        if owns_mech {
+            crate::fixtures::put_on_planet(&mut state, &SystemId::new(crate::seating::MECATOL), &PlanetId::new("mr"), "winnu_mech", &pid("a"), 1);
+        }
+        let (string, native) = finish_first(&state, &answers);
+        assert_same(&string, &native);
+        assert_same_contexts(&string, &native);
+        assert!(!string.questions.is_empty());
+    }
+}
+
+// -- Naaz (lane G2): Garv and Gunn, Ssruu's copy and Dart and Tai ----------------------------------------------------------------------
+
+/// An explorable planet outside every home system, put under `who`'s control (the first of `non_home_planets`).
+fn take_explorable(state: &mut GameState, who: &str) -> PlanetId {
+    let content = ContentStore::embedded();
+    let catalogue = ti4_content::galaxy::all_planets(content, ti4_model::content_types::DEFAULT);
+    let planet = crate::fixtures::non_home_planets(200)
+        .into_iter()
+        .map(PlanetId::new)
+        .find(|p| !crate::planets::traits_now(state, content, ti4_model::content_types::DEFAULT, p).is_empty() && catalogue.get(p.as_str()).and_then(ti4_content::Planet::system_id).is_some())
+        .expect("an explorable planet");
+    let system = SystemId::new(catalogue[planet.as_str()].system_id().unwrap());
+    state.system_mut(&system).planet_control.insert(planet.clone(), pid(who));
+    planet
+}
+
+/// The end of seat `a`'s turn in both engines (every question after the scripted ones takes its first option, the native run gets the same answers).
+fn end_first(state: &GameState, ids: &[&str]) -> (super::turn_live_tests::Run, super::turn_live_tests::Run) {
+    let (string, all) = super::turn_live_tests::string_run_first(state, ids, |g| g.advance_turn().expect("the turn passes"));
+    let all: Vec<&str> = all.iter().map(String::as_str).collect();
+    let native = super::turn_live_tests::native_run(state, ti4_engine_core::driver::session::Arm::Ask, Some(TurnJob::End), &all);
+    (string, native)
+}
+
+#[test]
+fn garv_and_gunn_explore_a_planet_of_the_player_whose_turn_ends_like_the_string() {
+    for answers in [vec!["leader:naaz:naazagent:TURN_PASSED:after"], vec!["decline"]] {
+        let mut state = action_table(&[("a", "hacan"), ("b", "naaz"), ("c", "sol")]);
+        let planet = take_explorable(&mut state, "a");
+        let state = based(state);
+        let mut answers: Vec<String> = answers.iter().map(|s| (*s).to_owned()).collect();
+        if answers[0] != "decline" {
+            answers.push(planet.to_string());
+        }
+        let answers: Vec<&str> = answers.iter().map(String::as_str).collect();
+        let (string, native) = end_first(&state, &answers);
+        assert_same(&string, &native);
+        assert_same_contexts(&string, &native);
+        let explored = string.state["exploration_log"].as_array().map_or(0, Vec::len);
+        assert_eq!(explored, usize::from(answers[0] != "decline"), "{answers:?}");
+    }
+}
+
+#[test]
+fn ssruus_copy_of_garv_and_gunn_names_the_planet_by_its_name_like_the_string() {
+    let mut state = action_table(&[("a", "hacan"), ("b", "naaz"), ("c", "yssaril")]);
+    let planet = take_explorable(&mut state, "a");
+    // The Ssruu seat holds the card readied, the Naaz agent is exhausted (a lent agent may be exhausted or readied).
+    state.player_mut(&pid("c")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("yssarilagent"), ti4_model::state::LeaderStatus::Readied);
+    state.player_mut(&pid("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("naazagent"), ti4_model::state::LeaderStatus::Exhausted);
+    let state = based(state);
+    let planet = planet.to_string();
+    let (string, native) = end_first(&state, &["leader:naaz:b:yssarilagent:naazagent:TURN_PASSED:after", &planet]);
+    assert_same(&string, &native);
+    assert_same_contexts(&string, &native);
+    assert_eq!(string.state["exploration_log"].as_array().map_or(0, Vec::len), 1);
+}
