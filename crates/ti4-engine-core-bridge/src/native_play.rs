@@ -422,7 +422,10 @@ impl NativeGame {
         let mut bot = Bot { seed: self.seed, seats: &self.seats, index: self.decided, asked: Vec::new() };
         let from = self.core.ledger.events.len();
         // 1. The reconcile hooks every step starts with (not the second half of a glued pair: the string's step runs on from the prelude).
-        for _ in 0..(if self.after_glue { 0 } else { 8 }) {  // mutants:skip (the reconcile job is one window; the bound is defensive)
+        for _ in 0..8 {  // mutants:skip (the reconcile job is one window; the bound is defensive)
+            if self.after_glue {
+                break;
+            }
             let mut lone = live::LoneCard(&mut bot);
             match live::live_reconcile(&mut self.core, &lcx, &mut lone) {
                 Ok(step) if step.finished => break,  // mutants:skip (the reconcile job is one window; the loop ends on its first call)
