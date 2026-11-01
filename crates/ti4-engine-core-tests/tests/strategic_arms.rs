@@ -618,6 +618,35 @@ fn a_winnu_primary_player_lets_a_follower_return_acquiescence_instead_of_a_token
     assert_eq!(s.cards().promissory.get(&note), Some(&Seat(0)), "the note went home");
 }
 
+/// A waiver the core pays is taken although another waiver on the same question is one it does not carry (Enervate of an Obsidian follower is a
+/// waiver of the primary-instead kind: `Unported`); the gap is for the waiver TAKEN, not for any waiver offered (found by the mutation run of lane N).
+#[test]
+fn a_ported_waiver_is_taken_although_another_offered_one_is_not_carried() {
+    use ti4_engine_core::containers::SeatSet;
+    use ti4_engine_core::state::{NoteKey, Plot};
+    let (mut s, k) = Scenario::new(&[Faction::TheWinnu, Faction::TheObsidian]).phase(Phase::Action).active(Some(0)).build();
+    let note = NoteKey { note: ti4_engine_core::generated::PromissoryNote::Acquiescence, faction: Faction::TheWinnu };
+    s.cards_mut().promissory.edit().insert(note, Seat(1));
+    let mut tokens = SeatSet::EMPTY;
+    tokens.insert(Seat(0));
+    s.players_mut().edit(1).cards.plots.push(Plot { card: Some(ti4_engine_core::generated::PlotCard::Enervate), tokens, faceup: true });
+    s.players_mut().by_seat_mut(Seat(1)).unwrap().econ.strategic_tokens = 0;
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::Trade);
+    s.pending_mut().open(OpenWindow::StrategySecondary(secondary_of(Seat(0), StrategyCard::Trade, &[Seat(1)], true)));
+    let e = env(&k);
+    let q = first_asked(&s, &e);
+    let waivers: Vec<_> = q.opts.iter().filter_map(|o| if let Opt::Strategy(SOpt::WaiveBy(f, c)) = o { Some((*f, *c)) } else { None }).collect();
+    assert_eq!(waivers.len(), 2, "both waivers are offered: {waivers:?}");
+    let enervate = *q.opts.iter().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(Faction::TheObsidian, _)))).expect("Enervate is offered");
+    // The one the core does not carry stops the step when it is the one taken...
+    let held = s.clone();
+    assert!(advance_secondary(&mut s, &e, Some(Pick::Opt(enervate))).is_err());
+    assert_eq!(s, held);
+    // ...and the Acquiescence is paid although Enervate stands beside it.
+    advance_secondary(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::WaiveBy(Faction::TheWinnu, 0))))).expect("Acquiescence is paid");
+    assert_eq!(s.cards().promissory.get(&note), Some(&Seat(0)), "the note went home");
+}
+
 // -- Xxcha's Peace Accords and the Ssruu copy of Doctor Sucaban -----------------------------------------------------------------------------
 
 /// Xxcha at seat 1 controls and has exhausted `pa`; `pb` stands in the next system, uncontrolled (and controlled by seat 0 when `taken`).
