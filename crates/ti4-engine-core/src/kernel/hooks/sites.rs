@@ -2,7 +2,7 @@
 //! ...), and the small result types. Copy, no text: seats, generated ids and counts.
 
 use crate::containers::SmallList;
-use crate::generated::{Faction, Planet, StrategyCard, System, TechType, Unit};
+use crate::generated::{Planet, StrategyCard, System, TechType, Unit};
 use crate::ids::Seat;
 use crate::kernel::AbilityDef;
 use crate::state::Piece;

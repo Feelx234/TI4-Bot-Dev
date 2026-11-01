@@ -42,7 +42,10 @@ fn scenario() -> Scenario {
     Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_ring(7)
 }
 
-fn kernel(extra: &[fn(&CoreState, &Kernel, Seat, Technology) -> Option<ResearchWaiver>]) -> impl FnOnce(Kernel) -> Kernel + '_ {
+/// A module's offer of a waiver for a technology.
+type Offer = fn(&CoreState, &Kernel, Seat, Technology) -> Option<ResearchWaiver>;
+
+fn kernel(extra: &[Offer]) -> impl FnOnce(Kernel) -> Kernel + '_ {
     move |mut k| {
         k.hooks.strategy.research_waiver_offer.extend_from_slice(extra);
         k.hooks.strategy.research_waiver_paid.push(paid);
@@ -50,7 +53,7 @@ fn kernel(extra: &[fn(&CoreState, &Kernel, Seat, Technology) -> Option<ResearchW
     }
 }
 
-fn rig(window: Research, extra: &[fn(&CoreState, &Kernel, Seat, Technology) -> Option<ResearchWaiver>], goods: i16) -> Rig<Research> {
+fn rig(window: Research, extra: &[Offer], goods: i16) -> Rig<Research> {
     let (s, k) = scenario().goods(0, goods).build();
     Rig::from_parts(s, kernel(extra)(k), window)
 }

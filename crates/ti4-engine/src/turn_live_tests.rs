@@ -574,25 +574,6 @@ fn a_retained_turn_skips_the_closing_menu_like_the_string() {
     assert!(string.events.iter().any(|e| e == "TURN_RETAINED"), "{:?}", string.events);
 }
 
-/// What the native job says where the core stops: the gap (the stop), and whether the position is untouched; scripted answers, the job optional.
-fn native_stop_with(state: &GameState, arm: Arm, job: Option<TurnJob>, ids: &[&str]) -> (crate::live::Stop, bool) {
-    let mut cx = Ctx::of(state).expect("a table the codecs carry");
-    let render = Render::new(cx.owners.ids().to_vec());
-    let game = super::Game::with_table(state.clone(), ContentStore::embedded(), Table::with_default(Box::new(crate::choice::FirstOption)));
-    let positions = game.rng_positions();
-    let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
-    let mut core = Codec::load(&mut cx, state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("loads");
-    let kernel = live::kernel::kernel_for(DEFAULT);
-    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
-    let lcx = live::Cx::new(&render, &env);
-    if let Some(job) = job {
-        open_job(&mut core, job);
-    }
-    let held = core.clone();
-    let stop = live::live_step(&mut core, arm, &lcx, &mut Scripted::new(ids.iter().copied())).expect_err("the job stops");
-    (stop, core == held)
-}
-
 // -- the reconcile hooks and the rest of the end of a turn ---------------------------------------------------------------------
 
 /// One string step of a position whose turn is prepared (the arm is `Ask`, cut off at the menu) against the native reconcile alone.
