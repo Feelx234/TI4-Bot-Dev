@@ -1237,7 +1237,7 @@ fn flayesh_chosen_from_the_menu_devours_the_planet_and_gains_goods_and_a_technol
     assert_eq!(ti4_engine_core::query::board::planet_units(&s, planet).iter().filter(|p| p.owner() == Seat(1)).count(), 0, "the other seats' units are gone");
     assert_eq!(typed(&s, EventKind::GroundForceDestroyed), 2, "each ground force that fell is announced");
     let p = s.players().by_seat(Seat(0)).unwrap();
-    assert!(p.econ.trade_goods > 0, "the planet's value is gained as trade goods");
+    assert_eq!(i32::from(p.econ.trade_goods), i32::from(planet.data().resources) + i32::from(planet.data().influence), "the planet's resources and influence are gained as trade goods");
     assert_eq!(p.tech.owned.len(), owned + 1, "one technology gained");
     assert_eq!(status(&s, 0, Leader::UNITDSGNFLAYESH), Some(ti4_engine_core::state::LeaderStatus::Purged));
     assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));

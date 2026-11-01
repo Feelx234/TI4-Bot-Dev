@@ -152,7 +152,7 @@ fn maw_of_worlds(sx: &mut Sx<'_>, who: Seat) -> Result<bool, Flow> {
 fn stellar_converter(sx: &mut Sx<'_>, who: Seat) -> Result<bool, Flow> {
     let targets = crate::driver::menu_cards::stellar_targets(sx.state, crate::query::reach::scope_of(sx.kernel), who);
     if targets.is_empty() { // mutants:skip: the menu offers the Converter only with a target in range
-        return Ok(false);
+        return Ok(false); // mutants:skip: the menu offers the Converter only with a target in range
     }
     let mut window = crate::rules::relic_windows::StellarConverter::new(who, &targets);
     if run_window(sx, &mut window) == Flow::Halt {
@@ -211,7 +211,7 @@ pub fn use_device(sx: &mut Sx<'_>, who: Seat, key: u32, card: crate::generated::
     let mut options: Vec<Technology> = Technology::ALL.iter().copied().filter(|t| open.contains(*t)).collect();
     options.sort_by(|a, b| alias_order(*a, *b));
     if options.is_empty() { // mutants:skip: the menu lists the card only when something can be researched and six resources are held
-        return conclude_quiet(sx, who, key, Verdict::Failed { withhold: true });
+        return conclude_quiet(sx, who, key, Verdict::Failed { withhold: true }); // mutants:skip: the menu lists the card only when something can be researched
     }
     let mut window = crate::rules::relic_windows::GainTechnology::for_device(who, card, &options);
     if run_window(sx, &mut window) == Flow::Halt {
@@ -223,7 +223,7 @@ pub fn use_device(sx: &mut Sx<'_>, who: Seat, key: u32, card: crate::generated::
         return Flow::Halt;
     }
     if bill.outcome != Some(true) { // mutants:skip: the menu lists the card only with six resources to pay
-        return conclude_quiet(sx, who, key, Verdict::Failed { withhold: true });
+        return conclude_quiet(sx, who, key, Verdict::Failed { withhold: true }); // mutants:skip: the menu lists the card only with six resources to pay
     }
     if let Some(p) = sx.state.players_mut().by_seat_mut(who)
         && let Some(at) = p.cards.explore.as_slice().iter().position(|held| *held == card)

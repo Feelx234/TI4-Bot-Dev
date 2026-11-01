@@ -452,19 +452,51 @@ fn a_bombardment_without_the_commander_is_not_walked_and_the_labels_are_the_rend
     assert_eq!(labels, vec![Code(777), Code(777)]);
 }
 
-/// The planet the invader holds already is passed over (49.5c) and the next planet of the chain is still taken: the walk goes one planet on, not two.
+/// A closure that commits to `wanted` in the order given (the first commit question is answered with the first planet, and so on; any other question with
+/// its first option).
+fn committing(mut wanted: Vec<Planet>) -> impl FnMut(&Choice) -> usize {
+    move |c: &Choice| {
+        let want = wanted.first().copied();
+        let at = c.opts.as_slice().iter().position(|o| matches!(o, Opt::Invasion(IOpt::Commit { planet, .. }) if Some(*planet) == want));
+        if at.is_some() {
+            wanted.remove(0);
+        }
+        at.unwrap_or(0)
+    }
+}
+
+/// A planet whose attackers all died is passed over and the next planet of the chain is still taken (the walk goes one planet on, not two); the one
+/// taken is announced and, nobody having held it, explored.
 #[test]
-fn a_planet_the_invader_holds_already_is_passed_over_and_the_next_one_is_taken() {
+fn a_planet_the_invader_lost_the_fight_for_is_passed_over_and_the_next_one_is_taken() {
     covers!("driver::windows::invasion::InvasionMachine");
     let (p1, p2) = planets();
-    let (mut core, k) = arena().unit(sys(), None, Unit::CarrierI, 0, 1).unit(sys(), Some(p1), Unit::InfantryI, 0, 1).control(p1, 0).build();
-    carry(&mut core, 2);
+    let (mut core, k) = arena().unit(sys(), None, Unit::CarrierI, 0, 1).unit(sys(), Some(p1), Unit::InfantryI, 1, 12).control(p1, 1).build();
+    carry(&mut core, 8);
+    for deck in [ExploreType::Cultural, ExploreType::Hazardous, ExploreType::Industrial] {
+        stack_deck(&mut core, deck, &[Explore::CulturalRelicFragment1, Explore::HazardousRelicFragment1, Explore::IndustrialRelicFragment1]);
+    }
     open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
-    let mut pick = move |c: &Choice| -> usize { c.opts.as_slice().iter().position(|o| matches!(o, Opt::Invasion(IOpt::Commit { planet, .. }) if *planet == p2)).unwrap_or(0) };
     let env = exploring_env(&k, 1);
-    let (_, end) = play(&mut core, &env, &mut pick);
+    let (_, end) = play(&mut core, &env, &mut committing(vec![p1, p2, p2, p2, p2, p2, p2, p2]));
     assert!(end.is_ok(), "{end:?}");
+    assert_eq!(core.board().planet(p1).control, Some(Seat(1)), "the lone attacker lost");
     assert_eq!(core.board().planet(p2).control, Some(Seat(0)), "the second planet is taken after the first was passed over");
+    assert_eq!(core.explore().log.iter().map(|r| r.planet).collect::<Vec<_>>(), vec![Some(p2)], "and explored once");
+}
+
+/// Two planets conquered one after the other: the chain goes on to the second.
+#[test]
+fn two_planets_conquered_in_one_invasion_are_both_taken() {
+    covers!("driver::windows::invasion::InvasionMachine");
+    let (p1, p2) = planets();
+    let (mut core, k) = arena().unit(sys(), None, Unit::CarrierI, 0, 1).unit(sys(), Some(p1), Unit::InfantryI, 1, 1).control(p1, 1).unit(sys(), Some(p2), Unit::InfantryI, 1, 1).control(p2, 1).build();
+    carry(&mut core, 8);
+    open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
+    let env = exploring_env(&k, 3);
+    let (_, end) = play(&mut core, &env, &mut committing(vec![p1, p2, p1, p2, p1, p2, p1, p2]));
+    assert!(end.is_ok(), "{end:?}");
+    assert_eq!((core.board().planet(p1).control, core.board().planet(p2).control), (Some(Seat(0)), Some(Seat(0))));
 }
 
 /// A planet taken from the holder whose home system it is leaves the chain open for the next planet: both are taken.
@@ -489,4 +521,6 @@ fn losing_a_home_planet_does_not_end_the_chain_of_control() {
     let (_, end) = play(&mut core, &env, &mut pick);
     assert!(end.is_ok(), "{end:?}");
     assert_eq!((core.board().planet(p1).control, core.board().planet(p2).control), (Some(Seat(0)), Some(Seat(0))), "both home-system planets change hands");
+    let lost = core.players().by_seat(Seat(1)).unwrap().misc.event_feats.as_slice().iter().filter(|(feat, _)| *feat == ti4_engine_core::state::Feat::LostAHomePlanet).count();
+    assert_eq!(lost, 2, "each home planet lost is a feat of the holder, noted against its own occurrence");
 }

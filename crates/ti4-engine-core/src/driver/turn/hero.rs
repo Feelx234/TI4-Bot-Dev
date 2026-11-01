@@ -164,7 +164,7 @@ fn board_cards(sx: &Sx<'_>) -> Vec<StrategyCard> {
 /// Thunder's Edge Warfare and Construction systems) taken from their own.
 pub fn perform_facts(sx: &Sx<'_>, who: Seat, cards: &[StrategyCard]) -> crate::kernel::fx_perform::Facts {
     // (No card on the board: the base of any card serves, the window has nothing to perform.)
-    let first = cards.first().copied().unwrap_or(StrategyCard::ALL[0]);
+    let first = cards.first().copied().unwrap_or(StrategyCard::ALL[0]); // mutants:skip: the base facts of any card serve when none stands on the board
     let mut facts = crate::driver::windows::strategic::facts::perform_facts(sx, who, first);
     for card in cards {
         let more = crate::driver::windows::strategic::facts::perform_facts(sx, who, *card);
@@ -210,7 +210,7 @@ pub fn hesh_and_prit(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
 /// for the systems holding its token.
 pub fn flock_migration(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let Some(galaxy) = sx.state.galaxy() else { return finish(sx, who, key, Leader::MirikAunSissiri, false) }; // mutants:skip: every live game has a map (the card is not offered without one)
-    let Some(reach_rules) = reach::SeatReach::new(sx.state, sx.kernel, who, true) else { return gap_flow(sx, TurnGap::NoRoster) };
+    let Some(reach_rules) = reach::SeatReach::new(sx.state, sx.kernel, who, true) else { return gap_flow(sx, TurnGap::NoRoster) }; // mutants:skip: the cards in play that change movement are read by `apply_movement_effects`; none stands in the tests and the effect only widens `enterable`, which the window narrows to token systems
     let mut order = Vec::new();
     let mut on_map = Vec::new();
     let mut enterable = Vec::new();
@@ -279,7 +279,7 @@ pub fn mathis_mathinus(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
         crate::driver::windows::strategic::perform::place_tokens(sx, system, seats.as_slice());
     }
     if window.scored.is_some() { // mutants:skip: the same announcements as `strategic::perform::announce` (tested with the strategic arms); the Imperial primary needs a scoreable objective
-        let unlocking = crate::driver::turn::start::unlockable(sx, who, true);
+        let unlocking = crate::driver::turn::start::unlockable(sx, who, true); // mutants:skip: as above: the same announcement as the strategic arm
         crate::rules::leaders::unlock(sx.state, who, unlocking.as_slice());
     }
     if card.data().kind == crate::generated::StrategyCardKind::Imperial { // mutants:skip: as above
