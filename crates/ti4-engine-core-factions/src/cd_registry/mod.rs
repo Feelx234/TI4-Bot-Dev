@@ -275,5 +275,9 @@ pub fn register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable
     titans::offer::register_abilities(t);
     sardakk::timing::register_abilities(t);
     yssaril::ssruu::register_abilities(t);
+}
+
+/// Yssaril's So Ata clear: the Yssaril module is the last of the string's order, so it comes after the Winnu's rules of `silent` in the `ACTION_COMPLETED` bucket.
+pub fn register_last_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
     yssaril::timing::register_abilities(t);
 }

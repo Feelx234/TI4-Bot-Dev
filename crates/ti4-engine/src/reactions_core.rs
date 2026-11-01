@@ -292,6 +292,7 @@ pub fn table() -> AbilityTable {
             ti4_engine_core_factions::cd_registry::register_abilities(&mut t);
             ti4_engine_core_factions::activation::register(&mut t);
             ti4_engine_core_factions::silent::register_abilities(&mut t);
+            ti4_engine_core_factions::cd_registry::register_last_abilities(&mut t);
             ti4_engine_core::rules::reactions::register_after_factions(&mut t);
             ti4_engine_core_factions::cards::register(&mut t);
             // The links to the areas whose windows an action card runs as children: a play window that follows nested
