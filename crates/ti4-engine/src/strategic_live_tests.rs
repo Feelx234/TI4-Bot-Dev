@@ -276,6 +276,7 @@ fn a_technology_secondary_the_pool_of_war_machine_alone_affords_runs_like_the_st
     }
     let (string, native) = both(&based(state), "pok7technology", &["yes"]);
     assert_same(&string, &native);
+    assert!(string.questions.iter().all(|q| q.player.to_string() != "b"), "the seat with the bonus alone is not asked");
     assert!(has(&string, "STRATEGIC_ACTION_COMPLETE"), "{:?}", string.events);
 }
 
