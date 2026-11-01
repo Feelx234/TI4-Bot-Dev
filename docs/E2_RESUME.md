@@ -76,7 +76,7 @@ of the lane.
 ## 3. Join points with the other lanes
 
 * **H4 (Doctor Sucaban, `core-h4-leftovers`)**: the Technology primary stopped only at `research_asks_more` (a readied Jol-Nar agent at the table and infantry to trade). H4 ported it in
-  the core Research window. To MEASURE this tree I cherry-picked H4's two Sucaban commits as one commit (`8b7bd42f8`): the hunks are H4's, byte for byte, so the merge of
+  the core Research window. To MEASURE this tree I cherry-picked H4's two Sucaban commits as one commit (`e6330f664`): the hunks are H4's, byte for byte, so the merge of
   `core-h4-leftovers` is clean there; one test conflict (`strategic_arms.rs`) was resolved by keeping the Titans test of this base and letting the two `research_asks_more`
   tests H4 deleted stay deleted. The commit can be dropped at integration if H4 is merged first.
 * **G5 (the research waiver questions, `core-g5-abilities`)**: not imported (it conflicts with H4 in `strategy_cards.rs`, `choice/strategy.rs`, `render/strategy.rs`, as its note says). The two
