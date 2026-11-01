@@ -96,8 +96,9 @@ pub struct HomeFacts {
 
 /// How many systems the free tactical action of the Thunder's Edge Warfare primary can name (the map, the systems in play beside it).
 pub const FREE_SYSTEMS: usize = 96;
-/// How many systems the production of the Thunder's Edge Construction primary can name.
-pub const TE_USES: usize = 12;
+/// How many systems the production of the Thunder's Edge Construction primary can name: every system the string holds an entry for, when a bonus
+/// to PRODUCTION is the same everywhere (War Machine), so a late game's board.
+pub const TE_USES: usize = 64;
 
 /// The systems the free tactical action of the Thunder's Edge Warfare primary may be played in ("any system": the printed map and every
 /// system in play beside it), in the order the string offers them, and the interned source `te6warfare` of the question

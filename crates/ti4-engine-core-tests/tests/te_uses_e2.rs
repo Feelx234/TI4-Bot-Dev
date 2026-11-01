@@ -27,3 +27,19 @@ fn a_bonus_that_is_the_same_in_every_system_lists_only_the_systems_the_string_ho
     assert_eq!(uses.uses().count(), touched.len(), "one use per system the string holds an entry for");
     assert!(uses.uses().all(|u| touched.contains(&u.produce.system)));
 }
+
+#[test]
+fn a_late_board_lists_every_touched_system_even_beyond_a_dozen() {
+    covers!("driver::windows::strategic::facts::te_uses");
+    let p = plain_systems();
+    let roster: &'static ti4_engine_core::query::tech::UnitRoster = Box::leak(Box::default());
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).map_ring(19).build();
+    let seq = s.meta().activation_seq;
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().round_marks.push(RoundKind::WarMachine, seq);
+    for system in &p[..19] {
+        s.board_mut().sys_mut(*system).flags.set(SysFlags::TOUCHED, true);
+    }
+    let facts = facts_at(&s, &k, &Default::default(), Some(roster), Seat(0), StrategyCard::ConstructionThundersEdge);
+    let uses = facts.te_uses.expect("nineteen systems fit: the string offers all of them");
+    assert_eq!(uses.uses().count(), 19);
+}
