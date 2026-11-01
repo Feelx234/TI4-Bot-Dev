@@ -252,6 +252,11 @@ fn the_xxcha_with_integrated_economy_produces_on_the_annexed_planet_before_explo
     assert_same(&string, &native);
 }
 
+/// The resources a planet prints.
+fn resources_of(planet: &str) -> i64 {
+    ti4_content::galaxy::planet(ContentStore::embedded(), planet, DEFAULT).map_or(0, |p| p.resources())
+}
+
 /// The Xxcha with Integrated Economy annexes a planet worth exactly `worth` resources (the budget of the production) and explores it, like the string.
 /// Returns whether the hub has such a planet with a trait.
 fn integrated_economy_on_a_planet_worth(worth: i64) -> bool {
