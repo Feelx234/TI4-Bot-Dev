@@ -190,6 +190,7 @@ impl InvasionMachine {
                     rerolled: 0,
                     deltas: SortedMap::default(),
                     unit_types,
+                    kind: Some(d.unit),
                 });
             }
             let before: Vec<Piece> = sx.state.board().planet(entry.planet).units.iter().copied().collect();

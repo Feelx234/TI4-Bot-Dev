@@ -147,9 +147,6 @@ pub enum TacticalGap {
     CannonHits,
     /// The Crown of Emphidia or Dark Energy Tap explores at the end of the action: no native planet exploration window.
     ExplorationAtTheEnd,
-    /// Thunder's Edge Warfare's follower window, or a hero's strategy primary, waits for the end of the free tactical action.
-    WarfareSecondary,
-    LeaderStrategy,
     /// The map slice holds no galaxy.
     NoGalaxy,
 }

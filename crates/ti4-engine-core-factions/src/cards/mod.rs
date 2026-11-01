@@ -612,6 +612,7 @@ mod tests {
             rerolled: 0,
             deltas: ti4_engine_core::containers::SortedMap::default(),
             unit_types: ti4_engine_core::containers::SortedMap::default(),
+            kind: None,
         };
         let mut first = entry(1, 9, &[3, 4]);
         first.deltas.insert(1, 1);

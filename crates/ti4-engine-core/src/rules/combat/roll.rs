@@ -262,6 +262,7 @@ impl RollStep {
                 rerolled: 0,
                 deltas: SortedMap::new(),
                 unit_types: SortedMap::new(),
+                kind: None,
             });
             meta.push(Meta { tag, shown: name.shown, types });
         }

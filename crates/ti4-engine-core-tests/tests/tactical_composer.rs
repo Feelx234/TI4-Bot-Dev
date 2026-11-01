@@ -564,3 +564,66 @@ fn the_routes_of_a_ship_are_the_default_first_at_most_five_and_follow_the_boosts
     let ignoring = ship_routes(&core, &k, Seat(0), origin, 0, Unit::CruiserII, (false, false));
     assert!(ignoring.iter().all(|r| r.rifts.is_empty()), "{ignoring:?}");
 }
+
+#[test]
+fn thunders_edge_warfares_free_action_begins_inside_its_job_in_the_strings_order_and_its_tail_opens_the_job_after_it() {
+    covers!("driver::windows::tactical::begin_free");
+    covers!("driver::windows::strategic::begin::run_begin");
+    use ti4_engine_core::choice::strategy::Opt as SOpt;
+    use ti4_engine_core::driver::windows::strategic::begin::begin_strategic;
+    let (sc, tiles) = row();
+    let (mut core, k) = sc.phase(Phase::Action).build();
+    core.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::WarfareThundersEdge);
+    let env = env(&k, 5);
+    let events = |c: &CoreState| -> Vec<PlainKind> { c.ledger().events.iter().filter_map(|e| e.plain().map(|p| p.kind)).collect() };
+    // The primary asks the redistribution (the first split) and the system of the free action (D); the call that takes the last answer
+    // activates D (no token), says `STRATEGIC_ACTION_BEGAN` after it, and leaves the action at its movement step with the follower window held.
+    let (mut live, _) = begin_strategic(&mut core, &env, StrategyCard::WarfareThundersEdge).unwrap();
+    let mut asked = 0;
+    while let Live::Asks(q) = live {
+        asked += 1;
+        let answer = match q.choice.ask {
+            Ask::Strategy(ti4_engine_core::choice::strategy::Ask::TeWarfareTactical) => pick(&q.choice, |o| *o == Opt::Strategy(SOpt::System(tiles[3]))),
+            _ => Pick::Opt(q.choice.opts.as_slice()[0]),
+        };
+        live = ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut core, &env, Some(answer)).unwrap().0;
+    }
+    assert!(asked >= 1, "the system of the free action is asked");
+    assert_eq!(&events(&core)[..3], [PlainKind::SystemActivated, PlainKind::FreeTacticalAction, PlainKind::StrategicActionBegan], "the string activates, then says the action began");
+    assert_eq!(tactical(&core).map(|t| t.stage), Some(TStage::Moving));
+    assert_eq!(core.meta().active_system, Some(tiles[3]));
+    assert!(!core.board().sys(tiles[3]).cmd.contains(Seat(0)), "no token placed");
+    assert!(core.pending().window(WindowKind::StrategySecondaryAfterTactical).is_some(), "the follower window waits for the end of the action");
+    // Finish the movement step; the aftermath is the aftermath arm's.
+    let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!("the movement step is asked") };
+    let (live, _) = advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::DoneMoving)))).unwrap();
+    assert_eq!(live, Live::Done);
+    core.pending_mut().close(WindowKind::Aftermath);
+    let (live, _) = advance_tactical(&mut core, &env, None).unwrap();
+    // The tail ends the action and opens the strategic action's job after it instead of stopping with a gap.
+    assert_eq!(live, Live::Done);
+    assert!(tactical(&core).is_none(), "the action left the stack");
+    assert_eq!(ti4_engine_core::driver::turn::open_job_of(&core), Some(ti4_engine_core::state::TurnJob::AfterTactical));
+    assert_eq!(events(&core).last(), Some(&PlainKind::TacticalActionComplete));
+}
+
+#[test]
+fn the_tail_of_a_heros_free_action_opens_the_job_after_it_too() {
+    covers!("driver::windows::tactical::tail");
+    use ti4_engine_core::state::{Tactical, TurnJob};
+    let (sc, _) = row();
+    let (mut core, k) = sc.build();
+    let e1 = env(&k, 5);
+    core.pending_mut().open(OpenWindow::LeaderStrategy { player: Seat(0), leader: Leader::MathisMathinus, card: StrategyCard::Trade });
+    TacticalAction::new(Tactical { player: Seat(0), stage: TStage::Tail, notes_at_start: ti4_engine_core::driver::windows::tactical::note_holdings(&core) }).to_pending(&mut core);
+    let (live, _) = advance_tactical(&mut core, &e1, None).unwrap();
+    assert_eq!(live, Live::Done);
+    assert_eq!(ti4_engine_core::driver::turn::open_job_of(&core), Some(TurnJob::AfterTactical));
+    // Nobody waits for the end of this action: the tail opens nothing (the loop finishes the action).
+    let (sc, _) = row();
+    let (mut plain, k) = sc.build();
+    let env2 = env(&k, 5);
+    TacticalAction::new(Tactical { player: Seat(0), stage: TStage::Tail, notes_at_start: ti4_engine_core::driver::windows::tactical::note_holdings(&plain) }).to_pending(&mut plain);
+    assert_eq!(advance_tactical(&mut plain, &env2, None).unwrap().0, Live::Done);
+    assert_eq!(ti4_engine_core::driver::turn::open_job_of(&plain), None);
+}

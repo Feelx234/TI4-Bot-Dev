@@ -154,8 +154,9 @@ pub fn free_systems(core: &CoreState, source: crate::state::Code) -> Option<Free
     let galaxy = core.loaded.has(crate::state::Slice::Map).then(|| core.galaxy()).flatten();
     if let (Some(galaxy), crate::state::Phase::Action) = (galaxy, core.meta().phase) {
         ids = galaxy.placed_in_hex_order().filter(|s| !galaxy.is_hyperlane(*s)).collect();
-        for (system, _) in core.board().systems() {
-            if !galaxy.is_hyperlane(system) && !ids.contains(&system) {
+        // (Every system with an entry in the string's `board` map: the cells the codec flagged. The board has a cell for every system of the tables.)
+        for (system, cell) in core.board().systems() {
+            if cell.flags.has(crate::state::SysFlags::TOUCHED) && !galaxy.is_hyperlane(system) && !ids.contains(&system) {
                 ids.push(system);
             }
         }

@@ -1,0 +1,67 @@
+# D2 lane H2 (`core-h2-leftovers`): the remaining leftovers after lane H, resume note (2026-10-31)
+
+Branch `core-h2-leftovers`, cut from `core-h-leftovers` (`1caebccd`), merged with `core-d2-c1-strategic` (lane E, `c283af1b`) and `core-g2-abilities` (lanes G and G2, `959089b0`: the Strike
+Wing rows live in `silent/gaps.rs`, which only that line carries), and one cherry-pick of integration 11's `e1753a29`. Never pushed; the live branch is untouched. Read `docs/H_RESUME.md` first.
+
+## The merges (what was reconciled, and how)
+
+| conflict | resolution |
+|---|---|
+| `core-d2-c1-strategic` (19 files). `Reason::SchemingDiscard` (C) / `Reason::Scheming` (E, `l14`) | `Reason::Scheming` everywhere (already H's choice). |
+| `Opt::Waive(shape)` (the string module's own waiver, dual) / `Opt::WaiveBy(module, code)` (the kernel's, native) | both kept; `strategy_secondary::Waiver` carries the option itself (`opt`), `take_answer(core, kernel, primary, reason, f, opt)` is E's free function with H's `exhaust_ready_agent` (the Nomad hears Jae Mir Kan's agent) in `pay_waiver` (the kernel is a parameter now). |
+| two `EventScoring` windows | already lane C's `driver/windows/scoring.rs` (H); E's branch brought no second one. The neutral-side bail in `dual_window::settle_run` is absent (checked: the only `is_neutral` hits of `dual_window.rs` are `tables_of_sides`, the barrage gate, `yin_unported` and a table builder). |
+| `KernelEnv` for the trade env | H's `kernel::trade_env` (M1) stays; E's Hacan fix (Guild Ships and Arbiters read as printed abilities) is already in it. `secondary_is_free`: E's `abilities::secondary_is_free`. |
+| `NativeArms::registered()` | the union: H's fifteen plus `Secondary`, `LeaderFollowers`, `Finished`. `Arm::ALL` stays 21. |
+| `native_subject.rs` | both arms lists; H's staged-event compare by name (`strip_staged`) kept, E's `without_staged_marks` deleted. |
+| `live::details::complete` | H's tactical/combat/harness arms + E's pool arms (`choice.actor`) + `strategic::complete`. |
+| facts E predates | `StructureFacts::alt` (Titans' Hecatoncheires: copied from integration 11 `hecatoncheires`), `turn::start::unlockable` returns a list now (F2: `perform::announce` unlocks it, `TurnGap::CommanderUnlock` is never raised there). |
+| `core-g2-abilities` (8 files) | `driver_of` is H's `live_common::driver_of` (tactical and invasion call it); `Unknown::{AgendaGap, AbilityGap}` both; `Codes::{agenda, silent, g2}`; `trade.rs` H's (M1 supersedes G's `KernelEnv`). `ability_audit`: the `tcs` Lane line goes (ported by M1/H); the audit passes. |
+| `invasion_live::the_jolnar_commander_rerolls_the_dice_of_a_bombardment_natively` | fails after the G merge on every table with an Arborec seat: the loud row `technology:*:md_hit:GROUND_COMBAT_STARTED:after` (Magen Defense Grid's hit, G3's, coarse: the Arborec own the technology). The Arborec defender of that sweep is replaced by the Yssaril, commented. Not loosened otherwise. |
+
+Findings from the merges that were real defects (each fixed, each guarded):
+
+* `strategic::facts::free_systems` listed every cell of the core board (231) for Thunder's Edge Warfare's free action: more than the 96 the facts hold, so the primary was refused (`StrategyAbility`) in every game with a map. Now the cells the string holds an entry for (`SysFlags::TOUCHED`) beside the map. Guard: `strategic_arms::the_systems_of_the_free_action_are_the_map_and_the_systems_the_string_holds_an_entry_for_...`.
+* `silent::pillage::targets` read the map of a position lent without it (a debug assertion; the strategic lockstep harness lends none). A position without the map has no neighbours, as the string without a galaxy has none.
+
+## Done
+
+1. **Strike Wing** (`ti4-engine-core-factions/src/silent/strike_wing.rs`, slots 44_001..44_003): Strike Wing Alpha II (`technology:*:swa2`), Strike Wing Ambuscade (`promissory:*:ambuscade`) and the Argent commander
+   (`leader:*:argentcommander`), the three gap rows deleted (`delete_gap_rows.py`: 42 -> 39). The staged roll names its unit now: `RerollEntry::kind: Option<Unit>` (typed; the codec derives it from `unit_types`,
+   the hosts that stage a single unit's roll set it) and the barrage and the space cannon offense mirrors stage `unit_types` (one entry with the type's text) as the string does; the bombardment already did.
+   A live position carries no unit texts for the cannon (`unit_texts` is empty there): the entry's own code stands for the type, the typed `kind` is what the rules read. Questions: `silent::Ask::{ExtraDie(DieSource), StrikeWing}`,
+   `Opt::{ExtraDie { entry, unit }, Infantry { unit, victim }}`, `Subtype::{ExtraDie, StrikeWing}`, rendered byte for byte in `render/silent.rs` (`unit|{entry}` / `extra_die` / `{unit} rolls 1 additional die`; `swa2_infantry`).
+   The string asks them with its bare context: no trigger. Registered before Cabal (the string's Argent module).
+   * Lockstep (string `Game` against the native arms, bail as failure): `combat_live::{strike_wing_alpha_ii_destroys_infantry_of_the_space_area_in_lockstep (24 seeds x one/two infantry types: destroyed and asked both seen), the_additional_die_of_ambuscade_and_the_argent_commander_runs_in_the_barrage_in_lockstep (10 seeds x 4: used, asked, note returned), the_additional_die_of_the_argent_commander_runs_in_the_space_cannon_offense_in_lockstep (one PDS type, two PDS types)}`. Also under `TI4_AREAS=all=dual` (filters `argent barrage swa2 ambuscade strike_wing additional_die cannon bombard reactions_core ability_audit`: 276 passed).
+   * Core tests `ti4-engine-core-tests/tests/strike_wing.rs` (9: the three rules with their conditions and contexts, and the two hosts' staging of the typed unit).
+   * Mutation (`mutants.sh`, single file `strike_wing.rs`, core tests): 53 mutants, 53 killed after two rounds (the first found: a one-hit roll, the bare context of both questions). The hosts' changed functions (`unit_types`, `mirror` of `barrage.rs` / `space_cannon_offense.rs`): the two survivors per file are the old seat-list lines of `mirror`, untouched by this lane.
+   * Finding (not this lane's): when the PDS of the defender destroy the active seat's only ship the native tactical head writes the combat presentation `complete` where the string writes none (a lone carrier killed without the commander shows it too). Filtered by path in the cannon lockstep, commented.
+2. **Exploration Probe on the exploration window**: NOT done (see below).
+3. **Thunder's Edge Warfare's free tactical action** (`TurnGap::FreeTactical` gone): `tactical::begin_free(sx, seat, system)` activates the system inside the strategic job (the string says `SYSTEM_ACTIVATED`, `FREE_TACTICAL_ACTION`, then `STRATEGIC_ACTION_BEGAN`)
+   and leaves the action at its movement step; `strategic::begin::run_begin` calls it with the follower window held; the tactical tail (`Then::LeaderStrategy | Then::Secondary`) opens `strategic::after::open_after` and ends (the `TacticalGap::{LeaderStrategy, WarfareSecondary}` variants are unused now; M6c's seam rewrites that match). The bridge's `after_arm` does not open the Finish job while a turn-flow job is open.
+   * Lockstep: `strategic_live_tests::a_thunders_edge_warfare_primary_runs_its_free_tactical_action_and_the_follower_window_like_the_string` (a map of seven systems: redistribution, the system question, the free action, the second redistribution, the follower window, to `STRATEGIC_ACTION_COMPLETE`). Its table has no Arborec (loud gap row) and no Hacan (the closing menu would stop at lane F's `MenuSources`); the typed events of the aftermath's windows are compared in `combat_live`. The sweeps `native_action` tolerate the loud `AbilityGap` rows (counted gaps owned by G3 / M6d).
+   * Core: `tactical_composer::{thunders_edge_warfares_free_action_begins_inside_its_job_in_the_strings_order_and_its_tail_opens_the_job_after_it, the_tail_of_a_heros_free_action_opens_the_job_after_it_too}`; mutation of `begin.rs::run_begin`, `live.rs::begin_free`, `tail.rs::run`, `facts.rs::free_systems`: all killed (18 mutants).
+   * Doctor Sucaban's research offer: NOT done (see below).
+4. cherry-pick of integration 11's `e1753a29` (Artuno pays out its pile when the card readies; the strategic arms' staged events are not a shadow leaf): the identical patch will merge without a conflict.
+
+## Not done (with reasons)
+
+* **Exploration Probe** (task 2): the card still resolves in `rules/action_cards/effects.rs::maybe_explore` with `ProbeRow` and the adapter's `action_cards_view::close_row`; moving it to `Spawn::ExploreFrontier` as a child of the play window changes the play window's stages, the dual adapter's row closing (two call sites in `action_cards_view.rs`) and the exploration log words: a lockstep of the card against the string under both backends comes first. Not started beyond reading.
+* **Doctor Sucaban's research offer** (task 3b): `facts::research_asks_more` still makes a paid research with the Jol-Nar agent readied and infantry on the board `Unsupported` (counted gap `StrategyAbility`). The offer is two seats (the holder exhausts, the researcher removes infantry one by one, with a rollback), `strategy_cards.rs` ~line 933; needs its own Ask/Opt/Subtype and the research window's cost loop.
+* Tasks 4 (Crash Landing), 5 (Spinner, Duranium Armor repair queues, Devotion + retreat persistence, the Yin hero's scoring hook), 6 (ChaosMapping, ImperialArbiter, QuantumDatahub swap, MapEdits, Propagation) and 7 (the hand-overs): not started. Nothing in them depends on this lane's work except: Crash Landing's host is the same play-window nesting as the Probe (`Fx::nested`), and the Spinner's placement scope sits next to `PlaceUnits`.
+* The two lines that other lanes' merges rewrite: `TacticalGap::{LeaderStrategy, WarfareSecondary}` (M6c's `resume_strategy`), and `native_subject.rs`'s `closes_one_step_early` (C/E).
+
+## The three failing bridge shadow tests of lane H
+
+After this branch's merges the failures were four: the three of H plus `the_strategic_action_arms_*` (E's staged events). Integration 11's commit `e1753a29` fixes the status-phase one (Artuno's pile was never paid out when a leader readies: a real defect) and makes the strategic arms' staged events not a shadow leaf; it is cherry-picked here (the patch is identical, so integration 11's merge takes it without a conflict). With it `-p ti4-engine-core-bridge --lib native_subject` is 16 of 17.
+STILL OPEN (not resolved, not loosened): `the_turn_flow_arms_agree_with_the_legacy_game_for_every_lobby_faction`, table jolnar/l1z1x/arborec/mentak: `4x turn_prelude Event native.staged[#]: string "TRADE_GOODS_GAINED" | core <absent>`. It is a trade-goods event the string stages at the turn prelude of those tables and the core does not. The status-phase and strategic leaves are fixed by int. 11, this one is not (looked at the string stagers: none of Mentak's Salvage/Pillage, Psychoarchaeology, the relics fires at a prelude without a question; the question needs the replay of the failing step with the staged mark printed).
+
+## Checks (cheap), private target `/root/deploytmp/core-h2` (no incremental; deleted at the end), `CARGO_BUILD_JOBS=2`
+
+* `cargo test -p ti4-engine --lib` (default areas, whole, once at the end): 3 failed, the rest passed. The 3 are exactly the bail-as-failure sweeps that docs/G2_RESUME.md names: `combat_live::{an_undefended_system_with_a_space_dock_goes_on_to_the_production_step_in_lockstep, a_space_fight_of_each_faction_runs_native_without_a_bail_and_as_the_string_does}`, `tactical_live::a_tactical_action_of_each_faction_runs_native_without_a_bail_and_as_the_string_does`: `AbilityGap` of `naaluagent-te` (41006), the Arborec flagship (41035), Awaken (41032), Mercer (41038): loud rows G3 / M6d own. They pass when those rows are ported.
+  Before the G2 merge (E + H only): 5123 passed, 0 failed.
+* `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1` on the filters `argent barrage swa2 ambuscade strike_wing additional_die cannon bombard reactions_core ability_audit`: 276 passed. The whole lib under dual was not run (far too slow).
+* `-p ti4-engine-core-tests`: the touched binaries `strike_wing` (9), `tactical_composer` (14), `strategic_arms` (35), `turn_jobs2`, `tactical`, `status_phase`, `aftermath_chain`, `fx_strategy`, `trade_tcs` compile and pass; `-p ti4-engine-core-bridge --lib native_subject` 16 of 17 (see above); `ability_audit` (3) and `reactions_core` pass (the `tcs` Lane line deleted, the `ambuscade` id out of the unported-families list).
+* `check_layers.py core`: 520 files, 0 violations. `lint_core.sh`: 522 files, 0 hits.
+* Mutation (single file, `mutants.sh`, `D4_COVERS_FILE=/dev/null`, core tests): `strike_wing.rs` 53/53; `begin.rs::run_begin` 10/10, `live.rs::begin_free` 1/1, `tail.rs::run` 3/3, `facts.rs::free_systems` 4/4. The engine lockstep half of the union was not run (the engine build of the scratch tree is long); the core tests kill everything alone.
+* Regression tests that fail on the pre-fix code: the Strike Wing lockstep and core tests (the abilities did not exist: a seat holding the commander stopped with `AbilityGap`); `strategic_arms::the_systems_of_the_free_action_...` (231 systems overflowed the 96 of the facts); the TE Warfare lockstep (the primary stopped at `TurnGap::FreeTactical`).
+* Not run (standing rule): golden / wide dual sweeps, benches, soak, the mutation ratchet, census, workspace clippy, `playthrough`, the whole `ti4-engine-core-tests` crate (named binaries only).

@@ -457,8 +457,10 @@ mod tests {
     #[test]
     fn the_jolnar_commander_rerolls_the_dice_of_a_bombardment_natively() {
         let _guard = crate::dual::tests::serial();
+        // (Not the Arborec: Magen Defense Grid's hit at the start of a ground combat, `technology:*:md_hit`, is a loud gap row of the silent-ability audit
+        // (`silent::gaps`, lane G3's) and every native ground combat of an Arborec table stops at it until that rule is ported.)
         let mut asked = 0;
-        for (seed, defender) in (1..=8_u64).zip(["letnev", "hacan", "sol", "mentak", "sardakk", "naalu", "xxcha", "arborec"]) {
+        for (seed, defender) in (1..=8_u64).zip(["letnev", "hacan", "sol", "mentak", "sardakk", "naalu", "xxcha", "yssaril"]) {
             let (mut state, system, planet) = game(&[("a", "jolnar"), ("b", defender)], seed);
             let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
             state.player_mut(&a).unwrap().leaders.insert(ti4_model::id::LeaderId::new("jolnarcommander"), ti4_model::state::LeaderStatus::Unlocked);

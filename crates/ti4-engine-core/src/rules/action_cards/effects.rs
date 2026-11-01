@@ -2999,6 +2999,7 @@ mod tests {
             rerolled: 0,
             deltas: crate::containers::SortedMap::new(),
             unit_types: crate::containers::SortedMap::new(),
+            kind: None,
         }
     }
 

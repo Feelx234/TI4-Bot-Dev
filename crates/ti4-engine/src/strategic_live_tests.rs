@@ -395,28 +395,96 @@ primary_case!(a_construction_primary_runs_like_the_string, "pok4construction", [
 primary_case!(an_imperial_primary_runs_like_the_string, "pok8imperial", []);
 primary_case!(a_thunders_edge_construction_primary_runs_like_the_string, "te4construction", []);
 
-/// Thunder's Edge Warfare's primary needs the free tactical action (lane M6's window): the job stops with the counted gap, the position as it was.
-#[test]
-fn a_thunders_edge_warfare_primary_stops_at_the_free_tactical_action_with_a_counted_gap() {
-    use ti4_engine_core::driver::live::LiveError;
-    use ti4_engine_core::kernel::ability::Unknown;
-    use ti4_engine_core::kernel::turn_codes::TurnGap;
-    let state = table_for("te6warfare");
-    let mut cx = Ctx::of(&state).expect("a table the codecs carry");
-    let render = named(&cx, &state);
+/// Thunder's Edge Warfare's primary on a map (a hub of seven systems beside the homes): the redistribution, the choice of the system, the free
+/// tactical action (activation, no movement, no fight), the redistribution after it and the follower window, from the menu's answer to the end
+/// of the action. `ids` are the scripted answers after the menu's; the rest take the first option. The string `Game` and the native arms
+/// (the job, the tactical window, the job after the tactical action, the follower window) agree on questions, events and position.
+fn te_warfare_both(state: &GameState, galaxy: &ti4_content::galaxy::Galaxy, ids: &[&str]) -> (Run, Run) {
+    let mut all = vec!["strategic"];
+    all.extend_from_slice(ids);
+    let (mut string, taken) = string_run_first(state, &all, |g| {
+        g.galaxy = Some(galaxy.clone());
+        g.prepared_turn_seq = Some(g.state.turn_seq);
+        for _ in 0..40 {
+            let _ = g.step();
+            if g.events.iter().any(|e| e == "STRATEGIC_ACTION_COMPLETE") || g.state.finished {
+                break;
+            }
+        }
+    });
+    assert_eq!(string.questions.first().and_then(|q| q.context.as_ref()).map(|c| c.subtype.as_str()), Some("action_menu"));
+    string.questions.remove(0);
+    let native = native_te_warfare(state, galaxy, &taken[1..]);
+    (string, native)
+}
+
+fn native_te_warfare(state: &GameState, galaxy: &ti4_content::galaxy::Galaxy, ids: &[String]) -> Run {
+    let mut cx = Ctx::of(state).expect("a table the codecs carry");
+    let render = named(&cx, state);
     let game = super::Game::with_table(state.clone(), ContentStore::embedded(), crate::choice::Table::with_default(Box::new(crate::choice::FirstOption)));
     let positions = game.rng_positions();
-    let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
-    let mut core = Codec::load(&mut cx, &state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("the position loads");
+    let mut core = Codec::load(&mut cx, state, Sources { galaxy: Some(galaxy), rng: Some(&positions) }, SliceSet::ALL).expect("the position loads");
     let kernel = live::kernel::kernel_for(DEFAULT);
     let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
-    let held = core.clone();
-    // Without a map the card names no system: it resolves with the redistribution alone and the follower window opens; with a map the free action stops.
-    let result = ti4_engine_core::driver::windows::strategic::begin::begin_strategic(&mut core, &env, ti4_engine_core::generated::StrategyCard::WarfareThundersEdge);
-    match result {
-        Err(LiveError::Unknown(Unknown::TurnGap(TurnGap::FreeTactical))) => assert_eq!(core, held),
-        Ok(_) => assert!(core.pending().window(WindowKind::StrategySecondary).is_some()),
-        Err(other) => panic!("{other:?}"),
+    let lcx = live::Cx::new(&render, &env);
+    let mut asker = Scripted::new(ids.iter().cloned());
+    loop {
+        let step = live::live_reconcile(&mut core, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native reconcile stopped: {e:?}"));
+        if step.finished {
+            break;
+        }
+    }
+    ti4_engine_core::driver::turn::open_job(&mut core, ti4_engine_core::state::TurnJob::Strategic(ti4_engine_core::generated::StrategyCard::WarfareThundersEdge));
+    for _ in 0..80 {
+        let chain = step_arm(&Facts::of_core(&core, false), true);
+        let arm = match chain {
+            Arm::Secondary | Arm::LeaderFollowers | Arm::Tactical | Arm::Aftermath | Arm::EventScoring => chain,
+            _ if core.pending().window(WindowKind::TurnFlow).is_some() => Arm::Ask,
+            _ => break,
+        };
+        live::live_step(&mut core, arm, &lcx, &mut asker).unwrap_or_else(|e| panic!("the native {arm:?} stopped: {e:?} after {:?}", asker.seen.iter().map(|q| q.prompt.clone()).collect::<Vec<_>>()));
+        if arm == Arm::Tactical && core.pending().window(WindowKind::Tactical).is_none() && core.pending().window(WindowKind::Aftermath).is_none() && ti4_engine_core::driver::turn::open_job_of(&core).is_none() {
+            panic!("a plain tactical action ended: the Warfare action must go on to its follower window");
+        }
+    }
+    assert!(core.pending().window(WindowKind::StrategySecondary).is_none(), "the follower window ended");
+    assert_eq!(asker.left(), 0, "every answer the string was given was taken");
+    let questions = asker.seen.clone();
+    let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
+    let after = materialize::materialize(&core, &cx, state).expect("materializes");
+    let rng = materialize::rng_positions(&core).expect("the streams have names");
+    let staged = core.pending().staged.iter().map(|e| crate::kernel_sync::text::event_text(&render, e.kind)).collect();
+    let (state, _) = without_staged(serde_json::to_value(&after).expect("serializes"));
+    Run { questions, events, state, rng, staged }
+}
+
+#[test]
+fn a_thunders_edge_warfare_primary_runs_its_free_tactical_action_and_the_follower_window_like_the_string() {
+    let hub = crate::fixtures::plain_hub();
+    // (The centre only: a ship with several routes asks a movement question whose route alternatives the native path does not produce.)
+    for system in [hub.centre.clone()] {
+        // (No Arborec at the table, its flagship's activation window is a loud gap row of the silent-ability audit (lane M6d's), and no Hacan, whose Guild Ships make every seat a transaction partner: the closing menu would stop at lane F's `MenuSources`.)
+        let mut state = crate::fixtures::seated_dealt(&[("a", "sol"), ("b", "xxcha"), ("c", "letnev"), ("d", "jolnar")], DEFAULT);
+        state.phase = Phase::Action;
+        state.active = Some(pid("a"));
+        state.player_mut(&pid("a")).unwrap().strategy_cards.push(card_id("te6warfare"));
+        // The followers decline (no token spent, nothing else asked), and the primary's second redistribution is the first option.
+        for p in ["b", "c", "d"] {
+            state.player_mut(&pid(p)).unwrap().strategic_tokens = 0;
+        }
+        let (mut string, native) = te_warfare_both(&based(state), &hub.galaxy, &["0|3|5", &system]);
+        // The typed events of the aftermath's windows (the invasion, the use of PRODUCTION) are announced by the arms and not written to the event
+        // log the native run is read from; they are compared in `combat_live` and `invasion_live`.
+        let typed = ["INVASION_BEGAN", "PRODUCTION_USED", "UNITS_PRODUCED"];
+        let kept: Vec<String> = string.events.iter().filter(|e| !typed.contains(&e.as_str())).cloned().collect();
+        let all = std::mem::replace(&mut string.events, kept);
+        assert_same(&string, &native);
+        string.events = all;
+        let started = string.events.iter().position(|e| e == "SYSTEM_ACTIVATED").expect("the free action activates the system");
+        let began = string.events.iter().rposition(|e| e == "STRATEGIC_ACTION_BEGAN").expect("the action began");
+        assert!(started < began, "the string activates the system before it says the strategic action began: {:?}", string.events);
+        assert!(has(&string, "FREE_TACTICAL_ACTION") && has(&string, "STRATEGIC_ACTION_COMPLETE"), "{:?}", string.events);
+        assert!(string.questions.iter().any(|q| q.prompt.contains("after the tactical action")), "the second redistribution is asked");
     }
 }
 
@@ -467,6 +535,8 @@ fn native_action(faction: &str, others: [&str; 3], card: &str) -> usize {
             live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::Propagation))) => true,
             // The closing menu's free options are the menu lane's: the action itself ended.
             live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::MenuSources))) => true,
+            // A loud row of the silent-ability audit (`silent::gaps`, lanes G3 / M6d): a counted gap of the live path, owned by the lane that ports it.
+            live::Stop::Live(LiveError::Unknown(Unknown::AbilityGap(_))) => true,
             // Doctor Sucaban's offer in a research (the Jol-Nar agent readied at the table, infantry on the board) is not ported: counted.
             live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::StrategyAbility))) => card.contains("technology") && (faction == "jolnar" || others.contains(&"jolnar")),
             _ => false,

@@ -2,7 +2,7 @@
 //! variants of the reaction area (`reaction::Ask::G`, `Opt::G`, `Subtype::G`): an ability asks them from inside a reaction window, the renderer
 //! is `render/silent.rs`.
 
-use crate::generated::{Planet, System};
+use crate::generated::{Planet, System, Unit};
 use crate::ids::Seat;
 
 /// Which card's units land on a planet of the home system at the start of the owner's next turn.
@@ -12,6 +12,15 @@ pub enum Landing {
     Warrior,
     /// Crimson Legionnaire II (Mahact): `legionnaire_return`.
     Legionnaire,
+}
+
+/// Which card lets a unit roll an additional die (Strike Wing, Argent): the note or the commander.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DieSource {
+    /// Strike Wing Ambuscade (`ambuscade`), a promissory note.
+    Ambuscade,
+    /// Trrakan Aun Zulok (`argentcommander`).
+    Commander,
 }
 
 /// What a silent-gap ability asks.
@@ -39,6 +48,10 @@ pub enum Ask {
     NaazCopy,
     /// A question of lane G3 (`silent3`).
     T(super::silent3::Ask),
+    /// Strike Wing Ambuscade or the Argent commander: which of the rolling units rolls 1 additional die.
+    ExtraDie(DieSource),
+    /// Strike Wing Alpha II: which type of the opponent's infantry in the space area is destroyed.
+    StrikeWing,
 }
 
 /// One answer.
@@ -67,6 +80,10 @@ pub enum Opt {
     Explore(Planet),
     /// An answer of lane G3 (`silent3`).
     T(super::silent3::Opt),
+    /// The unit that rolls an additional die: the staged roll `entry` (the option id is its index), of the type `unit`.
+    ExtraDie { entry: u8, unit: Unit },
+    /// One infantry of `victim` of this type destroyed.
+    Infantry { unit: Unit, victim: Seat },
 }
 
 /// The machine identifier of the question.
@@ -94,6 +111,10 @@ pub enum Subtype {
     NaazCopy,
     /// A subtype of lane G3 (`silent3`).
     T(super::silent3::Subtype),
+    /// `extra_die_unit`.
+    ExtraDie,
+    /// `swa2_infantry`.
+    StrikeWing,
 }
 
 impl Ask {
@@ -103,6 +124,7 @@ impl Ask {
     pub const fn carries_trigger(&self) -> bool {
         match self {
             Self::Landing(_) | Self::Mitosis | Self::Pillage => true,
+            Self::ExtraDie(_) | Self::StrikeWing => false,
             Self::Reclaimer | Self::TradePolicy | Self::CommanderFighters | Self::Voidwatch | Self::Stillness | Self::NaazAgent | Self::NaazCopy => false,
             Self::T(t) => t.carries_trigger(),
         }

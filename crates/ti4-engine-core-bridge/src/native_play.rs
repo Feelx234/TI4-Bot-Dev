@@ -515,7 +515,9 @@ fn stop_to_step(arm: &str, stop: Stop) -> Step {
 /// the closing menu or the end of the turn: `turn::open_finish`), which the next `Ask` step runs. The string does both in one step
 /// (`close_tactical` ends in `finish_action`); the live loop splits them at the question.
 pub fn after_arm(core: &mut CoreState, arm: Arm) {
-    if arm == Arm::Tactical && core.pending().window(WindowKind::Tactical).is_none() && core.pending().window(WindowKind::Aftermath).is_none() {
+    // (A strategy card's free action ends in the strategic action's own job, `strategic::after`: its end opens the follower window, whose close
+    // finishes the action.)
+    if arm == Arm::Tactical && core.pending().window(WindowKind::Tactical).is_none() && core.pending().window(WindowKind::Aftermath).is_none() && turn::open_job_of(core).is_none() {
         turn::open_finish(core);
     }
 }

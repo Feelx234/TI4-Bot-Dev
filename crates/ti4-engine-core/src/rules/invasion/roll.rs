@@ -110,6 +110,7 @@ impl GroundRoll {
                 rerolled: 0,
                 deltas: SortedMap::default(),
                 unit_types,
+                kind: None,
             });
             self.drawn.push((on, faces));
         }

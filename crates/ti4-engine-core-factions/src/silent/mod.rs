@@ -14,6 +14,7 @@ pub mod pillage;
 pub mod returns;
 pub mod scavenge;
 pub mod sol;
+pub mod strike_wing;
 pub mod winnu;
 
 use ti4_engine_core::kernel::ability::AbilityTable;
@@ -26,6 +27,7 @@ pub fn register_abilities(t: &mut AbilityTable) {
     returns::register_abilities(t);
     // The faction modules of the string in their order (arborec above, then cabal, empyrean, ghost, muaat, naaz, saar, winnu): only abilities of one
     // window share a bucket, and Naaz's Dart and Tai comes before Saar's Scavenge in PLANET_CONTROL_GAINED.
+    strike_wing::register_abilities(t);
     cabal::register_abilities(t);
     muaat::register_abilities(t);
     naaz::register_abilities(t);

@@ -123,6 +123,9 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::naaz::AGENT, kind: "leader", card: "naazagent" },
     Named { slot: ti4_engine_core_factions::silent::naaz::COMMANDER, kind: "leader", card: "naazcommander" },
     Named { slot: ti4_engine_core_factions::silent::sol::CLAIRE_GIBSON, kind: "leader", card: "solcommander" },
+    Named { slot: ti4_engine_core_factions::silent::strike_wing::SWA2, kind: "technology", card: "swa2" },
+    Named { slot: ti4_engine_core_factions::silent::strike_wing::AMBUSCADE, kind: "promissory", card: "ambuscade" },
+    Named { slot: ti4_engine_core_factions::silent::strike_wing::COMMANDER, kind: "leader", card: "argentcommander" },
     Named { slot: ti4_engine_core_factions::silent::cabal::STILLNESS, kind: "leader", card: "cabalagent" },
     Named { slot: ti4_engine_core_factions::silent::empyrean::ACAMAR, kind: "leader", card: "empyreanagent" },
     Named { slot: ti4_engine_core_factions::silent::empyrean::VOIDWATCH, kind: "technology", card: "vw" },
@@ -774,7 +777,6 @@ mod tests {
     fn bail_every_family_that_stays_in_the_string_is_named() {
         let t = table();
         for id in [
-            "promissory:letnev:ambuscade:UNIT_ABILITY_ROLLED:when",
             "ability:sol:propagation:SPACE_COMBAT_ENDED:after",
             // The Nomad's tail (package W9): Thunder's Paradox hangs on TURN_BEGAN. (Mercer is a rule of the table since lane M6d, Temporal Command
             // Suite since package M1.)

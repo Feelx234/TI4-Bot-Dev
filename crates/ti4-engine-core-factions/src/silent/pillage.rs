@@ -51,6 +51,10 @@ fn targets(s: &CoreState, k: &Kernel, event: &EventRec, owner: Seat, transaction
         EventKind::TransactionResolved => [Key::Proposer, Key::Partner].into_iter().filter_map(|key| p.seat(key)).collect(),
         _ => Vec::new(),
     };
+    // (A position lent without its map has no neighbours, as the string without a galaxy has none.)
+    if !s.loaded.has(ti4_engine_core::state::Slice::Map) {
+        return Vec::new();
+    }
     let Some(adj) = s.map().adjacency() else { return Vec::new() };
     let env = KernelEnv { core: s, kernel: k };
     // The limits are not read by the neighbour queries.

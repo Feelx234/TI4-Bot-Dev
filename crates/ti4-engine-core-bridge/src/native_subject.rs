@@ -168,15 +168,15 @@ pub fn open_arm(arm: Arm, windows: &[Window], core: &mut CoreState) -> bool {
         // The scoring windows of the status phase and of the secrets timed on an action or an agenda (lane C): the payload the legacy game holds.
         Arm::Scoring => open_observed(windows, core, WindowKind::Scoring),
         Arm::EventScoring => open_observed(windows, core, WindowKind::EventScoring),
-        // The strategic action (lane E): the follower window, the Winnu hero's follower selection (with the hero resolving) and the end of a game.
-        Arm::Secondary => open_observed(windows, core, WindowKind::StrategySecondary),
-        Arm::LeaderFollowers => open_observed(windows, core, WindowKind::LeaderStrategy) && open_observed(windows, core, WindowKind::LeaderFollowers),
-        Arm::Finished => true,
         // A tactical action: the payload the legacy game holds (lane M6).
         Arm::Tactical => open_observed(windows, core, WindowKind::Tactical),
         // The aftermath of a fight and the sub-windows the legacy game holds above it, in stack order (the invasion of its `Invading` stage, the
         // PRODUCTION of its `Producing` stage, the scoring window of a feat): all of them are typed windows of the core stack.
         Arm::Aftermath => open_observed_stack(windows, core, WindowKind::Aftermath, &[WindowKind::Invasion, WindowKind::Production, WindowKind::EventScoring]),
+        // The strategic action (lane E): the follower window, the Winnu hero's follower selection (with the hero resolving) and the end of a game.
+        Arm::Secondary => open_observed(windows, core, WindowKind::StrategySecondary),
+        Arm::LeaderFollowers => open_observed(windows, core, WindowKind::LeaderStrategy) && open_observed(windows, core, WindowKind::LeaderFollowers),
+        Arm::Finished => true,
         // The jobs of the turn flow open themselves (`driver::turn`): they need no window of the legacy game. `Status` opens the scoring window.
         Arm::TurnPrelude | Arm::Phase | Arm::StrategyAnnounce | Arm::Ask | Arm::Status => true,
         _ => false,
@@ -431,7 +431,11 @@ impl NativeSubject {
         let mut legacy_state = self.inner.state_json();
         let legacy_staged = strip_staged(&mut legacy_state);
         let native_staged: Vec<String> = shadow.core.pending().staged.iter().map(|e| ti4_engine::kernel_sync::text::event_text(&shadow.render, e.kind)).collect();
-        if !native_staged.is_empty() || !legacy_staged.is_empty() {
+        // The strategic action's arms stage `STRATEGY_TOKEN_SPENT` / `UNITS_PRODUCED` for the next step's reconcile as the string does (lane E; the
+        // engine lockstep `strategic_live_tests` compares the staged names equal), but the legacy state of this oracle holds no staged mark after
+        // such a step (open finding of integration 11, `docs/INTEGRATION11.md`): for these arms the staged events are not a leaf of the shadow.
+        let staged_comparable = !matches!(name, "secondary" | "leader_followers" | "finished");
+        if staged_comparable && (!native_staged.is_empty() || !legacy_staged.is_empty()) {
             leaves(Category::Event, "native.staged", &json!(legacy_staged), &json!(native_staged), &mut out);
         }
         match materialize::materialize(&shadow.core, &shadow.cx, &shadow.base) {

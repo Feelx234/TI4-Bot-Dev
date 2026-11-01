@@ -44,6 +44,10 @@ pub struct RerollEntry {
     pub rerolled: u64,
     pub deltas: SortedMap<u8, i8, 4>,
     pub unit_types: SortedMap<Code, u32, 4>,
+    /// The one unit type behind the entry (`unit_types` holds exactly one), typed: what the abilities that choose among the rolling units
+    /// (Strike Wing, the Argent commander) and Strike Wing Alpha II read. `None` for a pooled entry, an attachment's cannon, the relic's dice.
+    /// The codec derives it from `unit_types`; the hosts that stage a single unit's roll set it with it.
+    pub kind: Option<Unit>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

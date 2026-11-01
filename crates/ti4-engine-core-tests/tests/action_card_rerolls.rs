@@ -36,7 +36,7 @@ fn env() -> Env {
 }
 
 fn entry(unit: u16, hits_on: u8, faces: &[u8]) -> RerollEntry {
-    RerollEntry { unit: Code(unit), planet: None, hits_on: Some(hits_on), faces: faces.to_vec(), rerolled: 0, deltas: Default::default(), unit_types: Default::default() }
+    RerollEntry { unit: Code(unit), planet: None, hits_on: Some(hits_on), faces: faces.to_vec(), rerolled: 0, deltas: Default::default(), unit_types: Default::default(), kind: None }
 }
 
 fn base() -> CoreState {

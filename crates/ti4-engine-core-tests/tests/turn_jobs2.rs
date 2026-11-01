@@ -176,8 +176,10 @@ fn the_closing_menu_holds_only_the_end_of_the_turn_when_no_source_can_offer_a_fr
 
 #[test]
 fn a_leader_printed_during_the_action_phase_is_a_free_option_of_the_closing_menu() {
-    let agent = Leader::CarthOfGoldenSands;
-    let (mut s, k) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol]).phase(Phase::Action).active(Some(0)).build();
+    let agent = Leader::ALL.iter().copied().find(|l| l.data().kind == LeaderType::Agent && l.data().window == LeaderWindow::ActionPhase).unwrap();
+    let faction = Faction::ALL.iter().copied().find(|f| ti4_engine_core::query::tech::tag_is(agent.data().faction, *f)).unwrap();
+    // (One seat: Hacan's Guild Ships would trade with anybody, and a partner is a free option of its own.)
+    let (mut s, k) = Scenario::new(&[faction]).phase(Phase::Action).active(Some(0)).build();
     s.players_mut().edit(0).leaders.status.insert(agent, ti4_engine_core::state::LeaderStatus::Readied);
     let menu = closing::options(&s, &k, roster(), Seat(0)).expect("the menu");
     assert!(menu.contains(&TuOpt::Leader(agent)) && menu[0] == TuOpt::EndTurn, "free: it is not an ACTION: {menu:?}");

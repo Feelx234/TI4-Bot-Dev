@@ -219,7 +219,8 @@ impl SpaceCannonOffense {
                 faces: e.faces.iter().map(|f| u8::try_from(*f).unwrap_or(u8::MAX)).collect(),
                 rerolled: 0, // mutants:skip: display only
                 deltas: crate::containers::SortedMap::default(),
-                unit_types: crate::containers::SortedMap::default(),
+                unit_types: self.unit_types(e),
+                kind: e.unit,
             })
             .collect();
         let set = RerollSet { kind: self.f.kind, system: self.f.system, rolls };
@@ -257,6 +258,16 @@ impl SpaceCannonOffense {
 
     /// The unit text a staged entry carries (the string stages `type_id` of the gun, `planet cannon {planet}` of an attachment); `kind`
     /// where the adapter handed no text for the form.
+    /// The unit type behind a unit's entry, as the string stages it (`unit_types`: the type's text once); an attachment's cannon names no unit.
+    /// (A live position carries no unit texts: the entry's own code, the roll kind's, stands for the type.)
+    fn unit_types(&self, e: &Entry) -> crate::containers::SortedMap<Code, u32, 4> {
+        let mut types = crate::containers::SortedMap::default();
+        if e.unit.is_some() {
+            types.insert(self.staged_code(e), 1);
+        }
+        types
+    }
+
     fn staged_code(&self, e: &Entry) -> Code {
         match (e.unit, e.planet) {
             (Some(u), _) => self.f.unit_texts.iter().find(|(k, _, _)| *k == u).map_or(self.f.kind, |(_, c, _)| *c),

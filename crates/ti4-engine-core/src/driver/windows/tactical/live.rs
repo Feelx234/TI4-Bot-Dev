@@ -28,6 +28,17 @@ pub fn open_free(core: &mut CoreState, seat: Seat, system: System) {
     TacticalAction::new(Tactical { player: seat, stage: TStage::Free(system), notes_at_start: notes }).to_pending(core);
 }
 
+/// A free tactical action in `system` that begins INSIDE a step of another job (Thunder's Edge Warfare's primary): the activation is
+/// announced now, in the order the string says it (`SYSTEM_ACTIVATED`, `FREE_TACTICAL_ACTION`, then the caller's own `STRATEGIC_ACTION_BEGAN`),
+/// and the action is left on the stack at its movement step for the next arm call.
+pub fn begin_free(sx: &mut crate::kernel::stage::Sx<'_>, seat: Seat, system: System) {
+    let notes = facts::note_holdings(sx.state);
+    let leaf_facts = crate::rules::tactical::Facts { pool: sx.table.codes.tactical.tactic };
+    let mut leaf = crate::rules::tactical::Machine::free(seat, leaf_facts, system).live();
+    let _ = crate::kernel::stage::Window::step(&mut leaf, sx);
+    TacticalAction::new(Tactical { player: seat, stage: TStage::Moving, notes_at_start: notes }).to_pending(sx.state);
+}
+
 /// The question the open action waits on (the arm's `AskFn`).
 ///
 /// # Errors

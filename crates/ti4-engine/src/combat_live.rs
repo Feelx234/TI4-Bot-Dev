@@ -1166,4 +1166,115 @@ mod tests {
         assert!(side.asked.iter().any(|q| q.options.iter().any(|o| o.id.contains("naazcommander:PLANET_CONTROL_GAINED"))), "the string offers the commander: {:?}", side.asked.iter().map(|q| q.prompt.clone()).collect::<Vec<_>>());
     }
     include!("combat_live_g3_tests.rs");
+
+    // -- Strike Wing: the unit-ability roll read by Strike Wing Alpha II, Strike Wing Ambuscade and the Argent commander (lane H2) ----------------
+
+    /// The Argent destroyer II barrage against fighters and infantry in the space area; every seed tried must agree with the string, and the
+    /// string must have destroyed an infantry at least once (a 9 or 10 on the Alpha II dice) and, with two infantry types, asked which one.
+    #[test]
+    fn strike_wing_alpha_ii_destroys_infantry_of_the_space_area_in_lockstep() {
+        let (hub, _origin, target) = hub();
+        let (mut destroyed, mut asked) = (0, 0);
+        for seed in 1..=24_u64 {
+            for two_types in [false, true] {
+                let mut state = table(&[("a", "argent"), ("b", "hacan")]);
+                state.rng_seed = seed;
+                state.player_mut(&a()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("swa2"));
+                crate::fixtures::put(&mut state, &target, "argent_destroyer2", &a(), 3);
+                crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
+                crate::fixtures::put(&mut state, &target, "fighter", &b(), 3);
+                crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
+                crate::fixtures::put(&mut state, &target, "infantry", &b(), 3);
+                if two_types {
+                    crate::fixtures::put(&mut state, &target, "infantry2", &b(), 2);
+                }
+                let script = [TACTICAL_ACTION_ID, target.as_str()];
+                let diffs = lockstep(state.clone(), &hub.galaxy, &script);
+                assert!(diffs.is_empty(), "seed {seed} two types {two_types}: {diffs:#?}");
+                let side = string_run(&state, &hub.galaxy, &script, 0);
+                let left = |value: &Value| value["board"][target.as_str()]["units"].as_array().map_or(0, |units| units.iter().filter(|u| u["owner"] == "b" && u["type_id"].as_str().is_some_and(|t| t.starts_with("infantry"))).count());
+                let before = if two_types { 5 } else { 3 };
+                if left(&side.state) < before {
+                    destroyed += 1;
+                }
+                asked += side.asked.iter().filter(|q| q.prompt == "Strike Wing Alpha II: choose an infantry to destroy").count();
+            }
+        }
+        assert!(destroyed > 0, "no seed destroyed an infantry: the test proves nothing");
+        assert!(asked > 0, "no seed asked which infantry type: the question is not compared");
+    }
+
+    /// The additional die of Strike Wing Ambuscade (a note its holder plays; it goes home afterwards) and of the Argent commander, in the
+    /// anti-fighter barrage: with one rolling unit type the die goes to it, with two the holder is asked which. The window of the ability is
+    /// answered `yes` and `no` on both sides (the first option of the window is the use).
+    #[test]
+    fn the_additional_die_of_ambuscade_and_the_argent_commander_runs_in_the_barrage_in_lockstep() {
+        let (hub, _origin, target) = hub();
+        let (mut used, mut asked, mut returned) = (0, 0, 0);
+        for seed in 1..=10_u64 {
+            for (card, two_types) in [("ambuscade", false), ("ambuscade", true), ("commander", false), ("commander", true)] {
+                let (holder_faction, other) = if card == "ambuscade" { ("sol", "argent") } else { ("argent", "hacan") };
+                let mut state = table(&[("a", holder_faction), ("b", other)]);
+                state.rng_seed = seed;
+                if card == "ambuscade" {
+                    state.promissory_notes.insert("ambuscade:argent".to_owned(), a());
+                } else {
+                    state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("argentcommander"), ti4_model::state::LeaderStatus::Unlocked);
+                }
+                crate::fixtures::put(&mut state, &target, "destroyer", &a(), 2);
+                if two_types {
+                    crate::fixtures::put(&mut state, &target, "argent_destroyer", &a(), 1);
+                }
+                crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
+                crate::fixtures::put(&mut state, &target, "fighter", &b(), 4);
+                crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
+                let script = [TACTICAL_ACTION_ID, target.as_str()];
+                let diffs = lockstep(state.clone(), &hub.galaxy, &script);
+                assert!(diffs.is_empty(), "seed {seed} {card} two types {two_types}: {diffs:#?}");
+                let side = string_run(&state, &hub.galaxy, &script, 0);
+                used += side.asked.iter().filter(|q| q.options.iter().any(|o| o.id.contains("UNIT_ABILITY_ROLLED"))).count();
+                asked += side.asked.iter().filter(|q| q.prompt.ends_with("choose a unit to roll 1 additional die")).count();
+                if card == "ambuscade" && side.state["promissory_notes"]["ambuscade:argent"] == "b" {
+                    returned += 1;
+                }
+            }
+        }
+        assert!(used > 0, "the string never offered the ability");
+        assert!(asked > 0, "the string never asked which unit rolls the die");
+        assert!(returned > 0, "the note never went home");
+    }
+
+    /// The additional die of the Argent commander in the SPACE CANNON OFFENSE (the defender's PDS shoot at the arriving fleet): the window of the
+    /// commander is offered and answered natively as the string does (the staged roll of a PDS names its unit; the die goes to the PDS type that
+    /// rolled). One difference is left that is NOT this ability's: when the guns destroy the only ship the native head writes the combat
+    /// presentation (`complete`) that the string never writes for a fight that did not happen (a lone carrier killed without the commander
+    /// shows it too), it is filtered here by its path.
+    #[test]
+    fn the_additional_die_of_the_argent_commander_runs_in_the_space_cannon_offense_in_lockstep() {
+        let (hub, origin, target, planet) = planet_hub();
+        let (mut offered, mut asked) = (0, 0);
+        for seed in 1..=12_u64 {
+            for two_types in [false, true] {
+                let mut state = table(&[("a", "sol"), ("b", "argent")]);
+                state.rng_seed = seed;
+                state.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("argentcommander"), ti4_model::state::LeaderStatus::Unlocked);
+                // (A lone carrier, which has one route: a ship with several routes asks a movement question whose route alternatives the native
+                // path does not produce.)
+                crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+                state.system_mut(&target).planet_control.insert(planet.clone(), b());
+                crate::fixtures::put_on_planet(&mut state, &target, &planet, "pds", &b(), 2);
+                if two_types {
+                    crate::fixtures::put_on_planet(&mut state, &target, &planet, "pds2", &b(), 1);
+                }
+                let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "done_moving"];
+                let diffs: Vec<String> = lockstep(state.clone(), &hub.galaxy, &script).into_iter().filter(|d| !d.starts_with("statecombat_presentation")).collect();
+                assert!(diffs.is_empty(), "seed {seed} two types {two_types}: {diffs:#?}");
+                let side = string_run(&state, &hub.galaxy, &script, 0);
+                offered += side.asked.iter().filter(|q| q.options.iter().any(|o| o.id.contains("argentcommander:UNIT_ABILITY_ROLLED"))).count();
+                asked += side.asked.iter().filter(|q| q.prompt.ends_with("choose a unit to roll 1 additional die")).count();
+            }
+        }
+        assert!(offered > 0, "the string never offered the commander in the cannon's window");
+        assert!(asked > 0, "the string never asked which PDS rolls the die");
+    }
 }

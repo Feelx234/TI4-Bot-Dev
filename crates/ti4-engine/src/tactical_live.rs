@@ -17,8 +17,6 @@ pub const fn gap_text(gap: TacticalGap) -> &'static str {
         TacticalGap::NovaSeedCargo => "Nova Seed would destroy another player's ground forces carried in the space area (the string announces them with the system in the place of a planet)",
         TacticalGap::CannonHits => "a hit of the space cannon offense that needs a question",
         TacticalGap::ExplorationAtTheEnd => "the Crown of Emphidia or Dark Energy Tap explores at the end of the action (no native planet exploration window yet)",
-        TacticalGap::WarfareSecondary => "Thunder's Edge Warfare's follower window waits for the end of the free tactical action",
-        TacticalGap::LeaderStrategy => "a hero's strategy primary waits for the end of the free tactical action",
         TacticalGap::NoGalaxy => "the map slice holds no galaxy",
     }
 }
