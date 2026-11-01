@@ -125,7 +125,7 @@ impl Seen<'_> {
     #[must_use]
     pub fn revealed_cards(&self) -> Vec<Revealed> {
         let (s, me) = (self.st(), self.me());
-        let mut merged: std::collections::BTreeMap<(Seat, RevealKind), Shown> = std::collections::BTreeMap::new();
+        let mut merged: Vec<((Seat, RevealKind), Shown)> = Vec::new();
         for (key, row) in s.marks().tail.iter() {
             let MarkKey::CardsReveal(_, _, viewer, owner, deck) = key else { continue };
             let kind = match deck {
@@ -138,13 +138,18 @@ impl Seen<'_> {
                 continue;
             }
             let MarkVal::List(items) = row else { continue };
-            let shown = merged.entry((*owner, kind)).or_insert_with(|| Shown::empty(kind));
+            let at = merged.iter().position(|(k, _)| *k == (*owner, kind)).unwrap_or_else(|| {
+                merged.push(((*owner, kind), Shown::empty(kind)));
+                merged.len() - 1
+            });
+            let shown = &mut merged[at].1;
             for item in items.iter().filter_map(item_of) {
                 if self.holds_hidden(*owner, item) {
                     shown.add(item);
                 }
             }
         }
+        merged.sort_by_key(|(k, _)| *k);
         let mut rows: Vec<Revealed> = merged.into_iter().filter(|(_, shown)| !shown.is_empty()).map(|((owner, _), shown)| Revealed { owner, shown }).collect();
         // Standing hand permissions are read from the position each time (M'aban), never stored.
         for owner in s.seats().seating_order() {
