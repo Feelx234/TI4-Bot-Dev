@@ -51,13 +51,20 @@ a declined offer does not close the next one; a Ssruu copy that ends with no tec
   There is no native lockstep of a Plague/Unstable Planet play (the component-action dispatch of lane F2b is not in this tree); the string flush announces them at the same points the turn prelude does.
 * **The cannon offense with several routes: DONE** as a test: the Argent commander's cannon lockstep also moves a cruiser from the ring (several routes: the string lists `details.routes`, the native path produces the same list) and the Sai Seravus test no longer filters `detailsroutes`.
 
-## 5. Not done
+## 5. Found on the way: a stale fixture of M6c, fixed
+
+`driver_windows::the_end_of_a_fight_then_enforces_every_listed_fleet` fails already on `core-m6d-tactical` (and so on `core-h3-leftovers`; it passes on `core-h2-leftovers`): since M6c (`aftermath.rs`: "the enforcement limits are taken after the win is announced") `FightOver` reads the fleet supply from the POSITION, and the test's `limits(2)` in the facts is ignored,
+so the question showed `limit: 0` and asked a second removal. No earlier lane ran that binary. The fixture now gives seat 0 a fleet pool of two (`tokens(0, 3, 2, 2)`); the assertions are unchanged.
+
+## 6. Not done
 
 * Task 6: the Yin hero's scoring hook. Task 7: ChaosMapping (Saar), Imperial Arbiter, Quantum Datahub swap. The event-window question inside an invasion for non-action-card questions (H3 task 8).
-* `cargo test -p ti4-engine --lib` still fails exactly the four Z'eu sweeps (section 1); `ti4-engine-core-bridge` still has the open task-2 test of H3 (F2b's dispatch).
-* The engine half of Sucaban's renderer (`render/strategy.rs`) is killed by the lockstep tests (they fail without it), it was not mutated.
-* No native playthrough game: no zero-bail game exists on this branch while the G rows (`silent/gaps.rs`: Foresight, Z'eu, Pillage, Tekklar, Scepter, ...) are loud.
+* `cargo test -p ti4-engine --lib`: 5176 passed, the four Z'eu sweeps fail (section 1) and nothing else; `ti4-engine-core-bridge --lib`: 102 of 103, the open task-2 test of H3 (F2b's dispatch, passes on integration 11).
+* The engine half of Sucaban's renderer (`render/strategy.rs`) is killed by the lockstep tests (they fail without it), it was not mutated. Two survivors of `live/reaction_preview.rs` (`s.who == who` in the Infiltrate forms lookup, a seat lookup that only changes the forms of a faction with its own PDS/dock) are not killed by any test.
+* No zero-bail game exists on this branch while the G rows (`silent/gaps.rs`: Foresight, Z'eu, Pillage, Tekklar, Scepter, ...) are loud; see the report for the one single-game `native_play` run.
 
-## 6. Checks (cheap), private target `/root/deploytmp/core-h4` (`CARGO_BUILD_JOBS=2`, `CARGO_PROFILE_DEV_DEBUG=0`, no incremental; deleted at the end)
+## 7. Checks (cheap), private target `/root/deploytmp/core-h4` (`CARGO_BUILD_JOBS=2`, `CARGO_PROFILE_DEV_DEBUG=0`, no incremental; deleted at the end)
 
-See the final report of the lane for the run lists; `check_layers.py core`: 0 violations, `lint_core.sh`: 0 hits.
+* `-p ti4-engine --lib` (whole, default areas): 5176 passed, 4 failed (the Z'eu sweeps), 7 ignored. `-p ti4-engine-core --lib` 473, `-p ti4-engine-core-factions --lib` 145, `-p ti4-engine-core-bridge --lib` 102 of 103 (the open task-2 test).
+* core-tests binaries: `research` 4, `research2` 5, `research_sucaban` 10, `strategic_arms` 33, `strategy_cards_prod2` 17, `combat_machine` 27, `combat_fight` 10, `aftermath_chain` 19, `agenda_flow` 9, `driver_windows` 11, `tactical_composer`, `map_edits`, `g2_abilities`, `strike_wing`, `silent_abilities`, `tactical`, `invasion_composer`, `production_use`, `leader_production`, `exploring`, `hero_windows`, `action_card_effects{,2,3}`, `action_card_probe_limit`, `action_cards{,_simple,_announce}`, `turn_jobs`, `combat_barrage`: pass.
+* `check_layers.py core`: 0 violations; `lint_core.sh`: 0 hits. Not run (standing rule): golden / wide dual sweeps, benches, soak, the mutation ratchet, census, workspace clippy, `playthrough`, the whole core-tests crate.
