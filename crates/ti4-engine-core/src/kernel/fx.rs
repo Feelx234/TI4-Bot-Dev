@@ -105,11 +105,21 @@ pub fn journal_mark(resolver: &Resolver) -> usize {
 /// calls this at the same program point, so a plain event pushed between the emission and this call is stored BEFORE
 /// the emission's events, exactly as in `Game::events`.
 pub fn mirror_journal(s: &mut CoreState, resolver: &Resolver, from: usize) -> usize {
-    let log = resolver.log();
-    for line in log.iter().skip(from) {
+    for rec in journal_recs(resolver, from) {
+        s.ledger.events.push(Emit::Typed(rec));
+    }
+    resolver.log().len()
+}
+
+/// The events the resolver emitted since `from`, in the order of its trace and as they ended (cancelled or not, payload as the windows left
+/// it): [`mirror_journal`] without the write. Nested emissions (the card a reaction plays inside another event) are in it, after their parent.
+#[must_use]
+pub fn journal_recs(resolver: &Resolver, from: usize) -> Vec<EventRec> {
+    let mut out = Vec::new();
+    for line in resolver.log().iter().skip(from) {
         if let Line::Emit { kind, id } = line {
-            // The journal keeps the event as it ended (cancelled or not, payload as the windows left it); the trace
-            // line only names it. A trace line without a journal entry (a failed emission) keeps its bare name.
+            // The journal keeps the event as it ended; the trace line only names it. A trace line without a journal entry (a failed emission)
+            // keeps its bare name.
             let rec = resolver
                 .applied_events()
                 .iter()
@@ -117,10 +127,10 @@ pub fn mirror_journal(s: &mut CoreState, resolver: &Resolver, from: usize) -> us
                 .find(|e| e.id == *id && e.kind == *kind)
                 .cloned()
                 .unwrap_or(EventRec { id: *id, kind: *kind, payload: Payload::new(), cancelled: false });
-            s.ledger.events.push(Emit::Typed(rec));
+            out.push(rec);
         }
     }
-    log.len()
+    out
 }
 
 // -- economy ------------------------------------------------------------------------------------

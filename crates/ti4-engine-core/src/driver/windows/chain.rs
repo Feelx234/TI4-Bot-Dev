@@ -410,13 +410,14 @@ pub fn sync_initiative(core: &mut CoreState) {
 
 fn merge(out: &mut Out, more: Out) {
     out.emitted.extend(more.emitted);
+    out.journal.extend(more.journal);
     out.opened.extend(more.opened);
 }
 
 /// The events the sub-windows emitted in this step, not yet written to the queue. The string mirrors its timing log into `Game::events` when
 /// the step returns (`mirror_timing_log`), before the aftermath's own plain events (`AftermathWindow::log`) are drained; the live path does the
-/// same at the three places the step ends: [`mirror_then_flush`]. (The top-level emissions of the step: an event a reaction emitted inside
-/// another is not here.)
+/// same at the three places the step ends: [`mirror_then_flush`]. (Every emission of the sub-windows' resolvers, in the order of their traces: the
+/// events a reaction emitted inside another are here, `Out::journal`.)
 type Typed = std::cell::RefCell<Vec<crate::state::EventRec>>;
 
 /// Write the emitted events of the step, then the aftermath's plain log (`flush`).
@@ -463,13 +464,13 @@ fn advance_inner(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> R
                 if w.parked {
                     After::Park
                 } else {
-                    typed.borrow_mut().extend(out.emitted.iter().cloned());
+                    typed.borrow_mut().extend(out.journal.iter().cloned());
                     mirror_then_flush(&typed, &mut w.p.log, core);
                     After::Close
                 }
             })?,
         };
-        typed.borrow_mut().extend(more.emitted.iter().cloned());
+        typed.borrow_mut().extend(more.journal.iter().cloned());
         merge(&mut out, more);
         match live {
             Live::Asks(a) => {

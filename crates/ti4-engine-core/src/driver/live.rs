@@ -88,6 +88,10 @@ pub enum Live {
 pub struct Out {
     /// The events the window emitted itself, in order.
     pub emitted: Vec<EventRec>,
+    /// Every event the call's resolver emitted, in the order of its trace: the window's own ones AND the ones the abilities answering them emitted inside
+    /// (the card a reaction plays: `ACTION_CARD_PLAYED` inside `PRODUCTION_USED`). The string's `mirror_timing_log` mirrors all of them; the aftermath
+    /// chain does the same from this list.
+    pub journal: Vec<EventRec>,
     /// The windows the rules asked the driver to open (`Next::Open`), in order: the arm opens them.
     pub opened: Vec<OpenWindow>,
     /// With `Live::Done`: the window ended its CALL, not itself ([`Held::holds`]): it is still on the stack, nothing is asked, and the string's next
@@ -214,7 +218,7 @@ fn advance_inner<M: Held>(core: &mut CoreState, env: &Env<'_>, answer: Option<Pi
     if let Some(why) = d.unknown() {
         return Err(LiveError::Unknown(why));
     }
-    let mut out = Out { emitted: std::mem::take(&mut d.emitted), opened: std::mem::take(&mut d.opened), held: false };
+    let mut out = Out { journal: crate::kernel::fx::journal_recs(&d.resolver, 0), emitted: std::mem::take(&mut d.emitted), opened: std::mem::take(&mut d.opened), held: false };
     d.store(core);
     match status {
         Status::Done if d.window.holds() => {
