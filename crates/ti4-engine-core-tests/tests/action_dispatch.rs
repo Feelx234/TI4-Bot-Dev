@@ -111,12 +111,23 @@ fn a_strategic_action_chosen_from_the_menu_stops_nowhere_and_opens_the_follower_
 
 #[test]
 fn an_option_no_window_runs_yet_is_a_gap_that_names_it_and_leaves_the_position() {
-    let (mut s, k) = Scenario::new(&[Faction::TheWinnu, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).build();
-    s.players_mut().edit(0).leaders.status.insert(ti4_engine_core::generated::Leader::MathisMathinus, ti4_engine_core::state::LeaderStatus::Unlocked);
-    s.strategy_mut().unclaimed.push(ti4_engine_core::generated::StrategyCard::ALL[0]);
+    // Airo Shir Aur runs a space combat as a child: its facts are the combat lane's, so the menu offers it and the dispatch names it.
+    let ps = ti4_engine_core_tests::scenario::plain_systems();
+    let (mut s, k) = Scenario::new(&[Faction::TheMahactGeneSorcerers, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_ring(7)
+        .unit(ps[0], None, Unit::CruiserI, 0, 1)
+        .unit(ps[1], None, Unit::CruiserI, 1, 1)
+        .tokens(0, 3, 3, 2)
+        .build();
+    for system in [ps[0], ps[1]] {
+        s.board_mut().sys_mut(system).flags.set(ti4_engine_core::state::SysFlags::TOUCHED, true);
+    }
+    s.players_mut().edit(0).leaders.status.insert(ti4_engine_core::generated::Leader::AiroShirAur, ti4_engine_core::state::LeaderStatus::Unlocked);
     let e = env_r(&k);
     let held = s.clone();
-    let result = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(ti4_engine_core::generated::Leader::MathisMathinus))));
+    let result = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(ti4_engine_core::generated::Leader::AiroShirAur))));
     assert!(matches!(result, Err(LiveError::Unknown(Unknown::TurnGap(TurnGap::Menu(MenuGap::Unrouted(5, _)))))), "{result:?}");
     assert_eq!(s, held, "nothing was written");
 }
@@ -1488,4 +1499,32 @@ fn an_enigmatic_device_card_chosen_from_the_menu_asks_pays_six_purges_the_card_a
     assert_eq!(p.tech.owned.len(), owned + 1, "one technology researched");
     assert!(p.cards.explore.as_slice().is_empty(), "the card is purged");
     assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// Lane F2e: Mathis Mathinus performs the primary of the card chosen and leaves the hero in play, waiting for the seats that may follow the secondary.
+#[test]
+fn mathis_mathinus_chosen_from_the_menu_performs_the_primary_and_asks_who_may_follow() {
+    use ti4_engine_core::generated::{Leader, StrategyCard};
+    use ti4_engine_core::state::{LeaderStatus, WindowKind};
+    let (mut s, k) = Scenario::new(&[Faction::TheWinnu, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).tokens(0, 3, 3, 2).build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::MathisMathinus, LeaderStatus::Unlocked);
+    let card = StrategyCard::ALL.iter().copied().find(|c| c.data().kind == ti4_engine_core::generated::StrategyCardKind::Leadership).expect("a Leadership card");
+    s.strategy_mut().unclaimed.push(card);
+    s.players_mut().edit(0).econ.commodities = 0;
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::MathisMathinus)))).unwrap();
+    assert!(matches!(live, Live::Asks(_)), "the card is asked");
+    pick(&mut s, &e, |o| matches!(o, Opt::Leaders(ti4_engine_core::choice::leaders::Opt::HeroCard(c)) if *c == card)).unwrap();
+    // The primary's own questions (Leadership: the tokens it buys) are taken with the first option until the follower selection stands.
+    for _ in 0..8 {
+        if s.pending().window(WindowKind::LeaderFollowers).is_some() || s.pending().window(WindowKind::StrategySecondary).is_some() {
+            break;
+        }
+        if pick(&mut s, &e, |_| true).is_err() {
+            break;
+        }
+    }
+    assert!(s.pending().window(WindowKind::LeaderStrategy).is_some(), "the hero stays in play while the secondary is followed");
+    assert!(s.pending().window(WindowKind::LeaderFollowers).is_some() || s.pending().window(WindowKind::StrategySecondary).is_some());
+    assert_eq!(status(&s, 0, Leader::MathisMathinus), Some(LeaderStatus::Unlocked), "not purged yet");
 }

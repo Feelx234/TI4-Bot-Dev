@@ -144,7 +144,7 @@ pub(crate) fn announce_made(sx: &mut Sx<'_>, who: Seat, system: System, made: &c
 }
 
 /// `stage_command_token_placed(.., Reinforcements)` for each seat that got a token of the Diplomacy primary, in seating order.
-fn place_tokens(sx: &mut Sx<'_>, system: System, seats: &[Seat]) {
+pub(crate) fn place_tokens(sx: &mut Sx<'_>, system: System, seats: &[Seat]) {
     let pool = sx.table.codes.reinforcements;
     for seat in seats {
         let payload = Payload::new().with(Key::Player, Val::Seat(*seat)).with(Key::System, Val::System(system)).with(Key::Pool, Val::Code(pool));

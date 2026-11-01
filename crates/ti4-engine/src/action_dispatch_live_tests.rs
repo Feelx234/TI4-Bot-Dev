@@ -472,3 +472,15 @@ fn an_enigmatic_device_card_chosen_from_the_menu_researches_like_the_string() {
     let state = super::turn_live_tests::based(state);
     lockstep(&state, &[&format!("play_area:{card}")], "COMPONENT_ACTION_RESOLVED");
 }
+
+#[test]
+fn mathis_mathinus_chosen_from_the_menu_performs_the_primary_like_the_string() {
+    let mut state = leader_table(&[("a", "winnu"), ("b", "sol"), ("c", "hacan")], "winnuhero", LeaderStatus::Unlocked);
+    state.unclaimed_strategy_cards = vec![ti4_model::id::StrategyCardId::new("pok5trade")];
+    let state = super::turn_live_tests::based(state);
+    let (string, taken) = string_run_first(&state, &["component|leader|winnuhero", "pok5trade"], |g| {
+        let _ = g.step();
+    });
+    let native = native_marked(&state, &[(true, Arm::TurnPrelude, None), (false, Arm::Ask, None)], &taken.iter().map(String::as_str).collect::<Vec<_>>());
+    assert_same(&string, &native);
+}

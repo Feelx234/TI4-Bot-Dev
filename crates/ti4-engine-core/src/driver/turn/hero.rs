@@ -250,3 +250,56 @@ pub fn conservator_procyon(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     }
     finish(sx, who, key, Leader::ConservatorProcyon, window.used)
 }
+
+/// Every strategy card in the game, held by a seat or unclaimed (Mathis Mathinus may name an exhausted one).
+fn every_card(sx: &Sx<'_>) -> Vec<StrategyCard> {
+    let mut cards: Vec<StrategyCard> = sx.state.players().iter().flat_map(|p| p.strat.as_slice().to_vec()).chain(sx.state.strategy().unclaimed.as_slice().iter().copied()).collect();
+    cards.sort_unstable();
+    cards.dedup();
+    cards
+}
+
+/// Mathis Mathinus (Winnu hero): the seat chooses a strategy card and performs its primary; each other player may then follow its secondary. The hero stays in
+/// play (`LeaderStrategy`) until the follower window is over, which is the strategic lane's (`complete_leader_strategy` purges it and tells the table). The
+/// Thunder's Edge Warfare primary leads to a free tactical action, which is the tactical lane's (`TurnGap::FreeTactical`).
+pub fn mathis_mathinus(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    let cards = every_card(sx);
+    let Some(facts) = perform_facts(sx, who, &cards) else { return finish(sx, who, key, Leader::MathisMathinus, false) };
+    let mut window = crate::rules::hero_windows::WinnuHero::new(who, facts, cards);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    if window.unsupported {
+        return gap_flow(sx, TurnGap::StrategyAbility);
+    }
+    let Some(card) = window.chosen else { return conclude_failed(sx, who, key) };
+    if let Some((system, seats)) = window.tokens.clone() {
+        crate::driver::windows::strategic::perform::place_tokens(sx, system, seats.as_slice());
+    }
+    if window.scored.is_some() {
+        let unlocking = crate::driver::turn::start::unlockable(sx, who, true);
+        crate::rules::leaders::unlock(sx.state, who, unlocking.as_slice());
+    }
+    if card.data().kind == crate::generated::StrategyCardKind::Imperial {
+        fx::finish_if_won(sx.state);
+    }
+    if let Some((system, made)) = window.produced.clone().filter(|(_, made)| !made.as_slice().is_empty()) {
+        crate::driver::windows::strategic::perform::announce_made(sx, who, system, &made);
+    }
+    if window.free.is_some() {
+        return gap_flow(sx, TurnGap::FreeTactical);
+    }
+    // An ACTION: what the body staged is announced (the events at once, as the string's adapter applies them) and Extreme Duress settles now; the action ends
+    // when the follower window does.
+    if super::component::announce_events(sx) == Flow::Halt || super::component::announce_staged(sx) == Flow::Halt || super::component::settle_extreme_duress(sx, who, false) == Flow::Halt {
+        return Flow::Halt;
+    }
+    sx.state.pending_mut().open(crate::state::Window::LeaderStrategy { player: who, leader: Leader::MathisMathinus, card });
+    crate::driver::windows::strategic::select_leader_strategy_followers(sx.state);
+    Flow::Done
+}
+
+/// The hero chose no card: the action failed and is withheld.
+fn conclude_failed(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    conclude_announced(sx, who, key, super::component::Verdict::Failed { withhold: true })
+}
