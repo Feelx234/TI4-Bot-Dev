@@ -711,6 +711,56 @@ fn the_feasibility_rules_rule_out_the_same_objectives_on_synthetic_censuses() {
     }
 }
 
+#[test]
+fn the_nexus_is_placed_and_triggered_like_the_legacy_one() {
+    use ti4_model::units::Unit;
+    // A map that already carries one face of the Nexus keeps it and gets no second one.
+    for already in [native::seating::LOCKED_NEXUS, native::seating::OPEN_NEXUS] {
+        let Ok(base) = ti4_content::galaxy::Galaxy::build(content(), &["18"], FULL, 1) else { continue };
+        let (mut a, mut b) = (base.clone(), base);
+        let ra = a.place_off_map(content(), already, FULL);
+        let rb = b.place_off_map(content(), already, FULL);
+        same_debug(&ra, &rb, already);
+        same_debug(
+            &native::seating::place_wormhole_nexus(&mut a, content(), FULL),
+            &legacy::seating::place_wormhole_nexus(&mut b, content(), FULL),
+            already,
+        );
+        assert_eq!(a, b, "{already}");
+    }
+    // Whether something has reached the Nexus, or somebody holds Mallice.
+    let nexus = SystemId::new(native::seating::LOCKED_NEXUS);
+    let owner = PlayerId::new("p0");
+    for units in [false, true] {
+        for planet_units in [false, true] {
+            for control in [None, Some("mallice"), Some("lockedmallice"), Some("other")] {
+                let (mut a, mut b) = dealt_table(POK, 3, 1);
+                for state in [&mut a, &mut b] {
+                    if units {
+                        state.system_mut(&nexus).units.push(Unit::new(ti4_model::id::UnitTypeId::new("cruiser"), owner.clone()));
+                    }
+                    if planet_units {
+                        state
+                            .system_mut(&nexus)
+                            .planet_units
+                            .entry(ti4_model::id::PlanetId::new("lockedmallice"))
+                            .or_default()
+                            .push(Unit::new(ti4_model::id::UnitTypeId::new("infantry"), owner.clone()));
+                    }
+                    if let Some(planet) = control {
+                        state.system_mut(&SystemId::new("25")).set_control(ti4_model::id::PlanetId::new(planet), owner.clone());
+                    }
+                }
+                assert_eq!(
+                    native::seating::nexus_is_triggered(&a),
+                    legacy::seating::nexus_is_triggered(&b),
+                    "units {units} planet_units {planet_units} control {control:?}"
+                );
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // starting technology
 

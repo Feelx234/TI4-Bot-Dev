@@ -791,7 +791,7 @@ pub fn build_board(
     }
 
     // Three rings hold 37 tiles, enough for Mecatol plus six homes and filler.
-    let rings = 3;
+    let rings = 3; // mutants:skip (rings only bound the spiral; the id list ends it)
     let mut galaxy = Galaxy::build(content, &ids, sources, rings)?;
     place_wormhole_nexus(&mut galaxy, content, sources)?;
     Ok(galaxy)
