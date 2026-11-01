@@ -585,7 +585,7 @@ impl Window for TurnEnd {
                             p.tech.exhausted.remove(tech);
                         }
                     }
-                    TOpt::Move { .. } | TOpt::Exhaust | TOpt::Transit { .. } | TOpt::Player(_) | TOpt::Capture(..) | TOpt::Token(..) | TOpt::System(_) | TOpt::Tech(_) | TOpt::Transact => return Err(Illegal),
+                    TOpt::Move { .. } | TOpt::Exhaust | TOpt::Transit { .. } | TOpt::Player(_) | TOpt::Capture(..) | TOpt::Token(..) | TOpt::System(_) | TOpt::Tech(_) | TOpt::Transact | TOpt::Swap { .. } => return Err(Illegal),
                 }
                 fx_exhaust(sx.state, self.who, Technology::BioStims);
                 self.stage = EStage::Done;
@@ -841,12 +841,14 @@ pub struct ChaosMapping {
     stage: CStage,
     child: crate::kernel::children::ErasedChild,
     pub unsupported: bool,
+    /// The system the seat chose to produce in.
+    pub chosen: Option<System>,
 }
 
 impl ChaosMapping {
     #[must_use]
     pub fn new(who: Seat, facts: ChaosFacts) -> Self {
-        Self { who, facts, stage: CStage::Start, child: crate::kernel::children::ErasedChild::idle(), unsupported: false }
+        Self { who, facts, stage: CStage::Start, child: crate::kernel::children::ErasedChild::idle(), unsupported: false, chosen: None }
     }
 }
 
@@ -903,6 +905,7 @@ impl Window for ChaosMapping {
         match pick {
             Pick::Opt(Opt::Decline) => self.stage = CStage::Done,
             Pick::Opt(Opt::Technology(TOpt::System(system))) if self.facts.systems.contains(&system) => {
+                self.chosen = Some(system);
                 match sx.table.links.start(&crate::kernel::children::Spawn::ProduceOne { who: self.who, system, facts: self.facts.one }) {
                     Some(window) => {
                         self.child.start(window);
@@ -947,6 +950,12 @@ impl TurnStart {
     #[must_use]
     pub fn unsupported(&self) -> bool {
         self.chaos.as_ref().is_some_and(|c| c.unsupported)
+    }
+
+    /// The system Chaos Mapping produced in (the one the fleet is enforced in when the unit stands over its supply or capacity).
+    #[must_use]
+    pub fn chaos_system(&self) -> Option<System> {
+        self.chaos.as_ref().and_then(|c| c.chosen)
     }
 }
 

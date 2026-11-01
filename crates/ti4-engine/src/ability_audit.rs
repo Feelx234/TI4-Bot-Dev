@@ -200,7 +200,7 @@ mod tests {
         }
         // Every status says why.
         assert!(ACCOUNTED.iter().all(|(_, s)| match s {
-            Status::Dropped(w) | Status::Carried(w) | Status::Lane(w) => !w.is_empty(),
+            Status::Dropped(w) | Status::Carried(w) => !w.is_empty(),
             Status::Gap(i) => *i < GAPS.len(),
         }));
     }

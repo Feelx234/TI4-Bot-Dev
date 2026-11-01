@@ -139,7 +139,9 @@ fn native_marked_arms(state: &GameState, steps: &[(bool, Option<Arm>, Option<Tur
     let kernel = live::kernel::kernel_for(sources);
     let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
     let lcx = live::Cx::new(&render, &env);
-    let mut asker = Scripted::new(ids.iter().copied());
+    let mut scripted = Scripted::new(ids.iter().copied());
+    // The table's rule for the draft: the last card is not a choice and is never put (nor journaled).
+    let mut asker = live::LoneCard(&mut scripted);
     for (reconcile, arm, job) in steps {
         if *reconcile {
             loop {
@@ -160,8 +162,8 @@ fn native_marked_arms(state: &GameState, steps: &[(bool, Option<Arm>, Option<Tur
             }
         }
     }
-    let questions = asker.seen.clone();
-    assert_eq!(asker.left(), 0, "every scripted answer was taken");
+    let questions = scripted.seen.clone();
+    assert_eq!(scripted.left(), 0, "every scripted answer was taken");
     let events = crate::render::events::events_text(&render, &cx, &core).expect("every event has a text");
     let after = materialize::materialize(&core, &cx, state).expect("materializes");
     let rng = materialize::rng_positions(&core).expect("the streams have names");
@@ -347,6 +349,49 @@ fn spec_ops_return_and_a_military_support_note_start_the_turn_like_the_string() 
     let (string, native) = prelude_both(&state, &[]);
     assert_same(&string, &native);
     assert!(string.events.iter().any(|e| e.starts_with("SPEC_OPS_RETURNED:a:2")), "{:?}", string.events);
+}
+
+/// Chaos Mapping's owner `a` (Sol) has a space dock on a planet it controls and `goods` trade goods; `b` (Hacan) sits at the table.
+fn chaos_table(goods: i32) -> (GameState, SystemId) {
+    let mut state = crate::fixtures::seated_dealt(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+    state.phase = ti4_model::state::Phase::Action;
+    state.active = Some(pid("a"));
+    let (system, planet) = crate::fixtures::a_placed_planet();
+    state.system_mut(&system).set_control(planet.clone(), pid("a"));
+    crate::fixtures::put_on_planet(&mut state, &system, &planet, "spacedock", &pid("a"), 1);
+    let seat = state.player_mut(&pid("a")).unwrap();
+    seat.technologies.insert(ti4_model::id::TechnologyId::new("cm"));
+    seat.trade_goods = goods;
+    (based(state), system)
+}
+
+#[test]
+fn chaos_mapping_produces_a_unit_at_the_start_of_the_turn_like_the_string() {
+    let (state, system) = chaos_table(1);
+    let system = system.to_string();
+    // A destroyer paid with the trade good, a decline of the system and a decline of the unit.
+    let (string, native) = prelude_both(&state, &[system.as_str(), "build|destroyer|1", "trade_good"]);
+    assert_same(&string, &native);
+    assert_eq!(string.questions.len(), 3, "{:?}", string.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
+    assert_eq!(string.questions[0].prompt, "Chaos Mapping");
+    let (string, native) = prelude_both(&state, &["decline"]);
+    assert_same(&string, &native);
+    assert_eq!(string.questions.len(), 1);
+    let (string, native) = prelude_both(&state, &[system.as_str(), "decline"]);
+    assert_same(&string, &native);
+    assert_eq!(string.questions.len(), 2);
+}
+
+#[test]
+fn a_chaos_mapping_unit_over_the_capacity_asks_which_unit_goes_like_the_string() {
+    let (mut state, system) = chaos_table(3);
+    // Three fighters fill the dock's capacity: the fourth stands over it and the string asks which unit goes.
+    crate::fixtures::put(&mut state, &system, "fighter", &pid("a"), 3);
+    let state = based(state);
+    let system = system.to_string();
+    let (string, native) = prelude_both(&state, &[system.as_str(), "build|fighter|1", "trade_good", "remove|0"]);
+    assert_same(&string, &native);
+    assert!(string.questions.iter().any(|q| q.prompt.contains("remove")), "{:?}", string.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
 }
 
 // -- the phases ------------------------------------------------------------------------------------------------------------------
@@ -628,9 +673,7 @@ fn bio_stims_readies_a_specialty_planet_at_the_end_of_a_turn_like_the_string() {
 }
 
 #[test]
-fn the_last_card_of_the_draft_ends_it_without_a_gap_and_the_swap_laws_are_gaps() {
-    use ti4_engine_core::kernel::ability::Unknown;
-    use ti4_engine_core::kernel::turn_codes::TurnGap;
+fn the_last_card_of_the_draft_ends_it_like_the_string() {
     // Two seats, one card each: the second pick is the last.
     let mut state = crate::fixtures::seated_dealt(&[("a", "sol"), ("b", "hacan")], DEFAULT);
     state.strategy_cards_per_player = 1;
@@ -638,18 +681,122 @@ fn the_last_card_of_the_draft_ends_it_without_a_gap_and_the_swap_laws_are_gaps()
     state.deal_strategy_card(&pid("a"), first);
     let state = based(state);
     let last = state.unclaimed_strategy_cards[0].to_string();
-    let mut announced = state.clone();
-    announced.starting_tech_picks.clear();
     let string = string_run(&state, &[last.as_str()], |g| {
         g.strategy_phase_announced = true;
         assert!(g.step().error.is_none());
     });
     let native = native_marked_arms(&state, &[(true, Some(Arm::Ask), None)], &[last.as_str()]);
     assert_same(&string, &native);
-    // Imperial Arbiter elected for a seat that holds a card, with another seat holding one: the core stops with a counted gap.
-    let mut arbiter = state.clone();
-    arbiter.laws.insert("arbiter".to_owned(), "a".to_owned());
-    let (stop, untouched) = native_stop_with(&arbiter, Arm::Ask, None, &[last.as_str()]);
-    assert_eq!(stop, crate::live::Stop::Live(ti4_engine_core::driver::live::LiveError::Unknown(Unknown::TurnGap(TurnGap::ImperialArbiter))));
-    assert!(untouched);
+}
+
+/// A table of `a` (sol), `b` (arborec) at the last pick of a draft of two cards each: `a` holds Technology, `b` Leadership and Politics, and
+/// Diplomacy is the last card on the mat. `a` holds the fewest cards and takes it (the string does not ask for the last card).
+fn arbiter_table(arbiter_for: Option<&str>) -> GameState {
+    // (The Arborec have a module: with one seated the string stages the events of the datahub's swap.)
+    let mut state = crate::fixtures::seated_dealt(&[("a", "sol"), ("b", "arborec")], DEFAULT);
+    state.strategy_cards_per_player = 2;
+    state.unclaimed_strategy_cards.clear();
+    for (who, card) in [("a", "pok7technology"), ("b", "pok1leadership"), ("b", "pok3politics")] {
+        state.deal_strategy_card(&pid(who), ti4_model::id::StrategyCardId::new(card));
+    }
+    state.unclaimed_strategy_cards.push(ti4_model::id::StrategyCardId::new("pok2diplomacy"));
+    if let Some(owner) = arbiter_for {
+        state.laws.insert("arbiter".to_owned(), owner.to_owned());
+    }
+    based(state)
+}
+
+fn draft_both(state: &GameState, ids: &[&str]) -> (Run, Run) {
+    let string = string_run(state, ids, |g| {
+        g.strategy_phase_announced = true;
+        assert!(g.step().error.is_none());
+    });
+    let native = native_marked_arms(state, &[(true, Some(Arm::Ask), None)], ids);
+    (string, native)
+}
+
+fn cards_of(run: &Run, seat: usize) -> Value {
+    run.state["players"][seat]["strategy_cards"].clone()
+}
+
+#[test]
+fn imperial_arbiter_swaps_cards_at_the_end_of_the_draft_like_the_string() {
+    let state = arbiter_table(Some("a"));
+    // `a` takes the last card (Diplomacy), discards the law, gives Diplomacy and takes Leadership from `b`: the taken card goes on the END of
+    // the holding (Technology, Leadership), which is not the initiative order the datahub's swap keeps.
+    let (string, native) = draft_both(&state, &["discard", "pok2diplomacy", "b|pok1leadership"]);
+    assert_same(&string, &native);
+    assert_eq!(string.questions.len(), 3, "{:?}", string.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
+    assert!(string.events.iter().any(|e| e == "STRATEGY_CARDS_SWAPPED:a:b"), "{:?}", string.events);
+    assert_eq!(cards_of(&string, 0), serde_json::json!(["pok7technology", "pok1leadership"]));
+    assert_eq!(cards_of(&string, 1), serde_json::json!(["pok3politics", "pok2diplomacy"]));
+    assert!(string.state["laws"].get("arbiter").is_none(), "the law was discarded");
+    // A decline keeps the law and swaps nothing.
+    let (string, native) = draft_both(&state, &["decline"]);
+    assert_same(&string, &native);
+    assert_eq!(string.questions.len(), 1);
+    assert!(string.state["laws"].get("arbiter").is_some());
+    assert!(!string.events.iter().any(|e| e.starts_with("STRATEGY_CARDS_SWAPPED")));
+    // The other card of the owner, and a card of the other holder's second place.
+    let (string, native) = draft_both(&state, &["discard", "pok7technology", "b|pok3politics"]);
+    assert_same(&string, &native);
+    assert_eq!(cards_of(&string, 0), serde_json::json!(["pok2diplomacy", "pok3politics"]));
+    // The law is the other seat's: it is offered to `b`, who gives Politics for Technology.
+    let (string, native) = draft_both(&arbiter_table(Some("b")), &["discard", "pok3politics", "a|pok7technology"]);
+    assert_same(&string, &native);
+    // Without the law nothing is offered.
+    let (string, native) = draft_both(&arbiter_table(None), &[]);
+    assert_same(&string, &native);
+    assert!(string.questions.is_empty());
+}
+
+#[test]
+fn the_quantum_datahub_node_swaps_cards_at_the_end_of_the_draft_like_the_string() {
+    let mut state = arbiter_table(None);
+    {
+        let b = state.player_mut(&pid("b")).unwrap();
+        b.technologies.insert(ti4_model::id::TechnologyId::new("qdn"));
+        b.strategic_tokens = 2;
+        b.trade_goods = 4;
+    }
+    let state = based(state);
+    // `b` (the holder: Leadership and Politics) gives Leadership for the Diplomacy `a` drafted: three trade goods go to `a`, one strategy token
+    // is spent, and the events of both wait staged for the next step. Both holdings stay in initiative order.
+    let (string, native) = draft_both(&state, &["qdn|a|pok1leadership|pok2diplomacy"]);
+    assert_same(&string, &native);
+    assert_eq!(string.questions.len(), 1);
+    assert!(string.events.iter().any(|e| e == "QUANTUM_DATAHUB_SWAP:b:a"), "{:?}", string.events);
+    assert_eq!(string.staged, ["STRATEGY_TOKEN_SPENT", "TRADE_GOODS_GAINED"]);
+    assert_eq!(cards_of(&string, 0), serde_json::json!(["pok1leadership", "pok7technology"]));
+    assert_eq!(cards_of(&string, 1), serde_json::json!(["pok2diplomacy", "pok3politics"]));
+    assert_eq!(string.state["players"][1]["trade_goods"], 1);
+    // A decline, and a holder who cannot pay (two trade goods) or has no token: no question.
+    let (string, native) = draft_both(&state, &["decline"]);
+    assert_same(&string, &native);
+    assert!(string.staged.is_empty());
+    for (tokens, goods) in [(0, 4), (2, 2)] {
+        let mut poor = state.clone();
+        poor.player_mut(&pid("b")).unwrap().strategic_tokens = tokens;
+        poor.player_mut(&pid("b")).unwrap().trade_goods = goods;
+        let (string, native) = draft_both(&poor, &[]);
+        assert_same(&string, &native);
+        assert!(string.questions.is_empty(), "{tokens} {goods}");
+    }
+}
+
+#[test]
+fn the_arbiter_is_offered_first_and_the_datahub_sees_its_swap() {
+    let mut state = arbiter_table(Some("a"));
+    {
+        let b = state.player_mut(&pid("b")).unwrap();
+        b.technologies.insert(ti4_model::id::TechnologyId::new("qdn"));
+        b.strategic_tokens = 1;
+        b.trade_goods = 3;
+    }
+    let state = based(state);
+    // The Arbiter's swap gives `b` Diplomacy for Leadership; the datahub then offers the holder what it holds NOW.
+    let (string, native) = draft_both(&state, &["discard", "pok2diplomacy", "b|pok1leadership", "qdn|a|pok3politics|pok7technology"]);
+    assert_same(&string, &native);
+    assert_eq!(string.questions.len(), 4);
+    assert_eq!(string.events.iter().filter(|e| e.starts_with("STRATEGY_CARDS_SWAPPED") || e.starts_with("QUANTUM_DATAHUB_SWAP")).count(), 2);
 }

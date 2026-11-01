@@ -21,6 +21,12 @@ pub const MINISTER_PROMPT: &str = "Minister of War: discard to retrieve a comman
 /// What the offer says discarding does (`Game::minister_of_war_text`'s `DiscardPresentation`).
 const MINISTER_EFFECT: &str = "Retrieve a command token and take another action";
 
+/// The prompt of Imperial Arbiter's offer to discard its law (`Game::imperial_arbiter`).
+pub const ARBITER_PROMPT: &str = "Imperial Arbiter: discard to swap a strategy card";
+
+/// What the Imperial Arbiter's offer says discarding does.
+const ARBITER_EFFECT: &str = "Swap a strategy card with another player";
+
 /// What the Minister of Peace's offer says discarding does (`Game::minister_of_peace`).
 const PEACE_EFFECT: &str = "Ends the active player's turn at once";
 
@@ -59,6 +65,9 @@ pub fn codes(r: &Render) -> TurnCodes {
         place_structure: r.code("place_structure"),
         te6warfare: r.code("te6warfare"),
         te4construction: r.code("te4construction"),
+        arbiter_prompt: r.code(ARBITER_PROMPT),
+        arbiter: r.code("arbiter"),
+        quantum_datahub: r.code("quantum_datahub"),
     }
 }
 
@@ -70,6 +79,10 @@ pub fn complete(core: &CoreState, choice: &CoreChoice, rendered: &mut Choice) {
             let letnev = core.players().by_seat(choice.actor).is_some_and(|p| p.faction == Faction::TheBaronyOfLetnev);
             rendered.details.extend(crate::strategy_cards_core::pool_details(core, choice.actor, letnev, "restack", None));
         }
+        // Imperial Arbiter's offer (`Game::imperial_arbiter` through `laws::offer_discard`).
+        Ask::Agenda(AAsk::DiscardLaw { law: Agenda::ImperialArbiter, .. }) => discard_law(Agenda::ImperialArbiter, ARBITER_EFFECT, Vec::new(), rendered),
+        // The two questions of the swap are asked without a context (`Game::imperial_arbiter`).
+        Ask::Strategy(ti4_engine_core::choice::strategy::Ask::ArbiterGive | ti4_engine_core::choice::strategy::Ask::ArbiterTake) => rendered.context = None,
         // "Which command token comes back": the string asks it without a context (`minister_of_war_text`).
         Ask::Turn(TurnAsk::MinisterToken) => rendered.context = None,
         // The fleet sweep's "remove a unit" question: the string asks it without a context (`fleet::enforce_seeing`).
@@ -77,6 +90,9 @@ pub fn complete(core: &CoreState, choice: &CoreChoice, rendered: &mut Choice) {
         // The starting technology: the pick, the rule, the faction, what the seat holds; per option the colour, the other owners and
         // the number of prerequisites (`starting_tech::choice`).
         Ask::Technology(TAsk::StartingTech { number, of, rule }) => starting_tech(core, choice, number, of, rule, rendered),
+        // Chaos Mapping's single unit (`produce_one_from` with no source): the string asks the unit and the place without a context.
+        Ask::Production(ti4_engine_core::choice::production::Ask::One(one)) if one.alias.is_none() => rendered.context = None,
+        Ask::Production(ti4_engine_core::choice::production::Ask::OnePlace { .. }) => rendered.context = None,
         // Military Support: the offer card of the placement.
         Ask::Promissory(_) => crate::render::promissory::complete_place_units(choice, rendered),
         // The Minister of War's offer (`laws::offer_discard`): the law as printed and what each answer does.

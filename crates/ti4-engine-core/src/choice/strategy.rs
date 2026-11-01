@@ -74,6 +74,10 @@ pub enum Ask {
     SucabanTrade,
     /// 26: "choose a strategy card" at the draft of the strategy phase.
     Draft,
+    /// Imperial Arbiter (`Game::imperial_arbiter`), asked to the owner after the offer to discard it: "give away which of your strategy cards".
+    ArbiterGive,
+    /// Imperial Arbiter: "and take which" card of another seat.
+    ArbiterTake,
     /// 82: a follower's question on the secondary of `card`, played by `primary` (every kind; Leadership's is the
     /// purchase question itself). `costs_token`: the follow takes a strategy token.
     Follow { card: StrategyCard, primary: Seat, costs_token: bool },
@@ -118,8 +122,10 @@ pub enum Opt {
     Exhaust,
     /// Doctor Sucaban's trade: remove an infantry of the researcher from this space area (`planet` is `None`) or planet (the answer `system:planet`).
     Infantry { system: System, planet: Option<Planet> },
-    /// The draft takes this card off the mat.
+    /// The draft takes this card off the mat; Imperial Arbiter's owner gives this card away.
     Card(StrategyCard),
+    /// Imperial Arbiter's owner takes this card from this seat (the answer `{holder}|{card}`).
+    Take(Seat, StrategyCard),
     /// A follower does not use the secondary (`no`).
     Skip,
     /// A follower uses the secondary (`yes`): spends the strategy token when the question says so.
@@ -166,6 +172,9 @@ pub enum Subtype {
     WarfareFreeTactical,
     /// `draft_strategy_card`.
     Draft,
+    /// The two questions of Imperial Arbiter's swap (the string asks them without a context; the live layer drops it).
+    ArbiterGive,
+    ArbiterTake,
 }
 
 /// The context of a strategy card question.

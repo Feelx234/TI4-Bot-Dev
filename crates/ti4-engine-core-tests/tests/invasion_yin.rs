@@ -89,6 +89,76 @@ fn a_win_earns_the_feats_against_the_leader_and_a_note_holder_against_one_occurr
 }
 
 #[test]
+fn a_won_combat_opens_the_scoring_window_of_its_feat_and_a_score_that_wins_the_game_ends_the_fight() {
+    use ti4_engine_core::choice::objectives::{Ask as OAsk, Opt as OOpt};
+    use ti4_engine_core::generated::SecretObjective;
+    covers!("rules::invasion::fight::CommittedFight");
+    let scored_and_finished = |points: i16| {
+        let mut found = None;
+        for seed in 0..12 {
+            let (sc, system, planet) = arena(5, 1);
+            let mut rig = Rig::new(sc, CommittedFight::new(facts(system, planet))).seeded(seed);
+            // The loser leads the table (Spark a Rebellion's feat) and the invader holds the secret.
+            rig.state.players_mut().edit(1).econ.victory_points = if points > 0 { 9 } else { 3 };
+            rig.state.players_mut().edit(0).econ.victory_points = points;
+            rig.state.players_mut().edit(0).cards.secrets.push(SecretObjective::SparkARebellion);
+            rig.run();
+            let mut asked_score = None;
+            while !rig.is_done() {
+                if matches!(rig.asked().ask, Ask::Objectives(OAsk::Score { .. })) {
+                    asked_score = Some((rig.asked().actor, rig.opts()));
+                    rig.pick_where(|o| matches!(o, Opt::Objectives(OOpt::Score(_))));
+                } else {
+                    rig.pick(0);
+                }
+            }
+            if asked_score.is_some() {
+                found = Some((asked_score, rig.state.meta().finished, left(&rig, planet, 1), rig.driver.window.scoring.len()));
+                break;
+            }
+        }
+        found
+    };
+    let (asked, finished, _, windows) = scored_and_finished(0).expect("the window opens after a won combat");
+    assert_eq!(asked.map(|a| a.0), Some(Seat(0)), "the seat that won is asked");
+    assert!(!finished && windows == 1);
+    let (_, finished, rival_left, _) = scored_and_finished(9).expect("the window opens again");
+    assert!(finished, "the tenth point ends the game");
+    assert_eq!(rival_left, 0);
+}
+
+#[test]
+fn the_scoring_window_of_a_combat_lets_a_seat_score_one_secret_only() {
+    use ti4_engine_core::choice::objectives::Opt as OOpt;
+    use ti4_engine_core::generated::SecretObjective;
+    covers!("rules::invasion::fight::CommittedFight");
+    let mut asked_total = 0;
+    for seed in 0..12 {
+        let (sc, system, planet) = arena(5, 1);
+        let mut f = facts(system, planet);
+        f.notes = vec![(Seat(0), Seat(1))];
+        let mut rig = Rig::new(sc, CommittedFight::new(f)).seeded(seed);
+        // Two secrets whose feats the win earns (against the points leader, against a note holder): one score per player and occurrence.
+        for secret in [SecretObjective::SparkARebellion, SecretObjective::BetrayAFriend] {
+            rig.state.players_mut().edit(0).cards.secrets.push(secret);
+        }
+        rig.run();
+        let mut scored = 0;
+        while !rig.is_done() {
+            if rig.opts().iter().any(|o| matches!(o, Opt::Objectives(OOpt::Score(_)))) {
+                asked_total += 1;
+                scored += 1;
+                rig.pick_where(|o| matches!(o, Opt::Objectives(OOpt::Score(_))));
+            } else {
+                rig.pick(0);
+            }
+        }
+        assert!(scored <= 1, "seed {seed}: scored {scored} in one window");
+    }
+    assert!(asked_total > 0, "the window opened in some run");
+}
+
+#[test]
 fn every_rival_is_fought_in_the_order_of_the_player_ids_while_the_invader_stands() {
     covers!("rules::invasion::fight::CommittedFight");
     let (sc, system, planet) = arena(8, 1);

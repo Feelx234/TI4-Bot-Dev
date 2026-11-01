@@ -14,23 +14,56 @@ use crate::ids::Seat;
 use crate::kernel::fx_strategy;
 use crate::kernel::stage::Sx;
 use crate::kernel::turn_codes::TurnGap;
+use crate::query::leader_reads::has_entry;
 use crate::query::{promissory, reach};
 use crate::rules::leaders;
 use crate::rules::promissory_windows::{PlaceUnits, Then};
-use crate::rules::technology_windows::TurnStart;
+use crate::rules::production;
+use crate::rules::technology_windows::{ChaosFacts, TurnStart};
+use crate::driver::windows::enforce_all::EnforceAll;
+use crate::kernel::children::OneFacts;
 use crate::state::{EventKind, Phase, PlainArg, PlainKind, PlainRec};
 
 /// The unit a Sol seat's Spec Ops return places (`faction_techs::return_spec_ops` names `sol_infantry2`).
 const SPEC_OPS_UNIT: Unit = Unit::SpecOpsII;
 
-/// `technology::start_turn`.
+/// What Chaos Mapping's window needs of the position (`technology_dual::start_turn`): the systems where the seat has a PRODUCTION capacity, in
+/// system order, and the facts of the one-unit production that follows. `None`: the table holds no single-unit production (a gap).
+fn chaos_facts(sx: &Sx<'_>, active: Seat) -> Result<ChaosFacts, TurnGap> {
+    let roster = sx.table.facts.plays.as_ref().and_then(|p| p.roster).ok_or(TurnGap::NoRoster)?;
+    let link = sx.table.links.one.ok_or(TurnGap::ChaosMapping)?;
+    let (buildable, fleet_limit) = (link.facts)(sx.state, sx.kernel, roster, active).ok_or(TurnGap::ChaosMapping)?;
+    let cx = production::Cx::new(sx.state, sx.kernel, reach::scope_of(sx.kernel), reach::blanked(sx.state));
+    // (The string walks the systems that have an entry on its board, `GameState::board.keys()`.)
+    let systems = sx.state.board().systems().map(|(system, _)| system).filter(|system| has_entry(sx.state, *system) && production::capacity(&cx, active, *system) > 0).collect();
+    Ok(ChaosFacts { systems, one: OneFacts { buildable, fleet_limit, name: None, alias: None } })
+}
+
+/// `technology::start_turn`: Psychoarchaeology, Transit Diodes, and Chaos Mapping's single unit. A unit that stands over the fleet supply or the
+/// capacity of its system is followed by the removal questions of `fleet::enforce_seeing`.
 fn technologies(sx: &mut Sx<'_>, active: Seat) -> Flow {
-    if reach::technology_text(sx.state, active, Technology::ChaosMapping) {
-        // The single-unit production needs the production facts (`buildable`, the capacity of the seat's systems): the production lane's.
-        gap(sx, TurnGap::ChaosMapping);
+    let source = sx.table.codes.turn.psychoarchaeology;
+    if !reach::technology_text(sx.state, active, Technology::ChaosMapping) {
+        return run(sx, &mut TurnStart::new(active, source));
+    }
+    let facts = match chaos_facts(sx, active) {
+        Ok(facts) => facts,
+        Err(why) => {
+            gap(sx, why);
+            return Flow::Halt;
+        }
+    };
+    let mut window = TurnStart::new(active, source).with_chaos_mapping(facts);
+    if run(sx, &mut window) == Flow::Halt {
         return Flow::Halt;
     }
-    run(sx, &mut TurnStart::new(active, sx.table.codes.turn.psychoarchaeology))
+    match (window.unsupported(), window.chaos_system()) {
+        (true, Some(system)) => {
+            let limits = super::facts::limits(sx.state, sx.kernel, active, system);
+            run(sx, &mut EnforceAll::new(vec![(active, system, limits)]))
+        }
+        _ => Flow::Done,
+    }
 }
 
 /// The leaders `leaders::check_unlocks` would unlock for `seat` now (every commander of the game states its condition in a hook slot, lane F2).

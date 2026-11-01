@@ -10,6 +10,7 @@
 use crate::kernel::children::{AreaLinks, Erased, ErasedWindow, OneLink, Report, Spawn};
 use crate::kernel::stage::AbilityTable;
 use crate::driver::windows::hooked_draw::HookedDraw;
+use crate::driver::windows::scoring::OccurrenceScoring;
 use crate::rules::combat::effect_hits::{Absorb, Destroy};
 use crate::kernel::children::ExploreEnd;
 use crate::rules::explore_windows::{Exploring, Reward};
@@ -94,6 +95,7 @@ fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
         Spawn::Destroy { who, system, card, subtype, cause } => Erased::boxed(Destroy::new(*who, *system, *card, *subtype, *cause), |w| Report::Destroyed(w.destroyed)),
         Spawn::Absorb { who, producer, system, hits, texts } => Erased::boxed(Absorb::new(*who, *producer, *system, *hits, *texts), |_| Report::Nothing),
         Spawn::Produce { facts } => Erased::boxed(ProductionWindow::ability(facts), |w| Report::Made(w.made())),
+        Spawn::EventScoring { occurrence, one_per_player } => Erased::boxed(OccurrenceScoring::new(*occurrence, *one_per_player), |_| Report::Nothing),
         Spawn::Seeing { who, system, limits } => {
             let limits = Limits { enforce: limits.enforce, shown: limits.shown, halves: limits.halves };
             Erased::boxed(Enforce::new(*who, *system, limits), |w| Report::Removed(w.removed))
@@ -215,6 +217,7 @@ mod tests {
             Spawn::Warfare { who, letnev_pool: false },
             Spawn::Diplomacy { who, card: crate::generated::StrategyCard::DiplomacyBase, primary: false, base_printing: false },
             Spawn::Trade { who },
+            Spawn::EventScoring { occurrence: 1, one_per_player: true },
             Spawn::Destroy { who, system: crate::generated::System::ALL[0], card: crate::generated::ActionCard::CourageousToTheEnd, subtype: crate::state::Code(0), cause: crate::state::Code(0) },
             Spawn::Absorb { who, producer: who, system: crate::generated::System::ALL[0], hits: 1, texts: crate::kernel::children::HitTexts::default() },
             Spawn::ProduceOne { who, system: crate::generated::System::ALL[0], facts: crate::kernel::children::OneFacts { buildable: [None; 9], fleet_limit: 8, name: None, alias: None } },

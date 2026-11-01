@@ -14,7 +14,6 @@ use ti4_engine_core::choice::reaction::Ask as RAsk;
 use ti4_engine_core::choice::{Ask, Choice as CoreChoice, Opt};
 use ti4_engine_core::generated::{ActionCard, Planet, System, Unit, UnitBaseType};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::kernel::ability::PlaysProvider;
 use ti4_engine_core::kernel::read::Rd;
 use ti4_engine_core::kernel::{Kernel, NestedFacts};
 use ti4_engine_core::query::{board, reach};
@@ -28,7 +27,7 @@ use crate::render::Render;
 
 /// Attach the previews of the cards the question offers to its context: the cards of the window's single-card slot (an option with a `card`
 /// payload) and the cards of the "play an action card" question.
-pub fn complete(r: &Render, core: &CoreState, k: &Kernel, plays: Option<&PlaysProvider>, facts: &NestedFacts, choice: &CoreChoice, rendered: &mut Choice) {
+pub fn complete(r: &Render, core: &CoreState, k: &Kernel, facts: &NestedFacts, choice: &CoreChoice, rendered: &mut Choice) {
     let cards: Vec<(ActionCard, String)> = match &choice.ask {
         Ask::Reaction(RAsk::Window { .. }) => rendered
             .options
@@ -46,7 +45,7 @@ pub fn complete(r: &Render, core: &CoreState, k: &Kernel, plays: Option<&PlaysPr
             .collect(),
         _ => return,
     };
-    let cx = Pcx { r, core, k, plays, event: &facts.event, who: choice.actor };
+    let cx = Pcx { r, core, k, event: &facts.event, who: choice.actor };
     let previews: Vec<EffectPreview> = cards.into_iter().filter_map(|(card, option)| cx.preview(card, &option)).collect();
     if let Some(context) = rendered.context.as_mut() {
         context.previews.extend(previews);
@@ -58,7 +57,6 @@ struct Pcx<'a> {
     r: &'a Render,
     core: &'a CoreState,
     k: &'a Kernel,
-    plays: Option<&'a PlaysProvider>,
     event: &'a EventRec,
     who: Seat,
 }
@@ -413,13 +411,8 @@ impl Pcx<'_> {
         let standing: Vec<TriggerUnits> = if core.meta().rules_version >= ti4_model::state::RULES_INFILTRATE_FIX {
             let scope = reach::scope_of(k);
             let forbidden = |unit| k.hooks.economy.effect_placement_forbidden(core, k, who, unit);
-            // The forms the seat would place (the swaps' replacement), as the play facts hand them to the card.
-            let own = self
-                .plays
-                .and_then(|plays| (plays.0)(core, k))
-                .and_then(|facts| facts.seats.iter().find(|s| s.who == who).map(|s| (s.more.pds.0, s.more.spacedock.0)))
-                .unwrap_or((None, None));
-            let swaps = ti4_engine_core::rules::action_cards::infiltrate_swaps(core, scope, who, planet, own, &forbidden);
+            // (The forms the seat would place are the swaps' replacements: the preview shows the structures swapped OUT, which they do not change.)
+            let swaps = ti4_engine_core::rules::action_cards::infiltrate_swaps(core, scope, who, planet, (None, None), &forbidden);
             let pieces: Vec<Piece> = swaps.as_slice().iter().map(|(piece, _)| *piece).collect();
             self.tally(&pieces)
         } else {
@@ -558,7 +551,7 @@ mod tests {
                 let seat = r.seat("a").unwrap();
                 let native = with_core(&mut gs, &mut cx, Sources::default(), READS, |core, _| {
                     let kernel = crate::live::kernel::kernel_for(POK);
-                    let cx = Pcx { r: &r, core, k: kernel, plays: None, event: &rec, who: seat };
+                    let cx = Pcx { r: &r, core, k: kernel, event: &rec, who: seat };
                     cx.preview(card, &option)
                 })
                 .expect("the position lends");

@@ -174,13 +174,17 @@ pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     if let Some((facts, at)) = &asking.nested {
         crate::dual_window::complete_nested(cx.render, &asking.choice, facts, &crate::dual_window::NestedPos::of_core(cx.render, at), at, &mut rendered);
         crate::combat_live::after_nested(&asking.choice, &mut rendered);
-        reaction_preview::complete(cx.render, at, cx.env.kernel, cx.env.table.facts.plays_provider.as_ref(), facts, &asking.choice, &mut rendered);
+        reaction_preview::complete(cx.render, at, cx.env.kernel, facts, &asking.choice, &mut rendered);
     } else if matches!(asking.choice.ctx.origin, ti4_engine_core::choice::Origin::ActionCard(_)) {
         // A question of an action card played from a window (Crash Landing's planet, asked while the combat or the invasion goes on) is asked by the
         // string through `ask_seeing` too: it names the battle and the invasion the position is in.
         if let Some(ctx) = rendered.context.take() {
             rendered.context = Some(crate::dual_window::nested_position(&asking.choice, ctx, &crate::dual_window::NestedPos::of_core(cx.render, at)));
         }
+    } else if let Some(ctx) = rendered.context.take() {
+        // Every other question of a window hosted inside an invasion (the table's `ask_seeing` names the invasion in progress in the context of any
+        // question): the core's own contexts carry it only where the area that raised the question knew it.
+        rendered.context = Some(ctx.about_invasion_in(crate::dual_window::NestedPos::of_core(cx.render, at).invasion));
     }
     rendered
 }
@@ -421,6 +425,45 @@ mod tests {
             let (a, b) = (gs.player(who).unwrap(), string_state.player(who).unwrap());
             assert_eq!((a.tactic_tokens, a.fleet_tokens, a.strategic_tokens), (b.tactic_tokens, b.fleet_tokens, b.strategic_tokens), "{who:?}");
         }
+    }
+
+    /// The table's `ask_seeing` names the invasion in progress in the context of EVERY question asked inside it; a question of the core that
+    /// is no action card's and is not nested in an emission (a window of an event, a hook) gets the same from the position it is asked in.
+    #[test]
+    fn a_question_asked_inside_an_invasion_names_the_invasion_in_its_context() {
+        use ti4_engine_core::choice::generic::Rule;
+        use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt, Subtype as SSub};
+        use ti4_engine_core::generated::{StrategyCard, System};
+        use ti4_engine_core::state::{ActiveInvasion, Code};
+        let mut gs = crate::fixtures::seated_dealt(&[("a", "mentak"), ("b", "letnev")], ti4_model::content_types::POK);
+        let (mut cx, r) = crate::dual_window::tables_for_tests(&gs).expect("a position the codecs carry");
+        let kernel = Kernel::plain();
+        let env = Env { kernel: &kernel, registry: Cow::new(Registry::default()), table: AbilityTable::default(), seeds: Rc::new(NoSeeds) };
+        let reads: Vec<Slice> = Slice::ALL.iter().copied().filter(|s| *s != Slice::Map).collect();
+        with_core(&mut gs, &mut cx, Sources::default(), Footprint::new(&reads, &[Slice::Transient]), |core, _| {
+            let choice = CoreChoice {
+                actor: ti4_engine_core::Seat(0),
+                ask: ti4_engine_core::choice::Ask::Strategy(SAsk::Draft),
+                ctx: ti4_engine_core::choice::strategy::rule_ctx(Rule::R26, SSub::Draft),
+                opts: [ti4_engine_core::choice::Opt::Strategy(SOpt::Card(StrategyCard::Leadership))].into_iter().collect(),
+            };
+            let asking = Asking { choice, nested: None, at: None };
+            let live = Cx::new(&r, &env);
+            let seq_of = |core: &CoreState| render_asking(&live, core, &asking).context.expect("a context").invasion_seq;
+            assert_eq!(seq_of(core), None, "no invasion in progress");
+            core.transient_mut().invasion.active = Some(ti4_engine_core::containers::Cow::new(ActiveInvasion {
+                system: System::ALL[0],
+                invader: ti4_engine_core::Seat(0),
+                seq: 7,
+                phase: Code(0),
+                planet: None,
+                defender: None,
+                ground_round: 0,
+                last_step: None,
+            }));
+            assert_eq!(seq_of(core), Some(7), "the invasion in progress");
+        })
+        .unwrap();
     }
 
     /// The arm stops with a script that ran out, and with an answer that is no option, and puts the position back each time.
