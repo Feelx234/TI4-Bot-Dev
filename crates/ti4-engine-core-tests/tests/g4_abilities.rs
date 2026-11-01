@@ -770,6 +770,23 @@ mod regressions {
     }
 
     #[test]
+    fn a_link_is_followed_from_either_end() {
+        covers!("silent::g4::foresight::FORESIGHT");
+        // The ships stand at the far end of the link: the near end is a destination (the pair is stored smaller first, so one of the two orders is this one).
+        let ring = ring7();
+        let (probe, _) = Scenario::new(&[Faction::TheEmiratesOfHacan]).map_from(&ring).build();
+        let galaxy = probe.galaxy().unwrap();
+        let far = *ring.iter().find(|s| **s != ring[1] && !galaxy.adjacent(ring[1]).contains(s.index())).unwrap();
+        let (mut state, mut kernel) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheNaaluCollective]).map_from(&ring).unit(far, None, Unit::CruiserI, 1, 1).build();
+        state.players_mut().by_seat_mut(Seat(1)).unwrap().econ.strategic_tokens = 2;
+        kernel.hooks.movement.linked_systems.push(link_far);
+        let mut r = Rig::from_parts(state, kernel, EmitEvent::new(finished(0, far, Some(1)))).with_abilities(table());
+        r.run();
+        open(&mut r);
+        assert!(destinations(&r).contains(&ring[1]), "{}", r.transcript());
+    }
+
+    #[test]
     fn a_neighbour_off_the_map_is_not_a_destination_and_the_naalus_own_ship_there_does_not_bar_it() {
         covers!("silent::g4::foresight::FORESIGHT");
         // A system a link names that the map does not hold.

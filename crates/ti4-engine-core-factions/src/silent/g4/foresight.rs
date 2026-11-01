@@ -43,9 +43,9 @@ fn neighbours(s: &CoreState, k: &Kernel, who: Seat, system: System) -> Vec<Syste
         copy.adjacent(system).iter().filter_map(System::from_index).collect()
     };
     for (a, b) in k.hooks.movement.linked_pairs(s, k, who).as_slice() {
-        if *a == system && !found.contains(b) {
+        if *a == system {
             found.push(*b);
-        } else if *b == system && !found.contains(a) {
+        } else if *b == system {
             found.push(*a);
         }
     }

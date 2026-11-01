@@ -91,7 +91,7 @@ pub struct Placement {
 
 /// `place_units_choosing`: ask where (unless one spot decides it) and place (how many arrived is nobody's to read: the callers ask nothing after).
 pub fn choose(eff: &mut Eff<'_, '_>, p: Placement) {
-    let (wanted, fitting) = {
+    let fitting = {
         let (s, k) = eff.read();
         let Some((unit, wanted)) = form_and_room(s, k, p.who, p.base, p.count) else { return };
         let fitting: Vec<(System, Option<Planet>, usize)> = spots(s, p.who, p.target)
@@ -101,9 +101,10 @@ pub fn choose(eff: &mut Eff<'_, '_>, p: Placement) {
                 (fit > 0).then_some((system, planet, fit))
             })
             .collect();
-        (wanted, fitting)
+        fitting
     };
-    if wanted == 0 || fitting.is_empty() {
+    // (A box that holds none leaves every spot a fit of none: the list is empty then.)
+    if fitting.is_empty() {
         return;
     }
     let (system, planet, fit) = match fitting.as_slice() {
