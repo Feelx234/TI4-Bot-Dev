@@ -17,7 +17,7 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
-use ti4_engine::dual::{self, AreaMask, Backend};
+use ti4_engine_legacy::dual::{self, AreaMask, Backend};
 use ti4_selfplay::spec::GameSpec;
 
 use super::corpus::{self, decision_hashes, state_hash};

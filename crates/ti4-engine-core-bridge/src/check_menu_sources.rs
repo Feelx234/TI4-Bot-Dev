@@ -99,11 +99,11 @@ fn dealt(base: &GameState, per_seat: usize, spend: bool) -> GameState {
 fn string_lists(g: &GameState, p: &Position, pid: &PlayerId) -> Vec<(&'static str, Vec<ChoiceOption>)> {
     let content = ContentStore::embedded();
     vec![
-        ("relics", ti4_engine::relics::available_actions(g, content, p.sources, Some(&p.galaxy), pid)),
-        ("exploration", ti4_engine::exploration::available_actions(g, content, p.sources, pid)),
-        ("transactions", ti4_engine::transactions::available_actions(g, content, &p.galaxy, pid)),
-        ("cards", ti4_engine::action_cards::available_actions(g, content, p.sources, Some(&p.galaxy), pid)),
-        ("faction", ti4_engine::faction_abilities::component_actions(g, content, pid)),
+        ("relics", ti4_engine_legacy::relics::available_actions(g, content, p.sources, Some(&p.galaxy), pid)),
+        ("exploration", ti4_engine_legacy::exploration::available_actions(g, content, p.sources, pid)),
+        ("transactions", ti4_engine_legacy::transactions::available_actions(g, content, &p.galaxy, pid)),
+        ("cards", ti4_engine_legacy::action_cards::available_actions(g, content, p.sources, Some(&p.galaxy), pid)),
+        ("faction", ti4_engine_legacy::faction_abilities::component_actions(g, content, pid)),
     ]
 }
 
@@ -271,7 +271,7 @@ pub fn faction_variants(base: &GameState) -> Vec<(&'static str, GameState)> {
             let id = seat.id.clone();
             let system = SystemId::new("18");
             g.board.entry(system.clone()).or_default();
-            assert!(ti4_engine::planets::place(g, &system, &PlanetId::new("avernus"), &id));
+            assert!(ti4_engine_legacy::planets::place(g, &system, &PlanetId::new("avernus"), &id));
             for (i, id) in ids(g).iter().enumerate() {
                 if i > 0 {
                     if let Some(h) = home(g, i) {
@@ -329,7 +329,7 @@ pub fn check_variants(p: &Position, variants: Vec<(&'static str, GameState)>, re
                 report.seats += 1;
                 let pid: &PlayerId = &seat.id;
                 let at = format!("{} [{name}, {deal}] {pid}", p.label);
-                let Some(rendered) = ti4_engine::menu_sources_view::rendered(&g, p.sources, Some(&p.galaxy), pid) else {
+                let Some(rendered) = ti4_engine_legacy::menu_sources_view::rendered(&g, p.sources, Some(&p.galaxy), pid) else {
                     report.unmapped += 1;
                     if report.unmapped_at.len() < 8 {
                         report.unmapped_at.push(at.clone());
@@ -339,12 +339,12 @@ pub fn check_variants(p: &Position, variants: Vec<(&'static str, GameState)>, re
                 let by_name = |n: &str| rendered.iter().find(|(m, _)| *m == n).map(|(_, o)| o.clone());
                 let (strategic, leaders, technology) = (by_name("strategic").unwrap_or_default(), by_name("leaders").unwrap_or_default(), by_name("technology").unwrap_or_default());
                 // The string: the strategic options or the lone pass, and the leaders' component actions.
-                let string_strategic: Vec<ChoiceOption> = match ti4_engine::strategy::strategic_action_options(&g, content, pid) {
+                let string_strategic: Vec<ChoiceOption> = match ti4_engine_legacy::strategy::strategic_action_options(&g, content, pid) {
                     Some(choice) => choice.options,
-                    None => vec![ChoiceOption::labelled("pass", ti4_engine::strategy::ACTION_KIND, "pass")],
+                    None => vec![ChoiceOption::labelled("pass", ti4_engine_legacy::strategy::ACTION_KIND, "pass")],
                 };
-                let string_leaders = ti4_engine::leaders::component_actions(&g, content, pid);
-                let string_technology = ti4_engine::technology::component_actions(&g, content, p.sources, pid);
+                let string_leaders = ti4_engine_legacy::leaders::component_actions(&g, content, pid);
+                let string_technology = ti4_engine_legacy::technology::component_actions(&g, content, p.sources, pid);
                 let mut pairs: Vec<(&str, Vec<ChoiceOption>, Vec<ChoiceOption>)> =
                     vec![("strategic", string_strategic, strategic.clone()), ("leaders", string_leaders, leaders.clone()), ("technology", string_technology, technology.clone())];
                 for (what, string) in string_lists(&g, p, pid) {
@@ -374,7 +374,7 @@ pub fn check_variants(p: &Position, variants: Vec<(&'static str, GameState)>, re
                 }
                 match strategic.as_slice() {
                     [o] if o.id == "pass" => report.lone_pass += 1,
-                    [o] if o.id == ti4_engine::strategy::STRATEGIC_ACTION_ID => report.bare += 1,
+                    [o] if o.id == ti4_engine_legacy::strategy::STRATEGIC_ACTION_ID => report.bare += 1,
                     [_, _, ..] => report.several += 1,
                     _ => {}
                 }

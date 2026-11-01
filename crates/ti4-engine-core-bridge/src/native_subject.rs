@@ -55,7 +55,7 @@ use ti4_engine_core::state::{CoreState, Slice, SliceSet, Window, WindowKind};
 use ti4_selfplay::spec::GameSpec;
 
 use crate::oracle::{LegacyMask, MaskSubject, Pilot, Raw, StepInfo, Subject};
-use ti4_engine::dual::{diff_json, Category};
+use ti4_engine_legacy::dual::{diff_json, Category};
 use ti4_engine::rng::RngPositions;
 
 /// Leaves reported per comparison.
@@ -568,7 +568,7 @@ fn compare_state(finished: bool, legacy: &Value, native: &Value) -> Vec<Raw> {
 }
 
 /// The first leaf where `left` and `right` differ (`native_play`'s shadow compare), `None` when they agree.
-pub(crate) fn first_leaf(left: &Value, right: &Value) -> Option<ti4_engine::dual::JsonDiff> {
+pub(crate) fn first_leaf(left: &Value, right: &Value) -> Option<ti4_engine_legacy::dual::JsonDiff> {
     diff_json(left, right, 1).into_iter().next()
 }
 
@@ -662,7 +662,7 @@ impl Subject for NativeSubject {
 mod tests {
     use std::cell::Cell;
 
-    use ti4_engine::seating::LOBBY_FACTIONS;
+    use ti4_engine_legacy::seating::LOBBY_FACTIONS;
 
     use super::*;
     use crate::allow_list::{AllowList, Tally};
@@ -814,7 +814,7 @@ mod tests {
         for group in LOBBY_FACTIONS.chunks(4) {
             set_native_arms(NativeArms::of(&[Arm::TurnPrelude, Arm::Phase, Arm::StrategyAnnounce, Arm::Ask]));
             let _ = (lent_counts(), ran_counts());
-            let played = ti4_engine::dual::with_bail_is_failure(true, || play_spec(&spec_of(group)));
+            let played = ti4_engine_legacy::dual::with_bail_is_failure(true, || play_spec(&spec_of(group)));
             let ran = ran_counts();
             assert!(played.report.differences.is_empty(), "{group:?}: kept going, nothing is returned to the harness: {:#?}", played.report.differences.iter().take(5).collect::<Vec<_>>());
             assert!(ran.keys().any(|k| k.starts_with("turn_prelude")), "{group:?}: the prelude ran in shadow: {ran:?}");
@@ -847,7 +847,7 @@ mod tests {
         for group in LOBBY_FACTIONS.chunks(4) {
             set_native_arms(NativeArms::of(&[Arm::Status, Arm::Scoring, Arm::EventScoring, Arm::Tokens]));
             let _ = (lent_counts(), ran_counts());
-            let played = ti4_engine::dual::with_bail_is_failure(true, || play_spec(&spec_of(group)));
+            let played = ti4_engine_legacy::dual::with_bail_is_failure(true, || play_spec(&spec_of(group)));
             let ran = ran_counts();
             let other: Vec<_> = played.report.differences.iter().filter(|d| !d.core_side.contains("CommanderUnlock")).collect();
             gaps += played.report.differences.len() - other.len();
@@ -870,7 +870,7 @@ mod tests {
         for group in LOBBY_FACTIONS.chunks(4) {
             set_native_arms(NativeArms::of(&[Arm::Trade]));
             let _ = (lent_counts(), ran_counts());
-            let played = ti4_engine::dual::with_bail_is_failure(true, || play_spec_for(&spec_of(group), Limits { max_rounds: 3, max_steps: 60_000 }));
+            let played = ti4_engine_legacy::dual::with_bail_is_failure(true, || play_spec_for(&spec_of(group), Limits { max_rounds: 3, max_steps: 60_000 }));
             let ran = ran_counts();
             assert!(played.report.differences.is_empty(), "{group:?}: {:#?}", played.report.differences.iter().take(5).collect::<Vec<_>>());
             steps += ran.iter().filter(|(k, _)| k.starts_with("trade")).map(|(_, n)| *n).sum::<u64>();
@@ -895,7 +895,7 @@ mod tests {
     /// The gaps the strategic arms count that other lanes close or that are not ported: the closing menu's free options (lane F:
     /// `MenuSources`), a locked commander no hook states (`CommanderUnlock`), Xxcha's Peace Accords (`PeaceAccords`, the annexation window)
     /// and an ability the core cannot begin (`StrategyAbility`: Doctor Sucaban's offer in a research, a Mahact waiver heard by a Nomad).
-    fn strategic_allowed(d: &&ti4_engine::dual::Difference) -> bool {
+    fn strategic_allowed(d: &&ti4_engine_legacy::dual::Difference) -> bool {
         ["MenuSources", "CommanderUnlock", "PeaceAccords", "StrategyAbility"].iter().any(|g| d.core_side.contains(g))
     }
 
@@ -924,7 +924,7 @@ mod tests {
         for group in LOBBY_FACTIONS.chunks(4) {
             set_native_arms(NativeArms::of(&[Arm::Secondary, Arm::LeaderFollowers, Arm::Finished]));
             let _ = (lent_counts(), ran_counts());
-            let played = ti4_engine::dual::with_bail_is_failure(true, || play_spec(&spec_of(group)));
+            let played = ti4_engine_legacy::dual::with_bail_is_failure(true, || play_spec(&spec_of(group)));
             let ran = ran_counts();
             let other: Vec<_> = played.report.differences.iter().filter(|d| !strategic_allowed(d)).collect();
             gaps += played.report.differences.len() - other.len();

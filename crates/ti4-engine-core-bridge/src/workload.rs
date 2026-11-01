@@ -47,7 +47,7 @@ pub fn ships(
             if !kind.moves_as_ship() {
                 continue;
             }
-            let move_value = ti4_engine::tactical::effective_move_value_for_ship(
+            let move_value = ti4_engine_legacy::tactical::effective_move_value_for_ship(
                 state,
                 kind,
                 player,
@@ -227,7 +227,7 @@ pub fn template_openings() -> (Vec<Position>, Vec<String>) {
     };
     // Every faction the server seats, rotated over templates and seats so every faction's
     // movement hooks sit on some board.
-    let pool = ti4_engine::seating::LOBBY_FACTIONS;
+    let pool = ti4_engine_legacy::seating::LOBBY_FACTIONS;
     let mut turn = 0usize;
     for summary in loader.list_summaries() {
         let players = summary.player_count;

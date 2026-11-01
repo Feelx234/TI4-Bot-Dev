@@ -3,7 +3,7 @@
 
 use ti4_content::ContentStore;
 use ti4_engine::choice::Observed;
-use ti4_engine::dual::{self, Area, AreaMask, Backend, Category};
+use ti4_engine_legacy::dual::{self, Area, AreaMask, Backend, Category};
 use ti4_engine_core_bridge::workload::template_openings;
 
 /// The report is process-wide.
@@ -24,7 +24,7 @@ fn movement_on_dual_has_no_differences_on_template_openings() {
             for player in &p.state.players {
                 for dest in p.galaxy.system_ids_holding_things().into_iter().take(6) {
                     n += seen.movable_into(&player.id, &ti4_model::id::SystemId::new(dest)).len();
-                    let _ = ti4_engine::transactions::are_neighbours(&p.state, &p.galaxy, &player.id, &p.state.players[0].id);
+                    let _ = ti4_engine_legacy::transactions::are_neighbours(&p.state, &p.galaxy, &player.id, &p.state.players[0].id);
                 }
             }
         }
@@ -45,7 +45,7 @@ fn an_injected_difference_in_the_movement_path_is_caught() {
     let mask = AreaMask::STRING.with(Area::Movement, Backend::Dual);
     let shown = dual::with_mask(mask, || {
         // The core side answers wrongly: the call returns the string answer and reports the value.
-        ti4_engine::dual_typed!(Area::Movement, "injected", Some(2_i64), 1_i64)
+        ti4_engine_legacy::dual_typed!(Area::Movement, "injected", Some(2_i64), 1_i64)
     });
     dual::set_fail_fast(before);
     assert_eq!(shown, 1);

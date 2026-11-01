@@ -16,10 +16,10 @@
 //! variants of it that hand out relics, fragments and notes.
 //! Exit status 1 when any answer differs.
 
-use ti4_engine::board_check::{BoardCheck, compare, compare_laws};
-use ti4_engine::agenda_check::{AgendaCheck, compare as compare_agenda};
-use ti4_engine::action_cards_check::{ActionCardsCheck, compare as compare_action_cards};
-use ti4_engine::strategy_check::{StrategyCheck, compare as compare_strategy};
+use ti4_engine_legacy::board_check::{BoardCheck, compare, compare_laws};
+use ti4_engine_legacy::agenda_check::{AgendaCheck, compare as compare_agenda};
+use ti4_engine_legacy::action_cards_check::{ActionCardsCheck, compare as compare_action_cards};
+use ti4_engine_legacy::strategy_check::{StrategyCheck, compare as compare_strategy};
 use ti4_engine_core_bridge::workload::{golden_positions, template_openings};
 
 #[global_allocator]
@@ -170,7 +170,7 @@ fn main() {
 }
 
 fn cards(args: &[String]) {
-    use ti4_engine::explore_check::{CardsCheck, compare};
+    use ti4_engine_legacy::explore_check::{CardsCheck, compare};
     let mut out = CardsCheck::default();
     match args.first().map(String::as_str) {
         Some("templates") => {

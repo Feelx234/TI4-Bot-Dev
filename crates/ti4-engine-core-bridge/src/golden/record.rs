@@ -163,7 +163,7 @@ pub fn finalize_set(dir: &Path, name: &str, source: &str, note: &str) -> Result<
 /// table reaches) is retried with attempt 1, 2, ... (another faction rotation and seed), deterministically.
 #[must_use]
 pub fn ladder_jobs(current: u32, attempt: u32) -> Vec<RecordJob> {
-    let pool = ti4_engine::seating::LOBBY_FACTIONS;
+    let pool = ti4_engine_legacy::seating::LOBBY_FACTIONS;
     (0..=current)
         .map(|v| RecordJob {
             index: v as usize,

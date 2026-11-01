@@ -6,8 +6,8 @@
 use ti4_content::ContentStore;
 use ti4_engine::core_sync::{CoreView, Ctx, Sources};
 use ti4_engine::generated::IdStr;
-use ti4_engine::leaders_view::LeaderView;
-use ti4_engine::strategy_view::StratView;
+use ti4_engine_legacy::leaders_view::LeaderView;
+use ti4_engine_legacy::strategy_view::StratView;
 use ti4_engine_core::driver::kernel_env::KernelEnv;
 use ti4_engine_core::generated::{Leader, Planet, StrategyCardKind, System, Technology};
 use ti4_engine_core::ids::Seat;
@@ -96,7 +96,7 @@ pub fn check_variants(p: &Position, variants: Vec<(&'static str, ti4_model::stat
     for (name, g) in variants {
         report.variants += 1;
         let label = format!("{} [{name}]", p.label);
-        let Some(lv) = LeaderView::of(&g, Some(content), p.sources, Some(&p.galaxy), ti4_engine::leaders_view::READS_ABILITIES) else {
+        let Some(lv) = LeaderView::of(&g, Some(content), p.sources, Some(&p.galaxy), ti4_engine_legacy::leaders_view::READS_ABILITIES) else {
             report.unmapped += 1;
             report.mismatches.push(format!("{label}: LeaderView refused the position"));
             continue;

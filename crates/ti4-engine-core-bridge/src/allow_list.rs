@@ -3,7 +3,7 @@
 //!
 //! After the flip the legacy engine stays frozen as the oracle and rule fixes go into the core only, so the two diverge
 //! on purpose. Each intended divergence is an [`Entry`] of `tools/engine_core/allow_list.json`; a [`Difference`]
-//! (`ti4_engine::dual`) that matches an entry is counted for that entry and does not fail the run, any other fails. An
+//! (`ti4_engine_legacy::dual`) that matches an entry is counted for that entry and does not fail the run, any other fails. An
 //! entry that matched nothing in a full run is *stale* and fails [`Tally::check_stale`]: a stale entry hides a
 //! regression the day the same path differs for a different reason. Nothing here plays games: the harness (D2-6b)
 //! builds a [`Tally`], calls [`AllowList::judge`] per scenario and [`Tally::check_stale`] at the end of a full run.
@@ -32,7 +32,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use serde_json::{Map, Value, json};
-use ti4_engine::dual::{Area, Difference, DualReport};
+use ti4_engine_legacy::dual::{Area, Difference, DualReport};
 
 /// The file format version.
 pub const VERSION: u64 = 1;
@@ -455,7 +455,7 @@ impl Tally {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ti4_engine::dual::Category;
+    use ti4_engine_legacy::dual::Category;
 
     fn diff(area: Area, label: &str, path: &str) -> Difference {
         Difference { area, category: Category::State, label: label.to_owned(), path: path.to_owned(), string_side: "a".to_owned(), core_side: "b".to_owned() }

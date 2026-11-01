@@ -37,9 +37,9 @@ use std::sync::Mutex;
 
 use serde_json::{Value, json};
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, DecisionRecord, IllegalChoice};
-use ti4_engine::dual::{self, Area, AreaCounts, AreaMask, Backend, Category, Difference, DualReport, diff_json};
+use ti4_engine_legacy::dual::{self, Area, AreaCounts, AreaMask, Backend, Category, Difference, DualReport, diff_json};
 use ti4_engine::fingerprint::{CanonicalHashVersion, decision_hash};
-use ti4_engine::game::Game;
+use ti4_engine_legacy::game::Game;
 use ti4_engine::rng::RngPositions;
 use ti4_selfplay::spec::GameSpec;
 
@@ -489,7 +489,7 @@ mod tests {
             seed: 7,
             players: 4,
             map: "4pOuterRim".to_owned(),
-            factions: ti4_engine::seating::LOBBY_FACTIONS.iter().take(4).map(|f| (*f).to_owned()).collect(),
+            factions: ti4_engine_legacy::seating::LOBBY_FACTIONS.iter().take(4).map(|f| (*f).to_owned()).collect(),
             speaker: "seat".to_owned(),
             card_set: None,
             rotation: None,

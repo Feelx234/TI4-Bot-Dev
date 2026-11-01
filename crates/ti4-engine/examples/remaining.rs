@@ -4,7 +4,7 @@
 //! gives the list you actually work from. Every list comes from the module's own `unimplemented`
 //! helper, so it cannot drift from the code the way a written-down checklist does.
 //!
-//! `cargo run -p ti4-engine --example remaining`
+//! `cargo run -p ti4-engine-legacy --example remaining`
 
 use ti4_content::ContentStore;
 use ti4_model::content_types::DEFAULT;
@@ -18,40 +18,40 @@ fn main() {
 
     show(
         "relics",
-        ti4_engine::relics::unimplemented(content, sources)
+        ti4_engine_legacy::relics::unimplemented(content, sources)
             .iter()
             .map(ToString::to_string)
             .collect(),
     );
     show(
         "laws enacted but not enforced",
-        ti4_engine::laws::unimplemented(content, sources),
+        ti4_engine_legacy::laws::unimplemented(content, sources),
     );
     show(
         "exploration cards",
-        ti4_engine::exploration::unimplemented(content, sources),
+        ti4_engine_legacy::exploration::unimplemented(content, sources),
     );
     show(
         "leaders",
-        ti4_engine::leaders::unimplemented(content, FACTIONS)
+        ti4_engine_legacy::leaders::unimplemented(content, FACTIONS)
             .iter()
             .map(ToString::to_string)
             .collect(),
     );
     show(
         "breakthroughs",
-        ti4_engine::breakthroughs::unimplemented(content, sources, FACTIONS)
+        ti4_engine_legacy::breakthroughs::unimplemented(content, sources, FACTIONS)
             .iter()
             .map(ToString::to_string)
             .collect(),
     );
     show(
         "mech abilities",
-        ti4_engine::faction_abilities::unimplemented_mechs(content, sources, FACTIONS),
+        ti4_engine_legacy::faction_abilities::unimplemented_mechs(content, sources, FACTIONS),
     );
     show(
         "action cards",
-        ti4_engine::action_cards::unimplemented(content)
+        ti4_engine_legacy::action_cards::unimplemented(content)
             .iter()
             .map(ToString::to_string)
             .collect(),

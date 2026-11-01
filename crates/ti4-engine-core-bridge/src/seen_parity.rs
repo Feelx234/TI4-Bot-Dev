@@ -182,7 +182,7 @@ fn seats(c: &mut Cmp<'_>, obs: &ti4_engine::choice::Observed<'_>, t: &Seen<'_>) 
             v.leaders.status.iter().map(|(k, st)| (k.as_str().to_owned(), format!("{st:?}"))).collect::<Vec<_>>(),
         );
         // the economy of the seat
-        for (kind, core) in [(ti4_engine::production::Spend::Resources, CoreSpend::Resources), (ti4_engine::production::Spend::Influence, CoreSpend::Influence)] {
+        for (kind, core) in [(ti4_engine_legacy::production::Spend::Resources, CoreSpend::Resources), (ti4_engine_legacy::production::Spend::Influence, CoreSpend::Influence)] {
             c.eq(&w(&format!("available_spend {core:?}")), obs.available_spend(player, kind), t.available_spend(seat, core));
         }
         c.eq(
@@ -366,14 +366,14 @@ fn hand(c: &mut Cmp<'_>, seen: &SeatObservation<'_>, t: &Seen<'_>) {
 }
 
 
-fn card_rows(rows: &[ti4_engine::objectives::CardProgress]) -> Vec<(String, String, u64, u64, bool, Option<u8>)> {
+fn card_rows(rows: &[ti4_engine_legacy::objectives::CardProgress]) -> Vec<(String, String, u64, u64, bool, Option<u8>)> {
     rows.iter()
         .map(|r| (r.alias.clone(), r.family_token.clone(), r.have.to_bits(), r.threshold.to_bits(), r.satisfied, r.stage))
         .collect()
 }
 
 fn typed_rows(rows: &[ProgressRow]) -> Vec<(String, String, u64, u64, bool, Option<u8>)> {
-    use ti4_engine::objectives_core as oc;
+    use ti4_engine_legacy::objectives_core as oc;
     rows.iter()
         .map(|r| {
             let alias = match r.objective {
@@ -381,10 +381,10 @@ fn typed_rows(rows: &[ProgressRow]) -> Vec<(String, String, u64, u64, bool, Opti
                 ObjectiveRef::Secret(o) => o.as_str().to_owned(),
             };
             let token = match r.family {
-                RowFamily::Count(f) => ti4_engine::objectives::family_token(&oc::family(f)),
+                RowFamily::Count(f) => ti4_engine_legacy::objectives::family_token(&oc::family(f)),
                 RowFamily::Cost(f) => {
                     let p = oc::cost_progress(ti4_engine_core::query::objectives::CostProgress { family: f, have: r.have, target: r.threshold });
-                    ti4_engine::objectives::cost_family_token(&p.family)
+                    ti4_engine_legacy::objectives::cost_family_token(&p.family)
                 }
             };
             (alias, token, (r.have as f64).to_bits(), (r.threshold as f64).to_bits(), r.satisfied, r.stage)
@@ -393,7 +393,7 @@ fn typed_rows(rows: &[ProgressRow]) -> Vec<(String, String, u64, u64, bool, Opti
 }
 
 fn objectives(c: &mut Cmp<'_>, seen: &SeatObservation<'_>, t: &Seen<'_>) {
-    use ti4_engine::objectives::Imagined as SImagined;
+    use ti4_engine_legacy::objectives::Imagined as SImagined;
     use ti4_engine_core::query::objectives::Imagined as TImagined;
     let obs = seen.observed();
     c.eq(
@@ -450,7 +450,7 @@ fn objectives(c: &mut Cmp<'_>, seen: &SeatObservation<'_>, t: &Seen<'_>) {
     // The bound seat's secrets.
     let me = c.owned.seat(seen.bound_seat());
     if me.is_some() {
-        let string = seen.held_secret_progress_imagining(&ti4_engine::objectives::Imagined::NONE);
+        let string = seen.held_secret_progress_imagining(&ti4_engine_legacy::objectives::Imagined::NONE);
         match t.my_secret_progress(ti4_engine_core::query::objectives::Imagined::NONE) {
             Some(rows) => c.eq("held_secret_progress", card_rows(&string), typed_rows(&rows)),
             None => c.found.skip("held_secret_progress"),
@@ -527,8 +527,8 @@ fn movement(c: &mut Cmp<'_>, seen: &SeatObservation<'_>, t: &Seen<'_>) {
                         l.unit.type_id.as_str().to_owned(),
                         l.unit.owner.as_str().to_owned(),
                         match &l.source {
-                            ti4_engine::transit::CargoSource::Space => None,
-                            ti4_engine::transit::CargoSource::Planet(p) => Some(p.as_str().to_owned()),
+                            ti4_engine_legacy::transit::CargoSource::Space => None,
+                            ti4_engine_legacy::transit::CargoSource::Planet(p) => Some(p.as_str().to_owned()),
                         },
                         l.system.as_str().to_owned(),
                     )

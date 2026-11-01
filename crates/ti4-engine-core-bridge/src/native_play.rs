@@ -28,7 +28,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use ti4_engine::core_sync::codec::rng::TextSeeds;
 use ti4_engine::core_sync::{materialize, Codec, Ctx, Sources};
-use ti4_engine::game::Game;
+use ti4_engine_legacy::game::Game;
 use ti4_engine::live::{self, arms, Asker, Question, Stop};
 use ti4_engine::render::Render;
 use ti4_engine_core::driver::live::{is_open, live_arm, LiveError};
@@ -59,7 +59,7 @@ pub fn maps_for(players: usize) -> &'static [&'static str] {
 /// Seat a plays `faction`; the others are the next lobby factions in a rotation fixed by the seed, never the same faction twice.
 #[must_use]
 pub fn table(faction: &str, players: usize, seed: u64) -> Vec<String> {
-    let lobby = ti4_engine::seating::LOBBY_FACTIONS;
+    let lobby = ti4_engine_legacy::seating::LOBBY_FACTIONS;
     let mut out = vec![faction.to_owned()];
     let mut at = usize::try_from(seed).unwrap_or(0) % lobby.len();  // mutants:skip (the fallback of a seed that does not fit usize)
     while out.len() < players {
@@ -293,7 +293,7 @@ impl NativeGame {
         // The string applies the laws and the printed lanes (rules version 22) to its galaxy at every step's reconcile (`laws::apply_to_galaxy`), which a
         // game that was not stepped yet has not done: the core's map would follow no lane (a lane tile a neighbour, no system joined across it).
         let galaxy = game.galaxy().cloned().map(|mut galaxy| {
-            ti4_engine::laws::apply_to_galaxy(&game.state, &mut galaxy);
+            ti4_engine_legacy::laws::apply_to_galaxy(&game.state, &mut galaxy);
             galaxy
         });
         let core = Codec::load(&mut cx, &game.state, Sources { galaxy: galaxy.as_ref(), rng: Some(&positions) }, slices_for(true))
@@ -1071,7 +1071,7 @@ pub fn survey(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result<Surv
 
 #[cfg(test)]
 mod tests {
-    use ti4_engine::seating::LOBBY_FACTIONS;
+    use ti4_engine_legacy::seating::LOBBY_FACTIONS;
     use ti4_engine_core::containers::SmallList;
     use ti4_engine_core::driver::live::open;
     use ti4_engine_core::ids::Seat;

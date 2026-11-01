@@ -238,7 +238,7 @@ pub fn config_plan(config: &str, bot_version: Option<&str>, picks: Option<&[usiz
 
 #[must_use]
 pub fn opening_spec(alias: &str, players: usize, thunders_edge: bool, turn: usize) -> GameSpec {
-    let pool = ti4_engine::seating::LOBBY_FACTIONS;
+    let pool = ti4_engine_legacy::seating::LOBBY_FACTIONS;
     GameSpec {
         setup: "templates".to_owned(),
         seed: 1,
@@ -285,7 +285,7 @@ pub fn plan_for(source: &str) -> Result<Option<Plan>, String> {
             Plan { jobs, max_rounds: 50, bot: BTreeMap::new(), note: format!("every template opening, {OPENING_STEPS} steps") }
         }
         "te" => {
-            let pool = ti4_engine::seating::LOBBY_FACTIONS;
+            let pool = ti4_engine_legacy::seating::LOBBY_FACTIONS;
             let jobs = (0..pool.len() / 6)
                 .map(|i| Job {
                     game_no: i,

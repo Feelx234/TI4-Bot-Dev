@@ -5,7 +5,7 @@
 //! static scan of the sources; without it the script falls back to literal-reference counts alone.
 //!
 //! ```text
-//! cargo run -p ti4-engine --example card_registry_dump > docs/card_audit/registry_dump.json
+//! cargo run -p ti4-engine-legacy --example card_registry_dump > docs/card_audit/registry_dump.json
 //! ```
 
 use std::collections::BTreeMap;
@@ -45,17 +45,17 @@ fn main() {
             .unwrap_or_default()
             .trim()
             .to_owned();
-        let window = ti4_engine::reactions::window_for(content, &alias);
+        let window = ti4_engine_legacy::reactions::window_for(content, &alias);
         action_windows.insert(
             id,
             json!({
                 "printed_window": printed,
                 "bound_event": window.map(|w| w.event),
-                "has_effect": ti4_engine::action_cards::effect_for(&alias).is_some(),
+                "has_effect": ti4_engine_legacy::action_cards::effect_for(&alias).is_some(),
             }),
         );
     }
-    let reachable = ti4_engine::reactions::reachable(content, sources);
+    let reachable = ti4_engine_legacy::reactions::reachable(content, sources);
 
     // Public objectives: a predicate or a price.
     let mut public = BTreeMap::new();
@@ -64,8 +64,8 @@ fn main() {
         public.insert(
             id,
             json!({
-                "requirement": ti4_engine::objectives::requirement_for(&oid).is_some(),
-                "cost": ti4_engine::objectives::cost_of(&oid).is_some(),
+                "requirement": ti4_engine_legacy::objectives::requirement_for(&oid).is_some(),
+                "cost": ti4_engine_legacy::objectives::cost_of(&oid).is_some(),
             }),
         );
     }
@@ -74,13 +74,13 @@ fn main() {
     let mut assets = BTreeMap::new();
     for faction in content.records(ContentType::Factions) {
         let Some(alias) = faction.id() else { continue };
-        let rows: Vec<Value> = ti4_engine::factions::assets(content, sources, alias)
+        let rows: Vec<Value> = ti4_engine_legacy::factions::assets(content, sources, alias)
             .into_iter()
             .map(|asset| {
                 json!({
                     "kind": format!("{:?}", asset.kind),
                     "id": asset.id,
-                    "implemented": ti4_engine::factions::implemented(&asset),
+                    "implemented": ti4_engine_legacy::factions::implemented(&asset),
                 })
             })
             .collect();
@@ -93,49 +93,49 @@ fn main() {
         .collect();
     let faction_refs: Vec<&str> = all_factions.iter().map(String::as_str).collect();
 
-    let decks = ti4_engine::deck::build_starting_decks(content, sources, 1);
+    let decks = ti4_engine_legacy::deck::build_starting_decks(content, sources, 1);
 
     let out = json!({
         "sources": "DEFAULT",
         "action_cards": {
-            "registered": strings(ti4_engine::action_cards::registered_aliases()),
-            "unimplemented": strings(ti4_engine::action_cards::unimplemented(content).iter().map(|a| a.as_str().to_owned())),
+            "registered": strings(ti4_engine_legacy::action_cards::registered_aliases()),
+            "unimplemented": strings(ti4_engine_legacy::action_cards::unimplemented(content).iter().map(|a| a.as_str().to_owned())),
             "reaction_reachable": strings(reachable.iter().map(|a| a.as_str().to_owned())),
             "windows": action_windows,
         },
         "agendas": {
-            "registered": strings(ti4_engine::agenda_effects::registered_aliases()),
-            "unimplemented": strings(ti4_engine::agenda_effects::unimplemented(content, sources)),
-            "laws_unenforced": strings(ti4_engine::laws::unimplemented(content, sources)),
+            "registered": strings(ti4_engine_legacy::agenda_effects::registered_aliases()),
+            "unimplemented": strings(ti4_engine_legacy::agenda_effects::unimplemented(content, sources)),
+            "laws_unenforced": strings(ti4_engine_legacy::laws::unimplemented(content, sources)),
         },
         "explores": {
-            "unimplemented": strings(ti4_engine::exploration::unimplemented(content, sources)),
+            "unimplemented": strings(ti4_engine_legacy::exploration::unimplemented(content, sources)),
         },
         "relics": {
-            "registered": strings(ti4_engine::relics::registered_aliases()),
-            "unimplemented": strings(ti4_engine::relics::unimplemented(content, sources).iter().map(|a| a.as_str().to_owned())),
+            "registered": strings(ti4_engine_legacy::relics::registered_aliases()),
+            "unimplemented": strings(ti4_engine_legacy::relics::unimplemented(content, sources).iter().map(|a| a.as_str().to_owned())),
         },
         "secret_objectives": {
-            "registered": strings(ti4_engine::secrets::registered_aliases()),
-            "unimplemented": strings(ti4_engine::secrets::unimplemented(content, sources).iter().map(|a| a.as_str().to_owned())),
+            "registered": strings(ti4_engine_legacy::secrets::registered_aliases()),
+            "unimplemented": strings(ti4_engine_legacy::secrets::unimplemented(content, sources).iter().map(|a| a.as_str().to_owned())),
         },
         "public_objectives": {
-            "registered": strings(ti4_engine::objectives::registered_aliases()),
-            "bought": strings(ti4_engine::objectives::bought_aliases()),
+            "registered": strings(ti4_engine_legacy::objectives::registered_aliases()),
+            "bought": strings(ti4_engine_legacy::objectives::bought_aliases()),
             "per_card": public,
         },
         "abilities": {
-            "registered": strings(ti4_engine::faction_abilities::registered()),
-            "unimplemented": strings(ti4_engine::faction_abilities::unimplemented(content, sources)),
+            "registered": strings(ti4_engine_legacy::faction_abilities::registered()),
+            "unimplemented": strings(ti4_engine_legacy::faction_abilities::unimplemented(content, sources)),
         },
         "leaders": {
-            "registered": strings(ti4_engine::leaders::registered_abilities()),
-            "modifiers": strings(ti4_engine::leaders::modifiers().into_keys()),
-            "unimplemented_all_factions": strings(ti4_engine::leaders::unimplemented(content, &faction_refs).iter().map(|a| a.as_str().to_owned())),
+            "registered": strings(ti4_engine_legacy::leaders::registered_abilities()),
+            "modifiers": strings(ti4_engine_legacy::leaders::modifiers().into_keys()),
+            "unimplemented_all_factions": strings(ti4_engine_legacy::leaders::unimplemented(content, &faction_refs).iter().map(|a| a.as_str().to_owned())),
         },
         "breakthroughs": {
-            "registered": strings(ti4_engine::breakthroughs::registered_aliases()),
-            "module_claimed": strings(ti4_engine::factions::registered_breakthroughs()),
+            "registered": strings(ti4_engine_legacy::breakthroughs::registered_aliases()),
+            "module_claimed": strings(ti4_engine_legacy::factions::registered_breakthroughs()),
         },
         "faction_assets": assets,
         "decks_seed1": {

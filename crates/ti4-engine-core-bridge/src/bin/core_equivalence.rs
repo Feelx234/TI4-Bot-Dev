@@ -91,7 +91,7 @@ fn main() {
             use std::mem::size_of;
             println!(
                 "size_of: MovementRules {} | CoreRules {} | Galaxy {} | CoreGalaxy {} | Adjacency per board {} B | Unit {} | typed unit (u16 type, u8 owner, 2 flags) 5 | SystemId {} | SystemIx {} | SysSet {}",
-                size_of::<ti4_engine::movement::MovementRules<'_>>(),
+                size_of::<ti4_engine_legacy::movement::MovementRules<'_>>(),
                 size_of::<ti4_engine_core::movement::CoreRules>(),
                 size_of::<ti4_content::galaxy::Galaxy>(),
                 size_of::<ti4_engine_core::galaxy::CoreGalaxy>(),

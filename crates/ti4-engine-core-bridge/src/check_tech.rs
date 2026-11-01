@@ -6,8 +6,8 @@
 use std::collections::BTreeSet;
 
 use ti4_content::ContentStore;
-use ti4_engine::technology_core::{self as tc, StringHooks};
-use ti4_engine::technology as st;
+use ti4_engine_legacy::technology_core::{self as tc, StringHooks};
+use ti4_engine_legacy::technology as st;
 use ti4_engine_core::generated::{Faction, Technology, UnitBaseType};
 use ti4_engine_core::query::tech::{self as q};
 use ti4_model::id::{PlayerId, TechnologyId};
@@ -96,7 +96,7 @@ pub fn check_tech_content(report: &mut TechReport) {
         let only_string: Vec<_> = want.difference(&got).collect();
         let only_typed: Vec<_> = got.difference(&want).collect();
         report.same(&format!("active_aliases {mask} (only string, only typed)"), &(only_string.clone(), only_typed.clone()), &(Vec::new(), Vec::new()), 2);
-        report.same(&format!("scope {mask}"), &ti4_engine::core_adapter::scope(sources), &tc::scope(sources), 2);
+        report.same(&format!("scope {mask}"), &ti4_engine_legacy::core_adapter::scope(sources), &tc::scope(sources), 2);
     }
     report.same("RULES_TECH_EFFECTS", &ti4_model::state::RULES_TECH_EFFECTS, &q::RULES_TECH_EFFECTS, 2);
 }
@@ -111,7 +111,7 @@ pub fn check_tech_position(position: &Position, report: &mut TechReport) {
         return;
     };
     let scope = tc::scope(sources);
-    let blanked = ti4_engine::laws::blanked(state);
+    let blanked = ti4_engine_legacy::laws::blanked(state);
     for p in &state.players {
         let player: &PlayerId = &p.id;
         let Some(seat) = cx.owners.seat(player.as_str()) else {
@@ -149,7 +149,7 @@ pub fn check_tech_position(position: &Position, report: &mut TechReport) {
             &tc::specialties_map(state, sources, player),
             1,
         );
-        let joined_want: BTreeSet<String> = ti4_engine::synergy::joined_text(state, content, sources, player).into_iter().collect();
+        let joined_want: BTreeSet<String> = ti4_engine_legacy::synergy::joined_text(state, content, sources, player).into_iter().collect();
         let joined_got: BTreeSet<String> = q::COLOURS
             .into_iter()
             .zip(q::synergy_joined(&view, scope, seat))
@@ -159,25 +159,25 @@ pub fn check_tech_position(position: &Position, report: &mut TechReport) {
         report.same(&format!("synergy joined {name}"), &joined_want, &joined_got, 1);
         report.same(
             &format!("synergy joined adapter {name}"),
-            &Some(ti4_engine::synergy::joined_text(state, content, sources, player)),
+            &Some(ti4_engine_legacy::synergy::joined_text(state, content, sources, player)),
             &tc::synergy_joined_names(state, sources, player),
             1,
         );
         report.same(
             &format!("synergy pair adapter {name}"),
-            &Some(ti4_engine::synergy::pair_text(state, content, sources, player)),
+            &Some(ti4_engine_legacy::synergy::pair_text(state, content, sources, player)),
             &tc::synergy_pair(state, sources, player),
             1,
         );
         report.same(
             &format!("unowned faction technologies {name}"),
-            &ti4_engine::entropic_scars::unowned_faction_technologies(state, content, sources, player).len(),
+            &ti4_engine_legacy::entropic_scars::unowned_faction_technologies(state, content, sources, player).len(),
             &q::unowned_faction_technologies(&view, scope, seat).len(),
             1,
         );
         report.same(
             &format!("unowned faction technologies adapter {name}"),
-            &Some(ti4_engine::entropic_scars::unowned_faction_technologies(state, content, sources, player).len()),
+            &Some(ti4_engine_legacy::entropic_scars::unowned_faction_technologies(state, content, sources, player).len()),
             &tc::unowned_faction_technologies_count(state, sources, player),
             1,
         );
@@ -189,7 +189,7 @@ pub fn check_tech_position(position: &Position, report: &mut TechReport) {
         );
         for base in UnitBaseType::ALL {
             let b = <UnitBaseType as IdStr>::as_str(base);
-            let want = ti4_engine::action_cards::placed_unit_id_text(state, content, sources, player, b);
+            let want = ti4_engine_legacy::action_cards::placed_unit_id_text(state, content, sources, player, b);
             // The typed form, then the faction override the string engine applies.
             let form = q::unit_form(&view, scope, tc::roster_for(content, sources).expect("embedded"), seat, base).map(<ti4_engine_core::generated::Unit as IdStr>::as_str);
             let got_view = form.map(|f| tc::overridden_form(state, content, sources, player, b, f));
@@ -225,7 +225,7 @@ pub fn check_tech_position(position: &Position, report: &mut TechReport) {
         if let Some(ix) = <ti4_engine_core::generated::System as IdStr>::from_id(system.as_str()) {
             report.same(
                 &format!("is_scar {system}"),
-                &ti4_engine::entropic_scars::is_scar_text(content, sources, system),
+                &ti4_engine_legacy::entropic_scars::is_scar_text(content, sources, system),
                 &q::is_scar(scope, ix),
                 1,
             );

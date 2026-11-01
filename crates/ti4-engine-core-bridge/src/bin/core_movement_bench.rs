@@ -25,7 +25,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use ti4_content::ContentStore;
-use ti4_engine::movement::{Board, MovementRules};
+use ti4_engine_legacy::movement::{Board, MovementRules};
 use ti4_engine_core::movement::CoreRules;
 use ti4_engine_core::{SystemIx, UnitIx};
 use ti4_engine_core_bridge::adapter::{
@@ -57,7 +57,7 @@ fn legacy_rules<'a>(p: &'a Position, player: &PlayerId, dest: &str) -> MovementR
     let board = Board::for_player(&p.state, content, p.sources, player);
     let mut rules =
         MovementRules::with_laws(&p.galaxy, content, p.sources, dest, board, Some(&p.state));
-    ti4_engine::action_cards::apply_movement_effects(&mut rules, &p.state, player);
+    ti4_engine_legacy::action_cards::apply_movement_effects(&mut rules, &p.state, player);
     rules
 }
 

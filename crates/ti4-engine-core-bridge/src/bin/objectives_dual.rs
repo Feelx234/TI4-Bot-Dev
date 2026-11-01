@@ -18,10 +18,10 @@
 
 use ti4_content::ContentStore;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, Observed, SeatObservation, ask_private};
-use ti4_engine::dual::{self, Area, AreaMask, Backend};
+use ti4_engine_legacy::dual::{self, Area, AreaMask, Backend};
 use ti4_engine::generated::IdStr;
-use ti4_engine::objectives::Imagined;
-use ti4_engine::objectives_core::{ObjView, scoped};
+use ti4_engine_legacy::objectives::Imagined;
+use ti4_engine_legacy::objectives_core::{ObjView, scoped};
 use ti4_engine_core::generated::{Attachment, Planet, PublicObjective, SecretObjective, System, Technology};
 use ti4_engine_core_bridge::workload::{Position, golden_positions, template_openings};
 use ti4_model::id::{ObjectiveId, PlanetId, PlayerId, SecretObjectiveId, SystemId, TechnologyId, UnitTypeId};
@@ -212,16 +212,16 @@ fn run_position(p: &Position, label: &str, rng: &mut Rng, nvariants: usize, run:
             };
             for with_map in [true, false] {
                 scoped(Some(&view), || {
-                    let mut position = ti4_engine::objectives::Position::imagining_all(
+                    let mut position = ti4_engine_legacy::objectives::Position::imagining_all(
                         &p.state, content, p.sources, player, &imagined,
                     );
                     if with_map {
                         position = position.with_galaxy(&p.galaxy);
                     }
                     for alias in &all_public {
-                        let _ = ti4_engine::objectives::counting_progress(alias, &position);
-                        let _ = ti4_engine::objectives::remaining_position_progress(alias, &position);
-                        let _ = ti4_engine::objectives::bought_progress_at(&position, alias);
+                        let _ = ti4_engine_legacy::objectives::counting_progress(alias, &position);
+                        let _ = ti4_engine_legacy::objectives::remaining_position_progress(alias, &position);
+                        let _ = ti4_engine_legacy::objectives::bought_progress_at(&position, alias);
                         run.check(|| format!("{label} {player} variant {vi} map {with_map} {alias}"));
                     }
                     secrets_round(p, &position, &all_secret, &imagined, player, with_map, label, vi, run);
@@ -246,7 +246,7 @@ fn run_position(p: &Position, label: &str, rng: &mut Rng, nvariants: usize, run:
 #[allow(clippy::too_many_arguments)]
 fn secrets_round(
     p: &Position,
-    position: &ti4_engine::objectives::Position<'_>,
+    position: &ti4_engine_legacy::objectives::Position<'_>,
     all_secret: &[SecretObjectiveId],
     imagined: &Imagined<'_>,
     player: &PlayerId,
@@ -257,7 +257,7 @@ fn secrets_round(
 ) {
     let _ = position;
     let content = ContentStore::embedded();
-    let sp = ti4_engine::secrets::Position {
+    let sp = ti4_engine_legacy::secrets::Position {
         state: &p.state,
         content,
         sources: p.sources,
@@ -266,8 +266,8 @@ fn secrets_round(
         imagined: *imagined,
     };
     for alias in all_secret {
-        let _ = ti4_engine::secrets::counting_progress(alias, &sp);
-        let _ = ti4_engine::secrets::remaining_position_progress(alias, &sp);
+        let _ = ti4_engine_legacy::secrets::counting_progress(alias, &sp);
+        let _ = ti4_engine_legacy::secrets::remaining_position_progress(alias, &sp);
         run.check(|| format!("{label} {player} variant {vi} map {with_map} secret {alias}"));
     }
 }

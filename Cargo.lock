@@ -4133,6 +4133,7 @@ dependencies = [
  "ti4-content",
  "ti4-engine",
  "ti4-engine-core",
+ "ti4-engine-legacy",
  "ti4-host",
  "ti4-model",
  "ti4-rule-bot",

@@ -9,7 +9,9 @@ description = "Prototype adapter (docs/ENGINE_CORE.md): string ids <-> the typed
 ti4-engine-core.workspace = true
 ti4-model.workspace = true
 ti4-content.workspace = true
-ti4-engine = { workspace = true, features = ["typed-core", "native-subject"] }
+# The string engine, the oracle's reference side (always, with its test accessors); the product crate is the thin `ti4-engine`.
+ti4-engine-legacy = { workspace = true, features = ["typed-core", "native-subject"] }
+ti4-engine = { workspace = true }
 strum.workspace = true
 # The golden games and the benchmark play bot games exactly as `selfplay run` does.
 ti4-selfplay = { path = "../ti4-selfplay" }
@@ -30,7 +32,7 @@ mimalloc.workspace = true
 
 [features]
 # Count the view calls of the string bot per decision subtype (`ti4_model::count`); `bot_shadow` prints them.
-observed-count = ["ti4-engine/observed-count", "ti4-model/observed-count"]
+observed-count = ["ti4-engine-legacy/observed-count", "ti4-model/observed-count"]
 
 [lints]
 workspace = true
