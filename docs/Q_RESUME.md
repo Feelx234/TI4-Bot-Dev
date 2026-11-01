@@ -42,8 +42,8 @@ J's `held`/`holds` close-order lines were already covered by J's table (`docs/J_
 
 ## 4. Checks (cheap), private target `/root/deploytmp/core-q` (profile `lockstep`, debug assertions + overflow checks on for the three core crates, `CARGO_INCREMENTAL=0`; deleted at the end)
 
-* D4 crate (`ti4-engine-core-tests`): 154 result lines, **1951 passed, 0 failed** (int. 15: 1949; +2 `research_e2`, measured before the `payable` test: that adds one more); `ti4-engine-core --lib` 477, `-factions --lib` 151.
-* `ti4-engine --lib` plain and with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1`: **5288 passed**, 0 failed, 7 ignored (int. 15: 5286; +2 before the combat tests below, which pass separately).
+* D4 crate (`ti4-engine-core-tests`): 154 result lines, **1951 passed, 0 failed** (int. 15: 1949; +2 `research_e2`; the later `production_rules::payable_...` test, run alone with its binary, passes and makes 1952); `ti4-engine-core --lib` 477, `-factions --lib` 151.
+* `ti4-engine --lib` plain and with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1`: **5288 passed**, 0 failed, 7 ignored (int. 15: 5286; +2 tests of sections 1). The two mutation tests added to `combat_live` afterwards (5290 in all) were run with the `the_texts_of` filter (8 passed) and by the 39-mutant run, not in another whole-lib run.
 * `check_layers.py core` 574 files 0 violations; `lint_core.sh` 576 files 0 hits; `clippy_core.sh` ok (engine 41 = baseline 41).
 * Not run (rules of the lane): golden / wide dual, benches, soak, census, ratchet, workspace clippy beyond `clippy_core.sh`, `end_of_d1.sh`, shadow sweeps.
 
