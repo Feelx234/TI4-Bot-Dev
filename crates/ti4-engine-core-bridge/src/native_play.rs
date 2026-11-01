@@ -1431,18 +1431,15 @@ mod tests {
         assert!(!g.asks(), "the status phase asks nothing of its own");
     }
 
-    /// The native loop and the legacy game agree step by step up to the first KNOWN difference: the questions, the plain events, the position. The
-    /// difference, found by this shadow behind a real game (integration 11, `docs/INTEGRATION11.md`): after the commit steps of a ground invasion of
-    /// system 29 the native aftermath puts the reward question of the planet's first-claim exploration ("Local Fabricators", the one option `gain`), and the
-    /// legacy game, replaying the same answers, is already at the next seat's action menu. Lane X (the exploration window) or the invasion's first claim.
-    /// When it is fixed this test fails: the pinned difference goes and the shadow compares the game further.
+    /// The native loop and the legacy game agree step by step up to the gap: the same questions, the same plain events, the same position. (Integration 11
+    /// pinned a KNOWN difference here, the Local Fabricators reward of step 24; lane F2c showed it was the harness' (the string asks it inside the legacy step
+    /// that answers the second commit) and fixed the shadow, so the pin fired as it was written to and is replaced by this test.)
     #[test]
-    fn the_shadow_run_agrees_with_the_legacy_game_up_to_the_known_exploration_difference() {
+    fn the_shadow_run_agrees_with_the_legacy_game_up_to_the_gap() {
         let shadowed = shadow_play(&lobby_spec("sol", 4, 1), 2_000, 50).expect("builds");
+        assert_eq!(shadowed.first_difference, None);
         assert!(shadowed.compared >= 8, "the draft was compared step by step: {}", shadowed.compared);
-        let d = shadowed.first_difference.as_ref().expect("the known difference is still there: delete this pin if it is fixed");
-        assert_eq!((d.step, d.arms.as_slice(), d.path.as_str()), (24, &["aftermath".to_owned()][..], "step.error"), "{d:?}");
-        assert!(d.legacy.contains("script wanted \"gain\""), "{d:?}");
+        assert!(matches!(shadowed.played.end, End::Gap(_)));
     }
 
     #[test]
