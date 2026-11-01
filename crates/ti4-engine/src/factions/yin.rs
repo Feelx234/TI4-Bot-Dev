@@ -3523,6 +3523,56 @@ mod tests {
         let _ = take_report();
     }
 
+    /// The scoring window a won ground combat of the hero opens (Spark a Rebellion: win a combat against the points leader) is a child of the
+    /// core fight now: the question, the score and the end of the planet's fight agree with the string, and no window bails.
+    #[test]
+    fn the_scoring_window_after_a_won_combat_runs_in_lockstep_with_the_core() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let mut scored = 0;
+        let mut finished = 0;
+        let mut ran = 0;
+        for seed in 0..6_u64 {
+            // (`a` at nine points: the secret's point ends the game inside the hero, which stops the fights and `GAME_FINISHED` follows.)
+            for (answer, scores, points) in [("sar", true, 0), ("decline", false, 0), ("sar", true, 9)] {
+                let (mut state, system, planet, galaxy) = hero_state();
+                state.promissory_notes.clear();
+                state.promissory_faceup.clear();
+                put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+                unlock_hero(&mut state);
+                state.player_mut(&a()).unwrap().leaders.insert(LeaderId::new("yinagent"), LeaderStatus::Exhausted);
+                state.player_mut(&a()).unwrap().trade_goods = 0;
+                let controlled: Vec<PlanetId> = state.board.values().flat_map(|board| board.planet_control.keys().cloned()).collect();
+                for planet in controlled {
+                    state.exhaust_planet(planet);
+                }
+                // `b` leads the table: a combat won against it is Spark a Rebellion's feat, and `a` holds the secret.
+                state.player_mut(&b()).unwrap().victory_points = if points == 9 { 9 } else { 3 };
+                state.player_mut(&a()).unwrap().victory_points = points;
+                state.player_mut(&a()).unwrap().secret_objectives.push(ti4_model::id::SecretObjectiveId::new("sar"));
+                let spot = format!("{system}|{planet}");
+                let done = with_mask(AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual), || use_hero_timed_seeded(&mut state, &galaxy, &[&spot, &spot, &spot, answer], seed));
+                assert_eq!(done, Ok(true), "seed {seed} {answer}");
+                ran += 1;
+                if state.scored_objectives.get(&a()).is_some_and(|set| set.iter().any(|o| o.as_str() == "sar")) {
+                    assert!(scores, "declined and scored anyway");
+                    scored += 1;
+                    assert_eq!(state.finished, points == 9, "the tenth point ends the game");
+                    finished += usize::from(state.finished);
+                }
+            }
+        }
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        crate::dual::tests::no_bails_in("yin hero scoring", &r);
+        assert_eq!(thread_window_counts("factions::yin::hero"), (ran, 0), "{r:?}");
+        assert!(scored > 0 && finished > 0, "the secret was scored in some run ({scored}), and ended the game in some ({finished})");
+        let _ = take_report();
+    }
+
     fn unlock_hero(state: &mut GameState) {
         state
             .player_mut(&a())

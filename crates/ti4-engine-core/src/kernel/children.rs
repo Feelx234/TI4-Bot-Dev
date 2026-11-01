@@ -400,6 +400,9 @@ pub enum Spawn {
     /// [`Self::Home`] with the facts read from the position when the use starts (`home_facts`): the Warfare secondary performed after an
     /// ability that changed what a production reads (tokens, a unit upgrade, a space dock). Reports as [`Self::Home`].
     HomeAt { who: Seat, system: System, roster: &'static UnitRoster, agent_rules: bool },
+    /// `driver::windows::scoring::OccurrenceScoring`: the scoring window an action-timed event occurrence opens (`ScoringWindow::for_occurrence` over the
+    /// initiative order: a won combat's feat, one scoring per player when `one_per_player`), run to its end.
+    EventScoring { occurrence: u64, one_per_player: bool },
     /// `strategy_primaries::ImperialPrimary`: score a public objective, then a point for Mecatol Rex or a secret objective; reports
     /// [`Report::Scored`], or [`Report::Left`] when the table has no link to the hand limit window.
     Imperial { who: Seat, facts: ImperialFacts },

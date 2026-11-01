@@ -4570,9 +4570,9 @@ pub fn yin_unported(gs: &GameState, _content: &ti4_content::ContentStore, _sourc
 }
 
 /// The core half of Quantum Dissemination (`factions::yin::use_leader_timed`; the value: the card resolved, `None` when the string refused an
-/// answer): the commitments, the landing, every planet fought to its end as a child of `rules::invasion::yin_hero::YinHero` and the control.
-/// The planets chosen are the ones the recording shows (the answers up to the first decline). `None` for the positions of [`yin_unported`] and for
-/// a recording in which the string opened a scoring window after a won combat (that window is the string's).
+/// answer): the commitments, the landing, every planet fought to its end as a child of `rules::invasion::yin_hero::YinHero` (with the scoring
+/// window a won combat's feat opens) and the control. The planets chosen are the ones the recording shows (the answers up to the first decline).
+/// `None` for the positions of [`yin_unported`].
 #[must_use]
 #[allow(clippy::too_many_arguments, reason = "the position, the sources, the seat, its spots and stock, the streams and the recording")]
 pub fn yin_hero(
@@ -4596,10 +4596,6 @@ pub fn yin_hero(
     nested_check(script)?;
     if !reproducible {
         crate::dual::note_bail_here("irreproducible dice (test faces or a stream restore)");
-        return None;
-    }
-    if script.questions.iter().any(|q| q.choice.prompt == "score an objective") {
-        crate::dual::note_bail_here("a scoring window after a won ground combat (the string's)");
         return None;
     }
     if let Some(why) = yin_unported(gs, content, sources.clone(), player, spots) {
@@ -4690,11 +4686,14 @@ pub fn yin_hero(
     let mut driver = crate::window_driver::driver_for(YinHero::new(seat, facts), resolver, table, 1).with_seeds(seeds);
     let mut staged = Vec::new();
     let mut rng_after = None;
+    let mut scoring_plain: Vec<ti4_engine_core::state::PlainRec> = Vec::new();
     let src = Sources { galaxy: None, rng: Some(rng_before) };
     let driven = with_core(gs, &mut cx, src, nested_fp(YIN, script), |core, _| {
+        let from = core.ledger.events.len();
         let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
         staged = std::mem::take(&mut core.pending_mut().staged);
         rng_after = Some(core.rng().clone());
+        scoring_plain = core.ledger.events.iter().skip(from).filter_map(|e| e.plain().copied()).collect();
         driven
     })
     .why(crate::dual::reason::NOT_LENDABLE)?
@@ -4705,15 +4704,29 @@ pub fn yin_hero(
     }
     apply_staged(gs, &r, &staged).why(crate::dual::reason::STAGED_UNAPPLIED)?;
     let positions = crate::core_sync::codec::rng::positions(&cx, &rng_after?).ok()?;
-    let events: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+    let typed: Vec<Event> = driver.emitted.iter().map(|e| event_of(&r, e)).collect::<Option<_>>().why(crate::dual::reason::EVENT_UNTYPED)?;
+    // The scoring windows of the won combats push `OBJECTIVE_SCORED:{alias}` and `GAME_FINISHED` (the string emits them through the resolver:
+    // `ctx.emit`); the core writes them as plain records. They take the places the string's own events of that kind have in the stream, so
+    // what is compared is the list of them (the aliases, their number and order) and the typed events around them.
+    let mut scored = scoring_plain.iter().filter_map(|p| crate::render::events::plain_text(&r, &cx, p)).map(|text| Event::new(0, text, BTreeMap::new()));
+    let mut typed = typed.into_iter();
+    let mut events: Vec<Event> = Vec::new();
+    for string_side in &script.emits {
+        let plain = string_side.event_type.starts_with("OBJECTIVE_SCORED:") || string_side.event_type == "GAME_FINISHED";
+        if let Some(event) = if plain { scored.next() } else { typed.next() } {
+            events.push(event);
+        }
+    }
+    events.extend(typed);
+    events.extend(scored);
     let mut run = Run::new(Some(driver.window.used)).with_events_vec(events);
     run.rng = Some(positions);
     Some(CoreWindow { run, questions: driven.rendered })
 }
 
 const YIN: Footprint = Footprint::new(
-    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
-    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger],
+    &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger, Slice::Objectives, Slice::Strategy, Slice::Decks],
+    &[Slice::Meta, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Rng, Slice::Ledger, Slice::Objectives],
 );
 
 #[cfg(test)]

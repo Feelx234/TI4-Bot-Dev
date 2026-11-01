@@ -6,8 +6,8 @@
 //! windows of this area in turn: the start of the round ([`BeginGroundRound`]), the dice ([`GroundRoll`]), their tail with the reroll windows
 //! ([`GroundRollTail`]) and the hits with Harrow ([`GroundRoundHits`]); when one side has no ground force left the end is announced
 //! (`GROUND_COMBAT_ENDED`: the winner, whether control changes) and the win earns its feats (anomaly, a rival's home system, the leader of the
-//! points, a note held). The scoring windows the string opens after a won combat are not here: the adapter declines a run in which the string
-//! asked one.
+//! points, a note held); a feat earned opens the scoring window of its occurrence (`Spawn::EventScoring`: every seat in initiative order, one score
+//! per player), asked to its end before the next combat of the planet.
 //!
 //! Not carried, and declined by the adapter before the window opens: The Thundarian (a step-ended event and its replays), X-89 Bacterial Weapon, Alarum,
 //! Proxima Targeting VI, a neutral side, a coexisting planet.
@@ -79,6 +79,8 @@ pub enum FStage {
     Tail,
     /// The hits.
     Hits,
+    /// The scoring window a won combat's feat opened (`Spawn::EventScoring`), asked to its end before the next combat.
+    Scoring,
     Done,
 }
 
@@ -95,6 +97,7 @@ pub struct CommittedFight {
     roll: Child<GroundRoll>,
     tail: Child<GroundRollTail>,
     hits: Child<GroundRoundHits>,
+    scoring_child: crate::kernel::children::ErasedChild,
     /// The combats fought, by the rival.
     pub fought: Vec<Seat>,
     /// A feat of a won combat was earned: the string opens a scoring window for it.
@@ -118,6 +121,7 @@ impl CommittedFight {
             roll: Child::idle(),
             tail: Child::idle(),
             hits: Child::idle(),
+            scoring_child: crate::kernel::children::ErasedChild::idle(),
             fought: Vec::new(),
             scoring: Vec::new(),
             unsupported: false,
@@ -228,6 +232,24 @@ impl CommittedFight {
         self.event(sx, EventKind::GroundCombatEnded, payload);
         self.defender = None;
         self.stage = FStage::Pick;
+        if noted {
+            self.open_scoring(sx);
+        }
+    }
+
+    /// The scoring window of the feat just earned (`take_scoring_occurrence` after `resolve_ground_round`): one scoring per player. A table
+    /// without the link declines the run.
+    fn open_scoring(&mut self, sx: &mut Sx<'_>) {
+        match sx.table.links.start(&crate::kernel::children::Spawn::EventScoring { occurrence: self.occurrence, one_per_player: true }) {
+            Some(window) => {
+                self.scoring_child.start(window);
+                self.stage = FStage::Scoring;
+            }
+            None => {
+                self.unsupported = true;
+                self.stage = FStage::Done;
+            }
+        }
     }
 
     /// `note_ground_combat_win_feats`: the feats a won ground combat earns; whether there was one.
@@ -327,6 +349,12 @@ impl Window for CommittedFight {
                     Some(Ran::Pass(next)) => return next,
                     Some(Ran::Done(_)) | None => self.finish_round(sx),
                 },
+                FStage::Scoring => match self.scoring_child.step(sx) {
+                    Some(Ran::Asks(ask)) => return Next::Continue(ask),
+                    Some(Ran::Pass(next)) => return next,
+                    // A score that won the game ends the planet's fight (`if state.finished { return }`).
+                    Some(Ran::Done(_)) | None => self.stage = if sx.state.meta().finished { FStage::Done } else { FStage::Pick },
+                },
             }
         }
     }
@@ -337,6 +365,7 @@ impl Window for CommittedFight {
             FStage::Roll => self.roll.ask_of(s, k),
             FStage::Tail => self.tail.ask_of(s, k),
             FStage::Hits => self.hits.ask_of(s, k),
+            FStage::Scoring => self.scoring_child.ask_of(s, k),
             FStage::Open | FStage::Pick | FStage::Done => None,
         }
     }
@@ -347,6 +376,7 @@ impl Window for CommittedFight {
             FStage::Roll => self.roll.answer(sx, pick),
             FStage::Tail => self.tail.answer(sx, pick),
             FStage::Hits => self.hits.answer(sx, pick),
+            FStage::Scoring => self.scoring_child.answer(sx, pick),
             FStage::Open | FStage::Pick | FStage::Done => Err(Illegal),
         }
     }

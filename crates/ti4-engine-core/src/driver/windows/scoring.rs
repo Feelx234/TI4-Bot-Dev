@@ -242,6 +242,49 @@ impl<const EVENT: bool> Window for ScoringWin<EVENT> {
     }
 }
 
+/// The scoring window of one event occurrence as a CHILD of the window that earned the feat (`Spawn::EventScoring`): the string opens it right
+/// after a won ground combat of the Yin hero (`InvasionWindow::fight_committed_planet`) and asks it to its end before the fight goes on. The
+/// order is the initiative order of the position when the window starts.
+#[derive(Debug, Clone)]
+pub struct OccurrenceScoring {
+    occurrence: u64,
+    one_per_player: bool,
+    window: Option<EventScoring>,
+}
+
+impl OccurrenceScoring {
+    #[must_use]
+    pub const fn new(occurrence: u64, one_per_player: bool) -> Self {
+        Self { occurrence, one_per_player, window: None }
+    }
+}
+
+impl Window for OccurrenceScoring {
+    type Stage = usize;
+
+    // mutants:skip: the stage is a label for the trace
+    fn stage(&self) -> usize {
+        self.window.as_ref().map_or(usize::MAX, Window::stage)
+    }
+
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        let (occurrence, one_per_player) = (self.occurrence, self.one_per_player);
+        let window = self.window.get_or_insert_with(|| {
+            let order = crate::query::seats::initiative_order(sx.state);
+            EventScoring::event(order.as_slice(), ScoringTiming::Action, occurrence, one_per_player)
+        });
+        window.step(sx)
+    }
+
+    fn ask_of(&self, core: &CoreState, k: &Kernel) -> Option<Choice> {
+        self.window.as_ref()?.ask_of(core, k)
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        self.window.as_mut().ok_or(Illegal)?.answer(sx, pick)
+    }
+}
+
 impl Held for ScoringWin<false> {
     const KIND: WindowKind = WindowKind::Scoring;
 
