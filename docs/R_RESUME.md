@@ -36,7 +36,7 @@ D4 test run on the base snapshot (table at the end).
 | 10 | the string stops after `RETREAT_STEP_STARTED` (3 / 5) harness | the string's step ends after the events that open the retreat and asks the announcement in the next step; the native step asks it behind the events at once | string | `events_lead`: a legacy step that asked nothing and pushed the head of what the group pushed is stepped again with the same answers, the events owed to the group | bridge `a_legacy_step_that_asked_nothing_and_pushed_the_head_of_the_groups_events_stopped_early` (unit), jolnar 5p / nekro 6p |
 | 11 | staged events behind a hand-off, behind a left-over end job (5 / 7) harness | (a) a Ceasefire denies the movement: the string's step runs from the activation through the aftermath to the closing menu; the reconcile of the native aftermath step announced the activation's staged trade good ahead of the owed `PRODUCTION_RESOLVED`; (b) an end of turn a hook left open (Nullification Field) runs INSTEAD of the reconcile in `advance_job`: the staged `STRATEGY_TOKEN_SPENT` was never announced at the next turn's start | string | `after_glue` also after a finished tactical step that handed off to its aftermath; the reconcile loop runs again after a left-over job | bridge (yssaril 4p seed 3, empyrean 4p seed 3, naaz 6p seed 2; cabal 3p, winnu 6p seed 2: sweep) |
 
-No cause is a rule change; the game of every table changes only where the string's behaviour was copied (1-6).
+The second number of the class column is read from the baseline listing of the 288 set (the classes overlap and the counts are approximate). No cause is a rule change; the game of every table changes only where the string's behaviour was copied (1-6).
 
 ## Edits of assertions (reasons)
 
@@ -56,7 +56,7 @@ No assertion was loosened.
 
 | Check | Result |
 |---|---|
-| D4 crate (`ti4-engine-core-tests`, profile `lockstep`, debug assertions on for the three core crates, `--no-fail-fast`) at the tree of `09ddfe177` (a clean target `/root/deploytmp/core-r-t2`) | 154 binaries: **1961 passed, 0 failed** (P: 1952; +8 tests of this lane, +1 from the registration tables) |
+| D4 crate (`ti4-engine-core-tests`, profile `lockstep`, debug assertions on for the three core crates, `--no-fail-fast`) at the tree of `09ddfe177` (a clean target `/root/deploytmp/core-r-t2`) | 154 binaries: **1961 passed, 0 failed** (P: 1952) |
 | `ti4-engine-core --lib`, `ti4-engine-core-factions --lib` | 477, 151 passed |
 | `ti4-engine --lib` (plain) at the tip | **5287 passed**, 0 failed, 7 ignored (the first run found four failures: the registration order of the marks in the `SYSTEM_ACTIVATED` bucket (twice), `G3_EMITTERS` without the event, and the lockstep of `tactical_live` without the reconcile every step starts with; all four fixed, see the tables above) |
 | bridge `--lib native_play` | **48 passed** (85 s) |
