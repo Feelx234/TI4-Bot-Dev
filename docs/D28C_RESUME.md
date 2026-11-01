@@ -1,4 +1,42 @@
 # D2-8 lane C resume: native game setup (package 8c)
 
-Branch `core-d28c-setup`, cut from `core-d27-split` (2014339a4) plus `core-todo-d28` (the D2-8 theory document).
-(Draft; the final text is written at the end of the lane.)
+Branch `core-d28c-setup`, cut from `core-d27-split` (2014339a4) plus `core-todo-d28` (04b519e25, the D2-8 theory document, `docs/todo/D2-8-wrapper.md`). Pure refactor: no engine rule body, no `RULES_VERSION`, serde, fixture or wire-TS change. The live branch was not touched, nothing was pushed.
+
+## What is done
+
+The thin crate `ti4-engine` (`crates/ti4-engine-next`) now owns the game setup natively. `lib.rs` has one section per lane; lane C's section declares the modules below, which shadow the `pub use ti4_engine_legacy::*;` glob. Every host, server, wasm, bot and tool crate that says `ti4_engine::seating` / `setup` / `deck` / `opening` / `starting_tech` / `map_feasibility` / `fixtures` / `seeded_speaker` therefore builds its games without the legacy engine from this commit on.
+
+| module (thin crate) | content | source |
+|---|---|---|
+| `setup` | `start_game*`, `strategy_card_setup*`, `seeded_speaker`, `cards_per_player`, `SetupError` | legacy `setup.rs`, ties cut |
+| `deck` | decks, `Exclusions`, the unofficial-action-card helpers | legacy `deck.rs` unchanged but for the RNG path |
+| `seating` | rosters, lobby draw, wide rosters, Tribuni, `deploy`, boards, wormhole nexus, fillers | legacy `seating.rs`, ties cut |
+| `opening`, `map_feasibility` | measuring openings, the objective-feasibility pass | copies |
+| `starting_tech` | opening/settling/asking/applying the picks | copy; its legacy-`Game` test is in the bridge |
+| `fixtures` | the position fixtures (`game`, `seated_game`, `seated_dealt`, `real_game`, hubs, `put`, ...) | copy minus `with_context`, `armed_resolver`, `nekro_with_z` (they drive the legacy timing resolver; used only by legacy's own tests, so they stay there) |
+| `builders::{factions, leaders, promissory, technology, objectives, phase, exploration, movement, support}` | the position builders (class M) the setup and the host presets/scenarios call: faction facts and the three setup writes (Sorrow breach, Empyrean notes, Mentak Corsair form), leader dealing, note dealing/`take`/`receive`/`support`, `grant`/`gain`/`apply_unit_upgrades`/`unit_swaps`, `reveal_stage`/`reveal_top`/`adjust_victory_points`, `advance_phase`/`begin_action_turn`, `gain_fragment`/`mark_legacy_device_ids`, `MapEdit`/`apply_map_edit`/`replay_map_edits`/`recorded_map_edits` | the string (`*_text`) bodies of the legacy functions, copied, not wrapped |
+
+Host call sites switched to the native paths: `ti4-host` `preset.rs`, `view/scenario/{mod,three_seats}.rs`, `view/score.rs` (test), `map.rs`, `replay.rs`, `view/tactical.rs`; `ti4-server` `session/worker.rs` (one line, `mark_legacy_device_ids`).
+
+The builders are reached as `ti4_engine::builders::<module>::...` on purpose: lane B owns the root modules of the same names (`promissory`, `technology`, `objectives`, ...) as query modules; the two do not meet.
+
+## Proof
+
+* `crates/ti4-engine-core-bridge/tests/setup_parity.rs` (24 tests): the native result against the legacy one, field by field (serialised position, `Debug` text, which also holds the fields serde skips; first differing JSON path in the failure message), deck orders and RNG draws byte-identical because the positions are. Matrices: `start_game*` for 3 scopes (base, PoK, full) x 1-8 seats x 12 seeds x 6 card sets (incl. an unknown one) with and without a named speaker; seeded speaker for 0-8 seats x 300+ seeds; decks with and without exclusions; every faction (all 27 faction modules, the 24 lobby factions, ids that are none) deployed at 3 scopes with the Tribuni conflicts; whole tables 2-8 seats of the lobby draw through deploy, board, map feasibility, census, opening; lobby/wide/new rosters 1-40 seats x 40 seeds; boards for every table size with full and short fillers; the nexus placements; starting-tech picks (open/ask/answer first, last, middle/refused answer) incl. Keleres, Argent, Winnu, Deepwrought; fixtures; leaders (every faction x 3 scopes, every leader record's kind); promissory notes (every note to every holder, Support to everyone twice, the Promise-of-Protection rules-version edge); technologies (every active technology gained cumulatively with units of every kind on the board, Mentak's Table's Grace with and without the breakthrough, an unseated player); objectives (every public and secret objective's points/stage, reveals, victory-point ledger); phase (all four arms, Naalu's initiative token with and without Gift of Prescience, stability); fragments and legacy device marks; map edits (swap, replace, errors, replay idempotent). Plus a source scan: the native modules name no legacy crate and only `crate::` modules that are native or on the join list below.
+* `tests/host_create_golden.rs` + `tests/host_create.golden` (1 405 digests): the games `ti4_host::setup::create` makes (2-8 seats x 3 card sets x Thunder's Edge on/off x starting tech on/off x speaker random/seat x 3 seeds; all 17 start presets with their suffixes at 2/3/4/6/8 seats x 2 seeds; every scenario on 3 seeds) hash the same as with the legacy setup. The golden was **recorded at 04b519e25** (host going through the legacy setup and builders); it is never re-recorded to make the test pass.
+* The thin crate's own unit tests (the copied in-file tests of the seven modules, 102) pass natively.
+
+## Join points with the other lanes
+
+* **Lane A** (wire types, glue): `starting_tech` uses `crate::choice::{Choice, ChoiceOption, IllegalChoice, validate}` and `crate::decision_context::*`; `builders::exploration::mark_legacy_device_ids` uses `crate::choice::DecisionRecord`; `setup`, `deck`, `seating` use `crate::rng::{GameRng, domain}`. These resolve through the glob to the legacy types today and keep compiling when lane A shadows `choice`, `decision_context`, `rng` with copies of the same API. The bridge parity test builds the records from JSON, so it survives the swap. `Cargo.toml` of the thin crate: lane C added `ti4-model`, `ti4-content`, `thiserror`, `rand` (no default features) and the dev-dependency `serde_json` (one block, marked "lane C"; merge by keeping both sides).
+* **Lane B** (queries): `starting_tech` calls `crate::technology::{active_aliases, faction_of, researchable_by_prerequisites, name, colour_type, prerequisites}`: lane B's `technology` module must keep those names. Lane B can re-export `builders::promissory::{faction_name, owner_of, held_by, may_receive}` and `builders::objectives::{points_for, stage_of}` (they are native here because the builders need them) instead of copying them again. The host still reads `planets::*`, `exploration::{frontier_systems, traits_of, resolution, attachment_for}`, `factions::assets`, `fleet::*`, `production::available`, `invasion::*`, `movement::{Board, MovementRules}`, `thunders_edge::*` from the root modules: lane B's.
+* **Lane D** (wrapper): `Game::with_table` etc. take the state the native setup builds; `ti4-server` `session/worker.rs` line 1015 now calls `builders::exploration::mark_legacy_device_ids` (lane D owns that file: keep the call when editing). `fixtures` and `starting_tech::{open, settle, choice, apply}` are what the wrapper's draft/starting-tech asks read.
+* **Lane F** (bridge/gates): `native_play` and `oracle.rs` still start games through `ti4_engine_legacy::setup`/`fixtures`; retarget to `ti4_engine::setup` (the parity tests are the proof they are the same game). The new bridge test files are `setup_parity.rs`, `host_create_golden.rs`, `host_create.golden` (not under a `data/` directory: that name is git-ignored).
+
+## What remains in lane C's reach (not done)
+
+* `laws::apply_to_galaxy` and `action_cards::apply_movement_effects` (class M of the document, but they are the host's map/movement *view* rebuild, not setup): they need `laws::{active, elected, nexus_wormholes_suppressed}`, `faction_techs::spatial_conduit_links`, `factions::hooks_movement::{apply_rift_effects, apply_extra_wormholes}`, `relics::ignores_gravity_rifts` and the `MovementRules` type of `movement`. Left to lane B (queries) with `view/tactical.rs`; the call in `ti4-host` `view/tactical.rs` still goes through the glob.
+* `exploration::explore` (used by one host *test* only; it runs the exploration card windows through a `Table`): stays a lane D/test matter.
+* `ti4_host::setup::create` still calls `ti4_engine::core_sync::guard::{ids_supported, factions_known}` (lane A's glue).
+* `Hub`/`fixtures` of the legacy-only timing helpers (see above) have no native twin by design.
+* After the type swap, delete the join list in `the_native_modules_name_only_native_modules_and_the_listed_joins` entry by entry as the modules turn native.

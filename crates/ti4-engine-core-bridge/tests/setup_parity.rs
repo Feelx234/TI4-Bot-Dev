@@ -1141,7 +1141,12 @@ fn the_native_modules_name_only_native_modules_and_the_listed_joins() {
             let code = line.split("//").next().unwrap_or("");
             for part in code.split("crate::").skip(1) {
                 let module: String = part.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-                if module.is_empty() || own.contains(&module) || joins.contains(&module.as_str()) {
+                // `__mutant` is the switch the mutation tool (tools/mutants) wraps functions in.
+                if module.is_empty()
+                    || module == "__mutant"
+                    || own.contains(&module)
+                    || joins.contains(&module.as_str())
+                {
                     continue;
                 }
                 bad.push(format!("{}:{}: crate::{module}", file.display(), number + 1));
