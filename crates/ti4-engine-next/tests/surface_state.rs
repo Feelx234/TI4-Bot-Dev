@@ -620,3 +620,88 @@ fn every_lobby_faction_answers_as_the_legacy_one_does() {
     assert_eq!(tables, 24);
     assert!(guns > 100 && bombarded > 20 && abilities_held > 30, "guns {guns}, bombardable {bombarded}, abilities held {abilities_held}");
 }
+
+#[test]
+fn who_can_reach_answers_as_the_legacy_one_does() {
+    let content = content();
+    let (mut rows, mut boosted) = (0_usize, 0_usize);
+    for pos in positions() {
+        for destination in systems_of(&pos) {
+            let a = old::reach_query::who_can_reach(&pos.state, content, pos.sources, &pos.galaxy, &destination);
+            let b = thin::queries::reach_query::who_can_reach(&pos.state, content, pos.sources, &pos.galaxy, &destination);
+            assert_eq!(serde_json::to_string(&a).unwrap(), serde_json::to_string(&b).unwrap(), "{}: who_can_reach {destination}", pos.label);
+            rows += a.len();
+            boosted += a.iter().flat_map(|o| o.ships.iter()).filter(|s| s.gravity_drive > 0 || s.ionian > 0).count();
+        }
+    }
+    assert!(rows > 300, "only {rows} origins compared ({boosted} with a boost)");
+}
+
+#[test]
+fn the_secondary_types_are_the_legacy_ones() {
+    use ti4_content::StrategyCardKind;
+    for kind in [StrategyCardKind::Technology, StrategyCardKind::Diplomacy, StrategyCardKind::Construction, StrategyCardKind::Warfare, StrategyCardKind::Leadership, StrategyCardKind::Trade, StrategyCardKind::Politics, StrategyCardKind::Imperial] {
+        assert_eq!(old::secondary_preview::follow_up_subtypes(kind), thin::queries::secondary_preview::follow_up_subtypes(kind), "{kind:?}");
+    }
+    // The wire shape of every variant: the same JSON from the same fields, and back.
+    let choice = old::choice::Choice::new(PlayerId::new("a"), "p", vec![old::choice::ChoiceOption::decline()]);
+    let thin_choice: thin::wire::choice::Choice = serde_json::from_value(serde_json::to_value(&choice).unwrap()).unwrap();
+    let payment = (3_i64, vec!["jord".to_owned()], 1_i32, 4_i64);
+    let skipped = ("subtype".to_owned(), "prompt".to_owned());
+    let old_values = [
+        old::secondary_preview::SecondaryPreview::Question {
+            choice: choice.clone(),
+            step: 1,
+            payment: Some(old::secondary_preview::PaymentPreview { cost: payment.0, planets: payment.1.clone(), trade_goods: payment.2, worth: payment.3 }),
+            skipped: vec![old::secondary_preview::SkippedPrompt { subtype: skipped.0.clone(), prompt: skipped.1.clone() }],
+        },
+        old::secondary_preview::SecondaryPreview::Question { choice: choice.clone(), step: 0, payment: None, skipped: Vec::new() },
+        old::secondary_preview::SecondaryPreview::WouldNotBeAsked { blocker: old::secondary_preview::SecondaryBlocker::CommoditiesFull },
+        old::secondary_preview::SecondaryPreview::Complete { skipped: Vec::new(), unused_answers: 0 },
+        old::secondary_preview::SecondaryPreview::Complete { skipped: vec![old::secondary_preview::SkippedPrompt { subtype: skipped.0.clone(), prompt: skipped.1.clone() }], unused_answers: 2 },
+        old::secondary_preview::SecondaryPreview::Rejected { at: 1, answer: "x".to_owned(), choice: Box::new(choice) },
+        old::secondary_preview::SecondaryPreview::Unavailable { detail: "d".to_owned() },
+    ];
+    for value in old_values {
+        let text = serde_json::to_string(&value).unwrap();
+        let back: thin::queries::secondary_preview::SecondaryPreview = serde_json::from_str(&text).unwrap();
+        assert_eq!(serde_json::to_string(&back).unwrap(), text);
+    }
+    let _ = thin_choice;
+    for blocker in ["no_strategy_token", "cannot_afford_influence", "cannot_pay_resources", "nothing_to_research", "no_exhausted_planet", "commodities_full", "no_production", "other"] {
+        let a: old::secondary_preview::SecondaryBlocker = serde_json::from_str(&format!("\"{blocker}\"")).unwrap();
+        let b: thin::queries::strategy::SecondaryBlocker = serde_json::from_str(&format!("\"{blocker}\"")).unwrap();
+        assert_eq!(serde_json::to_string(&a).unwrap(), serde_json::to_string(&b).unwrap());
+    }
+    assert_eq!(format!("{:?}", old::strategy::SecondaryResolution::Followed), format!("{:?}", thin::queries::strategy::SecondaryResolution::Followed));
+    for relation in ["when", "after"] {
+        let a: old::timing::Relation = serde_json::from_str(&format!("\"{relation}\"")).unwrap();
+        let b: thin::queries::timing::Relation = serde_json::from_str(&format!("\"{relation}\"")).unwrap();
+        assert_eq!(serde_json::to_string(&a).unwrap(), serde_json::to_string(&b).unwrap());
+    }
+}
+
+#[cfg(feature = "ts")]
+mod ts {
+    use ts_rs::{Config, TS};
+
+    use super::{old, thin};
+
+    fn same<L: TS + ?Sized + 'static, T: TS + ?Sized + 'static>() {
+        let cfg = Config::new().with_large_int("number").with_import_extension(Some("ts"));
+        assert_eq!(L::name(&cfg), T::name(&cfg));
+        assert_eq!(L::decl(&cfg), T::decl(&cfg), "the declaration of {}", L::name(&cfg));
+        assert_eq!(L::output_path(), T::output_path(), "the export path of {}", L::name(&cfg));
+        assert_eq!(L::export_to_string(&cfg).ok(), T::export_to_string(&cfg).ok(), "the export text of {}", L::name(&cfg));
+    }
+
+    #[test]
+    fn the_ts_types_of_the_surface_agree() {
+        same::<old::strategy::SecondaryBlocker, thin::queries::strategy::SecondaryBlocker>();
+        same::<old::secondary_preview::SecondaryPreview, thin::queries::secondary_preview::SecondaryPreview>();
+        same::<old::secondary_preview::PaymentPreview, thin::queries::secondary_preview::PaymentPreview>();
+        same::<old::secondary_preview::SkippedPrompt, thin::queries::secondary_preview::SkippedPrompt>();
+        same::<old::reach_query::ReachOrigin, thin::queries::reach_query::ReachOrigin>();
+        same::<old::reach_query::ReachShip, thin::queries::reach_query::ReachShip>();
+    }
+}

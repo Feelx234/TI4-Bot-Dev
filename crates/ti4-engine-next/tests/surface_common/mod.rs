@@ -21,8 +21,24 @@ pub fn content() -> &'static ContentStore {
 }
 
 /// `(players, seed, steps)` of the corpus: openings and mid-game positions of 3, 4 and 6 seats.
-pub const SPECS: [(usize, u64, usize); 10] =
-    [(3, 3, 0), (3, 3, 120), (4, 9, 40), (4, 9, 200), (4, 9, 500), (4, 5, 900), (6, 2, 60), (6, 2, 400), (6, 7, 1200), (3, 11, 1500)];
+pub const SPECS: [(usize, u64, usize); 15] = [
+    (3, 3, 0),
+    (3, 3, 120),
+    (4, 9, 40),
+    (4, 9, 200),
+    (4, 9, 500),
+    (4, 5, 900),
+    (6, 2, 60),
+    (6, 2, 400),
+    (6, 7, 1200),
+    (3, 11, 1500),
+    // (lane B2) two seats, five seats and more late games: more factions, more objectives revealed, more cards in play.
+    (2, 21, 300),
+    (5, 13, 700),
+    (5, 8, 1600),
+    (6, 17, 1000),
+    (4, 23, 1300),
+];
 
 pub fn positions() -> Vec<Pos> {
     SPECS.iter().map(|&(players, seed, steps)| position(players, seed, steps)).collect()
