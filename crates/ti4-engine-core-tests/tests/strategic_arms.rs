@@ -539,7 +539,9 @@ fn a_waiver_a_nomad_hears_is_paid_and_stages_the_exhaustion_for_the_suite() {
 }
 
 /// The followers left after the last answer are skipped in the step that completes the action; that step starts with the reconcile, so what the answer
-/// staged is announced before `STRATEGIC_ACTION_COMPLETE` (found by the shadow of games with a Mahact seat).
+/// staged is announced before `STRATEGIC_ACTION_COMPLETE` (found by the shadow of games with a Mahact seat). Lane J's held window makes the answer's
+/// call end with the window open (the next call closes it), and a caller runs the reconcile before every call (`live_reconcile`): lane N's own fix of
+/// the same order (a reconcile inside the window's step) is gone, this test drives the three calls a step is made of.
 #[test]
 fn what_the_last_answer_staged_is_announced_before_the_action_completes_when_the_rest_are_skipped() {
     use ti4_engine_core::state::{Emit, EventKind};
@@ -551,7 +553,11 @@ fn what_the_last_answer_staged_is_announced_before_the_action_completes_when_the
     let e = env(&k);
     let waiver = first_asked(&s, &e).opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(..)))).expect("offered");
     // (The core test table has no reaction for the suite: the announcement ends in the ledger; the lockstep asks the suite's holder.)
-    advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("the waiver is taken");
+    let (_, held) = advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("the waiver is taken");
+    assert!(held.held, "the answer's call ends with the window open: the Nomad's seat is skipped by the next call");
+    // (The next step of the caller: its reconcile first, then the window's call.)
+    ti4_engine_core::driver::turn::advance_reconcile(&mut s, &e, None).expect("the reconcile announces what the answer staged");
+    advance_secondary(&mut s, &e, None).expect("the closing call");
     let _ = mahact;
     let order: Vec<&str> = s
         .ledger
