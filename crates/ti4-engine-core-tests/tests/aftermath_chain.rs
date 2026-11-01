@@ -255,6 +255,30 @@ fn an_undefended_system_goes_straight_on_to_the_invasion() {
     assert!(!kinds.contains(&PlainKind::SpaceCombatResolved), "a fight of no rounds announces nothing");
 }
 
+/// The string's settle presents the finished (empty) fight once when a side holds the system (`complete`), and presents nothing for a system nobody
+/// holds any more (the guns of the space cannon offense destroyed the only ship: it was never a fight). Lane H3: the chain wrote it for both.
+#[test]
+fn an_undefended_system_presents_the_finished_fight_and_one_nobody_holds_presents_nothing() {
+    covers!("driver::windows::chain::AftermathChain");
+    for (ships, presented) in [(0_usize, false), (1, true)] {
+        let (mut core, k) = {
+            let mut sc = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).map_from(&[sys()]).active(Some(0)).active_system(sys()).tokens(0, 3, 6, 3);
+            if ships > 0 {
+                sc = sc.unit(sys(), None, Unit::CarrierI, 0, 1);
+            }
+            sc.build()
+        };
+        let env = env(&k, 3, &[]);
+        let untouched = core.transient().combat.presentation.phase;
+        open_aftermath(&mut core);
+        let (_, end) = play(&mut core, &env, &mut first);
+        assert_eq!(end, Ok(()), "{ships} ships");
+        let complete = env.table.facts.combat.phases[4];
+        assert_eq!(core.transient().combat.presentation.phase == complete, presented, "{ships} ships: the finished fight is presented only when a side holds the system");
+        assert!(presented || core.transient().combat.presentation.phase == untouched, "{ships} ships: nothing is written for a system nobody holds");
+    }
+}
+
 #[test]
 fn the_skip_to_the_commit_step_opens_the_invasion_at_its_commit_step() {
     covers!("driver::windows::chain::AftermathChain");
