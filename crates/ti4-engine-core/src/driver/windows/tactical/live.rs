@@ -36,6 +36,7 @@ pub fn begin_free(sx: &mut crate::kernel::stage::Sx<'_>, seat: Seat, system: Sys
     let leaf_facts = crate::rules::tactical::Facts { pool: sx.table.codes.tactical.tactic };
     let mut leaf = crate::rules::tactical::Machine::free(seat, leaf_facts, system).live();
     let _ = crate::kernel::stage::Window::step(&mut leaf, sx);
+    super::hooks::marks(sx, seat, system);
     TacticalAction::new(Tactical { player: seat, stage: TStage::Moving, notes_at_start: notes }).to_pending(sx.state);
 }
 
@@ -100,7 +101,7 @@ fn advance_inner(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> R
     if let Some(why) = d.unknown() {
         return Err(LiveError::Unknown(why));
     }
-    let out = Out { emitted: std::mem::take(&mut d.emitted), opened: std::mem::take(&mut d.opened) };
+    let out = Out { emitted: std::mem::take(&mut d.emitted), opened: std::mem::take(&mut d.opened), held: false };
     d.store(core);
     match status {
         Status::Asking(choice) => {

@@ -77,6 +77,12 @@ pub trait Held: Window {
     /// The window ended: the closing writes of the composer, before its entry leaves the stack. Default: none (a window's last
     /// `step` normally does them).
     fn closed(&self, _core: &mut CoreState, _k: &Kernel) {}
+
+    /// The last `step` ended the CALL, not the window: the string ends its step here and closes the window in the next one (which asks
+    /// nothing). The window stays on the stack and the call reports `Live::Done` with `Out::held`. Default: no.
+    fn holds(&self) -> bool {
+        false
+    }
 }
 
 pub use super::ability::{Runner, AbilityTable, Applies, CondCx, Codes, Condition, Eff, Effect, Forbids, NestedFacts, RulesHost, Slot, Spec, Tape};

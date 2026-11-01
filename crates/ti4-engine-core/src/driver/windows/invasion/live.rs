@@ -133,7 +133,7 @@ fn advance_inner(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> R
     if let Some(why) = d.unknown() {
         return Err(LiveError::Unknown(why));
     }
-    let mut out = Out { emitted: std::mem::take(&mut d.emitted), opened: std::mem::take(&mut d.opened) };
+    let mut out = Out { emitted: std::mem::take(&mut d.emitted), opened: std::mem::take(&mut d.opened), held: false };
     d.store(core);
     match status {
         Status::Asking(choice) => {

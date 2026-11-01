@@ -211,12 +211,9 @@ pub(crate) fn announce_staged_cards(sx: &mut Sx<'_>) -> Flow {
     if halted(sx) { Flow::Halt } else { Flow::Done } // mutants:skip: a halted step is rolled back by the driver whatever the job does after
 }
 
-/// `Live::emit_typed`: the event through its windows, then the staged card moves.
+/// `Live::emit_typed`: the event through its windows, then the staged card moves (what [`emit_typed`] does for every typed event).
 fn emit_and_announce(sx: &mut Sx<'_>, kind: EventKind, payload: Payload) -> Flow {
-    if emit_typed(sx, kind, payload) == Flow::Halt {
-        return Flow::Halt;
-    }
-    announce_staged_cards(sx)
+    emit_typed(sx, kind, payload)
 }
 
 /// The index of the text `artuno` in `Codes::not_from_supply`.

@@ -785,8 +785,10 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 let mut run = run_legacy(&mut legacy, &group, &ahead);
                 // The native steps ran on where the string takes a step of its own with no question (the close of an action): that step uses no
                 // answer; its events meet what the native pushed ahead, and the legacy game is stepped again with the same answers.
-                let mut catch_up = 0;
-                while run.records.is_empty() && !owed.native.is_empty() && run.info.error.is_none() && !group.iter().all(|p| p.asked.is_empty()) && catch_up < 4 {
+                let mut catch_up = 0; // mutants:skip (the counter only feeds the defensive bound)
+                // (Or the string took a step that did and said nothing -- the scoring window of an event nobody scores, ahead of the phase flip --
+                // where the native loop has a step of its own: the answers are still unused.)
+                while run.records.is_empty() && (!owed.native.is_empty() || run.events.is_empty()) && run.info.error.is_none() && !group.iter().all(|p| p.asked.is_empty()) && catch_up_allowed(catch_up) {
                     let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
                     let _ = (legacy.decisions_since(), legacy.events_since());
                     if let Some((at, n, l)) = owed.settle(Vec::new(), run.events.clone()) {
@@ -794,7 +796,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                         break;
                     }
                     run = run_legacy(&mut legacy, &group, &ahead);
-                    catch_up += 1;
+                    catch_up += 1; // mutants:skip (the counter only feeds the defensive bound)
                 }
                 if first_difference.is_some() {
                     break End::Finished;
@@ -883,6 +885,11 @@ impl Owed {
     }
 }
 
+/// The defensive bound of the catch-up loop of [`shadow_play`] (the string never takes more than a handful of steps that ask and say nothing in a row).
+const fn catch_up_allowed(done: usize) -> bool { // mutants:skip (a bound that only guards a loop)
+    done < 4
+}
+
 /// How many native steps the legacy game is given answers for beyond the group it is stepped with.
 const AHEAD: usize = 4;
 
@@ -944,12 +951,22 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
     let asked: Vec<&Asked> = group.iter().flat_map(|p| p.asked.iter()).collect();
     let (info, records, events) = (&run.info, &run.records, &run.events);
     if let Some(error) = &info.error {
+        if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
+            eprintln!("  legacy ERROR after answering {:?}: asked {:?}", asked.iter().map(|a| a.chosen.as_str()).collect::<Vec<_>>(), records.iter().map(|r| (r.player.as_str().to_owned(), r.prompt.clone(), r.chosen.clone())).collect::<Vec<_>>());
+        }
         return Some(diff("legacy", "step.error".to_owned(), "no error".to_owned(), error.clone()));
     }
     if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
         eprintln!("  legacy: answered {:?} -> asked {:?}", asked.iter().map(|a| a.chosen.as_str()).collect::<Vec<_>>(), records.iter().map(|r| (r.player.as_str().to_owned(), r.prompt.clone(), r.chosen.clone())).collect::<Vec<_>>());
         eprintln!("  legacy events: {events:?}");
         eprintln!("  native events: {:?}", group.iter().flat_map(|p| p.events.iter()).collect::<Vec<_>>());
+        // The legacy position BEFORE the compared step, for a closer look (`TI4_NATIVE_PLAY_DUMP=<dir>`).
+        if let Some(dir) = std::env::var_os("TI4_NATIVE_PLAY_DUMP") && let Ok(json) = serde_json::to_string(base) {
+            let _ = std::fs::write(std::path::Path::new(&dir).join(format!("base-{}.json", native.steps)), json);
+            if let Ok(after) = serde_json::to_string(&legacy.state_json()) {
+                let _ = std::fs::write(std::path::Path::new(&dir).join(format!("after-{}.json", native.steps)), after);
+            }
+        }
     }
     let _ = (legacy.decisions_since(), legacy.events_since());
     let last = group.last()?;
@@ -1111,6 +1128,29 @@ mod tests {
                 assert!(!gap.cause.contains("FreeTactical") && !gap.cause.contains("WarfareSecondary") && !gap.cause.contains("LeaderStrategy"), "seed {seed}: {gap:?}");
             }
         }
+    }
+
+    /// The string applies the rules version to its galaxy at the start of its steps (`laws::apply_to_galaxy`); the position of a game it has not stepped
+    /// yet carries the printed lanes of the hyperlane tiles off, and a core loaded from it found no route through a lane (J: the movement options of
+    /// the 4-player hyperlane map were `done_moving` alone).
+    #[test]
+    fn a_core_loaded_from_an_unstepped_game_knows_the_printed_lanes_of_the_hyperlane_map() {
+        let spec = lobby_spec("xxcha", 4, 1);
+        assert_eq!(spec.map, "4pHyperlanes");
+        let legacy = spec.build().expect("builds");
+        assert!(!legacy.galaxy().expect("a galaxy").hyperlane_lanes, "the string has not applied its laws to the galaxy yet");
+        let g = game("xxcha", 4, 1);
+        assert!(g.core.galaxy().expect("a map").hyperlane_lanes, "the core's map holds the lanes");
+    }
+
+    /// The string takes a step that asks and says nothing ahead of the phase flip (the scoring window of an event nobody scores); the native loop has a step of its
+    /// own with no question there, and the shadow compared Arborec's Mitosis question of the status phase with that empty step (5-player letnev table, seed 1,
+    /// native step 98).
+    #[test]
+    fn the_shadow_steps_the_string_again_over_a_step_that_said_nothing_instead_of_calling_the_status_phase_question_a_difference() {
+        let s = shadow_play(&lobby_spec("letnev", 5, 1), 400, 50).expect("builds");
+        assert!(s.first_difference.as_ref().is_none_or(|d| d.step > 98), "{:?}", s.first_difference);
+        assert!(s.played.steps > 98, "the game plays past the status phase question: {}", s.played.steps);
     }
 
     #[test]

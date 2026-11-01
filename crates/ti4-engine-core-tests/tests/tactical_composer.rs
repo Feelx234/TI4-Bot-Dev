@@ -120,6 +120,31 @@ fn a_whole_action_opens_activates_moves_closes_hands_the_aftermath_over_and_ends
 }
 
 #[test]
+fn the_space_cannon_offense_of_the_head_is_part_of_the_steps_events_even_with_no_ship_of_the_active_seat_to_hit() {
+    covers!("driver::windows::tactical::TacticalAction");
+    // The Arborec seat holds a Xxcha flagship (SPACE CANNON 5, three dice) in D; the Muaat seat activates D and moves nothing. The string says
+    // `UNIT_ABILITY_ROLLED` and `SPACE_CANNON_HITS` for a gunner with a hit (there is no ship to lose), between `MOVEMENT_FINISHED` and the
+    // aftermath; the head used to emit them to the resolver only, and the step's events (the position's emission queue) never held them.
+    let mut hit_games = 0;
+    for seed in 1..=24 {
+        let (sc, tiles) = row();
+        let (mut core, k) = sc.unit(tiles[3], None, Unit::LoncaraSsodu, 1, 1).build();
+        let env = env(&k, seed);
+        to_the_close(&mut core, &env, &tiles).expect("the head runs");
+        let typed: Vec<EventKind> = core.ledger().events.iter().filter_map(|e| if let Emit::Typed(t) = e { Some(t.kind) } else { None }).collect();
+        let hit = core.ledger().dice.iter().any(|r| r.purpose == ti4_engine_core::state::RollPurpose::SpaceCannon && r.faces.iter().any(|f| *f >= 5));
+        assert_eq!(typed.contains(&EventKind::UnitAbilityRolled), hit, "seed {seed}: a gunner with a hit says so, one without says nothing: {typed:?}");
+        if hit {
+            hit_games += 1;
+            let at = |kind| typed.iter().position(|k| *k == kind).unwrap_or_else(|| panic!("seed {seed}: {kind:?} in {typed:?}"));
+            assert!(at(EventKind::MovementFinished) < at(EventKind::UnitAbilityRolled), "seed {seed}");
+            assert!(at(EventKind::UnitAbilityRolled) < at(EventKind::SpaceCannonHits), "seed {seed}");
+        }
+    }
+    assert!(hit_games > 0, "some seed scores a hit with three dice on 5+");
+}
+
+#[test]
 fn the_payload_round_trips_at_every_question_and_a_clone_in_the_middle_continues_identically() {
     covers!("driver::windows::tactical::TacticalAction");
     let (sc, tiles) = row();
@@ -348,6 +373,54 @@ fn the_sardakk_agent_and_the_winnu_remember_the_activation() {
     let (core, _, got) = activated(winnu, 3);
     assert!(matches!(got, Ok(Live::Asks(_))));
     assert_eq!(marks_of(&core, MarkKey::PrivateSeat(Seat(0), Word::WinnuTactical)), Some(MarkVal::Atom(Atom::Num(1))));
+}
+
+/// The row of [`row`] for other factions (seat 0 plays, with a cruiser on B).
+fn row_of(factions: &[Faction]) -> (Scenario, [System; 4]) {
+    let p = plain_systems();
+    let tiles = [p[0], p[1], p[2], p[3]];
+    let sc = Scenario::new(factions)
+        .map_hexes(&[(tiles[0], Hex::new(0, 0)), (tiles[1], Hex::new(1, 0)), (tiles[2], Hex::new(2, 0)), (tiles[3], Hex::new(3, 0))])
+        .tokens(0, 3, 4, 2)
+        .active(Some(0))
+        .phase(Phase::Action)
+        .unit(tiles[1], None, Unit::CruiserI, 0, 1);
+    (sc, tiles)
+}
+
+#[test]
+fn a_free_tactical_action_leaves_the_marks_of_the_activation_the_string_leaves() {
+    covers!("driver::windows::tactical::TacticalAction");
+    covers!("driver::windows::tactical::begin_free");
+    use ti4_engine_core::choice::strategy::Opt as SOpt;
+    use ti4_engine_core::driver::windows::strategic::begin::begin_strategic;
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal, Word};
+    // The abilities of the string answer the typed `SYSTEM_ACTIVATED` of the free action (`begin_free_tactical_text`) like the ordinary activation's: the
+    // Winnu note that a tactical action began, the Sardakk agent T'ro remembers the system. Z'eu's free action (`open_free`) ...
+    let (sc, tiles) = row_of(&[Faction::TheWinnu, Faction::SardakkNorr]);
+    let (mut core, k) = sc.build();
+    core.players.edit(1).leaders.status.insert(Leader::Tro, ti4_engine_core::state::LeaderStatus::Readied);
+    let zeu = env(&k, 1);
+    open_free(&mut core, Seat(0), tiles[3]);
+    advance_tactical(&mut core, &zeu, None).unwrap();
+    assert_eq!(marks_of(&core, MarkKey::PrivateSeat(Seat(0), Word::WinnuTactical)), Some(MarkVal::Atom(Atom::Num(1))), "Z'eu: the Winnu mark");
+    assert_eq!(marks_of(&core, MarkKey::SardakkAgentTactical(Seat(0))), Some(MarkVal::Atom(Atom::System(tiles[3]))), "Z'eu: the Sardakk mark");
+    // ... and Thunder's Edge Warfare's primary (`begin_free`).
+    let (sc, tiles) = row_of(&[Faction::TheWinnu, Faction::SardakkNorr]);
+    let (mut core, k) = sc.build();
+    core.players.edit(1).leaders.status.insert(Leader::Tro, ti4_engine_core::state::LeaderStatus::Readied);
+    core.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::WarfareThundersEdge);
+    let env = env(&k, 5);
+    let (mut live, _) = begin_strategic(&mut core, &env, StrategyCard::WarfareThundersEdge).unwrap();
+    while let Live::Asks(q) = live {
+        let answer = match q.choice.ask {
+            Ask::Strategy(ti4_engine_core::choice::strategy::Ask::TeWarfareTactical) => pick(&q.choice, |o| *o == Opt::Strategy(SOpt::System(tiles[3]))),
+            _ => Pick::Opt(q.choice.opts.as_slice()[0]),
+        };
+        live = ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut core, &env, Some(answer)).unwrap().0;
+    }
+    assert_eq!(marks_of(&core, MarkKey::PrivateSeat(Seat(0), Word::WinnuTactical)), Some(MarkVal::Atom(Atom::Num(1))), "Warfare: the Winnu mark");
+    assert_eq!(marks_of(&core, MarkKey::SardakkAgentTactical(Seat(0))), Some(MarkVal::Atom(Atom::System(tiles[3]))), "Warfare: the Sardakk mark");
 }
 
 #[test]

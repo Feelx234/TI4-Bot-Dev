@@ -117,6 +117,45 @@ fn a_follow_spends_the_token_says_so_and_the_last_answer_ends_the_action() {
 }
 
 #[test]
+fn an_answer_that_is_not_the_last_place_of_the_list_ends_the_call_and_the_next_call_closes_the_window() {
+    // Seat 3 holds no token: after seat 2's answer nobody may be asked, but the list is not at its end, so the string's step ends with the answer
+    // (`Game::step_secondary`: `complete` is `is_complete`, which counts places) and the NEXT step skips seat 3 and says the action is complete.
+    let (mut s, k) = trade_window([2, 2, 0]);
+    let e = env(&k);
+    let free = |seat| ti4_engine_core::driver::windows::strategic::facts::follower_facts(&s, &k, Seat(0), StrategyCard::Trade, seat);
+    assert!(!free(Seat(3)).eligible, "seat 3 may not follow");
+    advance_secondary(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
+    let (live, out) = advance_secondary(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
+    assert_eq!(live, Live::Done);
+    assert!(out.held, "the call ended, the window did not");
+    assert!(is_open::<SecondaryWin>(&s), "the window stays on the stack");
+    assert!(!kinds(&s).contains(&PlainKind::StrategicActionComplete), "the action is not complete yet");
+    assert!(!typed(&s).contains(&ti4_engine_core::state::EventKind::ActionCompleted));
+    assert!(!s.players().by_seat(Seat(0)).unwrap().strat_exhausted.contains(StrategyCard::Trade), "the card is exhausted by the closing step");
+    assert_eq!(ask_secondary(&s, &e).unwrap(), None, "nothing is asked");
+    let (live, out) = advance_secondary(&mut s, &e, None).unwrap();
+    assert_eq!(live, Live::Done);
+    assert!(!out.held);
+    assert!(!is_open::<SecondaryWin>(&s));
+    assert!(s.players().by_seat(Seat(0)).unwrap().strat_exhausted.contains(StrategyCard::Trade));
+    assert!(kinds(&s).contains(&PlainKind::StrategicActionComplete));
+    assert!(typed(&s).contains(&ti4_engine_core::state::EventKind::ActionCompleted), "the end of the action is the closing call's");
+}
+
+#[test]
+fn the_events_a_follow_staged_come_before_the_close_when_the_string_closes_in_a_step_of_its_own() {
+    // The string flushes the staged events at the start of every step: a follow whose answer is not the last place of the list stages its events in
+    // one step and they are announced at the start of the closing step, BEFORE `STRATEGIC_ACTION_COMPLETE`.
+    let (mut s, k) = trade_window([2, 2, 0]);
+    let e = env(&k);
+    advance_secondary(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
+    let (_, out) = advance_secondary(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
+    assert!(out.held);
+    assert!(s.pending().staged.iter().any(|ev| ev.kind == ti4_engine_core::state::EventKind::StrategyTokenSpent), "the follow staged the token it spent");
+    assert!(!kinds(&s).contains(&PlainKind::StrategicActionComplete));
+}
+
+#[test]
 fn an_illegal_answer_leaves_the_position_as_it_was() {
     let (mut s, k) = trade_window([2, 2, 2]);
     let e = env(&k);

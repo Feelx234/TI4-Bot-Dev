@@ -90,6 +90,9 @@ pub struct Out {
     pub emitted: Vec<EventRec>,
     /// The windows the rules asked the driver to open (`Next::Open`), in order: the arm opens them.
     pub opened: Vec<OpenWindow>,
+    /// With `Live::Done`: the window ended its CALL, not itself ([`Held::holds`]): it is still on the stack, nothing is asked, and the string's next
+    /// step (which asks nothing either) closes it.
+    pub held: bool,
 }
 
 /// Open `window`: write its payload. The first [`advance`] (`None`) then runs it to its first question.
@@ -211,9 +214,15 @@ fn advance_inner<M: Held>(core: &mut CoreState, env: &Env<'_>, answer: Option<Pi
     if let Some(why) = d.unknown() {
         return Err(LiveError::Unknown(why));
     }
-    let out = Out { emitted: std::mem::take(&mut d.emitted), opened: std::mem::take(&mut d.opened) };
+    let mut out = Out { emitted: std::mem::take(&mut d.emitted), opened: std::mem::take(&mut d.opened), held: false };
     d.store(core);
     match status {
+        Status::Done if d.window.holds() => {
+            d.window.to_pending(core);
+            core.pending_mut().nested = None;
+            out.held = true;
+            Ok((Live::Done, out))
+        }
         Status::Done => {
             d.window.closed(core, env.kernel);
             core.pending_mut().close(M::KIND);

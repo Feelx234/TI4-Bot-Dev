@@ -6,14 +6,18 @@ use ti4_model::state::GameState;
 use super::turn_live_tests::{action_table, assert_same, based, pid, reconcile_both, Run};
 
 /// The turn prelude of the string against the native prelude. A card move an ability stages (`ACTION_CARD_TAKEN`) is announced by both after the typed event
-/// whose window staged it (`Live::emit_typed` in the string, `Sx::emit_mirrored` natively, lane G5): the position holds no `cards:staged:*` row any more and the
-/// events agree. (Before lane G5 the native side left the row for the host's next step and this helper took it out and counted it.)
+/// whose window staged it (`Live::emit_typed` in the string; natively `Sx::emit_mirrored` for a top-level event (lane G5) and `inline::emit_typed` for every typed
+/// event of the turn flow (lane J)): the position holds no `cards:staged:*` row any more, and the two event lists carry each announcement ONCE (a double
+/// announcement of the two callers would show as a count that differs). (Before lane G5 the native side left the row for the host's next step and this helper
+/// took it out and counted it.)
 fn prelude_both(state: &GameState, ids: &[&str]) -> (Run, Run) {
     let (string, native) = super::turn_live_tests::prelude_both(state, ids);
     for (who, run) in [("string", &string), ("native", &native)] {
         let rows = run.state["faction_marks"].as_object().map_or(0, |marks| marks.keys().filter(|k| k.starts_with("cards:staged:")).count());
         assert_eq!(rows, 0, "{who}: every staged card move is announced");
     }
+    let announced = |run: &Run| run.events.iter().filter(|e| *e == "ACTION_CARD_TAKEN").count();
+    assert_eq!(announced(&native), announced(&string), "each card taken is announced by both sides, once");
     (string, native)
 }
 

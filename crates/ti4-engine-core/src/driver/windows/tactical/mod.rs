@@ -190,6 +190,7 @@ impl Window for TacticalAction {
                 TStage::Free(system) => {
                     let mut leaf = Machine::free(seat, Self::leaf_facts(&codes), system).live();
                     let _ = leaf.step(sx);
+                    hooks::marks(sx, seat, system);
                     self.leaf = None;
                     self.p.stage = TStage::Moving;
                 }
@@ -239,7 +240,12 @@ impl Window for TacticalAction {
                     head.f.cannon.commander = codes.commander;
                     head.f.pre_roll = codes.pre_roll;
                     loop {
-                        match head.step(sx) {
+                        // The string mirrors the trace of each emission when the call returns (`mirror_timing_log`): what the head emits (the
+                        // space cannon offense's `UNIT_ABILITY_ROLLED` and `SPACE_CANNON_HITS`) is part of the step's events, in this order.
+                        let mark = crate::kernel::fx::journal_mark(sx.resolver);
+                        let next = head.step(sx);
+                        crate::kernel::fx::mirror_journal(sx.state, sx.resolver, mark);
+                        match next {
                             Next::Continue(ask) if head.stage() == super::aftermath::Stage::Enforcing => return Next::Continue(ask),
                             // A question of the space cannon offense (a sustain, a casualty to choose, a reroll): it goes to the TAPE, the
                             // way the hooks and the turn flow's jobs ask. The driver rolls the step back at the question and the caller's
@@ -247,10 +253,13 @@ impl Window for TacticalAction {
                             Next::Continue(_) => {
                                 let Some(choice) = head.ask_of(sx.state, sx.kernel) else { return Self::bail(sx, TacticalGap::NoProgress) };
                                 let pick = sx.ask(&choice);
-                                if crate::driver::turn::inline::halted(sx) {
+                                if crate::driver::turn::inline::halted(sx) { // mutants:skip: the driver rolls a dry step back whatever the step returns
                                     return Next::Done;
                                 }
-                                if head.answer(sx, pick).is_err() {
+                                let mark = crate::kernel::fx::journal_mark(sx.resolver);
+                                let answered = head.answer(sx, pick);
+                                crate::kernel::fx::mirror_journal(sx.state, sx.resolver, mark);
+                                if answered.is_err() { // mutants:skip: the head's own question was just asked, so its answer is never refused
                                     return Self::bail(sx, TacticalGap::NoProgress);
                                 }
                             }
