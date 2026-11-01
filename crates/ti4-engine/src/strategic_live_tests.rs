@@ -232,7 +232,9 @@ fn jae_mir_kan_with_a_nomad_that_lacks_the_suite_stages_nothing_like_the_string(
 /// announces the staged `STRATEGY_TOKEN_SPENT` before `STRATEGIC_ACTION_COMPLETE` (the "close order" difference of the shadow, 27 games of int. 13).
 #[test]
 fn the_token_a_follower_spent_is_announced_before_the_action_completes_when_the_rest_are_skipped_like_the_string() {
-    let mut state = table_for("pok5trade");
+    // (A table with faction modules seated: the string stages the token's event only then.)
+    let mut state = jae_mir_kan_table(false);
+    state.player_mut(&pid("b")).unwrap().strategic_tokens = 2;
     for p in ["c", "d"] {
         state.player_mut(&pid(p)).unwrap().strategic_tokens = 0;
     }

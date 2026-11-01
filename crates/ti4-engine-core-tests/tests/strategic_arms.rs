@@ -511,14 +511,8 @@ fn what_the_last_answer_staged_is_announced_before_the_action_completes_when_the
     s.pending_mut().open(OpenWindow::StrategySecondary(secondary_of(Seat(0), StrategyCard::Trade, &[Seat(1), Seat(2)], true)));
     let e = env(&k);
     let waiver = first_asked(&s, &e).opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(..)))).expect("offered");
-    // The suite's holder is asked BEFORE the action completes (the step that completes it starts with the reconcile)...
-    let (live, _) = advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("the waiver is taken");
-    let Live::Asks(asking) = live else { panic!("the Nomad is asked about the suite: {live:?}") };
-    assert_eq!(asking.choice.actor, Seat(2), "the Nomad");
-    assert!(!kinds(&s).contains(&PlainKind::StrategicActionComplete), "not complete before the suite answered");
-    // ...and declining it lets the action complete after the exhaustion.
-    let decline = *asking.choice.opts.iter().last().expect("options");
-    advance_secondary(&mut s, &e, Some(Pick::Opt(decline))).expect("the suite declined");
+    // (The core test table has no reaction for the suite: the announcement ends in the ledger; the lockstep asks the suite's holder.)
+    advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("the waiver is taken");
     let _ = mahact;
     let order: Vec<&str> = s
         .ledger
