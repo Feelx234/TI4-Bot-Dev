@@ -650,7 +650,7 @@ impl<'a> KernelHooks<'a> {
     #[must_use]
     pub fn new(s: &'a CoreState, k: &'a Kernel, who: Seat) -> Self {
         let cx = ProdCx::new(s, k, Scope(u32::from(k.sources.0)), reach::blanked(s));
-        let afford_inheritance = prod::available(&cx, who, Spend::Resources, &Extras::default()) >= tech::INHERITANCE_SYSTEMS_COST;
+        let afford_inheritance = prod::payable(&cx, who, Spend::Resources, &Extras::default()) >= tech::INHERITANCE_SYSTEMS_COST;
         Self { s, k, who, afford_inheritance }
     }
 }
@@ -902,9 +902,9 @@ impl Research {
 
     /// The offers are over: the research is paid for what the infantry left of the bill, if the seat can pay it.
     fn after_offers(&mut self, s: &mut CoreState, k: &Kernel) {
-        // (The string asks `payment::affordable`, whose plans are planets and trade goods: War Machine's bonus, which `production::available`
-        // counts for the units a production buys, is no way to pay a research.)
-        if prod::available(&Self::cx(s, k), self.who, Spend::Resources, &Extras::default()) - prod::war_machine_bonus(s, self.who) >= self.cost {
+        // (The string asks `payment::affordable`, whose plans are planets and trade goods: neither War Machine's bonus nor the Triad, which
+        // `production::available` counts for the units a production buys, is a way to pay a research: `payable`.)
+        if prod::payable(&Self::cx(s, k), self.who, Spend::Resources, &Extras::default()) >= self.cost {
             self.stage = RStage::Choose;
         } else {
             self.end_paid(s, false);

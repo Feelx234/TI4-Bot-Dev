@@ -279,6 +279,9 @@ fn env_of(rt: &impl Runner, who: Seat) -> Option<Env> {
             hits: f.shared.hits,
             // The position's own map (a window lent the Map slice): Exploration Probe reaches the systems next to its ships and Experimental
             // Battlestation the docks next to the active system; without it both do what the string does without a galaxy (integration 15, M2).
+            // (Mutation, lane Q: `false` is killed by `native_play::an_exploration_probe_played_from_the_menu_...`; `true` is not killed by any test and is
+            // equivalent where it can be told apart: without the slice `core.galaxy()` is `None` in a release build, as `false` is, and a debug assertion in a
+            // test build; Exploration Probe is a component action and always has the map; whether every window that can play Experimental Battlestation is lent it was not checked.)
             map: rt.read().0.loaded.has(crate::state::Slice::Map),
             ..super::Facts::default()
         },

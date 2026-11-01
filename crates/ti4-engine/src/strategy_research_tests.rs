@@ -786,3 +786,24 @@ fn bail_a_technology_purged_by_ta_zern() {
     let (counts, _) = play(&F3, purged, &[first.as_str(), "decline"], true);
     assert_eq!(counts, (0, 1));
 }
+
+#[test]
+fn a_war_machine_mark_that_outlives_its_production_step_does_not_make_the_secondary_affordable_in_lockstep() {
+    // Lane Q: the string's gate is `payment::affordable` (planets and goods), which does not count War Machine's five faces; the mark of the
+    // activation stays on the seat until the next one. The core gated the secondary with `production::available` (which counts them) and
+    // then found no payment to ask about: the window ended `failed`, a counted bail. Both now end the research without a question.
+    let nothing_but_the_mark = |s: &mut GameState| {
+        s.player_mut(&a()).unwrap().trade_goods = 0;
+        let owned: Vec<_> = s.controlled_planets(&a()).into_iter().map(|(_, p)| p.clone()).collect();
+        s.exhausted_planets.extend(owned);
+        let seq = s.activation_seq;
+        s.player_mut(&a()).unwrap().war_machine_use.push(seq);
+    };
+    let mut probe = crate::fixtures::seated_game(&F3, POK);
+    nothing_but_the_mark(&mut probe);
+    assert_eq!(crate::production::war_machine_bonus(&probe, &a()), 5, "the production step would count the mark");
+    assert!(!crate::payment::affordable(&probe, content(), POK, &a(), 4, crate::production::Spend::Resources), "the research gate does not");
+    let (counts, after) = play(&F3, nothing_but_the_mark, &["yes"], false);
+    assert_eq!(counts, (1, 0), "compared with the string, not a bail");
+    assert!(after.player(&a()).unwrap().technologies.len() == probe.player(&a()).unwrap().technologies.len(), "nothing was researched");
+}

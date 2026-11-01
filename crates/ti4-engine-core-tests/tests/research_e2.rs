@@ -3,10 +3,10 @@
 //! (`SpaceDockII`, `DacxiveAnimators`): the core window ended `failed`, which the strategic action reports as a counted bail.
 
 use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt};
-use ti4_engine_core::generated::{Planet, Source, TechType};
+use ti4_engine_core::generated::{Planet, Relic, Source, TechType};
 use ti4_engine_core::kernel::hooks::{ResearchWaiver, Waiver};
 use ti4_engine_core::kernel::Kernel;
-use ti4_engine_core::state::CoreState;
+use ti4_engine_core::state::{CoreState, RoundKind};
 use ti4_engine_core::rules::production::strategy_cards::Research;
 use ti4_engine_core_tests::inv::ALL_SOURCES;
 use ti4_engine_core_tests::prelude::*;
@@ -148,4 +148,33 @@ fn war_machines_bonus_is_no_way_to_pay_a_research() {
         rig.run();
         assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::ResearchTechnology { decline: true, .. })), "marked {marked}: {:?}", rig.asked().ask);
     }
+}
+
+/// Lane Q (native sweep: sol 6p seed 1, ghost 5p seed 1, l1z1x 4p seed 3, naalu 3p seed 4): the string's research gate is `payment::affordable`
+/// (planets and goods), not `production::available`, which also counts War Machine's five (a production step's faces; the mark stays until the next
+/// activation) and the Triad. A seat with nothing to spend but one of those could not pay at the question: the pay step found no option and the window
+/// ended `failed` (a counted `StrategyAbility` gap). The string asks nothing and the research ends.
+#[test]
+fn a_stale_war_machine_mark_does_not_make_a_research_affordable() {
+    covers!("rules::production::strategy_cards::Research");
+    let (mut s, k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_from(&[plain_systems()[0]]).build();
+    s.meta_mut().activation_seq = 3;
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().round_marks.push(RoundKind::WarMachine, 3);
+    assert_eq!(ti4_engine_core::rules::production::war_machine_bonus(&s, Seat(0)), 5, "the mark of this activation counts for a production step");
+    let mut rig = Rig::from_parts(s, k, Research::new(Seat(0), false, 4, ALL_SOURCES));
+    rig.run();
+    assert!(rig.is_done(), "nothing to pay with: no question is asked: {}", rig.transcript());
+    assert!(!rig.driver.window.failed, "the window ends itself");
+    assert_eq!(delta(rig.start_state(), &rig.state), "");
+}
+
+#[test]
+fn the_triad_does_not_make_a_research_affordable() {
+    covers!("rules::production::strategy_cards::Research");
+    let (mut s, k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_from(&[plain_systems()[0]]).build();
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.relics.push(Relic::TheTriad);
+    let mut rig = Rig::from_parts(s, k, Research::new(Seat(0), false, 2, ALL_SOURCES));
+    rig.run();
+    assert!(rig.is_done() && !rig.driver.window.failed, "{}", rig.transcript());
+    assert_eq!(delta(rig.start_state(), &rig.state), "");
 }

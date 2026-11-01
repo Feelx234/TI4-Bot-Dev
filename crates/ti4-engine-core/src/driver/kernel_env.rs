@@ -114,8 +114,10 @@ impl strategy::Env for KernelEnv<'_> {
         false
     }
     fn technology_secondary_affordable(&self, who: Seat) -> bool {
-        // (The string asks `payment::affordable`: planets and trade goods. War Machine's bonus is a production term, no way to pay a research.)
-        self.available(who, Spend::Resources) - crate::rules::production::war_machine_bonus(self.core, who) >= TECHNOLOGY_SECONDARY_COST
+        // (The string asks `payment::affordable`: planets and trade goods. War Machine's bonus and the Triad are production terms, no way to
+        // pay a research: `production::payable`, the one source the research window and Inheritance Systems share.)
+        let cx = crate::rules::production::Cx::new(self.core, self.kernel, reach::scope_of(self.kernel), reach::blanked(self.core));
+        crate::rules::production::payable(&cx, who, Spend::Resources, &crate::rules::production::Extras::default()) >= TECHNOLOGY_SECONDARY_COST
     }
     fn secret_hand_all_scored(&self, who: Seat) -> bool {
         let limit = objectives::HAND_LIMIT + crate::query::relic::secret_objective_bonus(self.core, who);

@@ -415,6 +415,16 @@ pub fn available(cx: &Cx<'_>, who: Seat, kind: Spend, ex: &Extras<'_>) -> i64 {
     from_planets + triad_value(cx, who) + goods + war_machine
 }
 
+/// What `payment::affordable` (the string's research and Inheritance Systems gate) counts: [`available`] without the faces of a
+/// bill the payment window does not offer to pay with -- the Triad, and War Machine's five (they belong to a production step, and the
+/// mark outlives the tactical action that played it until the next activation: a seat with nothing to spend but a stale War Machine mark
+/// is not able to pay a research, and [`pay_opts`] has no option for it; integration 15, lane Q).
+#[must_use]
+pub fn payable(cx: &Cx<'_>, who: Seat, kind: Spend, ex: &Extras<'_>) -> i64 {
+    let war_machine = if kind == Spend::Resources { war_machine_bonus(cx.core(), who) } else { 0 };
+    available(cx, who, kind, ex) - triad_value(cx, who) - war_machine
+}
+
 /// `production::payment_options` as typed options: the planets (each face that would not strand the rest of the
 /// bill), then trade goods, then commodities. `paid` and `cost` describe the whole bill.
 #[must_use]
