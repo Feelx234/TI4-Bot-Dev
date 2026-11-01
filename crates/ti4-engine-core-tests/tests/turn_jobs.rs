@@ -97,10 +97,10 @@ fn psychoarchaeology_asks_for_a_ready_specialty_planet_and_a_clone_continues_ide
 
 #[test]
 fn a_start_of_turn_the_core_cannot_follow_is_a_counted_gap_and_leaves_the_position_alone_and_a_locked_commander_is_judged() {
-    // Chaos Mapping needs the production facts.
+    // Chaos Mapping needs the unit roster of the play facts (the forms the seat may produce).
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).tech(0, Technology::ChaosMapping).build();
     let held = s.clone();
-    assert_eq!(advance_prelude(&mut s, &env(&k), None), gap(TurnGap::ChaosMapping));
+    assert_eq!(advance_prelude(&mut s, &env(&k), None), gap(TurnGap::NoRoster));
     assert_eq!(s, held);
     // A locked commander of a faction whose unlock condition a hook states (lane F2) is judged at the start of the turn, not left to the string: it stays
     // locked here (the Arborec condition is not met) and the prelude goes on.
@@ -220,7 +220,8 @@ fn the_draft_asks_the_picker_for_a_card_and_the_pick_pays_the_goods_on_it() {
 }
 
 #[test]
-fn the_end_of_the_draft_stops_where_a_swap_could_be_offered() {
+fn the_end_of_the_draft_offers_the_arbiter_swap_where_one_could_be_made() {
+    use ti4_engine_core::choice::agenda::Ask as AAsk;
     use ti4_engine_core::driver::turn::ask::advance_ask;
     let (mut s, k) = Scenario::lobby(2).phase(Phase::Strategy).active(None).build();
     mat(&mut s);
@@ -235,10 +236,12 @@ fn the_end_of_the_draft_stops_where_a_swap_could_be_offered() {
     let (live, _) = advance_ask(&mut s, &e, Some(pick)).unwrap();
     assert_eq!(live, Live::Done);
     assert!(ti4_engine_core::rules::strategy::draft(&s).is_none());
-    // With Imperial Arbiter elected and a card on both sides, the string asks for a swap.
-    let held = arbiter.clone();
-    assert_eq!(advance_ask(&mut arbiter, &e, Some(pick)), gap(TurnGap::ImperialArbiter));
-    assert_eq!(arbiter, held);
+    // With Imperial Arbiter elected and a card on both sides, the owner is asked whether to discard it.
+    let (live, _) = advance_ask(&mut arbiter, &e, Some(pick)).unwrap();
+    let Live::Asks(q) = live else { panic!("the owner is offered the swap") };
+    assert!(matches!(q.choice.ask, Ask::Agenda(AAsk::DiscardLaw { law: Agenda::ImperialArbiter, .. })));
+    assert_eq!(q.choice.actor, Seat(0));
+    assert!(arbiter.agenda().laws.contains_key(&Agenda::ImperialArbiter), "nothing of a half-run job is kept");
 }
 
 // -- the starting technology ----------------------------------------------------------------------------------------------------

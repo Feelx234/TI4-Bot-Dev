@@ -127,6 +127,8 @@ impl Family for Fam {
             Ask::SucabanTrade => "remove an infantry to reduce the cost by 1".to_owned(),
             Ask::Follow { card, .. } => follow_words(*card).0.to_owned(),
             Ask::Draft => "choose a strategy card".to_owned(),
+            Ask::ArbiterGive => "give away which of your strategy cards".to_owned(),
+            Ask::ArbiterTake => "and take which".to_owned(),
         }
     }
 
@@ -153,6 +155,8 @@ impl Family for Fam {
             Subtype::ConstructionChooseAbility => "construction_choose_ability",
             Subtype::WarfareFreeTactical => "warfare_free_tactical",
             Subtype::Draft => "draft_strategy_card",
+            Subtype::ArbiterGive => "arbiter_give",
+            Subtype::ArbiterTake => "arbiter_take",
         }
         .to_owned()
     }
@@ -233,6 +237,11 @@ impl Family for Fam {
                 None => ChoiceOption::labelled(format!("{}:", system.as_str()), "unit", format!("an infantry in space at {}", system.as_str())),
             },
             Opt::Objective(o) => ChoiceOption::labelled(o.as_str(), "objective", o.as_str()),
+            Opt::Card(card) if matches!(a, Ask::ArbiterGive) => ChoiceOption::labelled(card.as_str(), crate::draft::STRATEGY_CARD_KIND, format!("give {}", card.as_str())),
+            Opt::Take(holder, card) => {
+                let (holder, card) = (r.seat_text(*holder), card.as_str());
+                ChoiceOption::labelled(format!("{holder}|{card}"), crate::draft::STRATEGY_CARD_KIND, format!("take {card} from {holder}"))
+            }
             Opt::Card(card) => ChoiceOption::labelled(card.as_str(), crate::draft::STRATEGY_CARD_KIND, crate::draft::strategy_card_label(ti4_content::ContentStore::embedded(), card.as_str())),
             Opt::Build => ChoiceOption::labelled("structure", "build", "place a structure"),
             Opt::Produce(system) => ChoiceOption::labelled(format!("produce|{}", system.as_str()), "build", format!("use PRODUCTION in {}", system.as_str())),
@@ -294,7 +303,11 @@ impl Family for Fam {
                 HECATONCHEIRES => Some(Opt::Alternative),
                 _ => None,
             },
-            Ask::Draft => StrategyCard::from_id(id).map(Opt::Card),
+            Ask::Draft | Ask::ArbiterGive => StrategyCard::from_id(id).map(Opt::Card),
+            Ask::ArbiterTake => {
+                let (holder, card) = id.split_once('|')?;
+                Some(Opt::Take(r.seat(holder)?, StrategyCard::from_id(card)?))
+            }
             Ask::ImperialScore => PublicObjective::from_id(id).map(Opt::Objective),
             Ask::ResearchTechnology { .. } => Technology::from_id(id).map(Opt::Research),
             Ask::SucabanOffer { .. } => (id == "yes").then_some(Opt::Exhaust),

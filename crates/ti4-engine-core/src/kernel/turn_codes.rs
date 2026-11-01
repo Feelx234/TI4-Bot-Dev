@@ -39,13 +39,18 @@ pub struct TurnCodes {
     /// `production` (the source of `UNITS_PRODUCED`) and `units` (the key of its list).
     pub production: Code,
     pub units: Code,
+    /// The prompt of Imperial Arbiter's offer to discard it, and the law's alias (`arbiter`), the source of the offer.
+    pub arbiter_prompt: Code,
+    pub arbiter: Code,
+    /// `quantum_datahub`: the reason of the strategy token and the source of the trade goods of the Quantum Datahub Node's swap.
+    pub quantum_datahub: Code,
 }
 
 /// Why the live turn flow stops (a counted gap, never a silent skip): what the job needs and the core does not hold yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TurnGap {
-    /// Chaos Mapping at the start of a turn: the production facts (`buildable`, the capacity of the seat's systems) are the production
-    /// lane's.
+    /// Chaos Mapping at the start of a turn, on a table that holds no single-unit production (`AreaLinks::one` is not registered, or the seat has
+    /// no buildable forms): the production facts (`buildable`, the fleet limit) come from that link.
     ChaosMapping,
     /// The play facts of the table are missing (`AbilityTable::facts.plays` is the unit roster and the scope of the sources).
     NoRoster,
@@ -65,10 +70,6 @@ pub enum TurnGap {
     Propagation,
     /// A tile a faction effect replaced or swapped has to be replayed onto the map.
     MapEdits,
-    /// Imperial Arbiter (a ministry law) could swap strategy cards at the end of the draft.
-    ImperialArbiter,
-    /// Quantum Datahub Node could swap strategy cards at the end of the draft.
-    QuantumDatahub,
     /// The event of a strategy card chosen was cancelled in its window (the string reports `TimingEventCancelled`).
     EventCancelled,
     /// The resolver refused an emission (a defect of the position, never a rule).

@@ -34,6 +34,8 @@ pub enum Ask {
     StartingTech { number: u8, of: u8, rule: StartRule },
     /// "Temporal Command Suite: perform a transaction with {partner}" (Nomad): `partner` owns the agent that was readied.
     TcsTransaction { partner: Seat },
+    /// "Quantum Datahub Node: spend a strategy token and 3 trade goods to swap a strategy card" (Yin; at the end of the strategy phase).
+    QuantumDatahub,
 }
 
 /// Where a starting technology pick draws from (`ti4_model::state::StartingTechSource`).
@@ -73,6 +75,8 @@ pub enum Opt {
     Tech(Technology),
     /// Temporal Command Suite: perform the transaction (`transact`).
     Transact,
+    /// Quantum Datahub Node: give `partner` 3 trade goods and the card `give`, take the card `take` (the answer `qdn|{partner}|{give}|{take}`).
+    Swap { partner: Seat, give: crate::generated::StrategyCard, take: crate::generated::StrategyCard },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -94,4 +98,6 @@ pub enum Subtype {
     StartingTechnology,
     /// `tcs_transaction`.
     TcsTransaction,
+    /// `quantum_datahub_swap`.
+    QuantumDatahubSwap,
 }

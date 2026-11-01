@@ -45,6 +45,7 @@ impl Family for Fam {
             Ask::Vortex => "Vortex: which unit type do you take",
             Ask::WormholeGenerator => "Wormhole Generator: place or move a Creuss wormhole token",
             Ask::ChaosMapping => "Chaos Mapping",
+            Ask::QuantumDatahub => "Quantum Datahub Node: spend a strategy token and 3 trade goods to swap a strategy card",
             Ask::Aida { upgrades } => return format!("AI Development Algorithm: exhaust to reduce this use's combined cost by {upgrades}"),
             Ask::StartingTech { number, of, .. } => {
                 return if *of > 1 { format!("choose a starting technology ({number} of {of})") } else { "choose a starting technology".to_owned() };
@@ -67,6 +68,7 @@ impl Family for Fam {
             Subtype::ChaosMappingChooseSystem => "chaos_mapping_choose_system",
             Subtype::StartingTechnology => "starting_technology",
             Subtype::TcsTransaction => "tcs_transaction",
+            Subtype::QuantumDatahubSwap => "quantum_datahub_swap",
         }
         .to_owned()
     }
@@ -77,6 +79,13 @@ impl Family for Fam {
             // facts (`live::turn::complete`).
             (Ask::TcsTransaction { partner }, Opt::Transact) => ChoiceOption::labelled("transact", "technology", format!("transact with {}", r.player(*partner))),
             (_, Opt::Transact) => ChoiceOption::labelled("transact", "technology", "transact"),
+            (_, Opt::Swap { partner, give, take }) => {
+                let (partner, give, take) = (r.seat_text(*partner), give.as_str(), take.as_str());
+                ChoiceOption::labelled(format!("qdn|{partner}|{give}|{take}"), crate::draft::STRATEGY_CARD_KIND, format!("give {partner} 3 trade goods and {give}, take {take}"))
+                    .with("partner", partner)
+                    .with("give", give)
+                    .with("take", take)
+            }
             (_, Opt::Tech(tech)) => {
                 let id = tech.as_str();
                 let name = crate::technology::name(ti4_content::ContentStore::embedded(), &ti4_model::id::TechnologyId::new(id));
@@ -147,6 +156,11 @@ impl Family for Fam {
             Ask::TcsTransaction { .. } => (id == "transact").then_some(Opt::Transact),
             Ask::ProductionBiomes => r.seat(id).map(Opt::Player),
             Ask::ChaosMapping => System::from_id(id).map(Opt::System),
+            Ask::QuantumDatahub => {
+                let mut parts = id.split('|');
+                let (Some("qdn"), Some(partner), Some(give), Some(take), None) = (parts.next(), parts.next(), parts.next(), parts.next(), parts.next()) else { return None };
+                Some(Opt::Swap { partner: r.seat(partner)?, give: ti4_engine_core::generated::StrategyCard::from_id(give)?, take: ti4_engine_core::generated::StrategyCard::from_id(take)? })
+            }
             Ask::WormholeGenerator => {
                 let (kind, system) = id.split_once('|')?;
                 Some(Opt::Token(ti4_engine_core::generated::Wormhole::from_id(kind)?, System::from_id(system)?))
