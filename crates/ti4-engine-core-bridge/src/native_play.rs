@@ -1700,11 +1700,11 @@ mod tests {
     }
 
     /// Lane P (SC): a gunner's roll is staged under the type id of its unit (the string's `type_id`), so a reroll question of a space cannon offense names
-    /// `pds`, not the roll kind (Fire Team, Scramble Frequency). Mentak, 5 players (step 178): the question's prompt was native `reroll die 1 of
+    /// `pds`, not the roll kind (Fire Team, Scramble Frequency). Mentak, 5 players (the native step 190 of the game as it plays now; 178 before the ruling on S1): the question's prompt was native `reroll die 1 of
     /// space_cannon`, legacy `reroll die 1 of pds`; 8 of the 96 games.
     #[test]
     fn a_reroll_question_of_the_space_cannon_offense_names_the_unit_type_of_the_gun() {
-        let shadowed = shadow_play(&lobby_spec("mentak", 5, 1), 185, 50).expect("builds");
+        let shadowed = shadow_play(&lobby_spec("mentak", 5, 1), 195, 50).expect("builds");
         assert!(shadowed.first_difference.is_none(), "{:?}", shadowed.first_difference);
     }
 
