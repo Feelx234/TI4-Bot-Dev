@@ -50,6 +50,28 @@ fn an_action_card_played_as_the_action_resolves_and_ends_the_action_like_the_str
     assert!(has(&string, "ACTION_CARD_PLAYED") && has(&string, "COMPONENT_ACTION_RESOLVED") && has(&string, "ACTION_COMPLETED"), "{:?}", string.events);
 }
 
+/// A Naaz seat's Refit Troops replaces infantry by the Eidolon and stages the announcement of each (Absolute Synergy), like the string. The core
+/// declined the card for a Naaz seat (the play facts held no mech): the playthrough counted it as a `PlayFacts` bail.
+#[test]
+fn refit_troops_for_a_naaz_seat_chosen_from_the_menu_places_the_eidolon_like_the_string() {
+    use ti4_engine_core::generated::ActionCard;
+    let mut state = action_table(&[("a", "naaz"), ("b", "sol"), ("c", "hacan")]);
+    state.player_mut(&pid("a")).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new(ActionCard::RefitTroops.as_str())];
+    // One infantry of the seat on the board: no pick is asked (the question's display facts are the string's own, see docs/K_RESUME.md).
+    let mut kept = false;
+    for board in state.board.values_mut() {
+        for units in board.planet_units.values_mut() {
+            units.retain(|u| u.owner.as_str() != "a" || u.type_id.as_str() != "infantry" || !std::mem::replace(&mut kept, true));
+        }
+    }
+    assert!(kept, "the seat has infantry");
+    let state = super::turn_live_tests::based(state);
+    let (string, native) = both(&state, &["action_card|0"]);
+    assert_same(&string, &native);
+    assert!(has(&string, "COMPONENT_ACTION_RESOLVED"), "{:?}", string.events);
+    assert!(string.staged.iter().any(|e| e == "NAAZ_MECH_PLACED"), "the mech announces itself: {:?}", string.staged);
+}
+
 #[test]
 fn extreme_duress_on_the_acting_seat_punishes_a_card_action_like_the_string() {
     use ti4_engine_core::generated::ActionCard;

@@ -299,6 +299,44 @@ fn refit_troops_replaces_up_to_two_infantry_by_mechs_in_place() {
     assert_eq!(mine(&none.state, planet(1), Unit::InfantryI), 2);
 }
 
+/// A Naaz seat's mech is the Eidolon: it replaces the infantry like the plain mech, announces itself (`NAAZ_MECH_PLACED`, staged for Absolute
+/// Synergy), and the second infantry is asked about only while the box holds two mechs (`supply::allowed(.., 2)`). The core used to decline the card
+/// for a Naaz seat.
+#[test]
+fn refit_troops_for_a_naaz_seat_places_the_eidolon_and_announces_each() {
+    use ti4_engine_core::state::EventKind;
+    covers_card!(ActionCard::RefitTroops);
+    let naaz = || Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol, Faction::TheWinnu]).map_ring(7);
+    let st = naaz().control(planet(1), 0).unit(sys(1), Some(planet(1)), Unit::InfantryI, 0, 2).control(planet(2), 0).unit(sys(2), Some(planet(2)), Unit::InfantryI, 0, 1).state();
+    let with_left = |on_card: i64| {
+        let mut e = env();
+        e.facts.mech = Placed { unit: Some(Unit::Eidolon), on_card };
+        rig_env(ActionCard::RefitTroops, st.clone(), e)
+    };
+    let eidolons = |s: &CoreState| mine(s, planet(1), Unit::Eidolon) + mine(s, planet(2), Unit::Eidolon);
+    let announced = |s: &CoreState| s.pending().staged.iter().filter(|e| e.kind == EventKind::NaazMechPlaced).count();
+    // Two mechs in the box: both questions are asked, both mechs are placed and announced.
+    let mut r = with_left(2);
+    r.run();
+    r.pick(0);
+    assert!(r.opts().contains(&o(CO::Stop)), "the second question is asked");
+    r.pick(0);
+    assert!(r.is_done());
+    assert_eq!((eidolons(&r.state), announced(&r.state)), (2, 2));
+    // One mech in the box: the first infantry is the only one, no second question.
+    let mut r = with_left(3);
+    r.run();
+    r.pick(0);
+    assert!(r.is_done(), "no second question: one mech is left");
+    assert_eq!((eidolons(&r.state), announced(&r.state)), (1, 1));
+    // The plain mech announces nothing.
+    let mut plain = rig(ActionCard::RefitTroops, naaz().control(planet(1), 0).unit(sys(1), Some(planet(1)), Unit::InfantryI, 0, 2).state());
+    plain.run();
+    plain.pick(0);
+    plain.pick_opt(o(CO::Stop));
+    assert!(plain.is_done() && announced(&plain.state) == 0 && mine(&plain.state, planet(1), Unit::FactionlessMech) == 1);
+}
+
 #[test]
 fn decoy_operation_moves_up_to_two_ground_forces_onto_a_planet_we_control_in_the_active_system() {
     covers_card!(ActionCard::DecoyOperation);
@@ -700,6 +738,28 @@ fn summit_gains_two_command_tokens_each_into_the_pool_of_the_holders_choice() {
     assert!(r.is_done());
     let e = r.state.players().by_seat(Seat(0)).unwrap().econ;
     assert_eq!((e.tactic_tokens, e.fleet_tokens, e.strategic_tokens), (2, 1, 2));
+}
+
+/// A command token held in a Mahact fleet pool is not in the reinforcements: Summit asks both pool questions all the same (the string does) and
+/// gains only what is left. The core used to decline the card for a holder with a token in a Mahact pool.
+#[test]
+fn summit_counts_the_tokens_a_mahact_fleet_pool_holds_out_of_the_reinforcements() {
+    use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt, Pool};
+    covers_card!(ActionCard::Summit);
+    for (held, gained) in [(0, 1), (1, 0)] {
+        // Fifteen of the sixteen tokens are on the sheet: one is left in the reinforcements, unless Mahact holds it.
+        let st = four().tokens(0, 7, 4, 4).state();
+        let mut r = rig_env(ActionCard::Summit, st, Env { mahact_held: held, ..env() });
+        r.run();
+        assert_eq!(r.asked().ask, Ask::Strategy(SAsk::GainPool { left: 2 }), "{held} held");
+        r.pick(0);
+        assert_eq!(r.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 }), "{held} held");
+        r.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Fleet)));
+        assert!(r.is_done());
+        let e = r.state.players().by_seat(Seat(0)).unwrap().econ;
+        assert_eq!(e.tactic_tokens + e.fleet_tokens + e.strategic_tokens, 15 + gained, "{held} held");
+        assert_eq!(e.tactic_tokens, 7 + gained, "the first token went to the tactic pool, if there was one");
+    }
 }
 
 fn probe_state(deck: &[Explore]) -> CoreState {

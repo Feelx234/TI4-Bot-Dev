@@ -180,7 +180,7 @@ fn plagiarizable(core: &CoreState, who: Seat) -> Option<bool> {
 /// yard. `goods` is the seat's spendable trade goods (`supply::potential_goods`).
 ///
 /// # Errors
-/// [`MenuGap::ActionCard`]: Signal Jamming, Seize Artifact or a card whose bill needs facts the core does not hold.
+/// [`MenuGap::ActionCard`]: Signal Jamming where the position holds no map, or a card whose bill needs facts the core does not hold.
 pub fn action_cards(core: &CoreState, k: &Kernel, who: Seat) -> Result<Vec<Opt>, MenuGap> {
     let Some(p) = core.players().by_seat(who) else { return Ok(Vec::new()) };
     let scope = reach::scope_of(k);
@@ -197,7 +197,12 @@ pub fn action_cards(core: &CoreState, k: &Kernel, who: Seat) -> Result<Vec<Opt>,
             return Ok(false);
         }
         if card == ActionCard::SignalJamming {
-            return Err(MenuGap::ActionCard);
+            // `is_playable`: a jammable system and a rival whose token could be stranded. The systems are the map's: a position that holds
+            // no map is one the core cannot judge (a counted gap).
+            if !core.loaded.has(crate::state::Slice::Map) {
+                return Err(MenuGap::ActionCard);
+            }
+            return Ok(core.players().iter().count() > 1 && !cards::effects::jam_systems(core, scope, who).is_empty());
         }
         if !bill_payable(core, k, who, card, goods).ok_or(MenuGap::ActionCard)? {
             return Ok(false);

@@ -102,8 +102,8 @@ pub fn seat_more(core: &CoreState, kernel: &Kernel, texts: &Texts, who: Seat) ->
     SeatPlayMore {
         destroyer: placed(core, kernel, texts, who, UnitBaseType::Destroyer),
         dreadnought: (Some(Unit::DreadnoughtI), 0),
-        // The plain mech; a Naaz seat's is a unit whose placement the string announces (no unit here: the card declines).
-        mech: ((!naaz).then_some(Unit::FactionlessMech), 0),
+        // The plain mech; a Naaz seat's is the Eidolon, which announces itself when placed (`fx::stage_naaz_mech_placed`).
+        mech: (Some(if naaz { Unit::Eidolon } else { Unit::FactionlessMech }), 0),
         pds: placed(core, kernel, texts, who, UnitBaseType::Pds),
         spacedock: placed(core, kernel, texts, who, UnitBaseType::Spacedock),
         agent_offered: false,
@@ -409,15 +409,15 @@ mod tests {
         assert!(play_facts(&core, kernel, &bare).is_none());
     }
 
-    /// What a card reads of a seat beyond infantry and cruiser: the Naaz mech is a unit the card declines, the others place the plain mech.
+    /// What a card reads of a seat beyond infantry and cruiser: the Naaz mech is the Eidolon, the others place the plain mech.
     #[test]
-    fn the_extra_facts_of_a_seat_name_its_forms_and_the_naaz_mech_is_declined() {
+    fn the_extra_facts_of_a_seat_name_its_forms_and_the_naaz_mech_is_the_eidolon() {
         let (core, r) = two_seats(Faction::TheNaazRokhaAlliance, Faction::TheEmbersOfMuaat);
         let texts = Texts::new(&r, POK);
         let kernel = crate::live::kernel::kernel_for(POK);
         let naaz = seat_more(&core, kernel, &texts, Seat(0));
         let muaat = seat_more(&core, kernel, &texts, Seat(1));
-        assert_eq!(naaz.mech, (None, 0));
+        assert_eq!(naaz.mech, (Some(Unit::Eidolon), 0));
         assert_eq!(muaat.mech, (Some(Unit::FactionlessMech), 0));
         for more in [naaz, muaat] {
             assert_eq!(more.dreadnought, (Some(Unit::DreadnoughtI), 0));
