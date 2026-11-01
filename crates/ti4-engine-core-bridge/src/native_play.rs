@@ -1132,31 +1132,26 @@ mod tests {
         assert_ne!(lobby_spec("sol", 4, 1).factions, lobby_spec("sol", 4, 2).factions, "the seed rotates the table");
     }
 
-    /// The native game plays the setup, the draft, the announcement, the phase flip, the turn prelude, the action menu and eight rounds of actions (an Orbital
-    /// Drop, tactical actions, a first claim with its exploration, strategic actions, Ggrocuto Rinn, the Technology primary, the status phases) on the core alone,
-    /// and stops with a COUNTED gap at the first body no lane has made native (an action card played from the menu: `TurnGap::Menu(ActionCard)`), with the position
-    /// as it was before the step. (Integration 12: round one, `TurnGap::StrategyAbility`; lane E2: the Technology primary, the status close and the secrets, nine rounds on the
-    /// map as it was loaded; integration 14: the core's map follows the printed lanes of this hyperlane table, so the game is another one: eight rounds, 967 steps, and the
-    /// action card is asked of a follower in a secondary.)
+    /// The native game plays the setup, the draft, the announcement, the phase flip, the turn prelude, the action menu and nine rounds of actions (an Orbital
+    /// Drop, tactical actions, a first claim with its exploration, strategic actions, Ggrocuto Rinn, the Technology primary, the status phases, action cards
+    /// played from the menu) on the core alone, to the end of the game: ZERO gaps. (Integration 12: round one, `TurnGap::StrategyAbility`; lane E2: the Technology
+    /// primary, the status close and the secrets; integration 14: the core's map follows the printed lanes of this hyperlane table, eight rounds, 967 steps, then
+    /// `TurnGap::Menu(ActionCard)`: the menu could not list Signal Jamming, which a seat held; lane K lists it, and the game plays on to its end.)
     #[test]
-    fn a_native_game_plays_the_first_turns_and_stops_with_a_counted_gap_at_an_unrouted_menu_option() {
+    fn a_native_game_plays_a_whole_game_with_zero_gaps() {
         let mut g = game("sol", 4, 1);
         let played = play_game(&mut g, 2_000, 50);
-        let End::Gap(gap) = &played.end else { panic!("a gap is the end of a game today, got {:?}", played.end) };
-        assert_eq!((gap.arm.as_str(), gap.kind, gap.cause.as_str()), ("secondary", GapKind::Bail, "TurnGap(Menu(ActionCard))"), "{gap:?}");
+        assert_eq!(played.end, End::Finished, "a whole game finishes natively");
         let native = &played.matrix.native;
         assert!(native.get("ask.draft").copied().unwrap_or(0) >= 3, "the draft was asked natively: {native:?}");
         assert_eq!(native.get("strategy_announce"), Some(&1), "{native:?}");
-        assert_eq!(native.get("phase"), Some(&22), "the phases flipped: strategy to action, action to status, status to strategy, seven times over, and the last into the action phase: {native:?}");
+        assert_eq!(native.get("phase"), Some(&26), "the phases flipped: strategy to action, action to status, status to strategy, eight times over, and the last into the action phase: {native:?}");
         assert!(native.get("turn_prelude").copied().unwrap_or(0) >= 1, "{native:?}");
-        assert_eq!(played.matrix.total_gaps(), 1, "one game, one gap");
-        assert_eq!((played.rounds, played.steps), (8, 967), "eight rounds of the table, through seven status phases");
-        assert!(native.get("tokens").copied().unwrap_or(0) >= 7 && native.get("status").copied().unwrap_or(0) >= 7, "the status phases ran natively, their close included: {native:?}");
-        // The position is the one before the step that gapped: the same gap again, the same position.
-        let held = g.core.clone();
-        assert_eq!(g.step(), Step::Gap(gap.clone()));
-        assert_eq!(g.core, held);
-        assert_eq!(g.fingerprint(), played.fingerprint);
+        assert_eq!(played.matrix.total_gaps(), 0, "one game, no gap");
+        assert_eq!((played.rounds, played.steps), (9, 1174), "nine rounds of the table");
+        assert!(native.get("tokens").copied().unwrap_or(0) >= 8 && native.get("status").copied().unwrap_or(0) >= 8, "the status phases ran natively, their close included: {native:?}");
+        assert_eq!(played.fingerprint, "2e93df9fa00fa982");
+        assert_eq!(g.step(), Step::Finished, "a finished game stops the loop");
     }
 
     #[test]
