@@ -287,6 +287,7 @@ pub fn table() -> AbilityTable {
             ti4_engine_core_factions::cc_ground::register_abilities(&mut t);
             ti4_engine_core_factions::ca_combat::register_abilities(&mut t);
             ti4_engine_core_factions::silent::g3::register_after_ca_combat(&mut t);
+            ti4_engine_core_factions::silent::register_before_muaat(&mut t);
             ti4_engine_core_factions::ce_movement::register_late_abilities(&mut t);
             ti4_engine_core_factions::cb_economy::register_late_abilities(&mut t);
             ti4_engine_core_factions::cd_registry::register_abilities(&mut t);

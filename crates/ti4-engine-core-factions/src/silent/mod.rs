@@ -27,8 +27,6 @@ pub fn register_abilities(t: &mut AbilityTable) {
     // The faction modules of the string in their order (arborec above, then cabal, empyrean, ghost, muaat, naaz, saar, winnu): only abilities of one
     // window share a bucket, and Naaz's Dart and Tai comes before Saar's Scavenge in PLANET_CONTROL_GAINED.
     cabal::register_abilities(t);
-    empyrean::register_abilities(t);
-    ghost::register_abilities(t);
     muaat::register_abilities(t);
     naaz::register_abilities(t);
     scavenge::register_abilities(t);
@@ -37,6 +35,13 @@ pub fn register_abilities(t: &mut AbilityTable) {
     winnu::register_abilities(t);
     sol::register_last(t);
     empyrean::register_last(t);
+}
+
+/// The Empyrean's and the Ghosts' rules (Acamar, Voidwatch, Sai Seravus), before the Muaat module of the string (lane M6d's Nova Seed and war sun record hear
+/// `MOVEMENT_FINISHED` and `SHIP_MOVED` too): the string registers the Empyrean, then the Ghosts, then the Muaat.
+pub fn register_before_muaat(t: &mut AbilityTable) {
+    empyrean::register_abilities(t);
+    ghost::register_abilities(t);
 }
 
 /// Pillage, before the movement package: the Nomad's Artuno shares `TRADE_GOODS_GAINED` with it and the Mentak module comes first in the string.
