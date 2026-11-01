@@ -45,3 +45,19 @@ each stopping at `AbilityGap` of a lane M6d row only: the Arborec flagship (`410
 
 Private `CARGO_TARGET_DIR=/root/deploytmp/core-g4`, `CARGO_BUILD_JOBS=2`, no debug info, incremental removed after each build. Core tests: `-p ti4-engine-core-tests --test g4_abilities`. Engine: `-p ti4-engine --lib -- silent4 ability_audit reactions_core render::silent4` plus the harness files
 (`combat_live_g4_tests.rs`, `invasion_live_g4_tests.rs`, `silent4_live_tests.rs`, each an `include!` / module of its harness).
+
+## Not done: the research window's waiver and payment questions (Riftmeld, and Yin's Brother Omar with it)
+
+The hook providers exist (Cabal: `cb_economy/cabal/offer.rs`; Yin: `cd_registry/yin`), so `Research::open` lists the technology only a waiver opens, and a seat that picks it ends the window `failed` (`Report::Left`: a COUNTED bail of the live
+path, `Unknown` -- never silent; the dual run declines it: `strategy_cards_core::research` "a research only a faction waiver opens", and `research_unported` / `strategy_cards::research_asks_more` keep the string's). What the window has to do, from
+`strategy_cards::{resolve_research, offer_research_inner, paid_research}`:
+
+1. `choice::strategy`: `Ask::{ResearchWaiver{tech}, ResearchWaiverPayment{tech, waiver}}`, `Opt::{ResearchWaiver(u8), ResearchPayment(Faction, u16)}`, the two subtypes `research_waiver`, `research_waiver_payment`; the renderer words (prompts
+   `research {tech}: choose a prerequisite waiver` / `{waiver label}: choose the payment`, options `waiver|{index}` kind `research_waiver`, the payment ids `captured|{owner}|{unit}` (Cabal) and Yin's, a decline each, the two offer cards of `resolve_research`).
+   The labels are module text (`riftmeld_offer`, `yin::research_waiver_offer_text`), so the renderer needs a table per module (the dual uses `Render::shape` for the secondary waivers, which the live path cannot).
+2. `Research`: stages `Waive` and `WaivePay` after a technology whose prerequisites the colours/Inheritance do not cover and `research_waiver_offer` is `Some`; `research_waiver_paid` pays, then the research completes; a decline of either question puts
+   the technology on a `declined` list the offer skips (`offer_research_inner`'s `declined_waivers`) and -- in the PAID research -- restores the position from before the payment (the string pays the bill first, then asks the waiver, then `*state = before`), so the
+   window keeps a snapshot of the state taken when the technology was picked.
+3. `first research_waiver_offer` keeps only the first module's waiver; the string offers one per module (a Cabal seat holding Yin's commander through an Alliance would see two): a lockstep for that corner needs the slot to `concat`.
+4. A payment list longer than the `SmallList<Waiver, 4>` of `ResearchWaiver`: the Cabal provider lists a captured (owner, form) once (the string lists a model held twice twice, with the same id).
+5. Lockstep: `strategy_research_tests::play` (Dual backend) with a Cabal seat, a captured cruiser and an unmet unit-upgrade technology: `counts == (1, 0)` once the window carries it.
