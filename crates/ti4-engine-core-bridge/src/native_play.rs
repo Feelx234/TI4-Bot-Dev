@@ -901,6 +901,7 @@ fn run_legacy(legacy: &mut MaskSubject<LegacyMask>, group: &[Played], ahead: &[S
 }
 
 /// Step the legacy game once with the answers of `group` and compare.
+#[cfg(test)]
 fn compare_group(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: &ti4_model::state::GameState, group: &[Played]) -> Option<Difference> {
     let run = run_legacy(legacy, group, &[]);
     compare_run(legacy, native, base, group, &run, &mut Owed::default())
@@ -1344,7 +1345,7 @@ mod tests {
     fn events_one_side_is_ahead_by_are_owed_to_the_next_group_and_a_strict_step_must_end_level() {
         let (mut legacy, native, base, mut group) = {
             let spec = lobby_spec("sol", 4, 1);
-            let mut legacy = MaskSubject::<LegacyMask>::new(&spec, Pilot::Script).unwrap();
+            let legacy = MaskSubject::<LegacyMask>::new(&spec, Pilot::Script).unwrap();
             let mut native = NativeGame::from_game(legacy.game(), spec.seed).unwrap();
             let base = legacy.game().state.clone();
             let mut group: Vec<Played> = Vec::new();

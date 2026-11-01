@@ -23,7 +23,9 @@ pub const RAGH: Slot = Slot(42_001);
 const NOTE: NoteKey = NoteKey { note: PromissoryNote::RaghsCall, faction: Faction::TheClanOfSaar };
 
 /// `ragh_targets`: the Saar seat, its ground forces on the planet and the other planets it controls (the string's order), when `holder` may play the note.
-fn targets(s: &CoreState, holder: Seat, planet: Planet) -> Option<(Seat, Vec<Piece>, Vec<(System, Planet)>)> {
+type Targets = (Seat, Vec<Piece>, Vec<(System, Planet)>);
+
+fn targets(s: &CoreState, holder: Seat, planet: Planet) -> Option<Targets> {
     if s.cards().promissory.get(&NOTE) != Some(&holder) || s.players().by_seat(holder).is_some_and(|p| p.faction == Faction::TheClanOfSaar) {
         return None;
     }

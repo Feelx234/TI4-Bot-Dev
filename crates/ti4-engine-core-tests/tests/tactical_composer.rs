@@ -619,11 +619,13 @@ fn the_tail_of_a_heros_free_action_opens_the_job_after_it_too() {
     let (live, _) = advance_tactical(&mut core, &e1, None).unwrap();
     assert_eq!(live, Live::Done);
     assert_eq!(ti4_engine_core::driver::turn::open_job_of(&core), Some(TurnJob::AfterTactical));
-    // Nobody waits for the end of this action: the tail opens nothing (the loop finishes the action).
+    // Nobody waits for the end of this action: the tail opens the end of the action itself (`Finish`: `ACTION_COMPLETED`, then the closing menu or the end of the
+    // turn; lane M6b's design, so that a caller without the native_play loop gets it too -- lane H2 left it to the loop's `after_arm`, which opens it only when no job
+    // is open, so both agree). Not the job after a free action.
     let (sc, _) = row();
     let (mut plain, k) = sc.build();
     let env2 = env(&k, 5);
     TacticalAction::new(Tactical { player: Seat(0), stage: TStage::Tail, notes_at_start: ti4_engine_core::driver::windows::tactical::note_holdings(&plain) }).to_pending(&mut plain);
     assert_eq!(advance_tactical(&mut plain, &env2, None).unwrap().0, Live::Done);
-    assert_eq!(ti4_engine_core::driver::turn::open_job_of(&plain), None);
+    assert_eq!(ti4_engine_core::driver::turn::open_job_of(&plain), Some(TurnJob::Finish));
 }
