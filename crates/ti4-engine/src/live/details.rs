@@ -24,6 +24,8 @@ pub fn complete(core: &CoreState, kernel: &Kernel, choice: &CoreChoice, rendered
             pool_details(core, choice.actor, "redistribute", None, rendered);
         }
         Ask::Reaction(RAsk::Window { event: EventKind::SystemActivated, relation: Relation::After }) => harness_preview(core, kernel, choice, rendered),
+        // Integrated Economy's question (`production::integrated_economy_loop`) is a plain `Choice::new`: the string gives it no context.
+        Ask::Production(ti4_engine_core::choice::production::Ask::Economy(_)) => rendered.context = None,
         _ => {}
     }
     super::turn::complete(core, choice, rendered);

@@ -132,7 +132,8 @@ mod real {
                 return None;
             }
             let mut cx = Ctx::of(state).ok()?;
-            let mut slices = SliceSet::of(&[Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Objectives]);
+            // (Strengthen Bonds reads the promissory notes held faceup and the Supports for the Throne lent: the Cards and Trade slices.)
+            let mut slices = SliceSet::of(&[Slice::Seats, Slice::Players, Slice::Board, Slice::Agenda, Slice::Objectives, Slice::Cards, Slice::Trade]);
             if galaxy.is_some() {
                 slices.insert(Slice::Map);
             }
@@ -212,6 +213,20 @@ mod real {
             {
                 t.helios.push((p, bonus));
             }
+        }
+        // Produce en Masse (held, or revealed): the PRODUCTION of the seat in each system of the board, by the string's `capacity_text`.
+        let held = state.player(player).is_some_and(|p| p.secret_objectives.iter().any(|s| s.as_str() == "pem"));
+        if held || state.revealed_objectives.iter().any(|o| o.as_str() == "pem") {
+            for system in state.board.keys() {
+                let capacity = crate::production::capacity_text(state, content, sources, player, system);
+                if capacity > 0 {
+                    match <System as IdStr>::from_id(system.as_str()) {
+                        Some(s) => t.capacity.push((s, capacity)),
+                        None => t.unmapped = true,
+                    }
+                }
+            }
+            t.capacity_known = true;
         }
         t
     }

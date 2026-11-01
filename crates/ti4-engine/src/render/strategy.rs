@@ -23,8 +23,8 @@ use crate::preview::{Delta, Preview, Quantity};
 /// The card of a follower's question.
 fn follow_card(a: &Ask) -> StrategyCard {
     match a {
-        Ask::Follow { card, .. } => *card,
-        _ => unreachable!("a follow option is asked by Ask::Follow"),
+        Ask::Follow { card, .. } | Ask::CrisisPact { card } => *card,
+        _ => unreachable!("a follow option is asked by Ask::Follow or Ask::CrisisPact"),
     }
 }
 
@@ -113,6 +113,12 @@ impl Family for Fam {
             Ask::PdsAlternative { .. } => "place a PDS or an alternative".to_owned(),
             Ask::ImperialScore => "score a public objective with Imperial".to_owned(),
             Ask::PeaceAccords { .. } => "Peace Accords: annex a planet".to_owned(),
+            // `strategy::crisis_pact_choice`: the card's ordinary follower question, Leadership's purchase question unchanged.
+            Ask::CrisisPact { card } if card.data().kind == StrategyCardKind::Leadership => follow_words(*card).0.to_owned(),
+            Ask::CrisisPact { card } => {
+                let name = crate::strategy_cards::card_name(ti4_content::ContentStore::embedded(), card.as_str()).unwrap_or_default();
+                format!("Galactic Crisis Pact: perform the {name} secondary without spending a command token")
+            }
             Ask::ConstructionAbility => "Construction: a structure or a production".to_owned(),
             Ask::TeWarfareRedistribute { .. } => "Warfare: redistribute your command tokens before the tactical action".to_owned(),
             Ask::TeWarfareRedistributeAfter { .. } => "Warfare: redistribute your command tokens after the tactical action".to_owned(),
@@ -317,6 +323,11 @@ impl Family for Fam {
                 let planet = if planet.is_empty() { None } else { Some(Planet::from_id(planet)?) };
                 Some(Opt::Infantry { system: System::from_id(system)?, planet })
             }
+            Ask::CrisisPact { .. } => match id {
+                "no" => Some(Opt::Skip),
+                "yes" => Some(Opt::Follow),
+                _ => None,
+            },
             Ask::Follow { .. } => match id {
                 "no" => Some(Opt::Skip),
                 "yes" => Some(Opt::Follow),
@@ -347,6 +358,12 @@ impl Family for Fam {
             d.insert("card".to_owned(), card.as_str().into());
             d.insert("played_by".to_owned(), r.seat_text(*primary).into());
             d.insert("costs_token".to_owned(), (*costs_token).into());
+        }
+        if let Ask::CrisisPact { card } = a {
+            // `strategy::secondary_choice` without a token (the pact has no `played_by` and no `tokens_left`; `live::strategic` adds the agenda card).
+            d.insert("kind".to_owned(), "strategy_secondary".into());
+            d.insert("card".to_owned(), card.as_str().into());
+            d.insert("costs_token".to_owned(), false.into());
         }
         if let Ask::PdsAlternative { system, planet } = a {
             // `strategy_cards::construction_structure`: the offer card of the alternative.

@@ -176,8 +176,12 @@ fn annex_pick(explored: bool) -> Box<dyn Fn(&Choice) -> Option<String>> {
 }
 
 fn primary_case(want: Box<dyn Fn(&Choice) -> Option<String>>, seats: &[(&str, &str); 4]) -> (Run, Run) {
+    primary_case_with(want, seats, |_| {})
+}
+
+fn primary_case_with(want: Box<dyn Fn(&Choice) -> Option<String>>, seats: &[(&str, &str); 4], tweak: impl FnOnce(&mut GameState)) -> (Run, Run) {
     let hub = crate::fixtures::plain_hub();
-    let state = table(seats, "a", &hub, |_| {});
+    let state = table(seats, "a", &hub, tweak);
     let (mut string, taken) = string_run(&state, &hub.galaxy, want, |_| {});
     assert_eq!(string.questions.first().and_then(|q| q.context.as_ref()).map(|c| c.subtype.as_str()), Some("action_menu"));
     string.questions.remove(0);
@@ -209,6 +213,32 @@ fn the_xxcha_annexes_a_planet_without_a_trait_and_nothing_is_explored_like_the_s
     }
     let (string, native) = primary_case(annex_pick(false), &SEATS);
     assert_eq!(asked_annex(&string), 1);
+    assert_same(&string, &native);
+}
+
+/// The resources a planet prints.
+fn resources_of(planet: &str) -> i64 {
+    ti4_content::galaxy::planet(ContentStore::embedded(), planet, DEFAULT).map_or(0, |p| i64::from(p.resources()))
+}
+
+#[test]
+fn the_xxcha_with_integrated_economy_produces_on_the_annexed_planet_before_exploring_it_like_the_string() {
+    let want: Box<dyn Fn(&Choice) -> Option<String>> = Box::new(|c| {
+        if c.player.as_str() == "a" && c.context.as_ref().is_some_and(|x| x.subtype == "action_menu") {
+            return Some("strategic".to_owned());
+        }
+        if is_annex(c) {
+            // A planet worth resources (the production budget) with a trait (the exploration that follows).
+            return c.options.iter().find(|o| o.kind == "annex" && resources_of(&o.id) > 0 && has_trait(&o.id)).map(|o| o.id.clone());
+        }
+        None
+    });
+    let (string, native) = primary_case_with(want, &SEATS, |state| {
+        state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ie"));
+    });
+    assert_eq!(asked_annex(&string), 1);
+    let economy = string.questions.iter().filter(|q| q.prompt.starts_with("Integrated Economy on ")).count();
+    assert!(economy >= 1, "the string offers the production: {:?}", string.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
     assert_same(&string, &native);
 }
 
@@ -265,3 +295,84 @@ fn a_seat_of_another_faction_is_asked_nothing_after_diplomacy_like_the_string() 
 
 #[allow(dead_code)]
 fn unused(_: PlayerId) {}
+
+// -- the two secrets the core answers since lane E2 (Strengthen Bonds, Produce en Masse) --------------------------------------------------------------
+
+mod secrets {
+    use ti4_model::content_types::POK;
+    use ti4_model::id::{PlayerId, SecretObjectiveId};
+    use ti4_model::state::GameState;
+
+    use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+    use crate::objectives::RequirementProgress;
+    use crate::secrets::Position;
+
+    fn a() -> PlayerId {
+        PlayerId::new("a")
+    }
+
+    /// The string's progress of `alias` for `a`, the typed view's answer next to it (both through the Dual backend of the objectives area,
+    /// which compares them), and the count of differences the comparison reported.
+    fn both(state: &GameState, alias: &str) -> (Option<RequirementProgress>, Option<Option<RequirementProgress>>, u64) {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let content = ti4_content::ContentStore::embedded();
+        let player = a();
+        let alias = SecretObjectiveId::new(alias);
+        let view = crate::objectives_core::ObjView::build(state, content, POK, None).expect("the position loads");
+        let position = Position { state, content, sources: POK, player: &player, galaxy: None, imagined: crate::objectives::Imagined::NONE };
+        let (string, typed) = with_mask(AreaMask::STRING.with(Area::Objectives, Backend::Dual), || {
+            crate::objectives_core::scoped(Some(&view), || (crate::secrets::remaining_position_progress(&alias, &position), crate::objectives_core::secret_typed(&position, &alias, false)))
+        });
+        let r = report();
+        let differences = r.total_differences();
+        if differences > 0 {
+            eprintln!("E2 secret dual differences: {:?}", r.differences);
+        }
+        let _ = take_report();
+        (string, typed, differences)
+    }
+
+    fn holding(state: &mut GameState, alias: &str) {
+        state.player_mut(&a()).unwrap().secret_objectives = vec![SecretObjectiveId::new(alias)];
+    }
+
+    #[test]
+    fn strengthen_bonds_is_answered_by_the_typed_view_like_the_string() {
+        let content = ti4_content::ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "titans"), ("c", "hacan")], POK);
+        crate::promissory::deal(&mut state, content, POK);
+        holding(&mut state, "sb");
+        let (string, typed, differences) = both(&state, "sb");
+        assert_eq!(differences, 0);
+        assert_eq!(typed, Some(string.clone()), "the typed view answers (0 bonds)");
+        assert_eq!(string.as_ref().map(|p| p.have), Some(0));
+        // The Titans' Terraform (a play-area card: faceup on receipt) is a bond; so is the Support for the Throne `c` lent.
+        crate::promissory::take(&mut state, content, &a(), "terraform:titans");
+        let (string, typed, differences) = both(&state, "sb");
+        assert_eq!((differences, string.as_ref().map(|p| p.have)), (0, Some(1)));
+        assert_eq!(typed, Some(string.clone()));
+        state.support_holders.insert(PlayerId::new("c"), a());
+        let (string, typed, differences) = both(&state, "sb");
+        assert_eq!((differences, string.as_ref().map(|p| p.have)), (0, Some(2)));
+        assert_eq!(typed, Some(string.clone()));
+        // Your own Support in your own area is not a bond.
+        state.support_holders.insert(a(), a());
+        let (string, typed, differences) = both(&state, "sb");
+        assert_eq!((differences, string.as_ref().map(|p| p.have)), (0, Some(2)));
+        assert_eq!(typed, Some(string.clone()));
+    }
+
+    #[test]
+    fn produce_en_masse_is_answered_by_the_typed_view_like_the_string() {
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "titans"), ("c", "hacan")], POK);
+        // (The notes are dealt after the factions are seated: the cards codec refuses the placeholder faction.)
+        crate::promissory::deal(&mut state, ti4_content::ContentStore::embedded(), POK);
+        holding(&mut state, "pem");
+        let (string, typed, differences) = both(&state, "pem");
+        assert_eq!(differences, 0);
+        assert_eq!(typed, Some(string.clone()), "the typed view answers");
+        let home = string.as_ref().expect("answered").have;
+        assert!(home > 0, "the home system's space dock produces: {home}");
+    }
+}

@@ -557,8 +557,10 @@ fn the_secret_rows_are_the_printed_thresholds_and_two_of_them_are_not_the_cores(
     assert!(secret(&s, 0, true, NONE, S::BraveTheVoid).is_none());
     let f = facts(&s, 0);
     let pos = Pos::new(&s, &f, true, NONE);
-    assert_eq!(q::secret_progress(&pos, S::StrengthenBonds), Err(q::Unsupported));
-    assert_eq!(q::secret_progress(&pos, S::ProduceEnMasse), Err(q::Unsupported));
+    // Strengthen Bonds reads the notes of the position (lane E2: `tests/secret_progress_e2.rs`); Produce en Masse reads the PRODUCTION the caller fills.
+    let sb = q::secret_progress(&pos, S::StrengthenBonds).unwrap().expect("answered");
+    assert_eq!((sb.family, sb.have, sb.threshold), (Family::RivalNoteIssuers, 0, 1));
+    assert_eq!(q::secret_progress(&pos, S::ProduceEnMasse), Err(q::Unsupported), "unsupported while the production is not filled");
     let mut unmapped = terms();
     unmapped.unmapped = true;
     let f = SeatFacts::of(&s, ALL_SOURCES, Seat(0), unmapped);

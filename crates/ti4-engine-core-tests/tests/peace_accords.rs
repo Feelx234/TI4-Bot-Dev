@@ -96,7 +96,6 @@ fn the_answer_gives_control_and_leaves_the_exploration_to_the_caller() {
     rig.run().pick_opt(annex(ring1, target));
     assert!(rig.is_done());
     assert_eq!(rig.driver.window.annexed, Some((ring1, target)));
-    assert!(!rig.driver.window.unsupported);
     assert_eq!(rig.state.board().planet(target).control, Some(Seat(0)));
     assert!(rig.state.board().sys(ring1).flags.has(SysFlags::TOUCHED));
     assert!(!rig.state.board().planet(target).flags.has(PlanetFlags::EXHAUSTED), "a planet taken is ready (the string only sets its controller)");
@@ -148,17 +147,13 @@ fn a_destroyed_planet_is_offered_and_keeps_no_controller_like_the_string() {
 }
 
 #[test]
-fn integrated_economy_and_the_thunders_edge_planet_are_left_to_the_caller_as_unsupported() {
+fn the_planet_the_thunders_edge_legend_places_is_printed_on_no_system_so_it_is_never_offered() {
     covers!("rules::peace_accords::PeaceAccords");
+    // (The string's `legendary::control_gained` breakthrough of an annexed Thunder's Edge is out of reach for that reason.)
+    assert_eq!(Planet::ThundersEdge.data().system, None);
     let held = centre().data().planets[0];
-    let ring1 = plain_systems()[1];
-    let target = ring1.data().planets[0];
-    let mut rig = Rig::new(table().control(held, 0).tech(0, Technology::IntegratedEconomy), PeaceAccords::new(Seat(0)));
-    rig.run().pick_opt(annex(ring1, target));
-    assert!(rig.driver.window.unsupported, "Integrated Economy produces on the planet gained: not carried");
-    let mut rig = Rig::new(table().control(held, 0), PeaceAccords::new(Seat(0)));
-    rig.run().pick_opt(annex(ring1, target));
-    assert!(!rig.driver.window.unsupported);
+    let state = table().control(held, 0).state();
+    assert!(!annexable(&state, Seat(0)).iter().any(|(_, p)| *p == Planet::ThundersEdge));
 }
 
 #[test]

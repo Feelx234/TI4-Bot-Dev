@@ -167,7 +167,8 @@ pub fn resolved(sx: &mut Sx<'_>, who: Seat, kind: StrategyCardKind) -> Flow {
     peace_accords(sx, who)
 }
 
-/// Xxcha's Peace Accords (`faction_abilities::strategy_resolved`): the window, then the exploration of the planet taken.
+/// Xxcha's Peace Accords (`faction_abilities::strategy_resolved`): the window, then what taking the planet sets off in the string's order:
+/// Integrated Economy's production, the exploration of the planet by its first trait (announced to nobody: the string explores with no timing handle).
 fn peace_accords(sx: &mut Sx<'_>, who: Seat) -> Flow {
     use crate::rules::explore_windows::{traits_now, Exploring};
     use crate::rules::peace_accords::PeaceAccords;
@@ -176,10 +177,11 @@ fn peace_accords(sx: &mut Sx<'_>, who: Seat) -> Flow {
     if run_window(sx, &mut window) == Flow::Halt {
         return Flow::Halt;
     }
-    let Some((_, planet)) = window.annexed else { return Flow::Done };
-    // (Integrated Economy's production and the Thunder's Edge planet's breakthrough are not carried: a counted gap, the step is rolled back.)
-    if window.unsupported {
-        return gap_flow(sx, TurnGap::PeaceAccords);
+    let Some((system, planet)) = window.annexed else { return Flow::Done };
+    if sx.state.players().by_seat(who).is_some_and(|p| p.tech.owned.contains(crate::generated::Technology::IntegratedEconomy))
+        && integrated_economy(sx, who, system, planet) == Flow::Halt
+    {
+        return Flow::Halt;
     }
     let Some(deck) = traits_now(sx.state, crate::query::reach::scope_of(sx.kernel), planet).as_slice().first().copied() else { return Flow::Done };
     let mut exploring = Exploring::planet(who, planet, EDeck::Fixed(deck), false);
@@ -190,4 +192,58 @@ fn peace_accords(sx: &mut Sx<'_>, who: Seat) -> Flow {
         return gap_flow(sx, TurnGap::PeaceAccords);
     }
     Flow::Done
+}
+
+/// Integrated Economy (`technology::control_gained`, `production::integrated_economy`): units up to the resource value of the planet gained, paid
+/// for as usual, then the fleet supply of the system is enforced (it asks only when a form is over).
+fn integrated_economy(sx: &mut Sx<'_>, who: Seat, system: System, planet: crate::generated::Planet) -> Flow {
+    use crate::kernel::children::{Report, SeeingLimits, Spawn};
+    use crate::query::economy::Spend;
+    use crate::rules::production::{self, triggered::EconomyWindow, Cx as ProdCx};
+    let (scope, blanked) = (crate::query::reach::scope_of(sx.kernel), crate::query::reach::blanked(sx.state));
+    let budget = production::planet_value(&ProdCx::new(sx.state, sx.kernel, scope, blanked), who, planet, Spend::Resources);
+    if budget <= 0 {
+        return Flow::Done;
+    }
+    let Some(roster) = sx.table.facts.plays.as_ref().and_then(|p| p.roster) else { return gap_flow(sx, TurnGap::NoRoster) };
+    let facts = (crate::driver::children::one_link().facts)(sx.state, sx.kernel, roster, who);
+    let (Some((buildable, fleet_limit)), Ok(budget)) = (facts, i32::try_from(budget)) else { return gap_flow(sx, TurnGap::PeaceAccords) };
+    let mut window = EconomyWindow::new(who, system, planet, budget, fleet_limit, buildable);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    let limits = crate::driver::windows::tactical::limits(sx.state, sx.kernel, who, system);
+    let request = Spawn::Seeing { who, system, limits: SeeingLimits { enforce: limits.enforce, shown: limits.shown, halves: limits.halves } };
+    if sx.table.links.spawn.is_none() {
+        return gap_flow(sx, TurnGap::NoLink);
+    }
+    match run_spawn(sx, &request) {
+        Some(Report::Removed(_) | Report::Nothing) => Flow::Done,
+        _ if halted(sx) => Flow::Halt,
+        _ => gap_flow(sx, TurnGap::ReplayDiverged),
+    }
+}
+
+/// A child window of the table run to its end on the tape, its report. `None`: the step is doomed (a question found the tape dry, or a gap was
+/// noted) or the child left the path.
+fn run_spawn(sx: &mut Sx<'_>, request: &crate::kernel::children::Spawn) -> Option<crate::kernel::children::Report> {
+    let window = sx.table.links.start(request)?;
+    let mut child = ErasedChild::idle();
+    child.start(window);
+    loop {
+        if halted(sx) {
+            return None;
+        }
+        match child.step(sx)? {
+            Ran::Done(report) => return Some(report),
+            Ran::Asks(_) => {
+                let choice = child.ask_of(sx.state, sx.kernel)?;
+                let pick = sx.ask(&choice);
+                if halted(sx) || child.answer(sx, pick).is_err() {
+                    return None;
+                }
+            }
+            Ran::Pass(_) => return None,
+        }
+    }
 }

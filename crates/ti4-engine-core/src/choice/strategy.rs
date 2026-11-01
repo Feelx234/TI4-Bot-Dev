@@ -57,6 +57,8 @@ pub enum Ask {
     ImperialScore,
     /// Xxcha's Peace Accords after Diplomacy: "annex a planet" (`controlled`: the planets the seat controls now, for the preview of the gain).
     PeaceAccords { controlled: u8 },
+    /// Galactic Crisis Pact: a player's question on the secondary of the elected `card`, without the token (the follower's question of the card).
+    CrisisPact { card: StrategyCard },
     /// Thunder's Edge Construction: "a structure or a production" (the first of its two abilities).
     ConstructionAbility,
     /// Thunder's Edge Warfare: the final split of the `total` command tokens before the free tactical action, at least

@@ -16,6 +16,7 @@ pub mod abilities;
 pub mod action_cards;
 pub mod agenda;
 pub mod combat;
+pub mod crisis_pact;
 pub mod diplomacy;
 pub mod diplomacy_book;
 pub mod diplomacy_window;

@@ -3,15 +3,16 @@
 //! planet you control."
 //!
 //! The window asks which planet (or declines) and gives the seat control of it. What follows in the string, the exploration of the planet by
-//! its first trait, is the caller's (a child exploration: `PeaceAccords::annexed`); Integrated Economy's production and the Thunder's Edge
-//! planet's breakthrough are not carried ([`PeaceAccords::unsupported`]: a counted gap of the caller).
+//! its first trait, and Integrated Economy's production before it, are the caller's (child windows: `PeaceAccords::annexed`). The Thunder's Edge
+//! planet (`legendary::control_gained`'s breakthrough) is never offered: it is placed during play and printed on no system, and the candidates are the
+//! planets the system records print.
 //!
 //! As in the string the planet is taken with a plain `set_control` (no `PLANET_CONTROL_GAINED`, no faction hook of a control gain), and a
 //! planet that was destroyed (purged) is offered all the same and keeps no controller.
 
 use crate::choice::strategy::{ability_ctx, Ask as SAsk, Opt as SOpt, Subtype as SSub};
 use crate::choice::{Ask, Choice, Opt, Opts, Pick};
-use crate::generated::{Ability, Planet, System, Technology};
+use crate::generated::{Ability, Planet, System};
 use crate::ids::{system_at, Seat};
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
@@ -34,8 +35,6 @@ pub struct PeaceAccords {
     stage: PStage,
     /// The planet the seat took: its exploration is the caller's.
     pub annexed: Option<(System, Planet)>,
-    /// The seat took a planet whose gain holds something the core does not carry (Integrated Economy, the Thunder's Edge planet).
-    pub unsupported: bool,
 }
 
 /// `faction_abilities::annexable`: the empty, uncontrolled planets (not Mecatol Rex, not a space station) in or next to a system with a planet
@@ -71,7 +70,7 @@ pub fn has_peace_accords(core: &CoreState, who: Seat) -> bool {
 impl PeaceAccords {
     #[must_use]
     pub const fn new(who: Seat) -> Self {
-        Self { who, stage: PStage::Start, annexed: None, unsupported: false }
+        Self { who, stage: PStage::Start, annexed: None }
     }
 
     /// The question; `controlled` is `GameState::controlled_planets(..).len()`, the base of the preview of the gain.
@@ -113,7 +112,6 @@ impl Window for PeaceAccords {
                 }
                 sx.state.board_mut().sys_mut(system).flags.set(SysFlags::TOUCHED, true);
                 self.annexed = Some((system, planet));
-                self.unsupported = planet == Planet::ThundersEdge || sx.state.players().by_seat(self.who).is_some_and(|p| p.tech.owned.contains(Technology::IntegratedEconomy));
                 self.stage = PStage::Done;
                 Ok(())
             }

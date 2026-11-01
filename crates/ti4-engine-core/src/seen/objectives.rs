@@ -17,6 +17,7 @@ use crate::generated::{FactionTag, ObjectivePhase, PublicObjective, SecretObject
 use crate::ids::Seat;
 use crate::query::objectives::{self as q, CostFamily, Family, Imagined, Pos, SeatFacts, Terms};
 use crate::query::{board, economy};
+use crate::rules::production::Cx;
 use crate::state::{ObjectiveRef, ObjectiveSet, Slice};
 
 /// What a progress row counts.
@@ -68,6 +69,18 @@ impl Seen<'_> {
             if bonus != 0 {
                 t.helios.push((*planet, bonus));
             }
+        }
+        // Produce en Masse reads the PRODUCTION of the seat in every system (`production::capacity` of the board entries): only a seat that can be
+        // asked about it (the card in its hand, or a leaked copy revealed) pays for the scan.
+        if q::wants_capacity(core, seat) {
+            let cx = Cx::new(core, k, self.scope(), self.blanked());
+            for (system, _) in core.board().systems() {
+                let capacity = crate::rules::production::capacity(&cx, seat, system);
+                if capacity > 0 {
+                    t.capacity.push((system, capacity));
+                }
+            }
+            t.capacity_known = true;
         }
         t
     }
