@@ -53,3 +53,24 @@ fn a_bill_paid_by_another_planet_leaves_the_specialty_ready_and_the_technology_l
     assert!(rig.is_done() && !rig.driver.window.failed);
     assert!(rig.state.players().by_seat(Seat(0)).unwrap().tech.owned.contains(Technology::GravityDrive), "the bill left the prerequisite standing");
 }
+
+#[test]
+fn a_technology_only_a_faction_waiver_opens_is_still_left_to_the_string_after_the_bill() {
+    covers!("rules::production::strategy_cards::Research");
+    use ti4_engine_core::kernel::hooks::{ResearchWaiver, Waiver};
+    use ti4_engine_core::kernel::Kernel;
+    use ti4_engine_core::state::CoreState;
+    fn walled(_: &CoreState, _: &Kernel, _: Seat, t: Technology) -> Option<ResearchWaiver> {
+        (t == Technology::GravityDrive).then(|| ResearchWaiver { waiver: Waiver { module: Faction::TheVuilraithCabal, code: 0 }, payments: Default::default() })
+    }
+    // (G5 asks the waiver question there; until it lands the run is the string's: a counted bail, not a rollback.)
+    let (s, mut k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_ring(7).goods(0, 4).build();
+    k.hooks.strategy.research_waiver_offer.push(walled);
+    let mut rig = Rig::from_parts(s, k, Research::new(Seat(0), false, 4, ALL_SOURCES));
+    rig.run();
+    assert!(rig.opts().contains(&Opt::Strategy(SOpt::Research(Technology::GravityDrive))), "a waivable technology is offered");
+    rig.pick_opt(Opt::Strategy(SOpt::Research(Technology::GravityDrive)));
+    rig.auto(Policy::First);
+    assert!(rig.is_done());
+    assert!(rig.driver.window.failed, "the waiver question is not carried: the string performs the research");
+}

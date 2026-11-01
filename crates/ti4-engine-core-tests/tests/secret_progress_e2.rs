@@ -122,3 +122,14 @@ fn the_scoring_view_fills_the_production_of_a_seat_that_holds_or_sees_produce_en
     leaked.objectives_mut().revealed.push(ti4_engine_core::state::ObjectiveRef::Secret(S::ProduceEnMasse));
     assert!(q::wants_capacity(&leaked, Seat(0)) && q::wants_capacity(&leaked, Seat(1)));
 }
+
+#[test]
+fn a_production_of_one_counts_in_the_scoring_view() {
+    // The Arborec's Letani Warrior I has PRODUCTION 1: the smallest capacity that is a producer at all.
+    let sys = plain_systems()[0];
+    let planet = sys.data().planets[0];
+    let (mut s, k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_ring(7).control(planet, 0).unit(sys, Some(planet), Unit::LetaniWarriorI, 0, 1).build();
+    s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.secrets.push(S::ProduceEnMasse);
+    let rows = Seen::new(&s, &k, Seat(0)).my_secret_progress(Imagined::NONE).expect("answered");
+    assert_eq!((rows[0].have, rows[0].threshold), (1, 8), "one PRODUCTION is one");
+}

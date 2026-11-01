@@ -76,7 +76,8 @@ impl Seen<'_> {
             let cx = Cx::new(core, k, self.scope(), self.blanked());
             for (system, _) in core.board().systems() {
                 let capacity = crate::rules::production::capacity(&cx, seat, system);
-                if capacity > 0 {
+                // (A zero changes no maximum.)
+                if capacity > 0 { // mutants:skip: `>= 0` lists the zeros too, which no maximum sees
                     t.capacity.push((system, capacity));
                 }
             }

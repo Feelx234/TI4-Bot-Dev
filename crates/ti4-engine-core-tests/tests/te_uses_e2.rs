@@ -43,3 +43,30 @@ fn a_late_board_lists_every_touched_system_even_beyond_a_dozen() {
     let uses = facts.te_uses.expect("nineteen systems fit: the string offers all of them");
     assert_eq!(uses.uses().count(), 19);
 }
+
+#[test]
+fn only_a_touched_system_that_can_produce_is_a_use_and_a_production_of_one_is_enough() {
+    covers!("driver::windows::strategic::facts::te_uses");
+    let p = plain_systems();
+    let roster: &'static ti4_engine_core::query::tech::UnitRoster = Box::leak(Box::default());
+    let planet = p[0].data().planets[0];
+    // The Arborec's Letani Warrior I (PRODUCTION 1) in the first system; the second is touched and empty; the third produces but is not touched.
+    let other = p[2].data().planets[0];
+    let (mut s, k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[p[0], p[1], p[2]])
+        .control(planet, 0)
+        .unit(p[0], Some(planet), Unit::LetaniWarriorI, 0, 1)
+        .unit(p[2], Some(other), Unit::LetaniWarriorI, 0, 1)
+        .build();
+    for system in &p[..2] {
+        s.board_mut().sys_mut(*system).flags.set(SysFlags::TOUCHED, true);
+    }
+    s.board_mut().sys_mut(p[2]).flags.set(SysFlags::TOUCHED, false);
+    let facts = facts_at(&s, &k, &Default::default(), Some(roster), Seat(0), StrategyCard::ConstructionThundersEdge);
+    let uses = facts.te_uses.expect("the facts fit");
+    let systems: Vec<System> = uses.uses().map(|u| u.produce.system).collect();
+    assert_eq!(systems, vec![p[0]], "the touched system with a producer: not the empty one, not the untouched one");
+    assert_eq!(uses.uses().next().map(|u| u.produce.limit), Some(1));
+}

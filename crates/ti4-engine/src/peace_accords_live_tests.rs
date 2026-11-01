@@ -133,6 +133,25 @@ fn native_run(state: &GameState, galaxy: &ti4_content::galaxy::Galaxy, ids: &[St
     Run { questions, events, state, rng, staged }
 }
 
+/// A hub (a centre and a ring of six) of systems whose planets can all be explored (a trait to explore into, no home system, no station): `plain_hub`'s tiles are
+/// the first systems of the corpus, which are home systems.
+fn explorable_hub() -> crate::fixtures::Hub {
+    let content = ContentStore::embedded();
+    let planets = ti4_content::galaxy::all_planets(content, ti4_model::content_types::POK);
+    let ids: Vec<String> = ti4_content::galaxy::all_systems(content, ti4_model::content_types::POK)
+        .iter()
+        .filter(|(_, system)| !system.is_anomaly() && !system.is_hyperlane())
+        .filter(|(_, system)| {
+            let ps = system.planets();
+            !ps.is_empty() && ps.iter().all(|p| planets.get(p).is_some_and(|p| p.homeworld_of().is_none() && !p.is_placed_during_play() && !p.is_space_station() && !p.traits().is_empty()))
+        })
+        .map(|(id, _)| (*id).to_owned())
+        .take(7)
+        .collect();
+    assert_eq!(ids.len(), 7, "the corpus has seven explorable systems");
+    crate::fixtures::hub_from(&ids)
+}
+
 /// The planets a system prints.
 fn planets_of(system: &str) -> Vec<String> {
     ContentStore::embedded().get(ti4_model::content_types::ContentType::Systems, system).map(|r| r.strings("planets").into_iter().map(str::to_owned).collect()).unwrap_or_default()
@@ -183,7 +202,7 @@ fn primary_case(want: Want, seats: &[(&str, &str); 4]) -> (Run, Run) {
 }
 
 fn primary_case_with(want: Want, seats: &[(&str, &str); 4], tweak: impl FnOnce(&mut GameState)) -> (Run, Run) {
-    let hub = crate::fixtures::plain_hub();
+    let hub = explorable_hub();
     let state = table(seats, "a", &hub, tweak);
     let (mut string, taken) = string_run(&state, &hub.galaxy, want, |_| {});
     assert_eq!(string.questions.first().and_then(|q| q.context.as_ref()).map(|c| c.subtype.as_str()), Some("action_menu"));
@@ -203,25 +222,13 @@ fn the_xxcha_annexes_an_explored_planet_after_its_diplomacy_primary_like_the_str
     let (string, native) = primary_case(annex_pick(true), &SEATS);
     assert_eq!(asked_annex(&string), 1, "{:?}", string.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
     assert_same(&string, &native);
+    // The exploration really ran: the exploration decks of the position differ from the declined run's (a drawn card leaves its deck).
+    let (declined, _) = primary_case(Box::new(|c| if is_annex(c) { Some("decline".to_owned()) } else if c.context.as_ref().is_some_and(|x| x.subtype == "action_menu") { Some("strategic".to_owned()) } else { None }), &SEATS);
+    let explored = |run: &Run| -> Vec<(String, serde_json::Value)> { run.state.as_object().map(|o| o.iter().filter(|(k, _)| k.contains("explor")).map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default() };
+    assert!(!explored(&string).is_empty(), "the position keeps exploration data");
+    assert_ne!(explored(&string), explored(&declined), "the annexed planet was explored");
     assert!(string.questions.iter().any(|q| is_annex(q) && q.options.iter().any(|o| o.kind == "annex")), "the question lists planets");
     assert!(string.events.iter().any(|e| e == "STRATEGIC_ACTION_COMPLETE"), "{:?}", string.events);
-}
-
-#[test]
-fn the_xxcha_annexes_a_planet_without_a_trait_and_nothing_is_explored_like_the_string() {
-    let hub = crate::fixtures::plain_hub();
-    let any_bare = hub.outer.iter().chain(std::iter::once(&hub.centre)).flat_map(|s| planets_of(s)).any(|p| !has_trait(&p));
-    if !any_bare {
-        return; // (every planet of the hub has a trait: the exploration test covers the annexation)
-    }
-    let (string, native) = primary_case(annex_pick(false), &SEATS);
-    assert_eq!(asked_annex(&string), 1);
-    assert_same(&string, &native);
-}
-
-/// The resources a planet prints.
-fn resources_of(planet: &str) -> i64 {
-    ti4_content::galaxy::planet(ContentStore::embedded(), planet, DEFAULT).map_or(0, |p| i64::from(p.resources()))
 }
 
 #[test]
@@ -245,6 +252,39 @@ fn the_xxcha_with_integrated_economy_produces_on_the_annexed_planet_before_explo
     assert_same(&string, &native);
 }
 
+/// The Xxcha with Integrated Economy annexes a planet worth exactly `worth` resources (the budget of the production) and explores it, like the string.
+/// Returns whether the hub has such a planet with a trait.
+fn integrated_economy_on_a_planet_worth(worth: i64) -> bool {
+    let hub = explorable_hub();
+    let offered: Vec<String> = std::iter::once(&hub.centre).chain(hub.outer.iter()).flat_map(|s| planets_of(s)).collect();
+    if !offered.iter().any(|p| resources_of(p) == worth && has_trait(p)) {
+        return false;
+    }
+    let want: Want = Box::new(move |c| {
+        if c.player.as_str() == "a" && c.context.as_ref().is_some_and(|x| x.subtype == "action_menu") {
+            return Some("strategic".to_owned());
+        }
+        if is_annex(c) {
+            return c.options.iter().find(|o| o.kind == "annex" && resources_of(&o.id) == worth && has_trait(&o.id)).map(|o| o.id.clone());
+        }
+        None
+    });
+    let (string, native) = primary_case_with(want, &SEATS, |state| {
+        state.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("ie"));
+    });
+    assert_eq!(asked_annex(&string), 1);
+    let economy = string.questions.iter().filter(|q| q.prompt.starts_with("Integrated Economy on ")).count();
+    assert_eq!(economy > 0, worth > 0, "the production is offered exactly when the planet is worth resources: {:?}", string.questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
+    assert_same(&string, &native);
+    true
+}
+
+#[test]
+fn integrated_economy_on_a_planet_worth_nothing_asks_nothing_and_on_one_worth_one_asks_like_the_string() {
+    let (zero, one) = (integrated_economy_on_a_planet_worth(0), integrated_economy_on_a_planet_worth(1));
+    assert!(zero || one, "the hub has a planet worth 0 or 1 resources with a trait to test the budget's edge");
+}
+
 #[test]
 fn a_declined_annexation_changes_nothing_like_the_string() {
     let (string, native) = primary_case(Box::new(|c| if is_annex(c) { Some("decline".to_owned()) } else if c.context.as_ref().is_some_and(|x| x.subtype == "action_menu") { Some("strategic".to_owned()) } else { None }), &SEATS);
@@ -254,7 +294,7 @@ fn a_declined_annexation_changes_nothing_like_the_string() {
 
 #[test]
 fn a_follower_xxcha_annexes_after_the_diplomacy_secondary_like_the_string() {
-    let hub = crate::fixtures::plain_hub();
+    let hub = explorable_hub();
     let seats: [(&str, &str); 4] = [("a", "sol"), ("b", "xxcha"), ("c", "letnev"), ("d", "jolnar")];
     // `b`, the Xxcha, holds the hub centre's planet and one strategy token: it follows `a`'s Diplomacy.
     let mut state = crate::fixtures::seated_dealt(&seats, DEFAULT);

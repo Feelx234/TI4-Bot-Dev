@@ -1395,7 +1395,7 @@ pub fn secret_progress(pos: &Pos<'_>, obj: SecretObjective) -> Result<Option<Pro
         Family::RivalNoteIssuers => rival_note_issuers(pos.core, pos.seat()),
         // `production_in_one_system_count`: the most PRODUCTION the seat has in any one system (the string's board entries; a system with none has 0).
         Family::ProductionInOneSystem if pos.facts.terms.capacity_known => {
-            usize::try_from(pos.facts.terms.capacity.as_slice().iter().map(|(_, c)| *c).max().unwrap_or(0)).unwrap_or(0)
+            usize::try_from(pos.facts.terms.capacity.as_slice().iter().map(|(_, c)| *c).max().unwrap_or(0)).unwrap_or(0) // mutants:skip: a capacity is never negative
         }
         Family::ProductionInOneSystem => return Err(Unsupported),
         _ => return Ok(None),
