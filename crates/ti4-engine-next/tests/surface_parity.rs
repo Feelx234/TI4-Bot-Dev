@@ -322,3 +322,39 @@ fn the_fleet_strength_functions_are_the_legacy_ones() {
         }
     }
 }
+
+#[test]
+fn the_technology_reads_answer_as_the_legacy_ones_do() {
+    use ti4_model::content_types::{ContentType, FULL, POK};
+    use ti4_model::id::TechnologyId;
+    let content = content();
+    let aliases: Vec<TechnologyId> = content.records(ContentType::Technologies).iter().filter_map(|r| r.text("alias").map(TechnologyId::new)).chain([TechnologyId::new("no-such-tech")]).collect();
+    assert!(aliases.len() > 50);
+    for sources in [POK, FULL] {
+        assert_eq!(old::technology::active_aliases(content, sources), thin::queries::technology::active_aliases(content, sources));
+    }
+    let factions: Vec<String> = content.records(ContentType::Factions).iter().filter_map(|r| r.id().map(str::to_owned)).chain([String::new(), "no-such-faction".to_owned()]).collect();
+    for alias in &aliases {
+        assert_eq!(old::technology::name(content, alias), thin::queries::technology::name(content, alias), "name {alias}");
+        assert_eq!(old::technology::colour_type(content, alias), thin::queries::technology::colour_type(content, alias), "colour_type {alias}");
+        assert_eq!(old::technology::prerequisites(content, alias), thin::queries::technology::prerequisites(content, alias), "prerequisites {alias}");
+        assert_eq!(old::technology::is_unit_upgrade(content, alias), thin::queries::technology::is_unit_upgrade(content, alias), "is_unit_upgrade {alias}");
+        assert_eq!(old::technology::faction_of(content, alias), thin::queries::technology::faction_of(content, alias), "faction_of {alias}");
+        for faction in &factions {
+            assert_eq!(old::technology::replaced_for_faction(content, faction, alias), thin::queries::technology::replaced_for_faction(content, faction, alias), "replaced_for_faction {faction} {alias}");
+        }
+    }
+    for pos in positions() {
+        let mut state = pos.state.clone();
+        for player in players(&pos.state) {
+            assert_eq!(old::technology::gravity_drive_available(&state, &player), thin::queries::technology::gravity_drive_available(&state, &player));
+            let activation = state.activation_seq;
+            let seat = state.player_mut(&player).unwrap();
+            seat.technologies.insert(TechnologyId::new("gd"));
+            seat.gravity_drive_used_activation = Some(activation);
+            assert_eq!(old::technology::gravity_drive_available(&state, &player), thin::queries::technology::gravity_drive_available(&state, &player));
+            state.player_mut(&player).unwrap().gravity_drive_used_activation = None;
+            assert_eq!(old::technology::gravity_drive_available(&state, &player), thin::queries::technology::gravity_drive_available(&state, &player));
+        }
+    }
+}

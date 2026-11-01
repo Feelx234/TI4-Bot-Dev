@@ -13,3 +13,4 @@ pub mod transit;
 pub mod fleet;
 pub mod content;
 pub mod fleet_strength;
+pub mod technology;
