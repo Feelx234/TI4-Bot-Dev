@@ -30,6 +30,9 @@ pub struct MenuReport {
     pub listed: std::collections::BTreeMap<&'static str, usize>,
     /// Seats whose action cards the core could not list (a counted gap).
     pub gaps: usize,
+    /// Seats holding Signal Jamming whose menu offered it, and whose menu withheld it (its offer reads the map): both shapes compared.
+    pub jam_offered: usize,
+    pub jam_withheld: usize,
     /// Every id the core listed for the faction source, so a test can demand that each action was reached.
     pub faction_ids: std::collections::BTreeSet<String>,
     /// The first positions the core could not hold.
@@ -55,6 +58,8 @@ impl MenuReport {
         self.borrowed += o.borrowed;
         self.sling += o.sling;
         self.gaps += o.gaps;
+        self.jam_offered += o.jam_offered;
+        self.jam_withheld += o.jam_withheld;
         self.faction_ids.extend(o.faction_ids.iter().cloned());
         self.unmapped_at.extend(o.unmapped_at.iter().take(8).cloned());
         for (k, n) in &o.listed {
@@ -154,6 +159,15 @@ pub fn card_variants(base: &GameState) -> Vec<(&'static str, GameState)> {
         g.exhausted_planets.extend(g.board.values().flat_map(|s| s.planet_control.keys().cloned()).collect::<Vec<_>>());
         for seat in &mut g.players {
             seat.trade_goods = 0;
+        }
+    });
+    // Signal Jamming where no seat has a ship on the map: nothing is in reach, so the menu withholds it.
+    push("signal jamming, no ships", &|g| {
+        for b in g.board.values_mut() {
+            b.units.clear();
+        }
+        for seat in &mut g.players {
+            seat.action_cards = vec![ActionCardId::new(ActionCard::SignalJamming.as_str())];
         }
     });
     // Hands of action cards, six at a time, so every card is held somewhere, with goods and without.
@@ -339,6 +353,13 @@ pub fn check_variants(p: &Position, variants: Vec<(&'static str, GameState)>, re
                             report.count(what, core.len());
                             if what == "faction" {
                                 report.faction_ids.extend(core.iter().map(|o| o.id.clone()));
+                            }
+                            if what == "cards" && seat.action_cards.iter().any(|c| c.as_str() == "jamming") {
+                                if core.iter().any(|o| o.label.contains("Signal Jamming")) {
+                                    report.jam_offered += 1;
+                                } else {
+                                    report.jam_withheld += 1;
+                                }
                             }
                             pairs.push((what, string, core));
                         }

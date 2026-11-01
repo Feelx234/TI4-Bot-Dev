@@ -35,6 +35,7 @@ fn the_cards_and_partners_listed_reach_every_shape() {
     }
     // The core lists the action cards of every hand the variants deal (Signal Jamming was a counted gap).
     assert_eq!(report.gaps, 0, "the core lists every action card the string lists: {report:?}");
+    assert!(report.jam_offered > 0 && report.jam_withheld > 0, "Signal Jamming was compared offered and withheld: {report:?}");
 }
 
 #[test]
