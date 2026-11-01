@@ -27,8 +27,8 @@ fn env(k: &Kernel, seed: u64) -> Env<'_> {
     ti4_engine_core::driver::children::register(&mut table);
     // The activation marks of the Sardakk agent and of the Winnu are abilities of the activation window (`leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after`,
     // `ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after`), registered for both seats of these positions.
-    ti4_engine_core_factions::silent::winnu::register_abilities(&mut table);
-    ti4_engine_core_factions::silent::g3::tro_marks::register_abilities(&mut table);
+    ti4_engine_core_factions::silent::winnu::register_activation(&mut table);
+    ti4_engine_core_factions::silent::g3::tro_marks::register_activation(&mut table);
     table.codes.tactical = codes();
     let mut resolver = ti4_engine_core::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
     for seat in [Seat(0), Seat(1)] {
