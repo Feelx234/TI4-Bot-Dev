@@ -142,6 +142,7 @@ pub fn open_combat(core: &mut CoreState, k: &Kernel, system: System) -> Opened {
                 scoring: false,
                 outcome: None,
                 end_announced: false,
+                round_end_produced: None,
             };
             core.pending_mut().open(OpenWindow::Combat(Box::new(fields)));
             Opened::Fight

@@ -67,6 +67,11 @@ pub enum Ask {
     /// "research a technology": the bill in resources (the payload `cost`), the technologies the seat owns
     /// (the preview), and whether the holder may decline.
     ResearchTechnology { cost: u8, owned: u8, decline: bool },
+    /// Doctor Sucaban's offer in a paid research (`strategy_cards::doctor_sucaban`), asked to the holder of the agent (`source`'s agent, or the
+    /// holder's own Ssruu when `copied`): "exhaust to let {researcher} trade infantry for research".
+    SucabanOffer { researcher: Seat, source: Seat, copied: bool },
+    /// Doctor Sucaban's trade (`strategy_cards::trade_infantry_for_research`), asked to the researcher: "remove an infantry to reduce the cost by 1".
+    SucabanTrade,
     /// 26: "choose a strategy card" at the draft of the strategy phase.
     Draft,
     /// 82: a follower's question on the secondary of `card`, played by `primary` (every kind; Leadership's is the
@@ -109,6 +114,10 @@ pub enum Opt {
     Produce(System),
     /// Research this technology.
     Research(Technology),
+    /// Doctor Sucaban's offer is taken: exhaust the agent (the answer `yes`).
+    Exhaust,
+    /// Doctor Sucaban's trade: remove an infantry of the researcher from this space area (`planet` is `None`) or planet (the answer `system:planet`).
+    Infantry { system: System, planet: Option<Planet> },
     /// The draft takes this card off the mat.
     Card(StrategyCard),
     /// A follower does not use the secondary (`no`).
@@ -143,6 +152,12 @@ pub enum Subtype {
     PlaceStructurePdsAlternative,
     ImperialScoreObjective,
     ResearchTechnology,
+    /// `doctor_sucaban_exhaust`.
+    SucabanExhaust,
+    /// `doctor_sucaban_borrowed_exhaust`.
+    SucabanBorrowedExhaust,
+    /// `doctor_sucaban_remove_infantry`.
+    SucabanRemoveInfantry,
     /// A follower's question (Leadership's is `BuyTokenWithInfluence`).
     FollowSecondary,
     ConstructionChooseAbility,
@@ -155,6 +170,12 @@ pub enum Subtype {
 #[must_use]
 pub fn ctx(card: StrategyCard, secondary: bool, subtype: Subtype) -> Ctx {
     ctx_from(Origin::StrategyCard { card, secondary }, subtype)
+}
+
+/// The context of a question a leader's ability raises inside a strategy card (`DecisionSource::Content` of the leader).
+#[must_use]
+pub fn leader_ctx(leader: crate::generated::Leader, subtype: Subtype) -> Ctx {
+    ctx_from(Origin::Content(super::generic::Content::Leader(leader)), subtype)
 }
 
 /// The context of a question a rule raises inside a strategy card (`DecisionSource::Rule`).

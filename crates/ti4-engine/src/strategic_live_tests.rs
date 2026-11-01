@@ -534,8 +534,6 @@ fn native_action(faction: &str, others: [&str; 3], card: &str) -> usize {
             live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::MenuSources))) => true,
             // A loud row of the silent-ability audit (`silent::gaps`, lanes G3 / M6d): a counted gap of the live path, owned by the lane that ports it.
             live::Stop::Live(LiveError::Unknown(Unknown::AbilityGap(_))) => true,
-            // Doctor Sucaban's offer in a research (the Jol-Nar agent readied at the table, infantry on the board) is not ported: counted.
-            live::Stop::Live(LiveError::Unknown(Unknown::TurnGap(TurnGap::StrategyAbility))) => card.contains("technology") && (faction == "jolnar" || others.contains(&"jolnar")),
             _ => false,
         }
     };

@@ -382,36 +382,6 @@ fn a_game_that_ended_during_the_free_action_asks_for_no_redistribution() {
     assert_eq!(live, Live::Done);
 }
 
-// -- what the string asks in a research that the core window does not carry ---------------------------------------------------------
-
-/// Doctor Sucaban (the Jol-Nar agent readied at the table) is offered to a seat that researches with infantry on the board: the core window does
-/// not ask it, so the follow is not carried (`Began::Unsupported`, a counted gap) instead of researching without the offer. Found by the shadow behind a
-/// real game, where the string asked "Doctor Sucaban: exhaust to let a trade infantry for research".
-#[test]
-fn a_research_the_string_would_ask_doctor_sucaban_about_is_not_carried() {
-    use ti4_engine_core::driver::windows::strategic::facts::research_asks_more;
-    use ti4_engine_core::state::LeaderStatus;
-    let planet = ti4_engine_core_tests::scenario::first_planet();
-    let build = |infantry: usize| {
-        Scenario::new(&[Faction::TheFederationOfSol, Faction::TheXxchaKingdom, Faction::TheUniversitiesOfJolNar])
-            .unit(planet.0, Some(planet.1), Unit::InfantryI, 1, infantry)
-            .build()
-            .0
-    };
-    let mut s = build(1);
-    let agent = |s: &mut CoreState, st| {
-        s.players_mut().by_seat_mut(Seat(2)).unwrap().leaders.status.insert(Leader::DoctorSucaban, st);
-    };
-    agent(&mut s, LeaderStatus::Readied);
-    assert!(research_asks_more(&s, Seat(1)), "the agent is readied and the seat has infantry to trade");
-    assert!(!research_asks_more(&s, Seat(0)), "a seat without infantry on the board has nothing to trade");
-    agent(&mut s, LeaderStatus::Exhausted);
-    assert!(!research_asks_more(&s, Seat(1)), "an exhausted agent asks nothing");
-    let mut none = build(0);
-    agent(&mut none, LeaderStatus::Readied);
-    assert!(!research_asks_more(&none, Seat(1)));
-}
-
 // -- what the windows record, route and refuse (found by the mutation run) -------------------------------------------------------------
 
 #[test]
@@ -632,19 +602,6 @@ fn an_xxcha_follower_with_nothing_to_annex_goes_on() {
     let Live::Asks(ready) = live else { panic!("the ready question") };
     let r = advance_secondary(&mut s, &e, ready.choice.pick(0));
     assert!(!matches!(r, Err(LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::TurnGap(ti4_engine_core::kernel::turn_codes::TurnGap::PeaceAccords)))), "{r:?}");
-}
-
-#[test]
-fn a_yssaril_agent_copying_the_jolnar_agent_is_doctor_sucaban_too() {
-    use ti4_engine_core::driver::windows::strategic::facts::research_asks_more;
-    use ti4_engine_core::state::LeaderStatus;
-    let planet = ti4_engine_core_tests::scenario::first_planet();
-    let (mut s, _) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheYssarilTribes, Faction::TheUniversitiesOfJolNar]).unit(planet.0, Some(planet.1), Unit::InfantryI, 0, 1).build();
-    s.players_mut().by_seat_mut(Seat(1)).unwrap().leaders.status.insert(Leader::Ssruu, LeaderStatus::Readied);
-    assert!(research_asks_more(&s, Seat(0)), "Ssruu may copy Doctor Sucaban while a Jol-Nar sits at the table");
-    let (mut s, _) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheYssarilTribes, Faction::TheArborec]).unit(planet.0, Some(planet.1), Unit::InfantryI, 0, 1).build();
-    s.players_mut().by_seat_mut(Seat(1)).unwrap().leaders.status.insert(Leader::Ssruu, LeaderStatus::Readied);
-    assert!(!research_asks_more(&s, Seat(0)), "no Jol-Nar agent to copy");
 }
 
 #[test]

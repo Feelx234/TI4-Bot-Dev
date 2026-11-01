@@ -106,6 +106,7 @@ fn fields(s: &CoreState) -> Fields {
         scoring: false,
         outcome: None,
         end_announced: false,
+        round_end_produced: None,
     }
 }
 
@@ -697,7 +698,7 @@ fn neutral_fight(show: bool, seed: u64) -> Fight {
     let mut env = env_of(&NEUTRAL_KINDS);
     env.defender = Seat(2);
     env.show_neutral = show;
-    let mut fight = Fight { state, kernel, env, fields: Fields { step: Step::Opening { round: 1 }, phase: Phase::Round, resuming: false, pending_retreats: vec![], offered: vec![], damaged: vec![], fled: vec![], at_start: vec![], scoring: false, outcome: None, end_announced: false }, seed, events: vec![], drawn: 0, questions: vec![], stop: None, settles: 0, pause_at_scoring: false, pauses: 0 };
+    let mut fight = Fight { state, kernel, env, fields: Fields { step: Step::Opening { round: 1 }, phase: Phase::Round, resuming: false, pending_retreats: vec![], offered: vec![], damaged: vec![], fled: vec![], at_start: vec![], scoring: false, outcome: None, end_announced: false, round_end_produced: None }, seed, events: vec![], drawn: 0, questions: vec![], stop: None, settles: 0, pause_at_scoring: false, pauses: 0 };
     let fleet = |seat: Seat| fight.state.board().sys(sys()).units.iter().filter(|p| p.owner() == seat).map(|p| p.kind()).collect::<Vec<_>>();
     fight.fields.at_start = vec![(Seat(0), fleet(Seat(0))), (Seat(2), fleet(Seat(2)))];
     fight
@@ -898,4 +899,40 @@ fn a_lone_ship_is_not_lost_to_a_hit_a_card_cancelled() {
     rig.run();
     let lost = rig.driver.emitted.iter().take_while(|e| e.kind != EventKind::SpaceCombatRoundEnded).filter(|e| e.kind == EventKind::ShipDestroyed).count();
     assert_eq!(lost, 0, "the cancelled hit took nothing");
+}
+
+/// H4: the round whose end-of-round hits (Devotion) were produced is a field of the window, not of the machine: the live loop rebuilds the machine at
+/// every call, so a guard kept in the object would be lost at the next question and the hits asked again in the same round.
+#[test]
+fn the_round_whose_end_hits_were_produced_is_kept_in_the_window_fields() {
+    covers!("rules::combat::machine::Machine");
+    let base = || arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 3).unit(sys(), None, Unit::CruiserI, 1, 3);
+    let mut e = env();
+    e.devotion = true;
+    // A round that ends with the hits produced: the window remembers which round it was.
+    let mut fight = Fight::new(base(), e.clone(), 3);
+    assert_eq!(fight.fields.round_end_produced, None);
+    fight.fields.step = Step::Retreating { round: 1, leaving: vec![] };
+    let (state, kernel) = (fight.state.clone(), fight.kernel.clone());
+    let mut rig = Rig::from_parts(state, kernel, Machine::new(e.clone(), fight.fields.clone())).seeded(3);
+    rig.run();
+    Fight::answer_all(&mut rig, Policy::First, &mut Vec::new());
+    assert_eq!(rig.driver.window.fields.round_end_produced, Some(1), "the produced round is written to the fields the loop keeps");
+    // Without Devotion in the game nothing is produced and nothing is remembered.
+    let mut off = Fight::new(base(), env(), 3);
+    off.fields.step = Step::Retreating { round: 1, leaving: vec![] };
+    let (state, kernel) = (off.state.clone(), off.kernel.clone());
+    let mut rig = Rig::from_parts(state, kernel, Machine::new(env(), off.fields.clone())).seeded(3);
+    rig.run();
+    Fight::answer_all(&mut rig, Policy::First, &mut Vec::new());
+    assert_eq!(rig.driver.window.fields.round_end_produced, None);
+    // A machine rebuilt from fields that name the round does not produce again: the field survives the rebuild (`Machine::new(env, fields)`).
+    let mut again = Fight::new(base(), e.clone(), 3);
+    again.fields.step = Step::Retreating { round: 1, leaving: vec![] };
+    again.fields.round_end_produced = Some(1);
+    let (state, kernel) = (again.state.clone(), again.kernel.clone());
+    let mut rig = Rig::from_parts(state, kernel, Machine::new(e, again.fields.clone())).seeded(3);
+    rig.run();
+    Fight::answer_all(&mut rig, Policy::First, &mut Vec::new());
+    assert_eq!(rig.driver.window.fields.round_end_produced, Some(1));
 }

@@ -89,7 +89,11 @@ pub fn env_of(core: &CoreState, k: &Kernel, t: &CombatTexts, fields: &Fields, oc
         unit_codes: t.unit_codes.clone(),
         shown_codes: t.shown_codes.clone(),
         barrage_extra_shown: t.barrage_extra_shown,
-        jolnar: both.map(|s| core.players().by_seat(s).is_some_and(|p| p.leaders.status.get(&crate::generated::Leader::AgnlanOln) == Some(&crate::state::LeaderStatus::Unlocked))),
+        // (`promissory::has_commander_ability` of `jolnarcommander`: the own unlocked commander, a durable grant, Mahact's Imperia and a faceup Alliance.)
+        jolnar: both.map(|s| {
+            let commander = crate::generated::Leader::AgnlanOln;
+            crate::query::leaders::has_commander_ability_with(core, s, commander, || k.hooks.direct.mahact_imperia_grants(core, s, commander))
+        }),
         roll_unported: false,
         munitions_after: both.map(|s| core.meta().rules_at_least(RULES_MUNITIONS_AFTER_ROLL) && has(s, Ability::MunitionsReserves)),
         munitions_start: both.map(|s| !core.meta().rules_at_least(RULES_MUNITIONS_AFTER_ROLL) && has(s, Ability::MunitionsReserves)),

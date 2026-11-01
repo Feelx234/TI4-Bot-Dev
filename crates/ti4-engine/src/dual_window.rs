@@ -4250,6 +4250,7 @@ pub fn fields_of(a: &FieldsIn, r: &Render) -> Option<ti4_engine_core::state::Com
             None => None,
         },
         end_announced: a.end_announced,
+        round_end_produced: None,
     })
 }
 

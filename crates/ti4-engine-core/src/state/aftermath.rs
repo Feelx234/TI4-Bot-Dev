@@ -156,4 +156,7 @@ pub struct CombatFields {
     /// `Stage::Done(outcome)`: the winner and the rounds fought.
     pub outcome: Option<(Option<Seat>, u32)>,
     pub end_announced: bool,
+    /// The round whose end-of-round hits (Devotion) were produced already: the flow goes on to the end of that round. The string keeps no such
+    /// field (its stages move on by themselves); the live machine is rebuilt at every call, so the guard lives with the window.
+    pub round_end_produced: Option<u32>,
 }
