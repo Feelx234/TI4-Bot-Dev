@@ -8,6 +8,12 @@ description = "The product-facing engine crate. Facade stage: re-exports ti4-eng
 [dependencies]
 # Facade stage: the engine itself. Becomes optional (`lend-string`) in D2-8/D2-9.
 ti4-engine-legacy.workspace = true
+# ---- lane C (native setup, D2-8c): what the setup and the position builders read and write. ----
+ti4-model.workspace = true
+ti4-content.workspace = true
+thiserror.workspace = true
+# Only `random_range` of the speaker draw (setup); same spec as the legacy crate: no getrandom.
+rand = { version = "0.9", default-features = false }
 
 # New features go on `ti4-engine-legacy` AND are forwarded here (a dependent that uses `--features ti4-engine/x` needs them).
 [features]
@@ -24,6 +30,9 @@ string-exploration = ["ti4-engine-legacy/string-exploration"]
 string-strategy = ["ti4-engine-legacy/string-strategy"]
 string-action-cards = ["ti4-engine-legacy/string-action-cards"]
 string-agenda = ["ti4-engine-legacy/string-agenda"]
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [lints]
 workspace = true
