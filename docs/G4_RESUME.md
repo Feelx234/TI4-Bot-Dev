@@ -41,10 +41,27 @@ Before: `combat_live::{a_space_fight_of_each_faction..., a_won_invasion_with_a_s
 **Still open (3 tests)**: `combat_live::{a_space_fight_of_each_faction_runs_native_without_a_bail_and_as_the_string_does, an_undefended_system_with_a_space_dock_goes_on_to_the_production_step_in_lockstep}`, `tactical_live::a_tactical_action_of_each_faction_runs_native_without_a_bail_and_as_the_string_does`,
 each stopping at `AbilityGap` of a lane M6d row only: the Arborec flagship (`41018` before G4's deletions), Titans flagship / Awaken, the Nomad's Mercer. They pass when M6d's rows merge.
 
-## Checks (see the report for the numbers)
+## Checks (cheap only)
 
-Private `CARGO_TARGET_DIR=/root/deploytmp/core-g4`, `CARGO_BUILD_JOBS=2`, no debug info, incremental removed after each build. Core tests: `-p ti4-engine-core-tests --test g4_abilities`. Engine: `-p ti4-engine --lib -- silent4 ability_audit reactions_core render::silent4` plus the harness files
-(`combat_live_g4_tests.rs`, `invasion_live_g4_tests.rs`, `silent4_live_tests.rs`, each an `include!` / module of its harness).
+Private `CARGO_TARGET_DIR=/root/deploytmp/core-g4`, `CARGO_BUILD_JOBS=2`, no debug info, incremental removed after each build (deleted at the end).
+
+* `cargo test -p ti4-engine --lib` (whole): 5069 passed, 3 failed, 4 ignored (337 s); the same with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1`: 5069 passed, the same 3 failed (636 s). The 3 are the M6d-owned acceptance tests above.
+* `ti4-engine-core --lib` 474, `ti4-engine-core-factions --lib` 146, `ti4-engine-core-bridge --lib` 95 and `--test kernel_env` 3; `ti4-engine-core-tests --test g2_abilities` (25) `g3_abilities` (40) `silent_abilities` (10) `g4_abilities` (28) `turn_jobs` (18): all green.
+* `tools/engine_core/check_layers.py core`: 527 files, 0 violations; `lint_core.sh`: 529 files, 0 hits.
+* Mutation (`tools/engine_core/mutants.sh`, `D4_COVERS_FILE=/dev/null`, a scratch worktree at the committed snapshot, the target dirs deleted after): `silent/g4/` 209 points (207 run, 2 not compilable under the switch): the core tests (`g4_abilities`) alone kill 189; the
+  engine lockstep (`silent4_live_tests`, the `combat_live` / `invasion_live` G4 tests, the registry and audit tests, `render::silent4`) alone kill 166; **the union leaves no survivor**. Found and fixed on the way: guards repeated by an effect (Propagation, the Magen hit, Iconoclast, the
+  placement), the Foresight adjacency (links, blocked borders, extra wormholes, either end of a link; a token count of exactly one; an event without the count of ships), the hit event's damaged / galvanized flags and the Spec Ops II count, Stymie's staged event (module seated or not),
+  the context flags of Spy Net's question. Named equivalent with `// mutants:skip (why)`: the `<=` of a border's normalisation, the no-galaxy answer, the cards-in-play flag of `can_enter`, the unused default of a missing cost / box / list, infantry having no plastic limit (the Spinner's box is never empty).
+  `render/silent4.rs`: 10 points, 9 killed, 1 not compilable.
+* Not run: golden / wide dual sweeps, benches, soak, the mutation ratchet, census, workspace clippy, the full D4 crate, the shadow, the other 140 `ti4-engine-core-tests` binaries.
+
+## Findings
+
+* The staged events of an effect (`STRATEGY_TOKEN_SPENT`, `COMMAND_TOKEN_PLACED`) are announced by the native arms with the next emission, the string's step announces them at the start of the next step: the combat harness' comparison leaves `STRATEGY_TOKEN_SPENT` out like Farran's
+  staged gain (and drops the string's staged mark of it). A card moved by an ability (`CardsStaged` rows: Spy Net, So Ata, Kyver, Mageon) is announced by NOBODY natively: the host's next step (`announce_staged_card_events`) turns the rows into `ACTION_CARD_TAKEN` / `ACTION_CARD_DISCARDED`
+  and moves the discard to the pile. If the host is to be the core alone, a native consumer of the rows is needed (the pile is not written by `fx::discard_action_card_staged` either).
+* G2 and G3 numbered their slots from `42_000` alike; the G2 slots are `43_000..` now.
+* `Unit::as_str` and the string unit ids agree for the factionless mech (`mech`) -- not for every faction unit: the question texts use `as_str` of the typed unit, as the G3 renderer does.
 
 ## Not done: the research window's waiver and payment questions (Riftmeld, and Yin's Brother Omar with it)
 
