@@ -184,7 +184,7 @@ fn peace_accords(sx: &mut Sx<'_>, who: Seat) -> Flow {
         return Flow::Halt;
     }
     let Some(deck) = traits_now(sx.state, crate::query::reach::scope_of(sx.kernel), planet).as_slice().first().copied() else { return Flow::Done };
-    let mut exploring = Exploring::planet(who, planet, EDeck::Fixed(deck), false);
+    let mut exploring = Exploring::planet(who, planet, EDeck::Fixed(deck), false); // mutants:skip: `true` announces PLANET_EXPLORED, which only Titans' Terragenesis hears (and its exploration is refused as unsupported)
     if run_window(sx, &mut exploring) == Flow::Halt {
         return Flow::Halt;
     }
@@ -202,7 +202,7 @@ fn integrated_economy(sx: &mut Sx<'_>, who: Seat, system: System, planet: crate:
     use crate::rules::production::{self, triggered::EconomyWindow, Cx as ProdCx};
     let (scope, blanked) = (crate::query::reach::scope_of(sx.kernel), crate::query::reach::blanked(sx.state));
     let budget = production::planet_value(&ProdCx::new(sx.state, sx.kernel, scope, blanked), who, planet, Spend::Resources);
-    if budget <= 0 {
+    if budget <= 0 { // mutants:skip: a budget of nothing ends the window without a question and the enforcement asks only when a form is over
         return Flow::Done;
     }
     let Some(roster) = sx.table.facts.plays.as_ref().and_then(|p| p.roster) else { return gap_flow(sx, TurnGap::NoRoster) };
