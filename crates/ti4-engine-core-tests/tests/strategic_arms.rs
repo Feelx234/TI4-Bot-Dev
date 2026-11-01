@@ -715,6 +715,27 @@ fn war_machines_bonus_does_not_make_the_technology_secondary_affordable() {
     assert!(!eligible(1, true), "nor does it top up one trade good");
 }
 
+/// Integration 17 (lane N's `technology_secondary_affordable` made to use lane Q's `production::payable`): the Triad is spent as a planet card in a
+/// production step, not in the string's `payment::affordable`, so it is no way to pay the Technology secondary either (N subtracted War Machine's bonus
+/// only and the Triad stayed in the pool: three resources and one trade good "paid" the four).
+#[test]
+fn the_triad_does_not_make_the_technology_secondary_affordable() {
+    use ti4_engine_core::driver::windows::strategic::facts::follower_facts;
+    let eligible = |goods: i16, triad: bool| {
+        let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheArborec]).phase(Phase::Action).active(Some(0)).build();
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::Technology);
+        s.players_mut().by_seat_mut(Seat(1)).unwrap().econ.trade_goods = goods;
+        s.players_mut().by_seat_mut(Seat(1)).unwrap().econ.strategic_tokens = 2;
+        if triad {
+            s.players_mut().by_seat_mut(Seat(1)).unwrap().cards.relics.push(Relic::TheTriad);
+        }
+        follower_facts(&s, &k, Seat(0), StrategyCard::Technology, Seat(1)).eligible
+    };
+    assert!(eligible(4, true), "four trade goods pay the four resources, the Triad standing or not");
+    assert!(!eligible(0, true), "the Triad alone pays nothing");
+    assert!(!eligible(1, true), "nor does it top up one trade good");
+}
+
 // -- Xxcha's Peace Accords and the Ssruu copy of Doctor Sucaban -----------------------------------------------------------------------------
 
 /// Xxcha at seat 1 controls and has exhausted `pa`; `pb` stands in the next system, uncontrolled (and controlled by seat 0 when `taken`).
