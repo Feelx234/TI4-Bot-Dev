@@ -1285,10 +1285,12 @@ mod tests {
         assert_eq!(native.get("phase"), Some(&26), "the phases flipped: strategy to action, action to status, status to strategy, eight times over, and the last into the action phase: {native:?}");
         assert!(native.get("turn_prelude").copied().unwrap_or(0) >= 1, "{native:?}");
         assert_eq!(played.matrix.total_gaps(), 0, "one game, no gap");
-        // (1,174 steps in lane K; the follower windows lane J holds open close in a step of their own: 24 more steps, the same position and fingerprint.)
-        assert_eq!((played.rounds, played.steps), (9, 1269), "nine rounds of the table");
+        // (1,174 steps in lane K; the follower windows lane J holds open close in a step of their own: 24 more steps, the same position and fingerprint;
+        // lane P's ruling on the order of the reactions changed the game (1,269); integration 16: lane N's Technology secondary is no longer offered to
+        // a seat whose only pool is War Machine's bonus (a question the string never asks): 1,165 steps, lane N's own fingerprint.)
+        assert_eq!((played.rounds, played.steps), (9, 1165), "nine rounds of the table");
         assert!(native.get("tokens").copied().unwrap_or(0) >= 8 && native.get("status").copied().unwrap_or(0) >= 8, "the status phases ran natively, their close included: {native:?}");
-        assert_eq!(played.fingerprint, "24b0d67462f4772b");
+        assert_eq!(played.fingerprint, "74d5675ac754ac81");
         assert_eq!(g.step(), Step::Finished, "a finished game stops the loop");
     }
 
@@ -1645,19 +1647,23 @@ mod tests {
         assert!(!g.asks(), "the status phase asks nothing of its own");
     }
 
-    /// Lane P: the quick game's shadow runs 293 legacy steps with no difference, then step 448 (the follower window of the Technology card: native asks seat
-    /// `c`, the string asks `d`). Integration 15 pinned the nested events of a reaction card in the production window here (step 408; fixed in lane P, the
-    /// aftermath chain mirrors every emission of its sub-windows, `Out::journal`); the game itself moved on with the ruling on S1 (the active player first,
-    /// then initiative order). Pinned so that the day the follower difference is fixed this test fails as written and is replaced.
+    /// The quick game's shadow runs 589 legacy steps with no difference, then step 862 (the aftermath of a space combat won: the string's step ends
+    /// after `SPACE_COMBAT_RESOLVED` without a question, the native step goes on to ask `commit ground forces in 38`; the legacy events are exactly the
+    /// head of the native ones, so the string asks the commitment in its NEXT step: a split of the step in the harness' grouping, not a difference of the
+    /// game; the catch-up loop of `shadow_play` only steps the string again over a step that SAYS nothing). Lane P pinned the follower window of the
+    /// Technology card here (step 448: native asked seat `c`, the string `d`); integration 16 merged lane N, whose War Machine fix
+    /// (`technology_secondary_affordable` subtracts the bonus) removes exactly that question: the string never asked it. Pinned so that the day the
+    /// harness learns the split this test fails as written and is replaced.
     #[test]
-    fn the_shadow_run_agrees_with_the_legacy_game_up_to_the_known_follower_window_of_the_technology_card() {
+    fn the_shadow_run_agrees_with_the_legacy_game_up_to_the_known_split_of_the_commitment_step() {
         let shadowed = shadow_play(&lobby_spec("sol", 4, 1), 2_000, 50).expect("builds");
         assert!(shadowed.compared >= 8, "the draft was compared step by step: {}", shadowed.compared);
-        assert_eq!(shadowed.compared, 293, "no difference in the first 293 legacy steps");
-        let d = shadowed.first_difference.expect("the follower window");
-        assert_eq!((d.step, d.what, d.path.as_str()), (448, "questions", "[0].player"), "{d}");
-        assert_eq!(d.arms, ["secondary"], "{d}");
-        assert_eq!((d.native.as_str(), d.legacy.as_str()), ("\"c\"", "\"d\""), "{d}");
+        assert_eq!(shadowed.compared, 589, "no difference in the first 589 legacy steps");
+        let d = shadowed.first_difference.expect("the split step");
+        assert_eq!((d.step, d.what, d.path.as_str()), (862, "questions", "[0]"), "{d}");
+        assert_eq!(d.arms, ["aftermath"], "{d}");
+        assert!(d.native.contains("commit ground forces in 38"), "{d}");
+        assert_eq!(d.legacy, "<absent>", "{d}");
         assert_eq!(d.known, None, "not a known string bug");
     }
 
