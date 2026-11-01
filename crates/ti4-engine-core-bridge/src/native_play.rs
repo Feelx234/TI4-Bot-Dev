@@ -946,6 +946,13 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
         eprintln!("  legacy: answered {:?} -> asked {:?}", asked.iter().map(|a| a.chosen.as_str()).collect::<Vec<_>>(), records.iter().map(|r| (r.player.as_str().to_owned(), r.prompt.clone(), r.chosen.clone())).collect::<Vec<_>>());
         eprintln!("  legacy events: {events:?}");
         eprintln!("  native events: {:?}", group.iter().flat_map(|p| p.events.iter()).collect::<Vec<_>>());
+        // The legacy position BEFORE the compared step, for a closer look (`TI4_NATIVE_PLAY_DUMP=<dir>`).
+        if let Some(dir) = std::env::var_os("TI4_NATIVE_PLAY_DUMP") && let Ok(json) = serde_json::to_string(base) {
+            let _ = std::fs::write(std::path::Path::new(&dir).join(format!("base-{}.json", native.steps)), json);
+            if let Ok(after) = serde_json::to_string(&legacy.state_json()) {
+                let _ = std::fs::write(std::path::Path::new(&dir).join(format!("after-{}.json", native.steps)), after);
+            }
+        }
     }
     let _ = (legacy.decisions_since(), legacy.events_since());
     let last = group.last()?;
