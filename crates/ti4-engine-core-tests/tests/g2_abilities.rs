@@ -19,6 +19,8 @@ fn table() -> AbilityTable {
     ti4_engine_core_factions::silent::register_before_movement(&mut t);
     ti4_engine_core_factions::silent::register_before_muaat(&mut t);
     ti4_engine_core_factions::silent::register_abilities(&mut t);
+    // The note of the activation is an ability of the activation window (`activation::register` registers it in the string's module order).
+    ti4_engine_core_factions::silent::winnu::register_activation(&mut t);
     t
 }
 

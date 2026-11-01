@@ -14,6 +14,8 @@ fn table() -> AbilityTable {
     ti4_engine_core_factions::silent::register_before_movement(&mut t);
     ti4_engine_core_factions::silent::g3::register_after_ca_combat(&mut t);
     ti4_engine_core_factions::silent::register_abilities(&mut t);
+    // T'ro's mark of the activation is an ability of the activation window (`activation::register` registers it in the string's module order).
+    ti4_engine_core_factions::silent::g3::tro_marks::register_activation(&mut t);
     // (Every card is a name of its own: the printed-name groups a draw's discard question lists.)
     t.facts.card_groups = (0..ti4_engine_core::generated::ActionCard::COUNT).map(|i| u8::try_from(i).unwrap_or(u8::MAX)).collect();
     t

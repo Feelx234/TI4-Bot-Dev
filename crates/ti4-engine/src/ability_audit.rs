@@ -14,6 +14,7 @@ mod tests {
         /// Out of the agreed content, by decision.
         Dropped(&'static str),
         /// Done another way (a hook, a mark the native windows read).
+        #[allow(dead_code, reason = "lane R turned the last two (the activation marks of the Sardakk agent and the Winnu) into rules of the table; a rule carried by a hook lists it here again")]
         Carried(&'static str),
         /// A rule on another lane's branch, not merged here yet: delete the line when that branch merges (the test fails when it does).
         #[allow(dead_code, reason = "no lane is unmerged at the moment (integration 12 merged M6c and M1); a branch that carries a rule not yet merged lists it here")]
