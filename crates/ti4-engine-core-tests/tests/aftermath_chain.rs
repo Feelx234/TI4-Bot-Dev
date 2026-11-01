@@ -475,7 +475,10 @@ fn an_event_a_reaction_emits_inside_another_is_mirrored_after_its_parent_by_the_
     env.registry = Cow::new(resolver.registry().clone());
     env.table.add(
         Spec::new(Slot(1), AbilityKind::Ability, EventKind::ProductionUsed, Relation::After, |e| {
-            e.emit(ti4_engine_core::kernel::fx::event(EventKind::ActionCardPlayed, Payload::new()))?;
+            // Two events of ONE kind: each is mirrored as it ended, with its own payload (the seat), not as the last one of that kind.
+            for seat in [Seat(0), Seat(1)] {
+                e.emit(ti4_engine_core::kernel::fx::event(EventKind::ActionCardPlayed, Payload::new().with(ti4_engine_core::state::Key::Player, ti4_engine_core::state::Val::Seat(seat))))?;
+            }
             Ok(())
         })
         .optional(),
@@ -489,6 +492,28 @@ fn an_event_a_reaction_emits_inside_another_is_mirrored_after_its_parent_by_the_
     let typed: Vec<EventKind> = core.ledger().events.iter().filter_map(|e| if let Emit::Typed(t) = e { Some(t.kind) } else { None }).collect();
     let at = |kind| typed.iter().position(|k| *k == kind).unwrap_or_else(|| panic!("{kind:?} in {typed:?}"));
     assert_eq!(at(EventKind::ActionCardPlayed), at(EventKind::ProductionUsed) + 1, "the card follows its parent: {typed:?}");
+    let players: Vec<Option<Seat>> = core
+        .ledger()
+        .events
+        .iter()
+        .filter_map(|e| if let Emit::Typed(t) = e { Some(t) } else { None })
+        .filter(|t| t.kind == EventKind::ActionCardPlayed)
+        .map(|t| t.payload.seat(ti4_engine_core::state::Key::Player))
+        .collect();
+    assert_eq!(players, [Some(Seat(0)), Some(Seat(1))], "each nested event is mirrored with its own payload, in order");
+}
+
+/// The chain hands its sub-windows the position's initiative order (the order the ruling of S1 offers the other seats in): a seat that holds the first
+/// strategy card is first of the others.
+#[test]
+fn the_chain_syncs_the_resolver_with_the_initiative_order_of_the_position() {
+    covers!("driver::windows::chain::AftermathChain");
+    let (mut core, _k) = dock_arena();
+    core.strategy_mut().initiative_overrides.insert(Seat(1), 1);
+    core.strategy_mut().initiative_overrides.insert(Seat(0), 2);
+    assert!(core.pending().resolver.initiative.is_empty(), "nothing set the order before");
+    ti4_engine_core::driver::windows::chain::sync_initiative(&mut core);
+    assert_eq!(core.pending().resolver.initiative.as_slice(), &[Seat(1), Seat(0)]);
 }
 
 /// The string asks AI Development Algorithm's question INSIDE the step (before it emits `PRODUCTION_USED`) and mirrors its timing log when the step

@@ -126,7 +126,7 @@ pub fn journal_recs(resolver: &Resolver, from: usize) -> Vec<EventRec> {
                 .rev()
                 .find(|e| e.id == *id && e.kind == *kind)
                 .cloned()
-                .unwrap_or(EventRec { id: *id, kind: *kind, payload: Payload::new(), cancelled: false });
+                .unwrap_or(EventRec { id: *id, kind: *kind, payload: Payload::new(), cancelled: false }); // mutants:skip: a trace line of a failed emission has no journal entry; the bare name is the string's too
             out.push(rec);
         }
     }
