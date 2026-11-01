@@ -609,9 +609,9 @@ fn seat_more(gs: &GameState, player: &ti4_model::id::PlayerId, sources: &ti4_mod
             Some(ti4_engine_core::generated::Unit::DreadnoughtI),
             crate::factions::crimson_cards::held_on_card(gs, content, sources.clone(), player, "dreadnought"),
         ),
-        // The plain mech; a Naaz seat's is a unit whose placement the string announces (a bail: no unit).
+        // The plain mech; a Naaz seat's is the Eidolon, which announces itself when placed (`fx::stage_naaz_mech_placed`).
         mech: (
-            (faction != "naaz").then(|| <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id("mech")).flatten(),
+            if faction == "naaz" { Some(ti4_engine_core::generated::Unit::Eidolon) } else { <ti4_engine_core::generated::Unit as crate::generated::IdStr>::from_id("mech") },
             crate::factions::crimson_cards::held_on_card(gs, content, sources.clone(), player, "mech"),
         ),
         pds: one(crate::action_cards_view::placed(gs, player, sources, "pds")?),

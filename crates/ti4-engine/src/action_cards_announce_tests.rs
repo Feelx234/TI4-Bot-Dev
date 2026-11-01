@@ -396,16 +396,36 @@ fn intercept_bars_the_retreat_of_the_other_combatants_in_the_core_window() {
     let _ = crate::dual::take_report();
 }
 
-/// Bail: Intercept at a table with a Naaz or Nekro seat (units that fight from a planet are the combat rules').
+/// Lane K: Intercept at a table with a Naaz or Nekro seat is the core's (the units that fight from a planet are `ships_of`'s, shared with the combat
+/// rules), in lockstep; a Nekro seat whose Alastor chose ground forces is a combatant and is barred from retreating.
 #[test]
-fn bail_intercept_at_a_table_with_a_nekro_seat_keeps_the_string_announcement() {
+fn intercept_at_a_table_with_a_nekro_seat_is_the_cores_and_counts_the_alastors_choice() {
     let _serial = crate::dual::tests::serial();
+    let (b, c) = (PlayerId::new("b"), PlayerId::new("c"));
     let _ = crate::dual::take_report();
     let mut state = question_position();
     state.players[2].faction = ti4_model::id::FactionId::new("nekro");
-    state.active_system = Some(ti4_model::id::SystemId::new("33"));
-    let _ = played(state, "intercept");
-    assert_eq!(windows("action_cards::announce"), (0, 1));
+    let sys = ti4_model::id::SystemId::new("33");
+    state.active_system = Some(sys.clone());
+    state.combat_round_seq = 3;
+    state.system_mut(&sys).units.push(unit("cruiser", &b));
+    let after = played(state.clone(), "intercept");
+    assert_eq!(after.player(&b).unwrap().retreat_barred_round, Some(3));
+    assert_compared_clean(1);
+    let _ = crate::dual::take_report();
+    // `c` (the Nekro seat) fights from a planet of the system with the three infantry its Alastor chose, and has no ship there.
+    use crate::generated::IdStr;
+    let planet = ti4_engine_core::generated::Planet::ALL
+        .iter()
+        .find(|p| p.data().system.is_some_and(|s| s.as_str() == "33"))
+        .map(|p| ti4_model::id::PlanetId::new(p.as_str()))
+        .expect("system 33 has a planet");
+    state.system_mut(&sys).planet_units.entry(planet.clone()).or_default().extend((0..3).map(|_| unit("infantry", &c)));
+    state.faction_marks.insert(format!("nekro:alastor|{}|{}|c|{}|infantry", state.activation_seq, sys, planet), "3".to_owned());
+    let after = played(state, "intercept");
+    assert_eq!(after.player(&c).unwrap().retreat_barred_round, Some(3), "the Alastor's ground forces make `c` a combatant");
+    assert_eq!(after.player(&b).unwrap().retreat_barred_round, Some(3));
+    assert_compared_clean(1);
     let _ = crate::dual::take_report();
 }
 

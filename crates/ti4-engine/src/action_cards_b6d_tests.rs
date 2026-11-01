@@ -2211,9 +2211,9 @@ fn bail_experimental_battlestation_where_the_sustain_offer_is_not_the_core_windo
 
 /// Courageous To The End against a neutral ship (nobody chooses its loss: the unit lowest on the reference card goes; the string names
 /// the neutral side the opponent after the seated ones) is the core's since package W11, in lockstep. At a table with a Naaz or Nekro
-/// seat (the units that fight from a planet) it is the string's, counted.
+/// seat (the units that fight from a planet) it is the core's too since lane K: `ships_of` is the shared definition of the combat rules.
 #[test]
-fn courageous_to_the_end_against_a_neutral_opponent_is_the_cores_and_a_naaz_seat_is_counted() {
+fn courageous_to_the_end_against_a_neutral_opponent_and_at_a_naaz_table_is_the_cores_in_lockstep() {
     let _serial = crate::dual::tests::serial();
     let (plain, system) = courageous_position("dreadnought");
     // Only the holder and a neutral cruiser fight in the system.
@@ -2227,16 +2227,41 @@ fn courageous_to_the_end_against_a_neutral_opponent_is_the_cores_and_a_naaz_seat
         // The neutral units are Thunder's Edge's: only with that source in play are they ships.
         let _ = crate::action_cards_announce_tests::with_sources(ti4_model::content_types::FULL, || played_seeded("courageous", state, 1, None));
         let counted = crate::action_cards_closing_tests::windows("action_cards::announce");
+        let report = crate::dual::report();
+        assert!(report.differences.is_empty(), "{} differences: {:?}", report.differences.len(), report.differences.iter().take(3).collect::<Vec<_>>());
         let _ = crate::dual::take_report();
         counted
     };
     assert_eq!(bailed(&plain), (1, 0), "the plain position is carried");
     assert_eq!(bailed(&neutral), (1, 0), "a neutral opponent is carried");
-    assert_eq!(bailed(&naaz), (0, 1), "a Naaz seat at the table");
+    assert_eq!(bailed(&naaz), (1, 0), "a Naaz seat at the table is carried (lane K)");
     // The seated opponent comes first: a neutral ship beside it changes nothing.
     let mut beside = plain.clone();
     beside.system_mut(&system).units.push(unit("neutral_cruiser", "neutral"));
     assert_eq!(bailed(&beside), (1, 0), "a seated opponent is chosen before the neutral one");
+}
+
+/// Lane K: a Nekro opponent that fights the space combat only from its planet (the ground forces its Alastor chose) is "your opponent" of Courageous
+/// To The End, in lockstep: the dice, the casualty questions and the staged losses are the string's under every seed.
+#[test]
+fn courageous_to_the_end_finds_a_nekro_opponent_that_fights_from_its_planet_in_lockstep() {
+    let _serial = crate::dual::tests::serial();
+    let (mut state, system) = courageous_position("dreadnought");
+    state.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("nekro");
+    state.system_mut(&system).units.retain(|u| u.owner.as_str() == "a");
+    let planet = planet_of(system.as_str()).expect("the fight system has a planet");
+    state.system_mut(&system).planet_units.entry(planet.clone()).or_default().extend((0..3).map(|_| unit("infantry", "c")));
+    state.faction_marks.insert(format!("nekro:alastor|{}|{}|c|{}|infantry", state.activation_seq, system, planet), "3".to_owned());
+    crate::action_cards_closing_tests::announce_all_seeded(&[("courageous", state)], None, &SEEDS);
+    // Without the Alastor's choice nobody fights from the planet: no opponent, no dice.
+    let (mut idle, system) = courageous_position("dreadnought");
+    idle.player_mut(&PlayerId::new("c")).unwrap().faction = ti4_model::id::FactionId::new("nekro");
+    idle.system_mut(&system).units.retain(|u| u.owner.as_str() == "a");
+    let planet = planet_of(system.as_str()).expect("the fight system has a planet");
+    idle.system_mut(&system).planet_units.entry(planet).or_default().extend((0..3).map(|_| unit("infantry", "c")));
+    let after = played_seeded("courageous", &idle, 1, None);
+    assert_eq!(after.player(&PlayerId::new("a")).unwrap().action_cards.len(), 0);
+    let _ = crate::dual::take_report();
 }
 
 /// The play window (`action_cards::play`, the effect alone without the announcement) agrees with the core for both cards: the
