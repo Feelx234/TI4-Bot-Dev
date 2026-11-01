@@ -11,7 +11,7 @@ use crate::choice::strategy::{Ask as SAsk, Opt as SOpt, Subtype as SSub};
 use crate::choice::generic::Rule;
 use crate::choice::{Ask, Choice, Ctx, Opt, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::driver::turn::inline::{emit_typed, gap, halted, player_payload, run, sync_clock, Flow};
+use crate::driver::turn::inline::{emit_typed, emit_typed_bare, gap, halted, player_payload, run, sync_clock, Flow};
 use crate::generated::{Faction, Unit, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -213,14 +213,14 @@ pub(crate) fn announce_staged_cards(sx: &mut Sx<'_>) -> Flow {
             Word::Discarded => {
                 sx.state.cards_mut().discarded_action.edit().push(*card);
                 sx.state.transient_mut().combat.last_action_discarded = Some((*who, *card));
-                emit_typed(sx, EventKind::ActionCardDiscarded, Payload::new().with(Key::Player, Val::Seat(*who)).with(Key::Card, Val::Action(*card)))
+                emit_typed_bare(sx, EventKind::ActionCardDiscarded, Payload::new().with(Key::Player, Val::Seat(*who)).with(Key::Card, Val::Action(*card)))
             }
             Word::Taken => {
                 let mut payload = Payload::new().with(Key::Player, Val::Seat(*who));
                 if let MarkVal::Atom(Atom::Seat(from)) = from {
                     payload = payload.with(Key::From, Val::Seat(*from));
                 }
-                emit_typed(sx, EventKind::ActionCardTaken, payload)
+                emit_typed_bare(sx, EventKind::ActionCardTaken, payload)
             }
             _ => Flow::Done,
         };
@@ -231,12 +231,9 @@ pub(crate) fn announce_staged_cards(sx: &mut Sx<'_>) -> Flow {
     }
 }
 
-/// `Live::emit_typed`: the event through its windows, then the staged card moves.
+/// `Live::emit_typed`: the event through its windows, then the staged card moves (what [`emit_typed`] does for every typed event).
 fn emit_and_announce(sx: &mut Sx<'_>, kind: EventKind, payload: Payload) -> Flow {
-    if emit_typed(sx, kind, payload) == Flow::Halt {
-        return Flow::Halt;
-    }
-    announce_staged_cards(sx)
+    emit_typed(sx, kind, payload)
 }
 
 /// The index of the text `artuno` in `Codes::not_from_supply`.

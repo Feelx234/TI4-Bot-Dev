@@ -83,6 +83,22 @@ fn the_end_of_an_action_announces_it_names_the_seat_and_passes_the_turn_when_not
     assert_eq!(plain(&s), [PlainRec::bare(PlainKind::TurnPassed)]);
 }
 
+/// `Live::emit_typed` ends with `announce_staged_cards` for every typed event of the string: a discard Scheming staged in a follower window waits for the
+/// next typed event, which is `ACTION_COMPLETED` of the strategic action (J: the Yssaril seat's discard was never announced).
+#[test]
+fn a_card_move_staged_earlier_in_the_action_is_announced_right_after_the_typed_event_that_ends_it() {
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).build();
+    let row = MarkVal::Rec(vec![MarkVal::Atom(Atom::Word(Word::Discarded)), MarkVal::Atom(Atom::Seat(Seat(1))), MarkVal::Atom(Atom::Num(0)), MarkVal::Atom(Atom::Card(ActionCard::ALL[0]))]);
+    s.marks_mut().tail.edit().insert(MarkKey::CardsStaged(0), row);
+    finish(&mut s, &k).unwrap();
+    let kinds: Vec<EventKind> = s.ledger.events.iter().filter_map(|e| if let Emit::Typed(t) = e { Some(t.kind) } else { None }).collect();
+    let done = kinds.iter().position(|k| *k == EventKind::ActionCompleted).expect("the action ended");
+    assert_eq!(kinds.get(done + 1), Some(&EventKind::ActionCardDiscarded), "{kinds:?}");
+    assert!(s.marks().tail.iter().all(|(k, _)| !matches!(k, MarkKey::CardsStaged(_))), "the mark is gone");
+    assert_eq!(s.cards().discarded_action.len(), 1, "the card reached the pile");
+    assert_eq!(s.transient().combat.last_action_discarded, Some((Seat(1), ActionCard::ALL[0])));
+}
+
 #[test]
 fn an_action_that_was_a_component_action_says_so_in_its_event() {
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).build();

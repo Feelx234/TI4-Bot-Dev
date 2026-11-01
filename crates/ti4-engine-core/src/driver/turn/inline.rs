@@ -100,9 +100,19 @@ pub fn sync_clock(sx: &mut Sx<'_>) {
     sx.resolver.set_counters(u64::from(round), u64::from(turn));
 }
 
-/// A typed event the way the string's `emit_typed` sends it: through the reaction windows, then mirrored into the event queue.
-/// `Flow::Halt` when a question found the tape dry or the resolver refused.
+/// A typed event the way the string's `emit_typed` sends it: through the reaction windows, mirrored into the event queue, and then the card moves a
+/// faction effect staged in its windows (Scheming's discard) are announced (`Live::emit_typed` ends with `announce_staged_cards`, and every typed event of
+/// the string goes through it). `Flow::Halt` when a question found the tape dry or the resolver refused.
 pub fn emit_typed(sx: &mut Sx<'_>, kind: EventKind, payload: Payload) -> Flow {
+    if emit_typed_bare(sx, kind, payload) == Flow::Halt {
+        return Flow::Halt;
+    }
+    // (The marks are part of the lend of some windows only: nothing can be staged where they are not.)
+    if sx.state.loaded.has(crate::state::Slice::Marks) { crate::driver::windows::status_finish::announce_staged_cards(sx) } else { Flow::Done }
+}
+
+/// [`emit_typed`] without the announcement of the staged card moves (the announcement itself emits typed events).
+pub fn emit_typed_bare(sx: &mut Sx<'_>, kind: EventKind, payload: Payload) -> Flow {
     if halted(sx) {
         return Flow::Halt;
     }
