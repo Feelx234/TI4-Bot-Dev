@@ -320,8 +320,7 @@ impl Family for Fam {
                 "no" => Some(Opt::Skip),
                 "yes" => Some(Opt::Follow),
                 crate::factions::firmament_plots::PRIMARY_INSTEAD_ID => Some(Opt::PrimaryInstead),
-                // mutants:skip: the prefix only spares the scan of the shape table for an id that is no waiver (the scan finds nothing either way)
-                _ if id.starts_with(crate::strategy::WAIVED_SECONDARY_PREFIX) => {
+                _ if id.starts_with(crate::strategy::WAIVED_SECONDARY_PREFIX) => { // mutants:skip: the prefix only spares the scan of the shape table for an id that is no waiver (the scan finds nothing either way)
                     let count = r.shape_count();
                     (0..count).find_map(|i| {
                         let code = ti4_engine_core::state::Code(u16::try_from(i).ok()?);
