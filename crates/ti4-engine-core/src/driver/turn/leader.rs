@@ -147,7 +147,7 @@ fn carth(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool) -
     // The replenish is announced as the string does (a Cabal's `COMMODITIES_REPLENISHED`, a Trade Agreement's gain): the source is the interned
     // `trade_agreement` of the table's non-supply gains.
     let mut window = HacanAgent::with_source(who, sx.table.codes.not_from_supply[3]);
-    if run_window(sx, &mut window) == Flow::Halt {
+    if run_window(sx, &mut window) == Flow::Halt || super::component::announce_events(sx) == Flow::Halt {
         return Flow::Halt;
     }
     agent_free(sx, who, key, leader, borrowed, window.used)
