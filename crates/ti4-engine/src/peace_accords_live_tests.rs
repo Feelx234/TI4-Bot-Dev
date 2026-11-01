@@ -376,3 +376,86 @@ mod secrets {
         assert!(home > 0, "the home system's space dock produces: {home}");
     }
 }
+
+// -- the paid research whose bill takes the prerequisite away ---------------------------------------------------------------------------------------------
+
+mod research {
+    use ti4_content::ContentStore;
+    use ti4_model::content_types::POK;
+    use ti4_model::id::{PlanetId, PlayerId, SystemId, TechnologyId};
+    use ti4_model::state::GameState;
+
+    use crate::choice::{Scripted, Table};
+    use crate::dual::{report, take_report, with_mask, Area, AreaMask, Backend};
+
+    const F3: [(&str, &str); 3] = [("a", "sol"), ("b", "hacan"), ("c", "arborec")];
+
+    fn a() -> PlayerId {
+        PlayerId::new("a")
+    }
+
+    /// A planet (not a home planet) with a tech specialty, its system and a technology of no faction, no unit upgrade, whose only prerequisite is one of that colour.
+    fn specialty_case() -> (PlanetId, SystemId, TechnologyId) {
+        let content = ContentStore::embedded();
+        let base = crate::fixtures::seated_game(&F3, POK);
+        for (id, planet) in ti4_content::galaxy::all_planets(content, POK) {
+            let (Some(system), false) = (planet.system_id(), planet.is_placed_during_play()) else { continue };
+            if id == "jord" || planet.homeworld_of().is_some() {
+                continue;
+            }
+            let planet_id = PlanetId::new(id);
+            for colour in crate::technology::COLOURS {
+                if crate::planets::tech_specialties_now(&base, content, POK, &planet_id).iter().any(|s| s.eq_ignore_ascii_case(colour)) {
+                    let wanted = crate::technology::active_aliases(content, POK).into_iter().find(|t| {
+                        let need = crate::technology::prerequisites(content, t);
+                        need.len() == 1 && need.get(colour) == Some(&1) && !crate::technology::is_unit_upgrade(content, t) && crate::technology::faction_of(content, t).is_none()
+                    });
+                    if let Some(tech) = wanted {
+                        return (planet_id, SystemId::new(system), tech);
+                    }
+                }
+            }
+        }
+        panic!("the corpus has a specialty planet and a technology that needs its colour");
+    }
+
+    /// The secondary of `a` under the Dual backend: `(compared, bailed)` of its window and the string position afterwards.
+    fn play(setup: impl FnOnce(&mut GameState), answers: &[&str]) -> ((u64, u64), GameState) {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        let mut after = None;
+        with_mask(AreaMask::STRING.with(Area::Strategy, Backend::Dual), || {
+            let mut state = crate::fixtures::seated_game(&F3, POK);
+            crate::promissory::deal(&mut state, ContentStore::embedded(), POK);
+            setup(&mut state);
+            let mut table = Table::with_default(Box::new(Scripted::new(answers.iter().map(|x| (*x).to_owned()))));
+            crate::strategy_cards::secondary(&mut state, ContentStore::embedded(), POK, None, &mut table, &a(), "pok7technology").unwrap();
+            after = Some(state);
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let counts = crate::dual::thread_window_counts("strategy_cards::technology_secondary");
+        let _ = take_report();
+        (counts, after.expect("played"))
+    }
+
+    #[test]
+    fn a_bill_paid_with_the_specialty_planet_that_covered_the_prerequisite_ends_the_research_with_the_position_back_in_lockstep() {
+        let (planet, system, tech) = specialty_case();
+        // The specialty planet is the only ready planet of `a`, with trade goods for the rest of the four resources: the lone plan spends the planet.
+        let resources = crate::production::planet_value_now(&crate::fixtures::seated_game(&F3, POK), ContentStore::embedded(), POK, &planet, crate::production::Spend::Resources);
+        let only = |s: &mut GameState| {
+            s.system_mut(&system).set_control(planet.clone(), a());
+            let others: Vec<_> = s.controlled_planets(&a()).into_iter().map(|(_, p)| p.clone()).filter(|p| *p != planet).collect();
+            for p in others {
+                s.exhausted_planets.insert(p);
+            }
+            s.player_mut(&a()).unwrap().trade_goods = i32::try_from((4 - resources).max(0)).unwrap_or(0);
+        };
+        let (counts, after) = play(only, &[tech.as_str()]);
+        assert_eq!(counts, (1, 0), "{tech}: compared, the core carries it: the string ends the research with nothing gained");
+        assert!(!after.player(&a()).unwrap().technologies.contains(&tech), "nothing was researched");
+        assert!(!after.exhausted_planets.contains(&planet), "the payment was undone");
+    }
+}

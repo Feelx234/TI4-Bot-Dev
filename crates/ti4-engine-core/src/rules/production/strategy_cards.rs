@@ -741,6 +741,10 @@ pub struct Research {
     offer_at: usize,
     /// The position before a Ssruu's copy of the agent is offered (a copy is provisional: undone when no technology lands).
     checkpoint: Option<Box<CoreState>>,
+    /// The position when a technology of the paid research was picked, before its bill (`paid_research`'s `before`), and whether a faction waiver was the only
+    /// way to it: when the bill leaves the prerequisites unmet (a specialty planet that covered one paid it) the string puts this position back and the
+    /// research ends with nothing gained.
+    pick: Option<(Box<CoreState>, bool)>,
 }
 
 /// One right to trade infantry for research (`strategy_cards::SucabanSource`): the seat asked, the seat that holds the agent and whether the
@@ -810,7 +814,7 @@ impl Research {
     /// `cost`: the resources the paid research costs (6 for the primary's second, 4 for the secondary).
     #[must_use]
     pub const fn new(who: Seat, primary: bool, cost: i64, scope: Scope) -> Self {
-        Self { who, primary, cost, scope, roster: None, stage: RStage::Start, pay: None, chosen: None, failed: false, researched: SmallList::new(), rider: false, sucaban: SmallList::new(), offer_at: 0, checkpoint: None }
+        Self { who, primary, cost, scope, roster: None, stage: RStage::Start, pay: None, chosen: None, failed: false, researched: SmallList::new(), rider: false, sucaban: SmallList::new(), offer_at: 0, checkpoint: None, pick: None }
     }
 
     /// Technology Rider ("research 1 technology", `strategy_cards::offer_free_research`): the Technology primary's free research,
@@ -1007,11 +1011,26 @@ impl Research {
     }
 
     fn land(&mut self, s: &mut CoreState, k: &Kernel, t: Technology) {
+        let pick = self.pick.take();
         let landed = self.settle(s, k, t);
         if !landed {
-            self.failed = true;
+            match pick {
+                // The prerequisites are gone after the bill and no waiver opens the technology (`resolve_research` is false, `!waiver_required`):
+                // the position from before the bill is back and the research ends without a technology.
+                Some((before, false)) => *s = *before,
+                // Only a faction waiver opens it (a question of the string's), or the position was not kept: not carried.
+                _ => self.failed = true,
+            }
         }
         self.end_paid(s, landed);
+    }
+
+    /// Whether only a faction waiver opens `t` now (`technology::faction_waiver_required`): the prerequisites are not met, Inheritance Systems does not
+    /// cover them and a module offers a waiver.
+    fn waiver_only(&self, s: &CoreState, k: &Kernel, t: Technology) -> bool {
+        let blanked = reach::blanked(s);
+        let hooks = KernelHooks::new(s, k, self.who);
+        ResearchCtx::of(s, self.scope, blanked, self.who, &hooks).is_some_and(|ctx| !ctx.prerequisites_met(t, &hooks, true) && !tech::inheritance_ready(s, self.who, &hooks) && hooks.waiver_offer(t))
     }
 
     fn after_step(&mut self, s: &mut CoreState, k: &Kernel) {
@@ -1201,6 +1220,7 @@ impl Window for Research {
                 }
             }
             (RStage::Choose, Opt::Strategy(SOpt::Research(t))) => {
+                self.pick = Some((Box::new(sx.state.clone()), self.waiver_only(sx.state, sx.kernel, t)));
                 if self.cost > 0 && !sx.state.meta().rules_at_least(RULES_TECH_PAYMENT_CHOICE) {
                     // Below `RULES_TECH_PAYMENT_CHOICE` the cheapest plan is spent without asking (`payment::plans`'s first); a bill no plan
                     // pays ends the research with nothing changed.
