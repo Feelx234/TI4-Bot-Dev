@@ -74,6 +74,10 @@ mod action_dispatch_live_tests;
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "strategic_live_tests.rs"]
 mod strategic_live_tests;
+// The lockstep of Xxcha's Peace Accords (lane E2) against the string's `strategy_resolved`.
+#[cfg(all(test, feature = "typed-core"))]
+#[path = "peace_accords_live_tests.rs"]
+mod peace_accords_live_tests;
 // The lockstep of the formerly silent abilities (lane G) in the turn flow; shares the harness of the turn-flow tests.
 #[cfg(all(test, feature = "typed-core"))]
 #[path = "silent_live_tests.rs"]

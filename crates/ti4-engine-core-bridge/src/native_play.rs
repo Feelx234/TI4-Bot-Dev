@@ -152,14 +152,12 @@ pub struct Defect {
 
 /// The part of an arm's close the string still does after the native window ended (`None`: the close is the core's).
 ///
-/// `Tokens`: the status phase's steps 81.6-81.8 (`finish_status_phase`) run after the last token and are lane C's (KS5). The arms of the action
+/// No arm lends a close any more (lane E2): the token gain hands the status phase's steps 81.5-81.8 to `TurnJob::StatusFinish`, which the same call
+/// runs (`driver::windows::status::advance_tokens`, KS5), and the games of the sweep play on into the agenda phase. The arms of the action
 /// (`Tactical`, `Aftermath`) hand the turn on through [`turn::open_finish`], which the loop opens itself ([`after_arm`]).
 #[must_use]
-pub const fn lent_close(arm: Arm) -> Option<&'static str> {
-    match arm {
-        Arm::Tokens => Some("the status steps 81.6-81.8 after the last token (KS5, lane C)"),
-        _ => None,
-    }
+pub const fn lent_close(_arm: Arm) -> Option<&'static str> {
+    None
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -1130,16 +1128,16 @@ mod tests {
     }
 
     #[test]
-    fn a_tokens_window_runs_natively_and_its_lent_close_is_a_counted_gap() {
+    fn the_last_token_of_the_status_phase_runs_the_close_natively_in_the_same_step() {
         let mut g = game("sol", 4, 1);
         open(&mut g.core, &TokenGain::new(Tokens { pending: SmallList::from_slice(&[Seat(0)]), placed: SmallList::new(), report: StatusReport::default() }));
         let held = g.core.clone();
-        let Step::Gap(gap) = g.step() else { panic!("the last token ends the window, whose close the string still does") };
-        assert_eq!((gap.arm.as_str(), gap.kind), ("tokens", GapKind::LentClose), "{gap:?}");
-        assert_eq!(gap.island(), Island::Status);
-        assert_eq!(g.core, held, "a gap leaves the position as it was");
-        assert_eq!(lent_close(Arm::Tokens).is_some(), true);
-        assert!(Arm::ALL.iter().filter(|a| lent_close(**a).is_some()).count() == 1, "only the token gain closes in the string today");
+        let step = g.step();
+        let Step::Played(played) = step else { panic!("the last token ends the window and its close is the core's now (StatusFinish): {step:?}") };
+        assert_eq!(played.arm, Arm::Tokens);
+        assert!(played.finished);
+        assert_ne!(g.core, held, "the step moved the position");
+        assert!(Arm::ALL.iter().all(|a| lent_close(*a).is_none()), "no arm closes in the string any more");
     }
 
     #[test]
