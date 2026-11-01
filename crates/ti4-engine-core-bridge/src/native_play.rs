@@ -1788,6 +1788,19 @@ mod tests {
         }
     }
 
+    /// Lane R, the step starts (the string announces what a step staged at the start of its NEXT step): a Ceasefire denies the movement and the string's step runs
+    /// from the activation through the aftermath to the closing menu (Yssaril, 4 players, seed 3, step 874: the reconcile of the native aftermath step announced the
+    /// activation's trade good ahead of the owed `PRODUCTION_RESOLVED`); an end of turn a hook left open (Nullification Field) runs instead of the reconcile, and
+    /// the strategy token it staged was never announced (Cabal, 3 players, seed 1, step 766).
+    #[test]
+    fn staged_events_wait_behind_a_hand_off_to_the_aftermath_and_behind_a_turn_a_hook_ended() {
+        for (faction, players, seed, steps) in [("yssaril", 4, 3, 880), ("cabal", 3, 1, 772)] {
+            let shadowed = shadow_play(&lobby_spec(faction, players, seed), steps, 50).expect("builds");
+            assert!(shadowed.first_difference.is_none(), "{faction} {players}p seed {seed}: {:?}", shadowed.first_difference);
+            assert!(shadowed.compared > 400, "{faction}: {}", shadowed.compared);
+        }
+    }
+
     /// Lane R: one string step runs through many native steps (every removal over the fleet supply or the capacity is a native step of its own, and a Warfare
     /// action asks its second redistribution after them): the legacy game is given the answers of the steps ahead. Letnev (3 players, step 684; 4 players, step 289).
     #[test]

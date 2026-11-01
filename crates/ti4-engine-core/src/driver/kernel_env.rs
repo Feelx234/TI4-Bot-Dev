@@ -123,7 +123,7 @@ impl strategy::Env for KernelEnv<'_> {
             .iter()
             .map(|p| crate::rules::production::planet_value(&cx, who, *p, Spend::Resources))
             .sum();
-        let goods = self.core.players().by_seat(who).map_or(0, |p| i64::from(p.econ.trade_goods)) * crate::rules::production::trade_good_worth(&cx, who);
+        let goods = self.core.players().by_seat(who).map_or(0, |p| i64::from(p.econ.trade_goods)) * crate::rules::production::trade_good_worth(&cx, who); // mutants:skip (a seat that is not seated has no goods: the default is unreachable)
         planets + goods >= TECHNOLOGY_SECONDARY_COST
     }
     fn secret_hand_all_scored(&self, who: Seat) -> bool {

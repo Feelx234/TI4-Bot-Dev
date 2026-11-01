@@ -76,6 +76,17 @@ fn the_extra_die_of_a_round_agent_is_not_a_barrage_die() {
     state.meta_mut().combat_round_seq = 3;
     state.marks_mut().tail.edit().insert(MarkKey::YssarilSsruuRoundAgent(Seat(1), Leader::ViscountUnlenn, DecimalTextOrd(3)), mark);
     assert_eq!(barrage_plan(Rd::new(&state, &kernel), Seat(0), sys()), plain, "the extra die is rolled with the combat dice, not with the barrage");
+    // The dice seam: the combat roll of that destroyer has the extra die, no other kind of roll has it.
+    use ti4_engine_core::kernel::seam::{Clamp, RollKind};
+    use ti4_engine_core::rules::combat::roll_site;
+    let rd = Rd::new(&state, &kernel);
+    let mut site = roll_site(rd, Seat(0), Unit::DestroyerI, Some(sys()), 0);
+    let dice = |site: &ti4_engine_core::kernel::seam::RollSite| rd.k.hooks.seam.dice.eval(rd.q(), site, 1, Clamp::None).value;
+    assert_eq!(dice(&site), 2, "a space combat roll of the unit the agent named has the extra die");
+    for kind in [RollKind::Barrage, RollKind::SpaceCannon, RollKind::Bombardment] {
+        site.kind = kind;
+        assert_eq!(dice(&site), 1, "{kind:?}");
+    }
 }
 
 #[test]

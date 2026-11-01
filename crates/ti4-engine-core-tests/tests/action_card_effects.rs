@@ -608,6 +608,24 @@ fn harness_energy_pays_a_held_trade_agreement_and_stages_the_holders_trade_goods
     assert_ne!(rig.state.cards().promissory.get(&NoteKey { note: PromissoryNote::TradeAgreement, faction }), Some(&Seat(1)), "the note went home");
     let staged: Vec<_> = rig.state.pending().staged.iter().map(|e| (e.kind, e.payload.seat(Key::Player), e.payload.int(Key::Amount), e.payload.code(Key::Source))).collect();
     assert_eq!(staged, vec![(EventKind::TradeGoodsGained, Some(Seat(1)), Some(i64::from(limit)), Some(Code(77)))], "announced by the next step, not by this one");
+    assert!(!rig.driver.window.unsupported(), "the core plays the card");
+    // A faction played by two seats: the Trade Agreement is the string's there, the run is declined and nothing is written.
+    let mut twin = four().map_ring(4).active(Some(0)).active_system(sys_of(1)).commodities(0, 0).state();
+    twin.players_mut().by_seat_mut(Seat(1)).unwrap().faction = Faction::TheArborec;
+    let mut table = linked();
+    table.codes.explore = ExploreCodes { filled: true, trade_agreement: Code(77), ..ExploreCodes::default() };
+    let play = Play::of(&twin, ActionCard::HarnessEnergy, Seat(0), env_units()).expect("a play");
+    let mut declined = Rig::from_parts(twin, ti4_engine_core_tests::kernel_all(), play).with_table(table).seeded(1);
+    declined.run();
+    assert!(declined.driver.window.unsupported(), "two seats of one faction: the string's");
+    assert_eq!(declined.state.players().by_seat(Seat(0)).unwrap().econ.commodities, 0, "nothing was written");
+    // A table that interns no exploration text announces nothing: the plain write.
+    let plain = four().map_ring(4).active(Some(0)).active_system(sys_of(1)).commodities(0, 0).state();
+    let play = Play::of(&plain, ActionCard::HarnessEnergy, Seat(0), env_units()).expect("a play");
+    let mut quiet = Rig::from_parts(plain, ti4_engine_core_tests::kernel_all(), play).with_table(linked()).seeded(1);
+    quiet.run();
+    assert_eq!(quiet.state.players().by_seat(Seat(0)).unwrap().econ.commodities, limit, "replenished");
+    assert!(quiet.state.pending().staged.is_empty() && !quiet.driver.window.unsupported());
 }
 
 #[test]
