@@ -1,21 +1,19 @@
 //! From `transactions.rs` of the legacy crate (copies).
 
+/// The constants live in `crate::kinds` (lane B); this module re-exports them.
+pub use crate::kinds::transactions::{ANSWER_KIND, FREE_FORM_PREFIX, OFFER_KIND, OPEN_KIND};
+
 use ti4_content::ContentStore;
 use ti4_model::content_types::DEFAULT;
 use std::collections::BTreeSet;
 
 use ti4_model::id::{ActionCardId, PlanetId, PlayerId, SecretObjectiveId};
 
-/// The kind of an answer to a proposal.
-pub const ANSWER_KIND: &str = "transaction";
 
 /// The id prefix of a free-form deal: the proposer names both sides themselves instead of picking
 /// one of the listed shapes (94.1: a transaction is any exchange of trade goods, commodities,
 /// promissory notes and relic fragments, in any amounts the two seats hold).
-pub const FREE_FORM_PREFIX: &str = "x;";
 
-/// The kind of a proposed deal.
-pub const OFFER_KIND: &str = "offer";
 
 /// What a planet card is worth to hold: its resources and influence.
 pub fn planet_value(content: &ContentStore, planet: &PlanetId) -> f64 {
@@ -26,12 +24,6 @@ pub fn planet_value(content: &ContentStore, planet: &PlanetId) -> f64 {
     })
 }
 
-/// The kind of the option that opens negotiations.
-///
-/// Deliberately not the action kind: a component action costs the whole turn (22.1) while a
-/// transaction costs nothing and the turn continues. Filed as an action it would read, in the
-/// decision log, like a player burning their turn on a trade.
-pub const OPEN_KIND: &str = "open_transaction";
 
 /// The free-form id of a deal: `x;` then `g…` fields for what the proposer gives and `r…` fields
 /// for what they receive. The inverse of [`offer_from`] for such ids.

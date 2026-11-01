@@ -1,5 +1,8 @@
 //! From `strategy_cards.rs` of the legacy crate.
 
+/// The constants live in `crate::kinds` (lane B); this module re-exports them.
+pub use crate::kinds::strategy_cards::{RESEARCH_KIND};
+
 use ti4_content::ContentStore;
 use ti4_model::content_types::ContentType;
 
@@ -27,7 +30,6 @@ pub fn card_name(content: &ContentStore, card: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-pub const RESEARCH_KIND: &str = "research";
 
 /// Display only: a leader's printed card (name, ability window and text) as an offer-card header.
 pub fn leader_card(content: &ContentStore, id: &str, tag: &str) -> serde_json::Value {

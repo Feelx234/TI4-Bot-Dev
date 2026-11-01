@@ -1,7 +1,8 @@
 //! From `promissory.rs` of the legacy crate (copies).
 
-/// Support for the Throne is keyed by its owner rather than by an alias.
-pub const SUPPORT_PREFIX: &str = "support:";
+/// The constants live in `crate::kinds` (lane B); this module re-exports them.
+pub use crate::kinds::promissory::{SUPPORT_PREFIX};
+
 
 /// This owner's Support for the Throne, by the faction name that owns it.
 #[must_use]

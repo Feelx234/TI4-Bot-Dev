@@ -25,6 +25,8 @@ pub mod render;
 pub mod seen_load;
 
 // ---- lane B (surface, 8d): constants, queries, previews ----
+/// The constants of the product surface (choice kinds, option ids, prefixes); `tests/surface_parity.rs` compares each with its legacy original.
+pub mod kinds;
 
 // ---- lane C (setup, 8c): setup, seating, deck, opening, starting_tech, map_feasibility, fixtures ----
 

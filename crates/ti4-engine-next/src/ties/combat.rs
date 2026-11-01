@@ -1,7 +1,6 @@
 //! From `combat.rs` of the legacy crate (copies).
 
-/// The choice kind for announcing a retreat.
-pub const RETREAT_KIND: &str = "retreat";
+/// The constants live in `crate::kinds` (lane B); this module re-exports them.
+pub use crate::kinds::combat::{RETREAT_KIND, RETREAT_TO_KIND};
 
-/// The choice kind for picking where to retreat to.
-pub const RETREAT_TO_KIND: &str = "retreat_to";
+

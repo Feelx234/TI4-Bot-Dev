@@ -1,17 +1,14 @@
 //! From `action_cards.rs` of the legacy crate (copies).
 
+/// The constants live in `crate::kinds` (lane B); this module re-exports them.
+pub use crate::kinds::action_cards::{DISCARD_KIND, TAKE_REVEALED_KIND, OWN_HAND_KIND, ACTION_CARD_KIND};
+
 use ti4_content::ContentStore;
 use ti4_model::content_types::ContentType;
 use ti4_model::id::ActionCardId;
 
-/// The choice kind for discarding down to the limit.
-pub const DISCARD_KIND: &str = "discard";
 
-/// The choice kind for taking a card out of a hand you were shown.
-pub const TAKE_REVEALED_KIND: &str = "take_revealed_card";
 
-/// The choice kind for picking a card out of your own hand for a faction effect.
-pub const OWN_HAND_KIND: &str = "own_hand_card";
 
 /// A card's printed name, falling back to its alias.
 ///
@@ -59,5 +56,3 @@ pub fn reaction_card_options(
         .collect()
 }
 
-/// The choice kind the oracle offers reaction cards under (engine/reactions.py:320–324).
-pub const ACTION_CARD_KIND: &str = "action_card";

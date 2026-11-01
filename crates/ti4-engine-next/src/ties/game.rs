@@ -1,8 +1,7 @@
 //! From `game.rs` of the legacy crate (copies).
 
-/// OP-08: the explicit end of an action-phase turn.
-pub const END_TURN_ID: &str = "end_turn";
+/// The constants live in `crate::kinds` (lane B); this module re-exports them.
+pub use crate::kinds::game::{END_TURN_ID, END_TURN_KIND, TACTICAL_ACTION_ID};
 
-pub const END_TURN_KIND: &str = "end_turn";
 
-pub const TACTICAL_ACTION_ID: &str = "tactical";
+

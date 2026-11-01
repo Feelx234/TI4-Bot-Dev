@@ -1,9 +1,10 @@
 //! From `invasion.rs` of the legacy crate (copies).
 
+/// The constants live in `crate::kinds` (lane B); this module re-exports them.
+pub use crate::kinds::invasion::{GROUND_CASUALTY_KIND};
+
 use ti4_content::ContentStore;
 
-/// The choice kind for choosing which of your own ground forces dies.
-pub const GROUND_CASUALTY_KIND: &str = "ground_casualty";
 
 /// Display only: a breakthrough as an offer-card header: its name and the first sentence of its
 /// printed text (the ability that is being offered).

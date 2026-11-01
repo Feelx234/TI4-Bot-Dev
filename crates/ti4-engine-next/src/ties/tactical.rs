@@ -1,8 +1,9 @@
 //! From `tactical.rs` of the legacy crate.
+
+/// The constants live in `crate::kinds` (lane B); this module re-exports them.
+pub use crate::kinds::tactical::{ROUTES_DETAIL, ACTIVATE_KIND};
 use crate::wire::choice::Choice;
 
-/// The key of the routes a choice lists, in `Choice::details`.
-pub const ROUTES_DETAIL: &str = "routes";
 
 /// Split a route answer into the id of the option and the number of the route: `move|206|0|r2` is route 2 of `move|206|0`.
 /// `None` for an id without a route (the default route).
@@ -19,5 +20,3 @@ pub fn route_count(choice: &Choice, option_id: &str) -> usize {
     choice.details.get(ROUTES_DETAIL).and_then(|routes| routes.get(option_id)).and_then(serde_json::Value::as_array).map_or(0, Vec::len)
 }
 
-/// The choice kind for activating a system.
-pub const ACTIVATE_KIND: &str = "activate";
