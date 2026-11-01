@@ -731,7 +731,8 @@ fn ssruus_copy_of_garv_and_gunn_needs_a_readied_ssruu_and_a_lender_holding_the_a
     assert_eq!(status_of(&r, 0, Leader::Ssruu), Some(LeaderStatus::Readied));
     assert!(rig(scenario(), |s| { ready(s); set_leader(s, 0, Leader::Ssruu, LeaderStatus::Exhausted); }, seat_event(EventKind::TurnPassed, 2)).is_done(), "Ssruu spent");
     assert!(rig(scenario(), |s| { stocked(s); set_leader(s, 0, Leader::Ssruu, LeaderStatus::Readied); }, seat_event(EventKind::TurnPassed, 2)).is_done(), "the lender holds no agent card");
-    assert!(rig(scenario(), |s| { stocked(s); set_leader(s, 1, Leader::GarvAndGunn, LeaderStatus::Readied); }, seat_event(EventKind::TurnPassed, 2)).is_done() || true, "no Ssruu card: only the agent's own window");
+    let own = rig(scenario(), |s| { stocked(s); set_leader(s, 1, Leader::GarvAndGunn, LeaderStatus::Readied); }, seat_event(EventKind::TurnPassed, 2));
+    assert!(!own.is_done() && own.asked().actor == Seat(1), "no Ssruu card: only the agent's own window, asked of its holder");
     assert!(rig(Scenario::new(&seats).map_from(&[system]), ready, seat_event(EventKind::TurnPassed, 2)).is_done(), "no planet to explore");
 }
 
