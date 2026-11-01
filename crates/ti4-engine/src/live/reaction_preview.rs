@@ -511,7 +511,7 @@ mod tests {
 
     /// The previews of the string (`reaction_preview::preview_for` over the `GameState`) and of the native path (the same card over the core
     /// position and the typed event) agree for every card that has one, in a position that has something for each of them to say, and again in
-    /// the same position with nothing standing (the "nothing there" fizzles) for the cards that read the board.
+    /// the same position with nothing standing (the "nothing there" fizzles), with the commodities full / empty, and under the rules of the first version.
     #[test]
     fn every_previewed_card_reads_the_core_position_as_the_string_reads_its_own() {
         let content = ContentStore::embedded();
@@ -522,10 +522,18 @@ mod tests {
             board.planet_units.clear();
         }
         empty.last_sustain = None;
+        // The commodities at their limit, and nobody holding any (Harness Energy refills nothing, Salvage takes nothing).
+        let mut flush = full.clone();
+        for who in ["a", "b", "c"] {
+            flush.player_mut(&pid(who)).unwrap().commodities = if who == "a" { 4 } else { 0 };
+        }
+        // The rules of the first version: Infiltrate replaced the player's own structures.
+        let mut old = full.clone();
+        old.rules_version = 0;
         let names: Vec<&str> = crate::reaction_preview::PREVIEWED.to_vec();
         let mut compared = 0;
         let mut some = 0;
-        for (label, state) in [("full", &full), ("empty", &empty)] {
+        for (label, state) in [("full", &full), ("empty", &empty), ("flush", &flush), ("old rules", &old)] {
             let (mut cx, r) = crate::dual_window::tables_for_tests(state).expect("a table the codecs carry");
             let mut gs = state.clone();
             for name in &names {
@@ -556,7 +564,7 @@ mod tests {
                 some += usize::from(string.is_some());
             }
         }
-        assert_eq!(compared, names.len() * 2);
+        assert_eq!(compared, names.len() * 4);
         assert!(some > names.len(), "the positions give most cards something to say: {some}");
     }
 }
