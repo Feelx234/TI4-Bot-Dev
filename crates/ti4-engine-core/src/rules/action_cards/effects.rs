@@ -1297,7 +1297,7 @@ impl Play {
     /// The mechs of the holder's kind left in the reinforcements.
     fn mechs_left(&self, core: &CoreState) -> i64 {
         let facts = self.env.facts.mech;
-        facts.unit.map_or(0, |u| crate::query::fleet::remaining(core, self.env.scope, self.who, u, facts.on_card))
+        facts.unit.map_or(0, |u| crate::query::fleet::remaining(core, self.env.scope, self.who, u, facts.on_card)) // mutants:skip: a play without a mech unit is declined by `Play::of`
     }
 
     /// The failed half of Exchange Program: both seats discard one fleet token (an empty pool has nothing to discard).
@@ -1869,7 +1869,7 @@ impl Play {
                     // A Naaz seat takes no second infantry once the box holds one mech more only (`supply::allowed(.., 2)`).
                     if self.env.facts.mech.unit == Some(crate::generated::Unit::Eidolon) && self.mechs_left(core) < 2 {
                         self.refit(core, &[(system, planet, index)]);
-                        return false;
+                        return false; // mutants:skip: equivalent: the box is empty after the placement, so the next options are empty and the card ends
                     }
                     self.troop = Some((system, planet, index));
                     return true;
@@ -2681,7 +2681,7 @@ impl Window for Play {
 #[must_use]
 pub fn jam_systems(core: &CoreState, scope: crate::tables::Scope, who: Seat) -> SmallList<System, 64> {
     let Some(galaxy) = core.galaxy() else { return SmallList::new() };
-    let on_map = |s: System| galaxy.coord_of(crate::ids::system_at(System::ALL.iter().position(|x| *x == s).unwrap_or(0))).is_some();
+    let on_map = |s: System| galaxy.coord_of(crate::ids::system_at(System::ALL.iter().position(|x| *x == s).unwrap_or(0))).is_some(); // mutants:skip: the position default is unreachable (a system is one of `System::ALL`)
     let mut reach: SmallList<System, 64> = SmallList::new();
     let mut add = |s: System| {
         if !reach.as_slice().contains(&s) {

@@ -122,6 +122,7 @@ fn signal_jamming_is_listed_when_a_ship_has_a_system_in_reach_and_a_rival_exists
     };
     let base = |seats: usize| Scenario::lobby(seats).phase(Phase::Action).active(Some(0)).map_ring(3);
     assert_eq!(listed(base(3).unit(systems[0], None, Unit::CruiserI, 0, 1)), Ok(vec![TuOpt::Play { index: 0, card: jam }]), "a ship, systems in reach, two rivals");
+    assert_eq!(listed(base(2).unit(systems[0], None, Unit::CruiserI, 0, 1)), Ok(vec![TuOpt::Play { index: 0, card: jam }]), "one rival is enough");
     assert_eq!(listed(base(3)), Ok(vec![]), "no ship of the seat's: nothing in reach");
     assert_eq!(listed(base(3).unit(systems[0], None, Unit::CruiserI, 1, 1)), Ok(vec![]), "a rival's ship is no reach");
     assert_eq!(listed(base(3).unit(systems[0], Some(systems[0].data().planets[0]), Unit::InfantryI, 0, 1)), Ok(vec![]), "a ground force is no ship");

@@ -356,6 +356,51 @@ fn intercept_counts_the_ground_forces_a_nekro_alastor_chose_as_a_combatant() {
     assert_eq!((barred(&r.state, 0), barred(&r.state, 1)), (Some(4), None), "the holder fights from its planet");
 }
 
+/// `ships_of` (the shared definition of the combat rules and of the cards that name its combatants): the ships of the space area, then the units
+/// that fight from a planet: a Naaz Eidolon Maximum while its owner has a ship in space, and the ground forces a Nekro Alastor chose.
+#[test]
+fn ships_of_adds_the_units_that_fight_from_a_planet() {
+    use ti4_engine_core::keys::DecimalTextOrd;
+    use ti4_engine_core::kernel::read::{planet_combatants, planetary_maximum_participates, ships_of, Rd};
+    let two = System::StarpointNewAlbion;
+    let (a, b) = (two.data().planets[0], two.data().planets[1]);
+    let build = |ship: bool| {
+        let mut sc = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheNekroVirus, Faction::TheFederationOfSol])
+            .map_from(&[two])
+            .unit(two, Some(a), Unit::EidolonMaximum, 0, 1)
+            .unit(two, Some(a), Unit::InfantryI, 0, 1)
+            .unit(two, Some(a), Unit::InfantryI, 2, 1)
+            .unit(two, Some(a), Unit::InfantryI, 1, 2)
+            .unit(two, Some(b), Unit::InfantryI, 1, 2);
+        // With no ship of seat 0's, a rival's ship in the space area is no fleet of its owner's.
+        sc = sc.unit(two, None, Unit::CruiserI, if ship { 0 } else { 2 }, 1);
+        let (mut s, k) = sc.build();
+        // The Alastor of seat 1 chose one infantry on the first planet.
+        let key = MarkKey::NekroAlastor(DecimalTextOrd(s.meta().activation_seq), two, Seat(1), a, Unit::InfantryI);
+        s.marks_mut().tail.edit().insert(key, MarkVal::Atom(Atom::Num(1)));
+        (s, k)
+    };
+    // The Maximum fights with its owner's ship in space, and nothing else of seat 0's does.
+    let (s, k) = build(true);
+    let rd = Rd::new(&s, &k);
+    assert!(planetary_maximum_participates(rd, Seat(0), two));
+    assert_eq!(planet_combatants(rd, Seat(0), two).iter().map(|(p, _, piece)| (*p, piece.kind())).collect::<Vec<_>>(), vec![(a, Unit::EidolonMaximum)]);
+    assert_eq!(ships_of(rd, Seat(0), two).iter().map(|p| p.kind()).collect::<Vec<_>>(), vec![Unit::CruiserI, Unit::EidolonMaximum]);
+    // Seat 1 fights with the one infantry its Alastor chose, the first of its own on that planet (after seat 2's), none from the other planet.
+    let chosen = planet_combatants(rd, Seat(1), two);
+    assert_eq!(chosen.len(), 1, "{chosen:?}");
+    assert_eq!((chosen[0].0, chosen[0].2.owner()), (a, Seat(1)));
+    assert_eq!(s.board().planet(a).units.iter().position(|u| u.owner() == Seat(1)), Some(usize::from(chosen[0].1)));
+    assert_eq!(ships_of(rd, Seat(1), two).len(), 1);
+    assert!(ships_of(rd, Seat(2), two).is_empty(), "an infantry nobody chose is no combatant");
+    // No ship in space: the Maximum is cargo alone, not a fleet.
+    let (s, k) = build(false);
+    let rd = Rd::new(&s, &k);
+    assert!(!planetary_maximum_participates(rd, Seat(0), two));
+    assert!(ships_of(rd, Seat(0), two).is_empty());
+    assert_eq!(ships_of(rd, Seat(1), two).len(), 1, "the Alastor's choice needs no ship of the owner's here");
+}
+
 #[test]
 fn rescue_moves_a_ship_of_ours_from_another_system_into_the_active_system_where_we_have_one() {
     covers_card!(ActionCard::Rescue);
