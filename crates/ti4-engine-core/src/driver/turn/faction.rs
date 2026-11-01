@@ -39,7 +39,7 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, key: u32, action: ComponentAction) -> Flo
         c::FABRICATION_TOKEN => fabrication(sx, who, key, FabMode::Token),
         c::BLACK_MARKET_FORGERY => fabrication(sx, who, key, FabMode::Relic { bmf: true }),
         // mutants:skip (the key default): every option on the menu has a key
-        _ => gap_flow(sx, TurnGap::Menu(MenuGap::Unrouted(super::action::gap_code(&crate::driver::dispatch::Dispatch::Faction(action)), Opt::Faction(action).key().unwrap_or(0)))),
+        _ => gap_flow(sx, TurnGap::Menu(MenuGap::Unrouted(super::action::gap_code(&crate::driver::dispatch::Dispatch::Faction(action)), Opt::Faction(action).key().unwrap_or(0)))), // mutants:skip (the key default): every option on the menu has a key
     }
 }
 
@@ -201,7 +201,7 @@ fn stall_tactics(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
 /// Yssaril's Mageon Implants: look at the hand of the player `arg` names and take a card.
 fn mageon_implants(sx: &mut Sx<'_>, who: Seat, key: u32, target: u16) -> Flow {
     let Ok(target) = u8::try_from(target) else { return gap_flow(sx, TurnGap::ReplayDiverged) };
-    let mut window = crate::rules::promissory_windows::MageonImplants::new(who, Seat(target), true);
+    let mut window = crate::rules::promissory_windows::MageonImplants::new(who, Seat(target), true); // mutants:skip: the hand limit is the printed one (the string bails when a faction changes it)
     if run_window(sx, &mut window) == Flow::Halt {
         return Flow::Halt;
     }

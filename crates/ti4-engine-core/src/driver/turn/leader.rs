@@ -132,7 +132,7 @@ fn hero(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, used: bool) -> Flo
 /// Ggrocuto Rinn: ready an exhausted planet (asked when there are several), and remove an infantry from a planet next to one of the seat's. An
 /// ACTION: the card exhausts, Extreme Duress settles, and a resolved use ends the action. The string arm has a map in every live game.
 fn xxcha_agent(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool) -> Flow {
-    let mut window = XxchaAgent::new(who, true);
+    let mut window = XxchaAgent::new(who, true); // mutants:skip: every live game has a map (the string arm: `galaxy` is `Some`)
     if run_window(sx, &mut window) == Flow::Halt {
         return Flow::Halt;
     }
@@ -143,7 +143,7 @@ fn xxcha_agent(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: b
 fn carth(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool) -> Flow {
     // The replenish is announced as the string does (a Cabal's `COMMODITIES_REPLENISHED`, a Trade Agreement's gain): the source is the interned
     // `trade_agreement` of the table's non-supply gains.
-    let mut window = HacanAgent::with_source(who, sx.table.codes.not_from_supply[3]);
+    let mut window = HacanAgent::with_source(who, sx.table.codes.not_from_supply[3]); // mutants:skip: index 3 is `trade_agreement` (pinned by the shadow of cabal 5p seed 22; the test table interns no texts)
     if run_window(sx, &mut window) == Flow::Halt || super::component::announce_events(sx) == Flow::Halt { // mutants:skip: a halted step is rolled back by the driver whatever the job does after the halt
         return Flow::Halt;
     }

@@ -740,3 +740,47 @@ fn ssruu_copies_of_carth_and_letani_ospha_follow_the_copied_agents_timing() {
     assert_eq!(status(&s, 1, Leader::LetaniOspha), Some(LeaderStatus::Readied));
     assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
 }
+
+/// Lane F2d: The Nucleus (Avernus) places the fighters without a strategy token and exhausts the legendary card.
+#[test]
+fn the_nucleus_chosen_from_the_menu_places_fighters_without_a_token_and_exhausts_avernus() {
+    use ti4_engine_core::generated::Planet;
+    use ti4_engine_core::kernel::hooks::components as c;
+    let (system, _) = ti4_engine_core_tests::scenario::first_planet();
+    let avernus = Planet::Avernus;
+    let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan, Faction::TheArborec])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[system])
+        .control(avernus, 0)
+        .unit(system, None, Unit::WarSun, 0, 1)
+        .tokens(0, 3, 3, 0)
+        .build();
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Faction(a)) if a.code == c::NUCLEUS)).unwrap();
+    first_options(&mut s, &e, live, 6);
+    assert_eq!(units_of(&s, system, 0, Unit::FighterI), 2, "two fighters stand at the war sun");
+    assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.strategic_tokens, 0, "no token was needed");
+    assert!(s.players().by_seat(Seat(0)).unwrap().cards.legendary_exhausted.contains_key(&avernus), "the legendary card is exhausted");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// Lane F2d: Black Market Forgery (the Naaz note) purges 2 fragments for the top relic and the note goes home.
+#[test]
+fn black_market_forgery_chosen_from_the_menu_purges_two_fragments_for_a_relic_and_returns_the_note() {
+    use ti4_engine_core::generated::{ExploreType, PromissoryNote, Relic};
+    use ti4_engine_core::kernel::hooks::components as c;
+    use ti4_engine_core::state::NoteKey;
+    let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheNaazRokhaAlliance, Faction::TheArborec]).phase(Phase::Action).active(Some(0)).tokens(0, 3, 3, 2).build();
+    let note = NoteKey { note: PromissoryNote::BlackMarketForgery, faction: Faction::TheNaazRokhaAlliance };
+    s.cards_mut().promissory.edit().insert(note, Seat(0));
+    s.players_mut().edit(0).cards.fragments.set(ExploreType::Hazardous, 2);
+    s.decks_mut().relic = ti4_engine_core::Deck::new(vec![Relic::DynamisCore]);
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Faction(a)) if a.code == c::BLACK_MARKET_FORGERY)).unwrap();
+    first_options(&mut s, &e, live, 6);
+    let p = s.players().by_seat(Seat(0)).unwrap();
+    assert!(p.cards.relics.as_slice().contains(&Relic::DynamisCore), "the relic is gained");
+    assert_eq!(p.cards.fragments.get(ExploreType::Hazardous), Some(0));
+    assert_eq!(s.cards().promissory.get(&note), Some(&Seat(1)), "the note went home to the Naaz");
+}
