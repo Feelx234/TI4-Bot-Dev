@@ -16,6 +16,7 @@ mod tests {
         /// Done another way (a hook, a mark the native windows read).
         Carried(&'static str),
         /// A rule on another lane's branch, not merged here yet: delete the line when that branch merges (the test fails when it does).
+        #[allow(dead_code, reason = "no lane is unmerged at the moment (integration 12 merged M6c and M1); a branch that carries a rule not yet merged lists it here")]
         Lane(&'static str),
         /// In scope and not ported: a LOUD gap. The row of `GAPS` (and `GAP_IDS`) makes a native game stop where a seat holds the card.
         Gap(usize),
