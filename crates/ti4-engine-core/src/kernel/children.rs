@@ -406,8 +406,9 @@ pub enum Spawn {
     /// Self-Assembly Routines' offer at the end of a use of PRODUCTION in `system` (a window of the faction crate: the table's extra link).
     SelfAssembly { who: Seat, system: System },
     /// `explore_windows::Exploring` of the frontier token in `system`, spent first and announced to nobody (the string explores it with no
-    /// timing handle); reports [`Report::Explored`].
-    ExploreFrontier { who: Seat, system: System },
+    /// timing handle); reports [`Report::Explored`]. `named`: the exploration names the system of the token (the string's `explore_frontier`);
+    /// Exploration Probe's draw does not (`explore_with(.., FRONTIER, None)`: no system in the log row, nowhere for a Mirage).
+    ExploreFrontier { who: Seat, system: System, named: bool },
 }
 
 /// Starts the child window a [`Spawn`] names; `None` for a request the table does not know.

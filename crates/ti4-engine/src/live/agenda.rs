@@ -35,6 +35,7 @@ pub fn codes(r: &Render) -> AgendaCodes {
         redistribution: r.code("redistribution"),
         grant: r.code("grant_reallocation"),
         ground_cause: std::array::from_fn(|i| ti4_engine_core::generated::Agenda::ALL.get(i).map_or(Default::default(), |a| r.code(&format!("agenda:{}", IdStr::as_str(*a))))),
+        ground_other: ti4_engine_core::kernel::agenda_codes::GROUND_OTHER.map(|reason| r.code(&crate::core_sync::keys::other::render_destroy(reason))),
     }
 }
 
@@ -107,5 +108,26 @@ pub fn complete(core: &CoreState, choice: &CoreChoice, rendered: &mut Choice) {
         let alias = core.agenda().in_play.map_or("", |a| IdStr::as_str(a));
         rendered.prompt = rendered.prompt.replace("{agenda}", alias);
         super::turn::discard_law(Agenda::CommitteeFormation, COMMITTEE_EFFECT, Vec::new(), rendered);
+    }
+}
+
+#[cfg(test)]
+mod ground_tests {
+    use super::*;
+
+    /// H4: the cause texts of the staged ground forces the flush announces besides an agenda's are the string's own words (`render_destroy`), each
+    /// interned once: the string flush writes them into the payload of `GROUND_FORCE_DESTROYED` (`cause`).
+    #[test]
+    fn the_cause_texts_of_the_other_staged_ground_forces_are_the_strings() {
+        let r = Render::new(vec!["a".to_owned(), "b".to_owned()]);
+        let codes = codes(&r);
+        let words = ti4_engine_core::kernel::agenda_codes::GROUND_OTHER.map(crate::core_sync::keys::other::render_destroy);
+        assert_eq!(words[0], "action_card:plague");
+        assert_eq!(words[1], "action_card:unstable_planet");
+        assert_eq!(words[2], "nova_seed");
+        assert_eq!(words[3], "nekrohero");
+        for (word, code) in words.iter().zip(codes.ground_other) {
+            assert_eq!(r.code_text(code), *word);
+        }
     }
 }

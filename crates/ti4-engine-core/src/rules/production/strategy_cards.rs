@@ -5,10 +5,10 @@
 //! [`super::strategy_primaries`].
 
 use crate::choice::generic::{Content, Rule};
-use crate::choice::strategy::{gain_pool_choice, rule_ctx, Ask as SAsk, Opt as SOpt, Subtype as SSub};
+use crate::choice::strategy::{gain_pool_choice, leader_ctx, rule_ctx, Ask as SAsk, Opt as SOpt, Subtype as SSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::generated::{Planet, System, UnitBaseType};
+use crate::generated::{Leader, Planet, System, UnitBaseType};
 use crate::ids::Seat;
 use crate::kernel::children::{HomeFacts, Made};
 use crate::kernel::fx;
@@ -16,7 +16,7 @@ use crate::kernel::stage::{Child, Illegal, Ran, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::economy::Spend;
 use crate::query::{board, reach};
-use crate::state::{Code, CoreState};
+use crate::state::{Code, CoreState, LeaderStatus};
 use crate::tables::Scope;
 
 use crate::rules::production as prod;
@@ -695,6 +695,10 @@ pub enum RStage {
     Start,
     /// The primary's free research.
     Free,
+    /// Doctor Sucaban's offer: waiting on the holder of the agent (or of the Ssruu that copies it).
+    Offer,
+    /// Doctor Sucaban's trade: waiting on the researcher's infantry (or the decline), one unit at a time.
+    Trade,
     /// The paid research: waiting on the technology (or the decline).
     Choose,
     /// Paying the bill, one face at a time ([`PayStep`]).
@@ -732,13 +736,81 @@ pub struct Research {
     /// Technology Rider (package W4; `strategy_cards::offer_free_research`): one free research asked as the card's own question,
     /// and nothing after it (no paid second research).
     rider: bool,
+    /// Doctor Sucaban, the sources of the paid research's offer in the order the string asks them ([`sucaban_sources`]) and the one asked now.
+    sucaban: SmallList<SucabanSource, 4>,
+    offer_at: usize,
+    /// The position before a Ssruu's copy of the agent is offered (a copy is provisional: undone when no technology lands).
+    checkpoint: Option<Box<CoreState>>,
+}
+
+/// One right to trade infantry for research (`strategy_cards::SucabanSource`): the seat asked, the seat that holds the agent and whether the
+/// holder's Ssruu copies it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SucabanSource {
+    holder: Seat,
+    owner: Seat,
+    copied: bool,
+}
+
+impl SucabanSource {
+    /// The card exhausted: the agent itself, or the Ssruu that copies it.
+    const fn card(self) -> Leader {
+        if self.copied { Leader::Ssruu } else { Leader::DoctorSucaban }
+    }
+}
+
+/// `strategy_cards::sucaban_sources`: a seat holding a readied Doctor Sucaban, and `who` themselves if they hold a readied Ssruu and another seat
+/// has the agent at all (readied or exhausted), by initiative order from the active seat, an agent before a copy of the same holder.
+#[must_use]
+fn sucaban_sources(s: &CoreState, who: Seat) -> SmallList<SucabanSource, 4> {
+    let status = |p: &crate::state::Player, leader: Leader| p.leaders.status.get(&leader).copied();
+    let mut out: SmallList<SucabanSource, 4> = SmallList::new();
+    if let Some(p) = s.players().iter().find(|p| status(p, Leader::DoctorSucaban) == Some(LeaderStatus::Readied)) {
+        out.push(SucabanSource { holder: p.seat, owner: p.seat, copied: false });
+    }
+    if s.players().by_seat(who).is_some_and(|p| status(p, Leader::Ssruu) == Some(LeaderStatus::Readied)) {
+        for p in s.players().iter().filter(|p| p.seat != who && matches!(status(p, Leader::DoctorSucaban), Some(LeaderStatus::Readied | LeaderStatus::Exhausted))) {
+            out.push(SucabanSource { holder: who, owner: p.seat, copied: true });
+        }
+    }
+    let mut order: Vec<Seat> = crate::query::seats::initiative_order(s).iter().copied().collect();
+    if let Some(at) = s.meta().active.and_then(|active| order.iter().position(|seat| *seat == active)) {
+        order.rotate_left(at);
+    }
+    out.as_mut_slice().sort_by_key(|source| (order.iter().position(|seat| *seat == source.holder).unwrap_or(usize::MAX), source.copied));
+    out
+}
+
+/// Whether a piece is an infantry of `who` (`strategy_cards::infantry_sites` reads the unit type id for "infantry").
+fn infantry_of(who: Seat) -> impl Fn(&crate::state::Piece) -> bool {
+    move |p| p.owner() == who && p.kind().data().base_type == UnitBaseType::Infantry
+}
+
+/// `strategy_cards::infantry_sites`: where `who` has infantry, one entry per location, in the string's order (systems by id text, the space area
+/// before the planets of the system, planets by id text).
+fn infantry_sites(s: &CoreState, who: Seat) -> Vec<(System, Option<Planet>)> {
+    let is_infantry = infantry_of(who);
+    let mut sites = Vec::new();
+    for (system, cell) in s.board().systems() {
+        if cell.units.as_slice().iter().any(&is_infantry) {
+            sites.push((system, None));
+        }
+        let mut planets: Vec<Planet> = board::planets_of(s, system).collect();
+        planets.sort_unstable();
+        for planet in planets {
+            if s.board().planet(planet).units.as_slice().iter().any(&is_infantry) {
+                sites.push((system, Some(planet)));
+            }
+        }
+    }
+    sites
 }
 
 impl Research {
     /// `cost`: the resources the paid research costs (6 for the primary's second, 4 for the secondary).
     #[must_use]
     pub const fn new(who: Seat, primary: bool, cost: i64, scope: Scope) -> Self {
-        Self { who, primary, cost, scope, roster: None, stage: RStage::Start, pay: None, chosen: None, failed: false, researched: SmallList::new(), rider: false }
+        Self { who, primary, cost, scope, roster: None, stage: RStage::Start, pay: None, chosen: None, failed: false, researched: SmallList::new(), rider: false, sucaban: SmallList::new(), offer_at: 0, checkpoint: None }
     }
 
     /// Technology Rider ("research 1 technology", `strategy_cards::offer_free_research`): the Technology primary's free research,
@@ -765,9 +837,51 @@ impl Research {
         tech::researchable(s, self.scope, reach::blanked(s), self.who, &KernelHooks::new(s, k, self.who)).iter().collect()
     }
 
-    fn begin_paid(&mut self, s: &CoreState, k: &Kernel) {
-        let affordable = prod::available(&Self::cx(s, k), self.who, Spend::Resources, &Extras::default()) >= self.cost;
-        self.stage = if affordable { RStage::Choose } else { RStage::Done };
+    /// The paid research begins: Doctor Sucaban is offered first, before the affordability gate (the whole point of the card is to make a research
+    /// affordable that was not), then the research is paid for the cost that is left.
+    fn begin_paid(&mut self, s: &mut CoreState, k: &Kernel) {
+        if self.cost > 0 && !infantry_sites(s, self.who).is_empty() {
+            self.sucaban = sucaban_sources(s, self.who);
+        }
+        self.next_offer(s, k);
+    }
+
+    /// The next source of the agent is asked, or (none left) the research goes on.
+    fn next_offer(&mut self, s: &mut CoreState, k: &Kernel) {
+        let Some(source) = self.sucaban.as_slice().get(self.offer_at).copied() else {
+            self.after_offers(s, k);
+            return;
+        };
+        // (A copy is provisional until a technology lands: the string keeps the position it asked from.)
+        self.checkpoint = source.copied.then(|| Box::new(s.clone()));
+        self.stage = RStage::Offer;
+    }
+
+    /// The offer was declined (or the card could not be exhausted): nothing changed, and the next source is asked.
+    fn skip_offer(&mut self, s: &mut CoreState, k: &Kernel) {
+        self.checkpoint = None;
+        self.offer_at += 1;
+        self.next_offer(s, k);
+    }
+
+    /// The offers are over: the research is paid for what the infantry left of the bill, if the seat can pay it.
+    fn after_offers(&mut self, s: &mut CoreState, k: &Kernel) {
+        if prod::available(&Self::cx(s, k), self.who, Spend::Resources, &Extras::default()) >= self.cost {
+            self.stage = RStage::Choose;
+        } else {
+            self.end_paid(s, false);
+        }
+    }
+
+    /// The paid research is over: `landed`, a technology was gained; else a Ssruu's copy of the agent is undone (the exhausted card, the infantry
+    /// traded) as the string restores the position it asked from. (The `borrowed_agent_used_state` hook of the string has no module that sets it.)
+    fn end_paid(&mut self, s: &mut CoreState, landed: bool) {
+        if let Some(before) = self.checkpoint.take()
+            && !landed
+        {
+            *s = *before;
+        }
+        self.stage = RStage::Done;
     }
 
     fn pay_step(&self, paid: i64) -> PayStep {
@@ -893,10 +1007,11 @@ impl Research {
     }
 
     fn land(&mut self, s: &mut CoreState, k: &Kernel, t: Technology) {
-        if !self.settle(s, k, t) {
+        let landed = self.settle(s, k, t);
+        if !landed {
             self.failed = true;
         }
-        self.stage = RStage::Done;
+        self.end_paid(s, landed);
     }
 
     fn after_step(&mut self, s: &mut CoreState, k: &Kernel) {
@@ -937,6 +1052,27 @@ impl Research {
 }
 
 impl Research {
+    /// `strategy_cards::doctor_sucaban`'s offer to the holder of the agent (or of the Ssruu that copies it).
+    fn offer_choice(&self) -> Option<Choice> {
+        let source = self.sucaban.as_slice().get(self.offer_at).copied()?;
+        let subtype = if source.copied { SSub::SucabanBorrowedExhaust } else { SSub::SucabanExhaust };
+        let mut options = opts([SOpt::Exhaust]);
+        options.push(Opt::Decline);
+        Some(Choice {
+            actor: source.holder,
+            ask: ask(SAsk::SucabanOffer { researcher: self.who, source: source.owner, copied: source.copied }),
+            ctx: leader_ctx(source.card(), subtype),
+            opts: options,
+        })
+    }
+
+    /// `strategy_cards::trade_infantry_for_research`'s question to the researcher: the places an infantry can be taken from, or the end of the trade.
+    fn trade_choice(&self, s: &CoreState) -> Choice {
+        let mut options = opts(infantry_sites(s, self.who).into_iter().map(|(system, planet)| SOpt::Infantry { system, planet }));
+        options.push(Opt::Decline);
+        Choice { actor: self.who, ask: ask(SAsk::SucabanTrade), ctx: leader_ctx(Leader::DoctorSucaban, SSub::SucabanRemoveInfantry), opts: options }
+    }
+
     /// `technology::researchable` for a card that researches outside a strategy card: the technologies the seat can research
     /// under the faction hooks of the kernel, in the order of the technology set.
     #[must_use]
@@ -973,9 +1109,20 @@ impl Window for Research {
                     }
                 }
                 RStage::Free => return Next::Continue(self.research_choice(sx.state, sx.kernel, false).ask),
+                RStage::Offer => match self.offer_choice() {
+                    Some(choice) => return Next::Continue(choice.ask),
+                    None => self.after_offers(sx.state, sx.kernel),
+                },
+                RStage::Trade => {
+                    // (`while reduced > 0`, and `sites.is_empty()` ends the trade.)
+                    if self.cost > 0 && !infantry_sites(sx.state, self.who).is_empty() {
+                        return Next::Continue(self.trade_choice(sx.state).ask);
+                    }
+                    self.after_offers(sx.state, sx.kernel);
+                }
                 RStage::Choose => {
                     if self.open(sx.state, sx.kernel).is_empty() {
-                        self.stage = RStage::Done;
+                        self.end_paid(sx.state, false);
                     } else {
                         return Next::Continue(self.research_choice(sx.state, sx.kernel, true).ask);
                     }
@@ -999,6 +1146,8 @@ impl Window for Research {
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         match self.stage {
             RStage::Free => Some(self.research_choice(s, k, false)),
+            RStage::Offer => self.offer_choice(),
+            RStage::Trade => Some(self.trade_choice(s)),
             RStage::Choose => Some(self.research_choice(s, k, true)),
             RStage::Pay => self.pay.as_ref()?.ask_of(s, k),
             RStage::Start | RStage::Done => None,
@@ -1015,7 +1164,30 @@ impl Window for Research {
             return Err(Illegal);
         }
         match (self.stage, chosen) {
-            (RStage::Choose, Opt::Decline) => self.stage = RStage::Done,
+            (RStage::Offer, Opt::Decline) => self.skip_offer(sx.state, sx.kernel),
+            (RStage::Offer, Opt::Strategy(SOpt::Exhaust)) => {
+                let source = self.sucaban.as_slice().get(self.offer_at).copied().ok_or(Illegal)?;
+                if fx_strategy::exhaust_ready_agent(sx.state, sx.kernel, source.holder, source.card()) {
+                    self.stage = RStage::Trade;
+                } else {
+                    // (`leaders::exhaust` said no: the next source is asked.)
+                    self.skip_offer(sx.state, sx.kernel);
+                }
+            }
+            (RStage::Trade, Opt::Decline) => self.after_offers(sx.state, sx.kernel),
+            (RStage::Trade, Opt::Strategy(SOpt::Infantry { system, planet })) => {
+                // The unit that stands there goes (a faction's infantry has its own type), the bill falls by one.
+                let list = match planet {
+                    Some(p) => &sx.state.board().planet(p).units,
+                    None => &sx.state.board().sys(system).units,
+                };
+                let unit = list.as_slice().iter().find(|p| infantry_of(self.who)(p)).map(|p| p.kind()).ok_or(Illegal)?;
+                if !fx::remove_unit(sx.state, self.who, system, planet, unit) {
+                    return Err(Illegal);
+                }
+                self.cost -= 1;
+            }
+            (RStage::Choose, Opt::Decline) => self.end_paid(sx.state, false),
             (RStage::Free, Opt::Strategy(SOpt::Research(t))) => {
                 if self.settle(sx.state, sx.kernel, t) {
                     if self.rider {
@@ -1036,7 +1208,7 @@ impl Window for Research {
                     if fx_pay::pay_first_plan(sx.state, sx.kernel, env, self.who, Spend::Resources, self.cost) {
                         self.land(sx.state, sx.kernel, t);
                     } else {
-                        self.stage = RStage::Done;
+                        self.end_paid(sx.state, false);
                     }
                 } else if self.cost > 0 {
                     self.chosen = Some(t);

@@ -43,7 +43,7 @@ fn env() -> Env {
         fighter: placed(Unit::FighterI),
         facts: Facts {
             neutral: Some(NEUTRAL),
-            action_draw_plain: true,
+           
             rules_version: 35,
             destroyer: placed(Unit::DestroyerI),
             dreadnought: placed(Unit::DreadnoughtI),
@@ -61,6 +61,14 @@ fn rig_env(card: ActionCard, st: CoreState, e: Env) -> Rig<Play> {
 
 fn rig(card: ActionCard, st: CoreState) -> Rig<Play> {
     rig_env(card, st, env())
+}
+
+/// Exploration Probe on a table that carries what the exploration window of its token needs (the event texts and the words of a log row).
+fn probe_rig(st: CoreState) -> Rig<Play> {
+    let play = Play::of(&st, ActionCard::ExplorationProbe, Seat(0), env()).expect("the probe has a play");
+    let mut table = ti4_engine_core_tests::windows::explore_table();
+    ti4_engine_core::driver::children::register(&mut table);
+    Rig::from_parts(st, ti4_engine_core_tests::kernel_all(), play).with_table(table).seeded(1)
 }
 
 use ti4_engine_core::choice::cards::{Ask as CAsk, What};
@@ -710,15 +718,18 @@ use ti4_engine_core::generated::{Explore, ExploreType};
 fn exploration_probe_explores_a_frontier_token_next_to_our_ships_and_the_card_drawn_resolves() {
     covers_card!(ActionCard::ExplorationProbe);
     // A relic fragment: gained, the token gone, the card out of the deck.
-    let mut r = rig(ActionCard::ExplorationProbe, probe_state(&[Explore::UnknownRelicFragment1, Explore::MinorEntropicField]));
+    let mut r = probe_rig(probe_state(&[Explore::UnknownRelicFragment1, Explore::MinorEntropicField]));
     r.run();
     assert!(r.is_done(), "one token near a ship of ours: taken unasked");
     assert!(r.state.explore().frontier.is_empty(), "the token is taken");
     assert_eq!(r.state.players().by_seat(Seat(0)).unwrap().cards.fragments.get(ExploreType::Frontier), Some(1));
     assert_eq!(r.state.decks().explore[ExploreType::Frontier as usize].cards().len(), 1);
-    assert!(matches!(r.driver.window.explored().map(|p| p.outcome), Some(ti4_engine_core::rules::action_cards::effects::Explored::Fragment(ExploreType::Frontier))));
+    // The exploration window opened the row of the log, with no system (the string's draw names none) and the words of the adapter.
+    let row = r.state.explore().log.get(0).expect("a row");
+    assert_eq!((row.card, row.deck, row.system), (Explore::UnknownRelicFragment1, ExploreType::Frontier, None));
+    assert_eq!(ti4_engine_core_tests::windows::text_of(&r.state, row.outcome), "Fragment(Frontier)");
     // An entropic field: a command token and trade goods (the card says so).
-    let mut e = rig(ActionCard::ExplorationProbe, probe_state(&[Explore::EntropicField]).tap_tokens());
+    let mut e = probe_rig(probe_state(&[Explore::EntropicField]).tap_tokens());
     e.run();
     assert!(matches!(e.asked().ask, Ask::Strategy(_)), "the command token's pool");
     e.pick(0);
@@ -727,18 +738,18 @@ fn exploration_probe_explores_a_frontier_token_next_to_our_ships_and_the_card_dr
     // A dead world: a relic from the relic deck.
     let mut dead = probe_state(&[Explore::DeadWorld]);
     dead.decks_mut().relic = ti4_engine_core::containers::Deck::new(vec![ti4_engine_core::generated::Relic::ALL[0], ti4_engine_core::generated::Relic::ALL[1]]);
-    let mut d = rig(ActionCard::ExplorationProbe, dead);
+    let mut d = probe_rig(dead);
     d.run();
     assert!(d.is_done());
     assert_eq!(d.state.players().by_seat(Seat(0)).unwrap().cards.relics.len(), 1);
     // A token with no ship of ours near it, or none at all: nothing is asked and nothing is taken.
     let mut far = probe_state(&[Explore::UnknownRelicFragment1]);
     far.board_mut().sys_mut(sys(1)).units.clear();
-    let mut r2 = rig(ActionCard::ExplorationProbe, far.clone());
+    let mut r2 = probe_rig(far.clone());
     r2.run();
     assert!(r2.is_done() && r2.state == far);
     // An empty deck: the token is taken for nothing.
-    let mut empty = rig(ActionCard::ExplorationProbe, probe_state(&[]));
+    let mut empty = probe_rig(probe_state(&[]));
     empty.run();
     assert!(empty.state.explore().frontier.is_empty() || empty.is_done());
 }

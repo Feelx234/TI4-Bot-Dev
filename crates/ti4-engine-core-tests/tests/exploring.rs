@@ -187,6 +187,27 @@ fn the_demilitarized_zone_returns_the_structures_and_sends_the_ground_forces_to_
     assert!(before.state.board().planet(spot.1).units.as_slice().iter().any(|p| p.kind() == Unit::InfantryI), "before version 34 the card only attaches");
 }
 
+/// A frontier exploration that does not name the system of the token (Exploration Probe: the string draws with `explore_with(.., FRONTIER, None)`)
+/// logs a row with no system and a Mirage drawn has nowhere to act; the named exploration (the string's `explore_frontier`) records the system and
+/// places the Mirage in it.
+#[test]
+fn an_unnamed_frontier_exploration_logs_no_system_and_a_mirage_has_nowhere_to_act() {
+    covers!("rules::explore_windows::Exploring");
+    let sys = plain_systems()[0];
+    for named in [true, false] {
+        let (mut state, kernel) = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_from(&[sys]).build();
+        stack(&mut state, ExploreType::Frontier, &[Explore::Mirage]);
+        state.explore_mut().frontier.insert(sys);
+        let mut rig = Rig::from_parts(state, kernel, Exploring::frontier(Seat(0), sys, false, true, named)).with_table(explore_table());
+        rig.run();
+        assert!(rig.is_done() && rig.driver.window.explored(), "{named}");
+        assert!(rig.state.explore().frontier.is_empty(), "{named}: the token is spent either way");
+        assert_eq!(rig.state.explore().log.get(0).unwrap().system, named.then_some(sys), "{named}: the row names the system only when the exploration does");
+        assert_eq!(rig.state.board().planet(Planet::Mirage).placed_in, named.then_some(sys), "{named}: a Mirage is placed in the named system only");
+        assert_eq!(row(&rig, 0).0, if named { "Resolved" } else { "Unresolved" }, "{named}");
+    }
+}
+
 #[test]
 fn an_attachment_drawn_for_a_frontier_token_is_discarded() {
     covers!("rules::explore_windows::Exploring");
@@ -194,7 +215,7 @@ fn an_attachment_drawn_for_a_frontier_token_is_discarded() {
     let (mut state, kernel) = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_from(&[sys]).build();
     stack(&mut state, ExploreType::Frontier, &[Explore::DysonSphere]);
     state.explore_mut().frontier.insert(sys);
-    let mut rig = Rig::from_parts(state, kernel, Exploring::frontier(Seat(0), sys, false, true)).with_table(explore_table());
+    let mut rig = Rig::from_parts(state, kernel, Exploring::frontier(Seat(0), sys, false, true, true)).with_table(explore_table());
     rig.run();
     assert!(rig.is_done() && rig.driver.window.explored());
     assert_eq!(row(&rig, 0).0, "Discarded");
@@ -624,7 +645,7 @@ fn a_table_missing_the_texts_or_the_words_declines_and_the_gates_read_their_own_
     let (mut state, kernel) = Scenario::new(&[Faction::TheTitansOfUl, Faction::TheArborec]).map_from(&[sys]).build();
     stack(&mut state, ExploreType::Frontier, &[Explore::UnknownRelicFragment1]);
     state.explore_mut().frontier.insert(sys);
-    let mut frontier = Rig::from_parts(state, kernel, Exploring::frontier(Seat(0), sys, true, true)).with_table(explore_table());
+    let mut frontier = Rig::from_parts(state, kernel, Exploring::frontier(Seat(0), sys, true, true, true)).with_table(explore_table());
     frontier.run();
     assert!(frontier.driver.window.explored(), "a frontier token has no planet to name");
 }

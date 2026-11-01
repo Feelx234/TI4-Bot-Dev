@@ -100,6 +100,7 @@ fn fields(s: &CoreState) -> Fields {
         scoring: false,
         outcome: None,
         end_announced: false,
+        round_end_produced: None,
     }
 }
 

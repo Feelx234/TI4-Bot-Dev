@@ -95,7 +95,7 @@ impl Family for Fam {
     type Opt = Opt;
     type Subtype = Subtype;
 
-    fn prompt(_: &Render, a: &Ask) -> String {
+    fn prompt(r: &Render, a: &Ask) -> String {
         match a {
             Ask::TradeReplenish => "let another player replenish commodities".to_owned(),
             Ask::GainPool { .. } => "gain a command token into which pool".to_owned(),
@@ -117,6 +117,14 @@ impl Family for Fam {
             Ask::TeWarfareRedistributeAfter { .. } => "Warfare: redistribute your command tokens after the tactical action".to_owned(),
             Ask::TeWarfareTactical => "Warfare: a tactical action without a command token".to_owned(),
             Ask::ResearchTechnology { .. } => "research a technology".to_owned(),
+            Ask::SucabanOffer { researcher, source, copied } => {
+                if *copied {
+                    format!("Ssruu: copy {}'s Doctor Sucaban to trade infantry for research", r.seat_text(*source))
+                } else {
+                    format!("Doctor Sucaban: exhaust to let {} trade infantry for research", r.seat_text(*researcher))
+                }
+            }
+            Ask::SucabanTrade => "remove an infantry to reduce the cost by 1".to_owned(),
             Ask::Follow { card, .. } => follow_words(*card).0.to_owned(),
             Ask::Draft => "choose a strategy card".to_owned(),
         }
@@ -138,6 +146,9 @@ impl Family for Fam {
             Subtype::PlaceStructurePdsAlternative => "place_structure_pds_alternative",
             Subtype::ImperialScoreObjective => "imperial_score_objective",
             Subtype::ResearchTechnology => "research_technology",
+            Subtype::SucabanExhaust => "doctor_sucaban_exhaust",
+            Subtype::SucabanBorrowedExhaust => "doctor_sucaban_borrowed_exhaust",
+            Subtype::SucabanRemoveInfantry => "doctor_sucaban_remove_infantry",
             Subtype::FollowSecondary => "strategy_secondary",
             Subtype::ConstructionChooseAbility => "construction_choose_ability",
             Subtype::WarfareFreeTactical => "warfare_free_tactical",
@@ -216,6 +227,11 @@ impl Family for Fam {
                 option.payload.insert("cost_tokens".to_owned(), serde_json::Value::from(0));
                 option
             }
+            Opt::Exhaust => ChoiceOption::labelled("yes", "leader", "exhaust the agent"),
+            Opt::Infantry { system, planet } => match planet {
+                Some(planet) => ChoiceOption::labelled(format!("{}:{}", system.as_str(), planet.as_str()), "unit", format!("an infantry on {}", planet.as_str())),
+                None => ChoiceOption::labelled(format!("{}:", system.as_str()), "unit", format!("an infantry in space at {}", system.as_str())),
+            },
             Opt::Objective(o) => ChoiceOption::labelled(o.as_str(), "objective", o.as_str()),
             Opt::Card(card) => ChoiceOption::labelled(card.as_str(), crate::draft::STRATEGY_CARD_KIND, crate::draft::strategy_card_label(ti4_content::ContentStore::embedded(), card.as_str())),
             Opt::Build => ChoiceOption::labelled("structure", "build", "place a structure"),
@@ -281,6 +297,12 @@ impl Family for Fam {
             Ask::Draft => StrategyCard::from_id(id).map(Opt::Card),
             Ask::ImperialScore => PublicObjective::from_id(id).map(Opt::Objective),
             Ask::ResearchTechnology { .. } => Technology::from_id(id).map(Opt::Research),
+            Ask::SucabanOffer { .. } => (id == "yes").then_some(Opt::Exhaust),
+            Ask::SucabanTrade => {
+                let (system, planet) = id.split_once(':')?;
+                let planet = if planet.is_empty() { None } else { Some(Planet::from_id(planet)?) };
+                Some(Opt::Infantry { system: System::from_id(system)?, planet })
+            }
             Ask::Follow { .. } => match id {
                 "no" => Some(Opt::Skip),
                 "yes" => Some(Opt::Follow),

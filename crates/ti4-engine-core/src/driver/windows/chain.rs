@@ -171,8 +171,12 @@ impl AftermathChain {
                         return Some(Next::Done);
                     }
                     Opened::NoFight(winner) => {
-                        // The string's settle presents the finished (empty) fight once.
-                        sx.state.transient_mut().combat.presentation.edit().phase = sx.table.facts.combat.phases[4];
+                        // The string's settle presents the finished (empty) fight once when a side holds the system or a draw was declared; a system
+                        // nobody holds any more (the guns of the space cannon offense destroyed the only ship) was never a fight and shows nothing.
+                        let m = sx.state.meta();
+                        if winner.is_some() || m.combat_draw_round.is(m.combat_round_seq) {
+                            sx.state.transient_mut().combat.presentation.edit().phase = sx.table.facts.combat.phases[4];
+                        }
                         self.p.outcome = Some((winner, 0));
                         self.p.fight = AFight::Closed;
                     }

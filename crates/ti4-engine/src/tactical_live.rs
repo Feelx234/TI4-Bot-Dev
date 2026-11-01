@@ -929,6 +929,11 @@ pub(crate) mod tests {
         assert!(diffs.is_empty(), "{diffs:#?}");
     }
 
+    /// `planet_hub` for the lockstep tests of the combat (lane H3).
+    pub(crate) fn one_planet_hub_for_lockstep() -> (crate::fixtures::Hub, ti4_model::id::SystemId, ti4_model::id::SystemId, ti4_model::id::PlanetId) {
+        planet_hub()
+    }
+
     /// A hub whose centre is a system with a planet, `a` holding a carrier on the first system of the ring.
     fn planet_hub() -> (crate::fixtures::Hub, ti4_model::id::SystemId, ti4_model::id::SystemId, ti4_model::id::PlanetId) {
         // A planet of the base game that no faction calls home, in a system of the ordinary tiles (so the hub can be built around it).

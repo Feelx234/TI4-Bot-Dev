@@ -1267,7 +1267,7 @@ impl Window for EmpyreanHero {
                         continue;
                     };
                     // (The string explores with no timing handle here: nothing is announced.)
-                    match sx.table.links.start(&Spawn::ExploreFrontier { who: self.who, system }) {
+                    match sx.table.links.start(&Spawn::ExploreFrontier { who: self.who, system, named: true }) {
                         Some(window) => {
                             self.child.start(window);
                             self.stage = EStage::Exploring;

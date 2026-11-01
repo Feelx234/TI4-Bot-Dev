@@ -45,7 +45,7 @@ fn explorations(sx: &mut Sx<'_>, player: Seat, system: System) -> Flow {
         }
     }
     if tail::det_fires(sx.state, player, system) {
-        let mut window = Exploring::frontier(player, system, true, true);
+        let mut window = Exploring::frontier(player, system, true, true, true);
         if run_window(sx, &mut window) == Flow::Halt {
             return Flow::Halt;
         }

@@ -58,7 +58,7 @@ pub fn one_link() -> OneLink {
 fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
     Some(match request {
         Spawn::Bill { who, kind, cost } => Erased::boxed(PayBill::new(*who, *kind, *cost), |w| Report::Paid(w.outcome == Some(true))),
-        Spawn::ExploreFrontier { who, system } => Erased::boxed(Exploring::frontier(*who, *system, false, true), |w| {
+        Spawn::ExploreFrontier { who, system, named } => Erased::boxed(Exploring::frontier(*who, *system, false, true, *named), |w| {
             Report::Explored(if w.unsupported().is_some() {
                 ExploreEnd::Unsupported
             } else if w.empty() {

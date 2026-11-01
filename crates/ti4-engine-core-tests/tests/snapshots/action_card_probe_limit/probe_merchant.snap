@@ -11,10 +11,10 @@ explore.log: [] -> -
 explore.log.[0].card: - -> MerchantStation1
 explore.log.[0].deck: - -> Frontier
 explore.log.[0].gains: - -> {}
-explore.log.[0].outcome.[0]: - -> 0
+explore.log.[0].outcome.[0]: - -> 2
 explore.log.[0].placed: - -> []
 explore.log.[0].planet: - -> None
 explore.log.[0].player.[0]: - -> 0
-explore.log.[0].result: - -> None
+explore.log.[0].result.[0].[0]: - -> 3
 explore.log.[0].round: - -> 1
 explore.log.[0].system: - -> None

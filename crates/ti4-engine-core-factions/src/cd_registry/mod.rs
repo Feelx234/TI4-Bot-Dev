@@ -271,6 +271,12 @@ mod tests {
 
 /// The timing abilities of the package (the reaction windows), in the string registration order of the factions.
 pub fn register_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
+    register_early_abilities(t);
+    register_last_abilities(t);
+}
+
+/// The timing abilities that come before the silent modules (Winnu's among them) in the string order of the factions.
+pub fn register_early_abilities(t: &mut ti4_engine_core::kernel::ability::AbilityTable) {
     yin::timing::register_abilities(t);
     titans::offer::register_abilities(t);
     sardakk::timing::register_abilities(t);

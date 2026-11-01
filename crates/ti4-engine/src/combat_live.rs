@@ -5,7 +5,7 @@
 
 use ti4_engine_core::generated::Unit;
 use ti4_engine_core::kernel::ability::{AftermathGap, CombatTexts};
-use ti4_engine_core::state::{Code, CoreState, CODE_CAPACITY};
+use ti4_engine_core::state::{Code, CoreState};
 
 use crate::generated::IdStr;
 use crate::render::Render;
@@ -127,8 +127,26 @@ const MAX_TYPES: usize = 10;
 /// types present, with the other form of each dual-form unit) their names and every roll group's. State texts go to the position's table, shown
 /// texts to the render table. A fight with more than ten types names none (the machine then stops at a roll it cannot name).
 pub fn combat_texts(core: &mut CoreState, r: &Render) -> CombatTexts {
+    // ONE table: the state texts and the shown texts are minted into the render's table, which continues the position's, and the position takes
+    // it back. Minting the state texts into the position's table and the shown ones into the render's makes two tables that disagree about every
+    // code minted after the split; the render's table, which the live loop commits to the position, then names a state code by a shown text (or
+    // by none: `unknown text code`, the Argent and Nekro rows of the faction sweep).
+    // (A `Render` that does not continue the position's table keeps the two apart, as before: the state texts go to the position.)
+    let one = r.sync_codes(&mut core.texts.codes);
+    let t = combat_texts_in(core, r, one);
+    if one {
+        r.sync_codes(&mut core.texts.codes);
+    }
+    t
+}
+
+fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
     let state_code = |core: &mut CoreState, text: &str| -> Code {
-        Code(u16::try_from(core.texts.codes.intern(text.as_bytes(), CODE_CAPACITY).expect("room for the text")).expect("a code fits"))
+        if one {
+            r.code(text)
+        } else {
+            Code(u16::try_from(core.texts.codes.intern(text.as_bytes(), ti4_engine_core::state::CODE_CAPACITY).expect("room for the text")).expect("a code fits"))
+        }
     };
     let mut t = CombatTexts::default();
     for (slot, text) in t.phases.iter_mut().zip(["pre_roll", "barrage", "resolving_hits", "retreating", "complete"]) {
@@ -501,6 +519,26 @@ mod tests {
         format!("move|{origin}|{index}")
     }
 
+    /// Crash Landing played in the window of the loss of its holder's last ship, in a space fight of the native tactical action: the ground
+    /// force that rides in the space area lands on a planet of the active system (it is saved from the space area it would not survive), as the
+    /// string does. The holder answers the first option everywhere (the card is offered, played, the first planet is chosen); some seeds lose the
+    /// carrier in the first round, the others fight on and offer the card later. Bail as failure: the native path never stops at the card.
+    #[test]
+    fn crash_landing_saves_the_ground_force_of_a_lost_last_ship_in_lockstep() {
+        let (hub, origin, target, _planet) = super::super::tactical_live::tests::one_planet_hub_for_lockstep();
+        for seed in 0..6_u64 {
+            let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+            state.rng_seed = seed;
+            crate::fixtures::put(&mut state, &origin, "dreadnought", &a(), 3);
+            crate::fixtures::put(&mut state, &target, "carrier", &b(), 1);
+            crate::fixtures::put(&mut state, &target, "infantry", &b(), 1);
+            state.player_mut(&b()).unwrap().action_cards.push(ti4_model::id::ActionCardId::new("crashlanding"));
+            let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), &mv(&origin, 0), &mv(&origin, 0), "done_moving"];
+            let diffs = lockstep(state, &hub.galaxy, &script);
+            assert!(diffs.is_empty(), "seed {seed}: {diffs:#?}");
+        }
+    }
+
     /// A space fight with no decision of the defender: a carrier and a cruiser against a lone cruiser, both sides answering the first option.
     #[test]
     fn a_space_fight_runs_native_with_the_questions_and_the_position_of_the_string() {
@@ -591,6 +629,48 @@ mod tests {
         crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
         let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str()]);
         assert!(diffs.is_empty(), "{diffs:#?}");
+    }
+
+    /// The texts of a combat step are ONE table for the render and the position: the state phases, the unit names and the roll groups (state) and the
+    /// causes (shown) all mean the same text in the render's table and in the position's, in whichever order they were minted. Regression: the state
+    /// texts went to the position's table and the shown ones to the render's, so the render's table (which the live loop commits to the position
+    /// after the step) named a state code by a shown text, or by none (`unknown text code` in the Transient slice, `presentation.phase`).
+    #[test]
+    fn the_texts_of_a_combat_step_are_one_table_for_the_render_and_the_position() {
+        let (hub, _origin, target) = hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "dreadnought", &b(), 1);
+        let mut cx = Ctx::of(&state).expect("owners");
+        let mut core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&crate::rng::RngPositions::default()) }, SliceSet::ALL).expect("the position loads");
+        // A code the render minted before the step and one the position's own rules minted: both tables continue each other.
+        let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+        let early = render.code("minted before the step");
+        let (seat_a, seat_b) = (render.seat("a").expect("a"), render.seat("b").expect("b"));
+        core.transient_mut().combat.active_space_combat = Some((<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(target.as_str()).expect("a system"), seat_a, seat_b));
+        let t = super::combat_texts(&mut core, &render);
+        let shown = render.codes_snapshot();
+        let name = |table: &ti4_engine_core::containers::Interner, c: ti4_engine_core::state::Code| table.get(u32::from(c.0)).map(|b| String::from_utf8_lossy(b).into_owned());
+        for (table, which) in [(&shown, "the render's"), (&core.texts.codes, "the position's")] {
+            assert_eq!(name(table, early).as_deref(), Some("minted before the step"), "{which} table");
+            for (c, want) in t.phases.iter().zip(["pre_roll", "barrage", "resolving_hits", "retreating", "complete"]) {
+                assert_eq!(name(table, *c).as_deref(), Some(want), "{which} table: the presentation phase {want}");
+            }
+            for (c, want) in [(t.barrage_extra, "extra barrage"), (t.retreat_cause, "retreat_capacity"), (t.roll_cause, "space_combat"), (t.hacan, "hacan_flagship")] {
+                assert_eq!(name(table, c).as_deref(), Some(want), "{which} table");
+            }
+            assert!(!t.unit_codes.is_empty() && !t.groups.is_empty(), "the fight names its unit types");
+            for (u, c) in t.unit_codes.iter().chain(t.shown_codes.iter()) {
+                assert_eq!(name(table, *c).as_deref(), Some(crate::generated::IdStr::as_str(*u)), "{which} table: the unit {u:?}");
+            }
+            for (kinds, state_code, shown_code) in &t.groups {
+                let joined = kinds.iter().map(|u| crate::generated::IdStr::as_str(*u)).collect::<Vec<_>>().join("+");
+                assert_eq!((name(table, *state_code), name(table, *shown_code)), (Some(joined.clone()), Some(joined)), "{which} table");
+            }
+        }
+        // The position is materialisable with the render's table handed back as the table (the live loop's commit).
+        core.texts.codes = shown;
+        materialize::materialize(&core, &cx, &state).expect("the position with the render's table materialises");
     }
 
     /// A space fight of every faction as the attacker and as the defender, native from the end of the movement step to the end of the action,
@@ -1053,8 +1133,7 @@ mod tests {
             // The agent (Emissary Taivra) would be offered at the activation of a wormhole system: it is lane M6c's.
             state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("ghostagent"), ti4_model::state::LeaderStatus::Exhausted);
             let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "done_moving", pick];
-            // The `routes` of a move question (the alternatives to a wormhole route) are lane M6c's.
-            let diffs: Vec<String> = lockstep_buying(state.clone(), &hub.galaxy, &script, 0).into_iter().filter(|d| !d.contains("detailsroutes")).collect();
+            let diffs: Vec<String> = lockstep_buying(state.clone(), &hub.galaxy, &script, 0);
             assert!(diffs.is_empty(), "{pick}: {diffs:#?}");
             let fighters = |s: &Side| s.state["board"][target.as_str()]["units"].as_array().map_or(0, |u| u.iter().filter(|x| x["type_id"] == "fighter").count());
             assert_eq!(fighters(&string_run(&state, &hub.galaxy, &script, 0)), usize::from(pick != "decline"), "{pick}");
@@ -1249,35 +1328,36 @@ mod tests {
 
     /// The additional die of the Argent commander in the SPACE CANNON OFFENSE (the defender's PDS shoot at the arriving fleet): the window of the
     /// commander is offered and answered natively as the string does (the staged roll of a PDS names its unit; the die goes to the PDS type that
-    /// rolled). One difference is left that is NOT this ability's: when the guns destroy the only ship the native head writes the combat
-    /// presentation (`complete`) that the string never writes for a fight that did not happen (a lone carrier killed without the commander
-    /// shows it too), it is filtered here by its path.
+    /// rolled). When the guns destroy the only ship nobody holds the system: the
+    /// presentation (`complete`) is not written, as the string does not write it for a fight that did not happen (found by this test, fixed by lane H3).
     #[test]
     fn the_additional_die_of_the_argent_commander_runs_in_the_space_cannon_offense_in_lockstep() {
         let (hub, origin, target, planet) = planet_hub();
-        let (mut offered, mut asked) = (0, 0);
+        let (mut offered, mut asked, mut routed) = (0, 0, 0);
         for seed in 1..=12_u64 {
-            for two_types in [false, true] {
+            for (two_types, ship) in [(false, "carrier"), (true, "carrier"), (false, "cruiser"), (true, "cruiser")] {
                 let mut state = table(&[("a", "sol"), ("b", "argent")]);
                 state.rng_seed = seed;
                 state.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("argentcommander"), ti4_model::state::LeaderStatus::Unlocked);
-                // (A lone carrier, which has one route: a ship with several routes asks a movement question whose route alternatives the native
-                // path does not produce.)
-                crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+                // (A lone carrier has one route; a cruiser from the ring has several, so its movement question lists them in `details.routes`: the
+                // native path produces the same list as the string, the cannon's window after it is compared in the same run.)
+                crate::fixtures::put(&mut state, &origin, ship, &a(), 1);
                 state.system_mut(&target).planet_control.insert(planet.clone(), b());
                 crate::fixtures::put_on_planet(&mut state, &target, &planet, "pds", &b(), 2);
                 if two_types {
                     crate::fixtures::put_on_planet(&mut state, &target, &planet, "pds2", &b(), 1);
                 }
                 let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "done_moving"];
-                let diffs: Vec<String> = lockstep(state.clone(), &hub.galaxy, &script).into_iter().filter(|d| !d.starts_with("statecombat_presentation")).collect();
-                assert!(diffs.is_empty(), "seed {seed} two types {two_types}: {diffs:#?}");
+                let diffs: Vec<String> = lockstep(state.clone(), &hub.galaxy, &script).into_iter().collect();
+                assert!(diffs.is_empty(), "seed {seed} two types {two_types} {ship}: {diffs:#?}");
                 let side = string_run(&state, &hub.galaxy, &script, 0);
                 offered += side.asked.iter().filter(|q| q.options.iter().any(|o| o.id.contains("argentcommander:UNIT_ABILITY_ROLLED"))).count();
                 asked += side.asked.iter().filter(|q| q.prompt.ends_with("choose a unit to roll 1 additional die")).count();
+                routed += side.asked.iter().filter(|q| q.details.contains_key("routes")).count();
             }
         }
         assert!(offered > 0, "the string never offered the commander in the cannon's window");
         assert!(asked > 0, "the string never asked which PDS rolls the die");
+        assert!(routed > 0, "no movement question of the string listed several routes");
     }
 }

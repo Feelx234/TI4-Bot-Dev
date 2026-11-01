@@ -121,15 +121,6 @@ impl Announce {
         }
     }
 
-    /// Exploration Probe: the card the frontier deck gave and what the seat held around it (see [`Play::explored`]).
-    #[must_use]
-    pub fn explored(&self) -> Option<super::effects::ProbeRow> {
-        match &self.effect {
-            Effect::Play(play) => play.explored(),
-            _ => None,
-        }
-    }
-
     /// The dice the effect rolled as an ability does, to be kept in the ledger when the play was inside a window (see
     /// [`Play::ability_roll`]).
     #[must_use]
@@ -515,7 +506,7 @@ mod tests {
     #[test]
     fn the_b6d_cards_are_not_played_from_inside_another_window() {
         let t = AbilityTable::default();
-        for card in [ActionCard::CrashLanding, ActionCard::FireTeam, ActionCard::ScrambleFrequency, ActionCard::ExplorationProbe, ActionCard::Strategize2, ActionCard::Overrule] {
+        for card in [ActionCard::FireTeam, ActionCard::ScrambleFrequency, ActionCard::ExplorationProbe, ActionCard::Strategize2, ActionCard::Overrule] {
             assert!(plays(card), "{card:?} has a window of its own");
             assert!(!plays_in(&t, card), "{card:?}");
         }
@@ -524,6 +515,9 @@ mod tests {
         for card in [ActionCard::Upgrade, ActionCard::DecoyOperation, ActionCard::LieInWait, ActionCard::Bribery, ActionCard::HarnessEnergy, ActionCard::Infiltrate, ActionCard::ExperimentalBattlestation] {
             assert!(plays_in(&t, card), "{card:?}");
         }
+        // Lane H3: Crash Landing is played from the window of the loss of the last ship (the hit assignment is the host; the card places the
+        // ground force it saves on a planet of the system).
+        assert!(plays_in(&t, ActionCard::CrashLanding));
         // W4: Reveal Prototype is played from a reaction slot (the adapter carries its facts; a table without the links declines the run).
         assert!(plays_in(&t, ActionCard::RevealPrototype));
         // W11: Ghost Squad and Reflective Shielding are played from a window (the facts are handed in by the host; the hits of the

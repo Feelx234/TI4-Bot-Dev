@@ -323,7 +323,7 @@ fn research_agreement_gives_the_holder_the_technology_and_the_note_goes_home() {
     let jolnar = [("a", "jolnar"), ("b", "hacan"), ("c", "arborec")];
     let lent = |s: &mut GameState| {
         rich(s);
-        // The Sucaban offer is a question the core window does not carry: the agent is spent.
+        // (The agent is spent: this test is about the note, not about Doctor Sucaban's offer.)
         s.player_mut(&a()).unwrap().leaders.insert(LeaderId::new("jolnaragent"), LeaderStatus::Exhausted);
         s.promissory_notes.insert("ra:jolnar".to_owned(), PlayerId::new("b"));
     };
@@ -369,15 +369,153 @@ fn a_jolnar_waiver_of_a_prerequisite_is_the_cores_analytical() {
     assert!(owns(&after, "a", tech.as_str()));
 }
 
+/// The answer that names the place an infantry of `a` stands in (`strategy_cards::infantry_sites`), by position in the list.
+fn site(state: &GameState, at: usize) -> String {
+    let (system, planet) = crate::strategy_cards::infantry_sites(state, &a()).swap_remove(at);
+    format!("{system}:{}", planet.map_or_else(String::new, |p| p.to_string()))
+}
+
+/// The first technology `a` can research that needs no prerequisite and is no unit upgrade (nothing else is asked about it).
+fn plain(state: &GameState) -> TechnologyId {
+    researchable(state)
+        .into_iter()
+        .find(|t| crate::technology::prerequisites(content(), t).is_empty() && !crate::technology::is_unit_upgrade(content(), t))
+        .expect("a plain technology")
+}
+
+fn infantry_of_a(state: &GameState) -> usize {
+    state
+        .board
+        .values()
+        .map(|here| {
+            let mine = |units: &Vec<ti4_model::units::Unit>| units.iter().filter(|u| u.owner == a() && u.type_id.as_str().contains("infantry")).count();
+            mine(&here.units) + here.planet_units.values().map(mine).sum::<usize>()
+        })
+        .sum()
+}
+
+/// 4 resources to pay with and the planets spent: the second research (6) is out of reach without the infantry.
+fn poor(s: &mut GameState) {
+    s.player_mut(&a()).unwrap().trade_goods = 4;
+    let owned: Vec<_> = s.controlled_planets(&a()).into_iter().map(|(sys, p)| (sys.clone(), p.clone())).collect();
+    for (_, planet) in &owned {
+        s.exhausted_planets.insert(planet.clone());
+    }
+    // Plenty of infantry on the first planet, so the trade is asked again after every unit (the question ends with a decline).
+    crate::fixtures::put_on_planet(s, &owned[0].0, &owned[0].1, "infantry", &a(), 6);
+}
+
+fn status(state: &GameState, who: &str, leader: &str) -> Option<LeaderStatus> {
+    state.player(&PlayerId::new(who)).unwrap().leaders.get(&LeaderId::new(leader)).copied()
+}
+
+/// Doctor Sucaban, the Jol-Nar agent, held by the researcher: the offer is asked before the affordability gate, the infantry traded one by one
+/// make the second research affordable (the string and the window agree on every question and on the position).
 #[test]
-fn bail_the_questions_of_the_paid_research_stay_string() {
-    // Jol-Nar's agent is ready and there is infantry to trade: Doctor Sucaban asks before every paid research.
+fn doctor_sucaban_trades_infantry_for_the_second_research_in_lockstep() {
     let jolnar = [("a", "jolnar"), ("b", "hacan"), ("c", "arborec")];
     let mut probe = crate::fixtures::seated_game(&jolnar, POK);
+    poor(&mut probe);
+    let before = infantry_of_a(&probe);
+    assert!(before >= 2, "{before}");
+    let free = plain(&probe);
+    let (first, second) = (site(&probe, 0), site(&probe, 0));
+    let mut owned_probe = probe.clone();
+    give(&mut owned_probe, "a", &[free.as_str()]);
+    let paid = plain(&owned_probe);
+    // Two infantry take 6 down to 4: the trade goods pay it.
+    let (counts, after) = play(&jolnar, poor, &[free.as_str(), "yes", first.as_str(), second.as_str(), "decline", paid.as_str()], true);
+    assert_eq!(counts, (1, 0));
+    assert_eq!(infantry_of_a(&after), before - 2, "two infantry paid for it");
+    assert_eq!(status(&after, "a", "jolnaragent"), Some(LeaderStatus::Exhausted));
+    assert!(owns(&after, "a", free.as_str()) && owns(&after, "a", paid.as_str()), "the free and the paid research");
+    // Declined: nothing is traded, the agent stays ready and the unaffordable research is not offered.
+    let (counts, after) = play(&jolnar, poor, &[free.as_str(), "decline"], true);
+    assert_eq!(counts, (1, 0));
+    assert_eq!(infantry_of_a(&after), before);
+    assert_eq!(status(&after, "a", "jolnaragent"), Some(LeaderStatus::Readied));
+    // Accepted, then nothing traded: the agent is spent for nothing (the string keeps it exhausted; only a copy is undone).
+    let (counts, after) = play(&jolnar, poor, &[free.as_str(), "yes", "decline"], true);
+    assert_eq!(counts, (1, 0));
+    assert_eq!(status(&after, "a", "jolnaragent"), Some(LeaderStatus::Exhausted));
+}
+
+/// The agent of another seat: the holder answers the offer (not the researcher), and a secondary (4 resources) asks it too.
+#[test]
+fn doctor_sucaban_of_another_seat_is_answered_by_its_holder() {
+    let table = [("a", "sol"), ("b", "jolnar"), ("c", "arborec")];
+    let mut probe = crate::fixtures::seated_game(&table, POK);
+    poor(&mut probe);
+    let before = infantry_of_a(&probe);
+    let tech = plain(&probe);
+    let one = site(&probe, 0);
+    // The secondary costs 4 and the seat has 4 goods: the offer is asked all the same; one infantry is traded, the bill is 3.
+    let (counts, after) = play(&table, poor, &["yes", one.as_str(), "decline", tech.as_str()], false);
+    assert_eq!(counts, (1, 0));
+    assert_eq!(infantry_of_a(&after), before - 1);
+    assert_eq!(status(&after, "b", "jolnaragent"), Some(LeaderStatus::Exhausted));
+    assert_eq!(status(&after, "a", "jolnaragent"), None);
+    assert!(owns(&after, "a", tech.as_str()));
+}
+
+/// Ssruu copies the agent: an exhausted agent can be copied, a declined first offer does not close the next, and the copy is undone as a whole
+/// when no technology lands (the exhausted Ssruu, the infantry traded) and kept when one does.
+#[test]
+fn a_ssruu_copy_of_doctor_sucaban_is_undone_without_a_technology_and_kept_with_one() {
+    let table = [("a", "yssaril"), ("b", "jolnar"), ("c", "arborec")];
+    let spent_agent = |s: &mut GameState| {
+        poor(s);
+        s.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(LeaderId::new("jolnaragent"), LeaderStatus::Exhausted);
+    };
+    let mut probe = crate::fixtures::seated_game(&table, POK);
+    spent_agent(&mut probe);
+    assert_eq!(status(&probe, "a", "yssarilagent"), Some(LeaderStatus::Readied));
+    let before = infantry_of_a(&probe);
+    let free = plain(&probe);
+    let one = site(&probe, 0);
+    let mut owned_probe = probe.clone();
+    give(&mut owned_probe, "a", &[free.as_str()]);
+    let paid = plain(&owned_probe);
+    // The technology lands.
+    let (counts, after) = play(&table, spent_agent, &[free.as_str(), "yes", one.as_str(), one.as_str(), "decline", paid.as_str()], true);
+    assert_eq!(counts, (1, 0));
+    assert_eq!(status(&after, "a", "yssarilagent"), Some(LeaderStatus::Exhausted));
+    assert_eq!(infantry_of_a(&after), before - 2);
+    assert!(owns(&after, "a", paid.as_str()));
+    // No technology lands (the research is declined): Ssruu is ready again and the infantry are back.
+    let (counts, after) = play(&table, spent_agent, &[free.as_str(), "yes", one.as_str(), "decline", "decline"], true);
+    assert_eq!(counts, (1, 0));
+    assert_eq!(status(&after, "a", "yssarilagent"), Some(LeaderStatus::Readied), "the copy is undone");
+    assert_eq!(infantry_of_a(&after), before, "the traded infantry are back");
+    assert!(owns(&after, "a", free.as_str()), "the free research before the offer stays");
+    // The bill is still out of reach after the copy: undone as well.
+    let (counts, after) = play(&table, spent_agent, &[free.as_str(), "yes", "decline"], true);
+    assert_eq!(counts, (1, 0));
+    assert_eq!(status(&after, "a", "yssarilagent"), Some(LeaderStatus::Readied));
+    // Two rights (a copy of the researcher and the readied agent of seat b): the copy is asked first, a decline goes on to the agent.
+    let both = |s: &mut GameState| {
+        poor(s);
+    };
+    let (counts, after) = play(&table, both, &[free.as_str(), "decline", "yes", one.as_str(), one.as_str(), "decline", paid.as_str()], true);
+    assert_eq!(counts, (1, 0));
+    assert_eq!(status(&after, "b", "jolnaragent"), Some(LeaderStatus::Exhausted));
+    assert_eq!(status(&after, "a", "yssarilagent"), Some(LeaderStatus::Readied));
+}
+
+/// `infantry_sites` of the string reads the unit type id for "infantry"; the core window reads the base type: they agree for every unit.
+#[test]
+fn a_unit_is_an_infantry_for_the_string_exactly_when_its_base_type_is() {
+    use crate::generated::IdStr;
+    for unit in ti4_engine_core::generated::Unit::ALL {
+        assert_eq!(unit.as_str().contains("infantry"), unit.data().base_type == ti4_engine_core::generated::UnitBaseType::Infantry, "{unit:?}");
+    }
+}
+
+#[test]
+fn bail_the_deepwrought_commander_offer_stays_string() {
+    let mut probe = crate::fixtures::seated_game(&[("a", "jolnar"), ("b", "hacan"), ("c", "arborec")], POK);
     rich(&mut probe);
     let tech = researchable(&probe)[0].clone();
-    let (counts, _) = play(&jolnar, rich, &[tech.as_str(), "decline", "decline"], true);
-    assert_eq!(counts, (0, 1), "Doctor Sucaban's offer is the string's");
     // The Deepwrought commander held by another seat offers the researcher a discount.
     let held = |s: &mut GameState| {
         rich(s);

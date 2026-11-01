@@ -291,22 +291,24 @@ impl NativeSubject {
             lend(arm, "no owners table");
             return None;
         };
-        // (The options that name a seat by faction -- Politics, Trade -- need the faction texts.)
-        let factions = cx.owners.ids().iter().map(|id| g.state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned())).collect();
-        let render = Render::new(cx.owners.ids().to_vec()).with_factions(factions);
-        let windows = match g.observed_windows(&render, &cx) {
-            Ok(w) => w,
-            Err(why) => {
-                lend(arm, why);
-                return None;
-            }
-        };
         let slices = slices_for(g.galaxy().is_some());
         let positions = g.rng_positions();
         let loaded = Codec::load(&mut cx, &g.state, Sources { galaxy: g.galaxy(), rng: Some(&positions) }, slices);
         let Ok(mut core) = loaded else {
             lend(arm, "the position does not load");
             return None;
+        };
+        // The renderer's code table continues the position's, as the native loop does (`native_play`): the codes the observed windows carry into the
+        // position and the texts the rules mint into it (a combat's phases, the exploration's words) then mean the same text in both.
+        // (The options that name a seat by faction -- Politics, Trade -- need the faction texts.)
+        let factions = cx.owners.ids().iter().map(|id| g.state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned())).collect();
+        let render = Render::new(cx.owners.ids().to_vec()).with_factions(factions).with_codes(core.texts.codes.clone());
+        let windows = match g.observed_windows(&render, &cx) {
+            Ok(w) => w,
+            Err(why) => {
+                lend(arm, why);
+                return None;
+            }
         };
         prime(&mut core, &facts, g.actions_this_turn());
         // An event the legacy engine staged is a blob of JSON in a mark the core does not read (the core stages its own in `Pending::staged`): the

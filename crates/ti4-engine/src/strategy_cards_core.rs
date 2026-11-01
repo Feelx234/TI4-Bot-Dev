@@ -556,7 +556,7 @@ mod real {
     /// Whether the position holds an effect on a research the core `Research` window does not carry: what
     /// [`research_seat_unported`] declines, a technology purged by Ta Zern, a hook the core table answers differently from the string modules (a
     /// faction effect nobody ported), and the questions of the paid research (`strategy_cards::research_asks_more`:
-    /// Specialist Compounds, Doctor Sucaban, the Deepwrought commander).
+    /// Specialist Compounds, the Deepwrought commander; Doctor Sucaban is the window's own since lane H4).
     pub(crate) fn research_unported(gs: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId) -> bool {
         use ti4_engine_core::generated::Technology;
         if research_seat_unported(gs, player) || crate::strategy_cards::research_asks_more(gs, content, sources, player) {
@@ -1727,10 +1727,16 @@ mod tests {
         let techs = plain_techs(&F3);
         let rich = goods(4);
         // Since B8c-2 the Nekro seat, the Anti-Intellectual Revolution, a unit upgrade and Inheritance Systems are
-        // carried (`strategy_research_tests` plays each in lockstep). A Jol-Nar at the table is not: its readied
-        // agent, Doctor Sucaban, offers every researcher a discount for infantry (a question the window does not carry).
+        // carried (`strategy_research_tests` plays each in lockstep), and since lane H4 the readied Jol-Nar agent, Doctor Sucaban,
+        // that offers every researcher a discount for infantry. The Deepwrought commander's offer is not.
         let jolnar = [("a", "sol"), ("b", "jolnar")];
-        assert_eq!(run(label, &jolnar, &rich, &[&techs[0], "decline", "decline"], primary("pok7technology")), (0, 1));
+        assert_eq!(run(label, &jolnar, &rich, &[&techs[0], "decline", "decline"], primary("pok7technology")), (1, 0));
+        let deepwrought = [("a", "sol"), ("b", "deepwrought")];
+        let held = |s: &mut GameState| {
+            goods(4)(s);
+            s.player_mut(&PlayerId::new("b")).unwrap().leaders.insert(ti4_model::id::LeaderId::new("deepwroughtcommander"), ti4_model::state::LeaderStatus::Unlocked);
+        };
+        assert_eq!(run(label, &deepwrought, held, &[&techs[0], "decline", "decline"], primary("pok7technology")).0, 0);
         let nekro = [("a", "sol"), ("b", "nekro")];
         assert_eq!(run(label, &nekro, &rich, &[&techs[0], "decline"], primary("pok7technology")), (1, 0));
         let law = |s: &mut GameState| {

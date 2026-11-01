@@ -1113,7 +1113,7 @@ fn exploration_probe_draws_two_action_cards_for_a_lost_crew_in_the_core_window()
     crate::dual::with_mask(crate::action_cards_closing_tests::dual(), || {
         crate::action_cards_announce_tests::announce_on(&mut played, "probe", &a, Box::new(crate::action_cards_announce_tests::DeclineSlots), Some(&galaxy))
     });
-    assert_eq!(crate::action_cards_closing_tests::windows("action_cards::announce"), (0, 1), "the discard question is the string's (Probe draws with fx::draw_action_cards)");
+    assert_eq!(crate::action_cards_closing_tests::windows("action_cards::announce"), (1, 0), "the discard question is the hand limit window of the exploration's draw (the string's, in lockstep)");
     let _ = crate::dual::take_report();
     // Yssaril draws an extra card.
     let mut scheming = start.clone();
@@ -1177,26 +1177,27 @@ fn exploration_probe_agrees_with_the_core_play_window_outside_the_announcement()
     }
 }
 
-/// Bail: command tokens while a Mahact fleet holds tokens of the holder (the reinforcements the pool question previews and the cap
-/// count them): the core declines after the pick, the string plays alone. A card without tokens is not affected.
+/// Command tokens while a Mahact fleet holds tokens of the holder (the reinforcements the pool question previews and the cap count
+/// them): the exploration window of the explore area carries them, the questions and the position are the string's. (They were a bail
+/// of the card's own resolution before the card ran the shared exploration window.)
 #[test]
-fn bail_exploration_probe_command_tokens_with_a_mahact_fleet_holding_the_holders_tokens_are_counted() {
+fn exploration_probe_command_tokens_with_a_mahact_fleet_holding_the_holders_tokens_run_in_lockstep() {
     let _serial = crate::dual::tests::serial();
     let galaxy = ring();
     let mut held = probe_position(&["ent", "urf1"]);
     held.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
     let (_, counts) = announced_once("probe", &held, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
-    assert_eq!(counts, (0, 1));
+    assert_eq!(counts, (1, 0));
     let mut quiet = probe_position(&["urf1", "urf2"]);
     quiet.faction_marks.insert("mahact:fleet:b".to_owned(), "a".to_owned());
     let (_, counts) = announced_once("probe", &quiet, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
     assert_eq!(counts, (1, 0));
 }
 
-/// Bail: a Merchant Station's replenish while a Trade Agreement is in play (the replenishment is announced to the note and to the
-/// Cabal): the core declines the replenish, carries the conversion.
+/// A Merchant Station's replenish while a Trade Agreement is in play (the replenishment is announced to the note and to the Cabal): the
+/// exploration window carries it, in lockstep with the string (the card's own resolution declined it).
 #[test]
-fn bail_exploration_probe_a_replenish_with_a_trade_agreement_in_play_is_counted() {
+fn exploration_probe_a_replenish_with_a_trade_agreement_in_play_runs_in_lockstep() {
     let _serial = crate::dual::tests::serial();
     let galaxy = ring();
     let a = PlayerId::new("a");
@@ -1205,21 +1206,22 @@ fn bail_exploration_probe_a_replenish_with_a_trade_agreement_in_play_is_counted(
     state.promissory_notes.insert("ta:arborec".to_owned(), PlayerId::new("b"));
     // The first option is the replenish, the last the conversion.
     let (_, counts) = announced_once("probe", &state, Some(&galaxy), Box::new(crate::action_cards_closing_tests::FirstOption));
-    assert_eq!(counts, (0, 1));
+    assert_eq!(counts, (1, 0));
     let (after, counts) = announced_once("probe", &state, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
     assert_eq!(counts, (1, 0));
     assert_eq!(after.player(&a).unwrap().commodities, 0);
 }
 
-/// Bail: a card of another deck in the frontier deck (an attachment, a planet's reward): the string resolves it, the core does not carry it.
+/// A card of another deck in the frontier deck (an attachment, a planet's reward): the exploration window resolves it with no planet as the
+/// string does (discarded, or nothing to act on), in lockstep.
 #[test]
-fn bail_exploration_probe_a_card_of_another_deck_is_counted() {
+fn exploration_probe_a_card_of_another_deck_runs_in_lockstep() {
     let _serial = crate::dual::tests::serial();
     let galaxy = ring();
     for card in ["ds", "dmz", "aw1", "lf1", "frln1", "mo1", "cm1", "exp1", "vfs1"] {
         let state = probe_position(&[card, "urf1"]);
         let (_, counts) = announced_once("probe", &state, Some(&galaxy), Box::new(crate::action_cards_announce_tests::DeclineSlots));
-        assert_eq!(counts, (0, 1), "{card}");
+        assert_eq!(counts, (1, 0), "{card}");
     }
 }
 

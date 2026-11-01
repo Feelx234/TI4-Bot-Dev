@@ -249,7 +249,7 @@ mod real {
         script: &Recording,
     ) -> Option<CoreWindow<Option<Explored>>> {
         let system = typed::<System>(system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
-        run_window(gs, content, sources, player, |seat| Exploring::frontier(seat, system, announce, true), script)
+        run_window(gs, content, sources, player, |seat| Exploring::frontier(seat, system, announce, true, true), script)
     }
 }
 

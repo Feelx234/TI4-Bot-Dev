@@ -195,6 +195,53 @@ fn the_staged_ground_forces_of_an_agenda_are_announced_with_their_cause_by_the_n
     assert!(s.marks().tail.iter().all(|(k, _)| !matches!(k, ti4_engine_core::keys::MarkKey::PrivateStagedGround(_))), "the row is gone");
 }
 
+/// H4: the flush announces every staged ground force, not only an agenda's (`hooks_ground::try_announce_staged_events`): the rows of Plague and
+/// Unstable Planet, Nova Seed and the Nekro hero stay staged by their effects and were never announced by the native turn (Infantry II and the Saar
+/// Trade Convoy never heard of them). In the order staged, each with its own cause text; a cause nobody gave a text to stays staged.
+#[test]
+fn the_staged_ground_forces_of_other_effects_are_announced_in_the_order_staged_with_their_causes() {
+    covers!("driver::agenda::ground");
+    use ti4_engine_core::driver::turn::advance_reconcile;
+    use ti4_engine_core::generated::{Leader, Unit};
+    use ti4_engine_core::kernel::agenda_codes::GROUND_OTHER;
+    use ti4_engine_core::keys::{ActionCardCause, DestroyReason};
+    use ti4_engine_core::state::{Code, Key, Piece, Val};
+    let k = Kernel::plain();
+    let mut env = env(&k);
+    for (i, code) in env.table.codes.agenda.ground_other.iter_mut().enumerate() {
+        *code = Code(30 + i as u16);
+    }
+    env.table.codes.agenda.ground_cause[Agenda::CoreMining as usize] = Code(7);
+    let mut s = table();
+    let planet = Planet::ALL.iter().copied().find(|p| s.board().planet(*p).control == Some(Seat(1))).expect("a planet of seat 1");
+    let system = planet.data().system.expect("a placed planet");
+    let piece = Piece::new(Unit::InfantryI, Seat(1));
+    let stage = |s: &mut CoreState, reason| ti4_engine_core::kernel::fx_ground::stage_destroyed(s, system, planet, piece, reason);
+    stage(&mut s, DestroyReason::ActionCard(ActionCardCause::Plague));
+    stage(&mut s, DestroyReason::Agenda(Agenda::CoreMining));
+    stage(&mut s, DestroyReason::LeaderBare(Leader::UNITDSGNFLAYESH));
+    stage(&mut s, DestroyReason::ActionCard(ActionCardCause::UnstablePlanet));
+    stage(&mut s, DestroyReason::NovaSeed);
+    // A cause nobody announces here (a ground combat's) stays staged for the lane that owns it.
+    stage(&mut s, DestroyReason::GroundCombat);
+    let (_, out) = advance_reconcile(&mut s, &env, None).unwrap();
+    let causes: Vec<Val> = out.emitted.iter().filter(|e| e.kind == ti4_engine_core::state::EventKind::GroundForceDestroyed).filter_map(|e| e.payload.get(Key::Cause)).collect();
+    let at = |r: DestroyReason| Val::Code(Code(30 + GROUND_OTHER.iter().position(|x| *x == r).unwrap() as u16));
+    assert_eq!(
+        causes,
+        vec![
+            at(DestroyReason::ActionCard(ActionCardCause::Plague)),
+            Val::Code(Code(7)),
+            at(DestroyReason::LeaderBare(Leader::UNITDSGNFLAYESH)),
+            at(DestroyReason::ActionCard(ActionCardCause::UnstablePlanet)),
+            at(DestroyReason::NovaSeed),
+        ],
+        "every staged row with a text is announced, in the order staged"
+    );
+    let left = s.marks().tail.iter().filter(|(k, _)| matches!(k, ti4_engine_core::keys::MarkKey::PrivateStagedGround(_))).count();
+    assert_eq!(left, 1, "the ground combat's row is not this flush's");
+}
+
 // -- Research Grant Reallocation -----------------------------------------------------------------------------------------------------------
 
 #[test]

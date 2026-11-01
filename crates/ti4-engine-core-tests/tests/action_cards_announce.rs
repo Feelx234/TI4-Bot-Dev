@@ -37,7 +37,7 @@ fn env() -> Env {
         infantry: Placed { unit: Some(Unit::InfantryI), on_card: 0 },
         cruiser: Placed { unit: Some(Unit::CruiserI), on_card: 0 },
         fighter: Placed { unit: Some(Unit::FighterI), on_card: 0 },
-        facts: Facts { neutral: Some(Seat(1)), action_draw_plain: true, rules_version: 35, ..Facts::default() },
+        facts: Facts { neutral: Some(Seat(1)), rules_version: 35, ..Facts::default() },
     }
 }
 
@@ -63,7 +63,7 @@ fn a_simple_card_is_announced_resolved_and_then_discarded_and_remembered_as_the_
     assert_eq!(discard_top(&rig.state), Some(ActionCard::MoraleBoost1), "1.15: the card ends in the discard pile");
     assert_eq!(rig.state.transient().combat.last_action_discarded, Some((Seat(0), ActionCard::MoraleBoost1)));
     assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().card_timers.combat_bonus_round.get(), Some(4), "+1 to the rolls of this round");
-    assert!(rig.driver.window.faces().is_empty() && rig.driver.window.placed_tokens().is_none() && rig.driver.window.explored().is_none());
+    assert!(rig.driver.window.faces().is_empty() && rig.driver.window.placed_tokens().is_none());
     assert_eq!(rig.stages.first().map(String::as_str), Some("Done"));
     smoke_quiet(|| announce(ActionCard::MoraleBoost1, four().state(), true));
 }

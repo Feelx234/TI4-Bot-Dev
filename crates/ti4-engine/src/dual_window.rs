@@ -687,7 +687,8 @@ pub fn drive_windowed<W: Window>(
         Ok(Some(mut fol)) => {
             fol.arm(r, gs, core);
             driver.resolver = fol.resolver;
-            driver.table = fol.table;
+            let own = std::mem::replace(&mut driver.table, fol.table);
+            crate::window_driver::keep_exploration(&mut driver.table, &own);
             if let Some(id) = script.first_event_id {
                 driver.next_id = id;
             }
@@ -1052,7 +1053,7 @@ fn with_trigger_of(choice: &CoreChoice) -> bool {
 /// The battle and invasion a nested question is asked in. The string puts a payment an ability asks (`pay_seeing`, the
 /// table's own `ask_seeing`) in the position of an invasion only, never of a battle; the other nested questions
 /// (`TimingContext::ask_seeing`) name both.
-fn nested_position(choice: &CoreChoice, ctx: crate::decision_context::DecisionContext, pos: &NestedPos) -> crate::decision_context::DecisionContext {
+pub(crate) fn nested_position(choice: &CoreChoice, ctx: crate::decision_context::DecisionContext, pos: &NestedPos) -> crate::decision_context::DecisionContext {
     if matches!(choice.ask, ti4_engine_core::choice::Ask::Production(ti4_engine_core::choice::production::Ask::Pay(_))) {
         ctx.about_invasion_in(pos.invasion.clone())
     } else {
@@ -4249,6 +4250,7 @@ pub fn fields_of(a: &FieldsIn, r: &Render) -> Option<ti4_engine_core::state::Com
             None => None,
         },
         end_announced: a.end_announced,
+        round_end_produced: None,
     })
 }
 
