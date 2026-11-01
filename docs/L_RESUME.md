@@ -85,11 +85,41 @@ R = seen to fail before / by construction (the old code answered `Unrouted`, bai
 
 ## 4. Mutation numbers
 
-MUTATION_NUMBERS
+Single-file checks (`tools/engine_core/mutants.sh`, committed snapshot in the scratch worktree `/root/deploytmp/core-l-mutwt`, `D4_COVERS_FILE=/dev/null`, kinds `body,arith,cmp,logic,cond,lit,assign`, the D4 crate's named binaries
+or the core lib as the test run). The numbers are the CORE tests alone (an upper bound on the survivors: the engine lockstep tests were not run per mutant). First round, then after the tests and the skips of this lane:
+
+| file (what) | mutants run | first round: killed / survivors | final: killed / survivors |
+|---|---|---|---|
+| `rules/leader_windows.rs`, lines 690-769 (`ZeuAction`) | 10 (+2 not compilable) | 9 / 1 (`space_battle` of the context) | 10 / 0 |
+| `driver/turn/leader.rs` (`zeu`) | 8 | 7 / 2 (the Mahact leave flag and the token filter: both dead, `activatable` already leaves the seat's own tokens out; the code was removed, the home filter is pinned by a seat-1 home on the map) | 8 / 0 |
+| `driver/turn/hero.rs`, lines 267-500 (Mathis free action, Airo, Dannel) | 49 (+3) | 26 / 23 | 33 / 0 (4 more lines carry `mutants:skip` with a reason: Proxima Targeting VI and Alarum are dropped factions, the Dacxive facts need dice that win, `numbered` and `can_pay` are dead under the latest rules version / the payment environment, the early verdict of an empty box is not reachable from the menu) |
+| `driver/windows/status_finish.rs` (`announce_staged_cards`) | 1 | 1 / 0 | 1 / 0 |
+| `driver/windows/invasion/fight.rs` (`finish_control_gain`) | 8 | 5 / 3 | 6 / 2: both are `announce: true` of `ControlFacts` and `ExploreRun::new(.., true)`, which KM5 section 4 already lists as killed by the engine lockstep `invasion_live` only; the Integrated Economy branch has no survivor (the one it had, `== Halt` -> `!=`, is killed by the first-claim test) |
+| `rules/explore_windows.rs` (`leave_producing`) | 3 | 2 / 1 | 3 / 0 |
+| `rules/reactions/l1z1x_agent.rs` (whole file) | 22 | 16 / 6 | 22 / 0 |
+| `query/reach.rs` (`neighbours_of`) | 4 | 3 / 1 (the `effects` flag: skipped with a reason) | 3 / 0 |
+| `ce_movement/empyrean/timing.rs` (`near`, `any_near`) | 10 | 10 / 0 | not re-run |
+| `cb_economy/argent/timing.rs` (`destinations`) | 3 | 3 / 0 | not re-run |
+
+The engine side (`combat_live.rs`: `hero_fight_types`, the upgrade names of `combat_texts_in`, `researches_in_combat`) is the adapter half; its tests are the three engine tests of section 3 (not mutated: the engine lib is the heavy build).
+
 
 ## 5. Checks (cheap), `CARGO_BUILD_JOBS=2`, private target `/root/deploytmp/core-l` (profile `lockstep`, `CARGO_PROFILE_DEV_DEBUG=0`, no incremental; deleted at the end)
 
-CHECK_NUMBERS
+| Check | Result |
+|---|---|
+| `cargo test -p ti4-engine --lib` plain (final tip) | **5284 passed**, 0 failed, 7 ignored (integration 14: 5279; +5: the Z'eu lockstep, the Integrated Economy lockstep, three combat-text tests) |
+| same with `TI4_AREAS=all=dual TI4_DUAL_FAIL_FAST=1` (WHOLE lib) | 5284 passed, 0 failed, 7 ignored |
+| `ti4-engine-core --lib`, `-factions --lib`, `-bridge --lib` plus the bridge's `kernel_env`, `play_facts`, `menu_sources` | 478, 151, 108 + (3, 3, 2) passed |
+| the D4 crate (`ti4-engine-core-tests`, every binary, lockstep profile with debug assertions) | 154 binaries: **1935 passed, 0 failed** (integration 14: 153 / 1925) |
+| `check_layers.py core`, `lint_core.sh` | 574 files, 0 violations; 576 files, 0 hits |
+| `tools/engine_core/clippy_core.sh` | ok (core crates 0 warnings; engine 41 = baseline); the first run found one new engine warning of this lane (`iter().any` for `contains`), fixed |
+| `native_play.sh --factions all --players 3,4,5,6 --seeds 1` (gate profile, `te` card set) | 96 games, 87,126 native steps: **51 finish with zero gaps**, the other 45 stop at `Menu(ActionCard)` (section 2). Run at the end on the final tip |
+| the usage: five-hour window 1 % at the start, 7 % at the end | -- |
+
+Things the checks found and the lane fixed on the way (besides the sweep's own causes): the map-slice assertion (39 lockstep tests, section 1), a test of mine that did not exercise what it claimed (Freelancers over the capacity: the space dock supports the fighters; the
+test now puts three ships against a pool of two), the clippy warning. The lockstep harness does not list Z'eu for a mapless board with every system a home; the test puts a rival's ship on Mecatol.
+
 
 Not run (user rule): `end_of_d1.sh` and its steps (golden / wide dual, `board_equivalence`, `core_sync_gate`, `alpha_roundtrip`, benches, soak, mutation ratchet, census, workspace clippy beyond `clippy_core.sh`), `decision_replay`,
 `TI4_CORE_STRICT=1`, Playwright. The long runs were background scripts of this session (no helper agents), as in integration 14.
