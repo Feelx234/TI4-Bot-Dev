@@ -1283,9 +1283,9 @@ mod tests {
         assert!(native.get("turn_prelude").copied().unwrap_or(0) >= 1, "{native:?}");
         assert_eq!(played.matrix.total_gaps(), 0, "one game, no gap");
         // (1,174 steps in lane K; the follower windows lane J holds open close in a step of their own: 24 more steps, the same position and fingerprint.)
-        assert_eq!((played.rounds, played.steps), (9, 1198), "nine rounds of the table");
+        assert_eq!((played.rounds, played.steps), (9, 1269), "nine rounds of the table");
         assert!(native.get("tokens").copied().unwrap_or(0) >= 8 && native.get("status").copied().unwrap_or(0) >= 8, "the status phases ran natively, their close included: {native:?}");
-        assert_eq!(played.fingerprint, "2e93df9fa00fa982");
+        assert_eq!(played.fingerprint, "24b0d67462f4772b");
         assert_eq!(g.step(), Step::Finished, "a finished game stops the loop");
     }
 
@@ -1599,7 +1599,7 @@ mod tests {
         turn::open_job(&mut g.core, TurnJob::Phase);
         assert!(g.asks(), "an open job is waiting on its step: the arm is Ask");
         let s = shadow_play(&lobby_spec("sol", 4, 1), 100, 50).unwrap();
-        assert_eq!((s.compared, s.played.steps), (66, 100), "a hundred native steps (the budget of the call: the shadow of the whole game ends at the production-order difference, see the next test); the glued ones, the ones that ask nothing while the legacy game stands at a question and the ones a lookahead groups with the step before are not legacy steps of their own");
+        assert_eq!((s.compared, s.played.steps), (61, 100), "a hundred native steps (the budget of the call: the shadow of the whole game ends at the production-order difference, see the next test); the glued ones, the ones that ask nothing while the legacy game stands at a question and the ones a lookahead groups with the step before are not legacy steps of their own");
         let one_round = shadow_play(&lobby_spec("sol", 4, 1), 100, 1).unwrap();
         assert!(matches!(one_round.played.end, End::StepLimit) && one_round.first_difference.is_none(), "round 1 is within a budget of one, and the hundred steps run out before any gap or difference (integration 13: the gap of round one was Peace Accords): {:?}", one_round.played.end);
         let survey = survey(&lobby_spec("sol", 4, 1), 400, 50).unwrap();
@@ -1642,26 +1642,158 @@ mod tests {
         assert!(!g.asks(), "the status phase asks nothing of its own");
     }
 
-    /// The native loop and the legacy game agree step by step: the same questions, the same plain events, the same position. (Integration 11
-    /// pinned a KNOWN difference here, the Local Fabricators reward of step 24; lane F2c showed it was the harness' (the string asks it inside the legacy step
-    /// that answers the second commit) and fixed the shadow, so the pin fired as it was written to and is replaced by this test.)
-    /// The shadow of the quick game (sol, 4 players, seed 1) agrees with the legacy game for 282 legacy steps and meets one KNOWN difference at native step
-    /// 408, a tactical action and its aftermath: the Xxcha seat answers `after PRODUCTION_USED` with a reaction card (War Machine), the string writes
-    /// `ACTION_CARD_PLAYED` and `ACTION_CARD_DISCARDED` between `PRODUCTION_USED` and `INVASION_RESOLVED`, and the core plays the card (hand, discard pile,
-    /// round mark) but writes neither event: the aftermath chain mirrors the TOP-LEVEL emissions of a sub-window (`Out::emitted`), and the events a reaction
-    /// emitted inside another (the card is announced when the window of `PRODUCTION_USED` closes) are in the resolver's journal only. Not fixed in integration 15
-    /// (`docs/INTEGRATION15.md` section 6: the mirror of the nested emissions of the production window of the aftermath chain). Pinned so that the day it is
-    /// fixed this test fails as written and is replaced by `..._up_to_the_next_difference`. (Integration 14 pinned the production order at step 397 here;
-    /// lane J fixed it, with the mirror of the space cannon offense of the head.)
+    /// Lane P: the quick game's shadow runs 293 legacy steps with no difference, then step 448 (the follower window of the Technology card: native asks seat
+    /// `c`, the string asks `d`). Integration 15 pinned the nested events of a reaction card in the production window here (step 408; fixed in lane P, the
+    /// aftermath chain mirrors every emission of its sub-windows, `Out::journal`); the game itself moved on with the ruling on S1 (the active player first,
+    /// then initiative order). Pinned so that the day the follower difference is fixed this test fails as written and is replaced.
     #[test]
-    fn the_shadow_run_agrees_with_the_legacy_game_up_to_the_known_nested_events_of_a_reaction_card_in_the_production_window() {
+    fn the_shadow_run_agrees_with_the_legacy_game_up_to_the_known_follower_window_of_the_technology_card() {
         let shadowed = shadow_play(&lobby_spec("sol", 4, 1), 2_000, 50).expect("builds");
         assert!(shadowed.compared >= 8, "the draft was compared step by step: {}", shadowed.compared);
-        assert_eq!(shadowed.compared, 282, "no difference in the first 282 legacy steps");
-        let d = shadowed.first_difference.expect("the nested events of the reaction card");
-        assert_eq!((d.step, d.what, d.path.as_str()), (408, "events", "[3]"), "{d}");
-        assert_eq!(d.arms, ["tactical", "aftermath"], "{d}");
-        assert_eq!((d.native.as_str(), d.legacy.as_str()), ("INVASION_RESOLVED", "ACTION_CARD_PLAYED"), "{d}");
+        assert_eq!(shadowed.compared, 293, "no difference in the first 293 legacy steps");
+        let d = shadowed.first_difference.expect("the follower window");
+        assert_eq!((d.step, d.what, d.path.as_str()), (448, "questions", "[0].player"), "{d}");
+        assert_eq!(d.arms, ["secondary"], "{d}");
+        assert_eq!((d.native.as_str(), d.legacy.as_str()), ("\"c\"", "\"d\""), "{d}");
+        assert_eq!(d.known, None, "not a known string bug");
+    }
+
+    /// Lane P (PB, 65 of the 96 games): the string ends its step at the close of the status phase and flips the next phase in a step of its own; the
+    /// native `phase` step joined the answers of the last tokens group and was compared with the legacy step that ended before it. And when the string
+    /// takes a step that asks and says nothing ahead of the flip (the scoring window of an event nobody scores), the group that asks nothing is
+    /// compared with the legacy step after it. Sol, 3 players: the first difference was the flip of the first round, native step 153.
+    #[test]
+    fn the_phase_flip_after_the_last_tokens_answer_is_a_legacy_step_of_its_own() {
+        let shadowed = shadow_play(&lobby_spec("sol", 3, 1), 170, 50).expect("builds");
+        assert!(shadowed.first_difference.is_none(), "{:?}", shadowed.first_difference);
+        assert!(shadowed.compared > 101, "the flip at step 153 was compared: {}", shadowed.compared);
+    }
+
+    /// Lane P (PB, the draft): the last card of the draft is taken without a question, in a native step of its own where the string's step of the pick
+    /// before it ended. Jol-Nar, 4 players: the first difference was the strategy phase of round 5, native step 380.
+    #[test]
+    fn the_forced_last_pick_of_the_draft_is_a_legacy_step_of_its_own() {
+        let shadowed = shadow_play(&lobby_spec("jolnar", 4, 1), 400, 50).expect("builds");
+        assert!(shadowed.first_difference.is_none(), "{:?}", shadowed.first_difference);
+    }
+
+    /// Lane P (AC): the string asks the reaction card at `after ACTION_COMPLETED` inside the step that answers `done_moving`; the native step that asks
+    /// it also asks the next menu: the group is cut there and the string's events beyond the head are owed to the later half. Xxcha, 4 players, step 282.
+    #[test]
+    fn a_group_cut_between_two_questions_of_a_native_step_owes_the_legacy_surplus_to_the_later_half() {
+        let shadowed = shadow_play(&lobby_spec("xxcha", 4, 1), 290, 50).expect("builds");
+        assert!(shadowed.first_difference.is_none(), "{:?}", shadowed.first_difference);
+    }
+
+    /// Lane P (TG): the string announces the events a prelude question staged (Psychoarchaeology's trade good) at the start of its NEXT step; the native
+    /// step after the prelude runs no reconcile. And a component action flushes the staged events like the string's `announce_staged_ground_events`.
+    /// Sardakk (3 players, step 166) and Naaz (3 players, step 110).
+    #[test]
+    fn the_events_a_prelude_question_staged_are_announced_by_the_next_legacy_step_and_a_component_action_flushes_them() {
+        for (faction, steps) in [("sardakk", 170), ("naaz", 115)] {
+            let shadowed = shadow_play(&lobby_spec(faction, 3, 1), steps, 50).expect("builds");
+            assert!(shadowed.first_difference.is_none(), "{faction}: {:?}", shadowed.first_difference);
+        }
+    }
+
+    /// Lane P (SC): a gunner's roll is staged under the type id of its unit (the string's `type_id`), so a reroll question of a space cannon offense names
+    /// `pds`, not the roll kind (Fire Team, Scramble Frequency). Mentak, 5 players (step 178): the question's prompt was native `reroll die 1 of
+    /// space_cannon`, legacy `reroll die 1 of pds`; 8 of the 96 games.
+    #[test]
+    fn a_reroll_question_of_the_space_cannon_offense_names_the_unit_type_of_the_gun() {
+        let shadowed = shadow_play(&lobby_spec("mentak", 5, 1), 185, 50).expect("builds");
+        assert!(shadowed.first_difference.is_none(), "{:?}", shadowed.first_difference);
+    }
+
+    /// Lane P (AIDA): AI Development Algorithm's question is a tape question of the production use inside the string's step: `PRODUCTION_USED` follows
+    /// it before the aftermath's own line. Nomad, 4 players, step 285.
+    #[test]
+    fn a_tape_question_of_the_production_use_keeps_the_aftermath_line_behind_the_use() {
+        let shadowed = shadow_play(&lobby_spec("nomad", 4, 1), 290, 50).expect("builds");
+        assert!(shadowed.first_difference.is_none(), "{:?}", shadowed.first_difference);
+    }
+
+    /// Lane P (the retreat token): the string announces the command token a retreat staged at the start of its NEXT step, after the tail of the
+    /// tactical action and the end of the action; the tail step after a finished aftermath runs no reconcile. Ghosts, 4 players, step 517.
+    #[test]
+    fn the_tail_of_a_tactical_action_after_a_finished_aftermath_announces_no_staged_event_of_its_own() {
+        let shadowed = shadow_play(&lobby_spec("ghost", 4, 1), 520, 50).expect("builds");
+        assert!(shadowed.first_difference.is_none(), "{:?}", shadowed.first_difference);
+    }
+
+    /// Lane P (S1): the user ruled that an action-phase window offers the ACTIVE player first and then the others in INITIATIVE order. The string
+    /// offers its seating order rotated from the active seat; the shadow reports that difference as a known string bug and does not copy it.
+    /// Saar, 6 players: the script wanted the L1Z1X agent's reaction and the string offered the Saar agent's first (step 38).
+    #[test]
+    fn a_reaction_window_the_string_orders_by_its_seating_is_reported_as_the_known_string_bug_s1() {
+        let shadowed = shadow_play(&lobby_spec("saar", 6, 1), 60, 50).expect("builds");
+        let d = shadowed.first_difference.expect("the string offers the other seat's reaction first");
+        assert_eq!(d.known, Some(KNOWN_S1), "{d}");
+        assert_eq!(d.what, "legacy", "{d}");
+        assert!(d.legacy.contains("script wanted"), "{d}");
+        assert!(d.to_string().contains("known string bug S1"), "{d}");
+    }
+
+    /// S1 is recognised only for a reaction, and only when the string's order differs from the ruling's.
+    #[test]
+    fn s1_is_recognised_only_for_a_reaction_and_only_when_the_two_orders_differ() {
+        let legacy = MaskSubject::<LegacyMask>::new(&lobby_spec("sol", 4, 1), Pilot::Script).expect("builds");
+        let mut state = legacy.game().state.clone();
+        let ids: Vec<_> = state.seating_order.clone();
+        let wanted_reaction = "legacy step failed: script wanted \"leader:a:b:SYSTEM_ACTIVATED:after\" but a was offered [\"leader:c:d:SYSTEM_ACTIVATED:after\", \"decline\"]";
+        let wanted_move = "legacy step failed: script wanted \"done_moving\" but a was offered [\"leader:c:d:SYSTEM_ACTIVATED:after\", \"decline\"]";
+        // The first seat is active: the ruling's order (the active seat, then the others by initiative with ties by seating) is the clockwise order.
+        state.active = Some(ids[0].clone());
+        assert!(!s1_orders_differ(&state));
+        assert!(!s1_in_error(&state, wanted_reaction), "the same order is not S1");
+        // The second seat is active: the seat before it sits last clockwise but first by initiative.
+        state.active = Some(ids[1].clone());
+        assert!(s1_orders_differ(&state));
+        assert!(s1_in_error(&state, wanted_reaction));
+        assert!(!s1_in_error(&state, wanted_move), "a script that wanted a move met a reaction: not S1");
+        assert!(!s1_in_error(&state, "legacy step failed: script wanted \"leader:a:b:SYSTEM_ACTIVATED:after\" but a was offered [\"0|2|4\"]"), "the offer is no reaction");
+        assert!(!s1_in_error(&state, "something else"));
+        // Nobody active: nothing to order.
+        state.active = None;
+        assert!(!s1_orders_differ(&state));
+        // The questions: the same prompt asked of another seat, or the same options in another order.
+        state.active = Some(ids[1].clone());
+        let q = |player: &str, options: &[&str]| json!({ "player": player, "prompt": "after SYSTEM_ACTIVATED", "options": options });
+        let reaction = ["reaction:a:SYSTEM_ACTIVATED:after", "reaction:b:SYSTEM_ACTIVATED:after", "decline"];
+        let flipped = ["reaction:b:SYSTEM_ACTIVATED:after", "reaction:a:SYSTEM_ACTIVATED:after", "decline"];
+        assert!(s1_in_questions(&state, "[0].options[0]", &[q("a", &flipped)], &[q("a", &reaction)]));
+        assert!(s1_in_questions(&state, "[0].player", &[q("b", &reaction)], &[q("a", &reaction)]));
+        assert!(!s1_in_questions(&state, "[0].options[1]", &[q("a", &["reaction:a:SYSTEM_ACTIVATED:after", "decline"])], &[q("a", &reaction)]), "an offer the core does not make is not an order");
+        assert!(!s1_in_questions(&state, "[0].options[0]", &[q("a", &flipped)], &[json!({ "player": "a", "prompt": "another", "options": reaction })]), "another prompt");
+        assert!(!s1_in_questions(&state, "[0].options[0]", &[q("a", &["x", "y"])], &[q("a", &["y", "x"])]), "no reaction in the string's options");
+        assert!(!s1_in_questions(&state, "nonsense", &[q("a", &flipped)], &[q("a", &reaction)]));
+        assert!(!s1_in_questions(&state, "[3].options[0]", &[q("a", &flipped)], &[q("a", &reaction)]), "no such question");
+        state.active = Some(ids[0].clone());
+        assert!(!s1_in_questions(&state, "[0].options[0]", &[q("a", &flipped)], &[q("a", &reaction)]), "the same order");
+    }
+
+    /// The helper of the shadow's grouping: a native step that flips the phase, or makes the forced last pick of the draft, asks nothing and does not
+    /// join a group that still holds answers (once).
+    #[test]
+    fn a_phase_flip_or_a_forced_pick_opens_its_own_group_once() {
+        let played = |arm: Arm, source: Option<AskArm>, asks: usize| Played {
+            arm,
+            source,
+            asked: (0..asks).map(|_| Asked { player: "a".to_owned(), prompt: "p".to_owned(), options: vec![], chosen: "c".to_owned() }).collect(),
+            events: Vec::new(),
+            finished: true,
+        };
+        let holding = [played(Arm::Ask, Some(AskArm::Tokens), 1)];
+        let flip = played(Arm::Phase, None, 0);
+        let pick = played(Arm::Ask, Some(AskArm::Draft), 0);
+        assert!(opens_a_step_of_its_own(&flip, &holding, false));
+        assert!(opens_a_step_of_its_own(&pick, &holding, false));
+        assert!(!opens_a_step_of_its_own(&flip, &holding, true), "held back once");
+        assert!(!opens_a_step_of_its_own(&flip, &[], false), "nothing to be held apart from");
+        assert!(!opens_a_step_of_its_own(&flip, &[played(Arm::Ask, Some(AskArm::Tokens), 0)], false), "a group without answers");
+        assert!(!opens_a_step_of_its_own(&played(Arm::Phase, None, 1), &holding, false), "a flip that asks joins");
+        assert!(!opens_a_step_of_its_own(&played(Arm::Secondary, None, 0), &holding, false), "another arm joins");
+        assert!(!opens_a_step_of_its_own(&played(Arm::Ask, Some(AskArm::Tokens), 0), &holding, false), "another source joins");
     }
 
     /// Integration 15 (M2): the Xxcha seat of the 6-player sol table plays Exploration Probe from the menu at native step 270; the frontier token it
