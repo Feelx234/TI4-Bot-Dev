@@ -277,6 +277,9 @@ fn env_of(rt: &impl Runner, who: Seat) -> Option<Env> {
             courageous_subtype: f.shared.courageous_subtype,
             courageous_cause: f.shared.courageous_cause,
             hits: f.shared.hits,
+            // The position's own map (a window lent the Map slice): Exploration Probe reaches the systems next to its ships and Experimental
+            // Battlestation the docks next to the active system; without it both do what the string does without a galaxy (integration 15, M2).
+            map: rt.read().0.loaded.has(crate::state::Slice::Map),
             ..super::Facts::default()
         },
     };

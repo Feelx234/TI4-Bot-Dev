@@ -1570,6 +1570,17 @@ mod tests {
         assert_eq!((d.native.as_str(), d.legacy.as_str()), ("INVASION_RESOLVED", "ACTION_CARD_PLAYED"), "{d}");
     }
 
+    /// Integration 15 (M2): the Xxcha seat of the 6-player sol table plays Exploration Probe from the menu at native step 270; the frontier token it
+    /// explores is NEXT to its ships, not under them. The card's facts did not say the position holds a map, so the core looked at the systems of
+    /// its ships alone, found no token, drew nothing and still discarded the card: the shadow's first difference was the top of the frontier deck
+    /// (`exploration_decks.FRONTIER[0]`, native `minent` against legacy `lc2`) in 12 of the 96 games (every 6-player table).
+    #[test]
+    fn an_exploration_probe_played_from_the_menu_explores_the_frontier_token_next_to_the_seats_ships() {
+        let shadowed = shadow_play(&lobby_spec("sol", 6, 1), 2_000, 50).expect("builds");
+        assert!(shadowed.compared > 189, "the legacy game agrees past the probe: {}", shadowed.compared);
+        assert!(shadowed.first_difference.as_ref().is_none_or(|d| d.step > 270 && !d.path.starts_with("exploration_decks")), "{:?}", shadowed.first_difference);
+    }
+
     #[test]
     fn the_survey_counts_every_step_of_a_whole_legacy_game_by_the_arm_the_native_loop_needs() {
         let s = survey(&lobby_spec("sol", 4, 1), 400, 50).expect("builds");
