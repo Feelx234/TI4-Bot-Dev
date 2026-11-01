@@ -221,29 +221,49 @@ pub fn native_payment_planets(state: &GameState, _content: &ContentStore, source
     ProdView::of(state, sources).and_then(|v| v.native_payment_planets(player, kind)).unwrap_or_default()
 }
 
+/// The laws attached to `planet` that change its value, as `(law name, resources, influence)` (`laws::planet_value_bonus_sources`): a plain read
+/// of the laws in play, none while Law's Order blanks them.
+fn law_value_sources(state: &GameState, planet: &PlanetId) -> Vec<(&'static str, i64, i64)> {
+    let attached = |alias: &str| !super::laws::blanked(state) && state.laws.get(alias).is_some_and(|elected| elected == planet.as_str());
+    let mut out = Vec::new();
+    if attached("core_mining") {
+        out.push(("Core Mining", 2, 0));
+    }
+    if attached("senate_sanctuary") {
+        out.push(("Senate Sanctuary", 0, 2));
+    }
+    if attached("terraforming_initiative") {
+        out.push(("Terraforming Initiative", 1, 1));
+    }
+    out
+}
+
+/// What the Helios docks add to `planet`'s resource value: +1 for V1, +2 for V2. Zero unless a Last Bastion is seated and one of its docks
+/// stands on the planet.
+fn helios_bonus(state: &GameState, planet: &PlanetId) -> i64 {
+    if !state.players.iter().any(|seat| seat.faction.as_str() == "bastion") {
+        return 0;
+    }
+    state
+        .board
+        .values()
+        .filter_map(|board| board.planet_units.get(planet))
+        .flatten()
+        .map(|unit| match unit.type_id.as_str() {
+            "bastion_spacedock" => 1,
+            "bastion_spacedock2" => 2,
+            _ => 0,
+        })
+        .max()
+        .unwrap_or(0)
+}
+
 /// One thing that raises a planet's value, for display: `(source name, resources, influence)`: the laws attached to the planet, its attachment
-/// cards, and the Helios docks. Their sum is what the value of the planet now exceeds its printed one by. The laws and the Helios bonus are the
-/// core's; a position the core cannot hold lists the attachment cards only.
+/// cards, and the Helios docks. Their sum is what the value of the planet now exceeds its printed one by. Plain reads of the public state and
+/// the printed records (the core's `query::laws` and the kernel's Helios hook are the same rules; this list answers for every position).
 #[must_use]
 pub fn planet_value_boosts(state: &GameState, content: &ContentStore, planet: &PlanetId) -> Vec<(String, i64, i64)> {
-    use ti4_engine_core::query::laws::{ValueLaw, planet_value_bonus_sources};
-    let view = ProdView::of(state, ti4_model::content_types::FULL);
-    let typed_planet = typed::<ti4_engine_core::generated::Planet>(planet.as_str());
-    let mut out: Vec<(String, i64, i64)> = match (&view, typed_planet) {
-        (Some(v), Some(p)) => planet_value_bonus_sources(&v.view, v.blanked, p)
-            .as_slice()
-            .iter()
-            .map(|(law, r, i)| {
-                let name = match law {
-                    ValueLaw::CoreMining => "Core Mining",
-                    ValueLaw::SenateSanctuary => "Senate Sanctuary",
-                    ValueLaw::TerraformingInitiative => "Terraforming Initiative",
-                };
-                (name.to_owned(), *r, *i)
-            })
-            .collect(),
-        _ => Vec::new(),
-    };
+    let mut out: Vec<(String, i64, i64)> = law_value_sources(state, planet).into_iter().map(|(name, r, i)| (name.to_owned(), r, i)).collect();
     for id in state.planet_attachments.get(planet).into_iter().flatten() {
         let Some(record) = content.get(ti4_model::content_types::ContentType::Attachments, id) else {
             continue;
@@ -254,11 +274,9 @@ pub fn planet_value_boosts(state: &GameState, content: &ContentStore, planet: &P
             out.push((record.text("name").unwrap_or(id).to_owned(), r, i));
         }
     }
-    if let (Some(v), Some(p)) = (&view, typed_planet) {
-        let helios = v.kernel.hooks.direct.bastion_units_resource_bonus(&v.view, p);
-        if helios != 0 {
-            out.push(("Helios dock".to_owned(), helios, 0));
-        }
+    let helios = helios_bonus(state, planet);
+    if helios != 0 {
+        out.push(("Helios dock".to_owned(), helios, 0));
     }
     out
 }

@@ -854,3 +854,27 @@ fn laws_order_blanks_the_laws_only_in_the_action_phase_of_its_turn() {
     }
     assert!(blanked_runs >= 4, "only {blanked_runs} blanked states");
 }
+
+#[test]
+fn the_value_boosts_are_listed_for_a_position_the_core_cannot_hold() {
+    // The host's planet view asks on a fixture board (two seats, no map around them): the laws, the attachments and the docks are read from the
+    // public state, so the list is the same as on a real board. (The first version asked the core and lost the law there.)
+    let content = content();
+    let mut state = old::fixtures::seated_game(&[("a", "xxcha"), ("b", "letnev")], ti4_model::content_types::DEFAULT);
+    let planet = PlanetId::new("archontau");
+    state.system_mut(&SystemId::new("14")).set_control(planet.clone(), PlayerId::new("a"));
+    state.planet_attachments.insert(planet.clone(), vec!["miningworld".into(), "dysonsphere".into()]);
+    for law in ["core_mining", "senate_sanctuary", "terraforming_initiative"] {
+        state.laws.insert(law.to_owned(), planet.to_string());
+    }
+    let listed = thin::queries::production::planet_value_boosts(&state, content, &planet);
+    assert_eq!(listed, old::production::planet_value_boosts(&state, content, &planet));
+    let names: Vec<&str> = listed.iter().map(|(name, _, _)| name.as_str()).collect();
+    assert_eq!(names, ["Core Mining", "Senate Sanctuary", "Terraforming Initiative", "Mining World", "Dyson Sphere"]);
+    // Law's Order blanks the laws, not the attachments.
+    state.phase = ti4_model::state::Phase::Action;
+    state.faction_marks.insert("keleres|laws_blank".to_owned(), state.turn_seq.to_string());
+    let blanked = thin::queries::production::planet_value_boosts(&state, content, &planet);
+    assert_eq!(blanked, old::production::planet_value_boosts(&state, content, &planet));
+    assert_eq!(blanked.iter().map(|(name, _, _)| name.as_str()).collect::<Vec<_>>(), ["Mining World", "Dyson Sphere"]);
+}
