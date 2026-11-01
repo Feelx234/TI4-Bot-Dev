@@ -182,6 +182,8 @@ mod spy_net {
         let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the note");
         r.pick(use_it);
         assert_eq!((r.asked().actor, r.asked().ask), (Seat(0), Ask::Cards(CAsk::TakeRevealed { owner: Seat(1) })), "{}", r.transcript());
+        let ctx = r.asked().ctx.clone();
+        assert!(!ctx.optional && !ctx.space_battle && ctx.target.is_none() && ctx.invasion_seq.is_none(), "a plain question of the note");
         // One option per printed card, in the order of the names.
         assert_eq!(r.opts(), vec![Opt::Cards(COpt::Card(ActionCard::Blitz)), Opt::Cards(COpt::Card(ActionCard::Bribery)), Opt::Cards(COpt::Card(ActionCard::Bunker))]);
         r.pick(1);
@@ -269,6 +271,25 @@ mod stymie {
         assert!(ti4_engine_core::query::board::has_token(&r.state, want[1], Seat(0)), "the mover's token is in the system picked");
         assert_eq!(ring.iter().filter(|s| ti4_engine_core::query::board::has_token(&r.state, **s, Seat(0))).count(), 1);
         assert_eq!(r.state.cards().promissory.get(&NOTE), Some(&Seat(2)), "back with the Arborec");
+        assert!(!ti4_engine_core::kernel::fx::has_staged(&r.state), "no faction module is seated (the adapter says so): the placement is announced to nobody");
+    }
+
+    #[test]
+    fn with_a_module_seated_the_placement_of_the_token_is_staged_as_an_event() {
+        covers!("silent::g4::stymie::STYMIE");
+        let systems = ti4_engine_core_tests::scenario::plain_systems();
+        let ring: Vec<System> = systems[..2].to_vec();
+        let (mut state, kernel) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol, Faction::TheArborec]).map_from(&ring).unit(ring[0], None, Unit::CruiserI, 1, 1).build();
+        state.cards_mut().promissory.edit().insert(NOTE, Seat(1));
+        fx::place_command_token(&mut state, Seat(0), ring[0]);
+        let mut t = table();
+        t.facts.staging = true;
+        let mut r = Rig::from_parts(state, kernel, EmitEvent::new(moved(0, ring[0]))).with_abilities(t);
+        r.run();
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the note");
+        r.pick(use_it);
+        assert!(r.is_done(), "{}", r.transcript());
+        assert!(r.state.pending().staged.iter().any(|e| e.kind == EventKind::CommandTokenPlaced && e.payload.seat(Key::Player) == Some(Seat(0)) && e.payload.system(Key::System) == Some(ring[1])), "the token placed is announced with the next emission");
     }
 
     #[test]
@@ -632,5 +653,227 @@ mod foresight {
             }
         });
         assert!(boxed_in.is_done(), "every neighbour holds the token already: {}", boxed_in.transcript());
+    }
+}
+
+// -- what the mutation check of the lane found -----------------------------------------------------------------------------------
+
+mod regressions {
+    use super::*;
+    use ti4_engine_core::choice::reaction::Opt as ROpt;
+    use ti4_engine_core::choice::silent::Opt as GOpt;
+    use ti4_engine_core::choice::silent4::Opt as UOpt;
+    use ti4_engine_core::generated::{Planet, System, Technology, Unit};
+    use ti4_engine_core::hooks::movement::{ExtraWormholes, Pairs};
+    use ti4_engine_core::ids::Seat;
+    use ti4_engine_core::kernel::Kernel;
+    use ti4_engine_core::state::Piece;
+
+    // -- Foresight: the adjacency of the Naalu, the strategy token, the event ---------------------------------------------------
+
+    fn ring7() -> Vec<System> {
+        ti4_engine_core_tests::scenario::plain_systems()[..7].to_vec()
+    }
+
+    fn finished(mover: u8, system: System, ships: Option<i64>) -> ti4_engine_core::state::EventRec {
+        let mut payload = Payload::new().with(Key::Player, Val::Seat(Seat(mover))).with(Key::System, Val::System(system));
+        if let Some(n) = ships {
+            payload = payload.with(Key::ShipsMoved, Val::Int(n));
+        }
+        fx::event(EventKind::MovementFinished, payload)
+    }
+
+    /// Seat 0 moved into `from`, a ring tile of a seven-system map where seat 1 (the Naalu) has a cruiser; `edit` changes the kernel.
+    fn foresight_rig(tokens: i16, ships: Option<i64>, edit: impl FnOnce(&mut Kernel)) -> (Rig<EmitEvent>, Vec<System>, System) {
+        let ring = ring7();
+        let from = ring[1];
+        let (mut state, mut kernel) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheNaaluCollective]).map_from(&ring).unit(from, None, Unit::CruiserI, 1, 1).build();
+        state.players_mut().by_seat_mut(Seat(1)).unwrap().econ.strategic_tokens = tokens;
+        edit(&mut kernel);
+        let mut r = Rig::from_parts(state, kernel, EmitEvent::new(finished(0, from, ships))).with_abilities(table());
+        r.run();
+        (r, ring, from)
+    }
+
+    fn destinations(r: &Rig<EmitEvent>) -> Vec<System> {
+        r.opts().iter().filter_map(|o| if let Opt::Reaction(ROpt::G(GOpt::U(UOpt::Destination(s)))) = o { Some(*s) } else { None }).collect()
+    }
+
+    fn open(r: &mut Rig<EmitEvent>) {
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the ability");
+        r.pick(use_it);
+    }
+
+    #[test]
+    fn one_strategy_token_is_enough_and_the_count_of_ships_must_be_in_the_event() {
+        covers!("silent::g4::foresight::FORESIGHT");
+        let (mut one, _, _) = foresight_rig(1, Some(1), |_| {});
+        open(&mut one);
+        assert!(!destinations(&one).is_empty(), "{}", one.transcript());
+        let (silent, _, _) = foresight_rig(2, None, |_| {});
+        assert!(silent.is_done(), "an event with no count of ships moved: {}", silent.transcript());
+    }
+
+    fn not_adjacent_to(r: &Rig<EmitEvent>, ring: &[System], from: System) -> System {
+        let galaxy = r.start_state().galaxy().unwrap();
+        *ring.iter().find(|s| **s != from && !galaxy.adjacent(from).contains(s.index())).expect("a ring tile that is not beside the first")
+    }
+
+    fn link_far(_: &CoreState, _: &Kernel, _: Seat) -> Pairs {
+        let ring = ring7();
+        // The tile not beside ring[1]: the first ring tile that is not adjacent to it (the map is the same every time).
+        let (state, _) = Scenario::new(&[Faction::TheEmiratesOfHacan]).map_from(&ring).build();
+        let galaxy = state.galaxy().unwrap();
+        let far = *ring.iter().find(|s| **s != ring[1] && !galaxy.adjacent(ring[1]).contains(s.index())).unwrap();
+        [(ring[1], far)].into_iter().collect()
+    }
+
+    fn extra_far(_: &CoreState) -> ExtraWormholes {
+        let ring = ring7();
+        let (state, _) = Scenario::new(&[Faction::TheEmiratesOfHacan]).map_from(&ring).build();
+        let galaxy = state.galaxy().unwrap();
+        let far = *ring.iter().find(|s| **s != ring[1] && !galaxy.adjacent(ring[1]).contains(s.index())).unwrap();
+        [(ring[1], ti4_engine_core::generated::Wormhole::Beta), (far, ti4_engine_core::generated::Wormhole::Beta)].into_iter().collect()
+    }
+
+    fn block_first_border(_: &CoreState, _: Seat) -> Pairs {
+        let ring = ring7();
+        let (state, _) = Scenario::new(&[Faction::TheEmiratesOfHacan]).map_from(&ring).build();
+        let galaxy = state.galaxy().unwrap();
+        // The border of ring[1] with its first neighbour (both orders of the ids are used over the cases below).
+        let next = galaxy.adjacent(ring[1]).iter().filter_map(System::from_index).next().unwrap();
+        [(ring[1], next)].into_iter().collect()
+    }
+
+    #[test]
+    fn the_links_the_wormholes_and_the_blocked_borders_of_the_faction_hooks_shape_the_neighbours() {
+        covers!("silent::g4::foresight::FORESIGHT");
+        let (mut plain, ring, from) = foresight_rig(2, Some(1), |_| {});
+        open(&mut plain);
+        let base = destinations(&plain);
+        let far = not_adjacent_to(&plain, &ring, from);
+        assert!(!base.contains(&far), "a tile across the ring is no neighbour");
+        // A link of the faction hooks (the Creuss gate) adds it.
+        let (mut linked, _, _) = foresight_rig(2, Some(1), |k| k.hooks.movement.linked_systems.push(link_far));
+        open(&mut linked);
+        assert!(destinations(&linked).contains(&far), "{}", linked.transcript());
+        // So does a wormhole a module adds to both ends.
+        let (mut worm, _, _) = foresight_rig(2, Some(1), |k| k.hooks.movement.extra_wormholes.push(extra_far));
+        open(&mut worm);
+        assert!(destinations(&worm).contains(&far), "{}", worm.transcript());
+        // A blocked border takes its other end out of the list, whichever of the two ids is the smaller.
+        let (mut blocked, _, _) = foresight_rig(2, Some(1), |k| k.hooks.movement.blocked_borders.push(block_first_border));
+        open(&mut blocked);
+        let galaxy = blocked.start_state().galaxy().unwrap();
+        let next = galaxy.adjacent(from).iter().filter_map(System::from_index).next().unwrap();
+        assert!(base.contains(&next) && !destinations(&blocked).contains(&next), "{}", blocked.transcript());
+    }
+
+    #[test]
+    fn a_neighbour_off_the_map_is_not_a_destination_and_the_naalus_own_ship_there_does_not_bar_it() {
+        covers!("silent::g4::foresight::FORESIGHT");
+        // A system a link names that the map does not hold.
+        fn link_off_map(_: &CoreState, _: &Kernel, _: Seat) -> Pairs {
+            let ring = ring7();
+            let off = ti4_engine_core_tests::scenario::plain_systems()[8];
+            [(ring[1], off)].into_iter().collect()
+        }
+        let (mut off, _, _) = foresight_rig(2, Some(1), |k| k.hooks.movement.linked_systems.push(link_off_map));
+        open(&mut off);
+        assert!(!destinations(&off).contains(&ti4_engine_core_tests::scenario::plain_systems()[8]), "{}", off.transcript());
+        // The Naalu's own ship in a neighbour is no other player's ship.
+        let ring = ring7();
+        let (mut own, _, from) = {
+            let from = ring[1];
+            let (mut state, kernel) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheNaaluCollective]).map_from(&ring).unit(from, None, Unit::CruiserI, 1, 1).unit(ring[0], None, Unit::CruiserI, 1, 1).build();
+            state.players_mut().by_seat_mut(Seat(1)).unwrap().econ.strategic_tokens = 2;
+            let mut r = Rig::from_parts(state, kernel, EmitEvent::new(finished(0, from, Some(1)))).with_abilities(table());
+            r.run();
+            (r, ring.clone(), from)
+        };
+        let _ = from;
+        open(&mut own);
+        assert!(destinations(&own).contains(&ring[0]), "the centre holds the Naalu's own cruiser: {}", own.transcript());
+    }
+
+    // -- Magen Defense Grid's hit: what it writes ----------------------------------------------------------------------------------
+
+    fn started(system: System, planet: Planet) -> ti4_engine_core::state::EventRec {
+        fx::event(EventKind::GroundCombatStarted, Payload::new().with(Key::System, Val::System(system)).with(Key::Planet, Val::Planet(planet)).with(Key::Attacker, Val::Seat(Seat(1))).with(Key::Defender, Val::Seat(Seat(0))))
+    }
+
+    /// A listener on the destroyed ground force that notes what the event says in the trade goods of seat 1: +1 for a galvanized unit, +10 for a damaged one, +100 for the event at all.
+    fn note_destruction(eff: &mut ti4_engine_core::kernel::ability::Eff<'_, '_>) -> Result<(), ti4_engine_core::kernel::resolver::TimingError> {
+        let p = eff.event.payload.clone();
+        let gain = 100 + 10 * i32::from(p.flag(Key::Damaged) == Some(true)) + i32::from(p.flag(Key::Galvanized) == Some(true));
+        fx::gain_trade_goods(eff.state(), Seat(1), gain);
+        Ok(())
+    }
+
+    fn md_rig(unit: Unit, edit: impl FnOnce(&mut CoreState, Planet)) -> Rig<EmitEvent> {
+        let system = ti4_engine_core_tests::scenario::plain_systems().into_iter().find(|s| !s.data().planets.is_empty()).unwrap();
+        let planet = system.data().planets[0];
+        let (mut state, kernel) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol]).control(planet, 0).unit(system, Some(planet), Unit::PDSI, 0, 1).unit(system, Some(planet), unit, 1, 1).build();
+        state.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(Technology::MagenDefenseGridOmegaOmega);
+        edit(&mut state, planet);
+        let mut t = table();
+        t.add(ti4_engine_core::kernel::ability::Spec::new(ti4_engine_core::kernel::ability::Slot(65_001), ti4_engine_core::choice::reaction::AbilityKind::Technology, EventKind::GroundForceDestroyed, ti4_engine_core::choice::reaction::Relation::After, note_destruction));
+        let mut r = Rig::from_parts(state, kernel, EmitEvent::new(started(system, planet))).with_abilities(t);
+        r.run();
+        r
+    }
+
+    #[test]
+    fn a_destroyed_spec_ops_is_counted_for_its_survival_roll_and_the_event_carries_its_state() {
+        covers!("silent::g4::magen_hit::MD_HIT");
+        let r = md_rig(Unit::SpecOpsII, |_, _| {});
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!(r.state.players().by_seat(Seat(1)).unwrap().misc.spec_ops_destroyed, 1);
+        assert_eq!(r.state.players().by_seat(Seat(1)).unwrap().econ.trade_goods, 100 + r.start_state().players().by_seat(Seat(1)).unwrap().econ.trade_goods, "the event, undamaged and not galvanized");
+        // A damaged and galvanized unit: the event says both.
+        let r = md_rig(Unit::InfantryI, |s, planet| {
+            let at = s.board().planet(planet).units.iter().position(|p| p.owner() == Seat(1)).unwrap();
+            let piece: Piece = s.board().planet(planet).units.as_slice()[at].with_sustained(true).with_galvanized(true);
+            s.board_mut().planet_mut(planet).units.as_mut_slice()[at] = piece;
+        });
+        assert!(r.is_done(), "{}", r.transcript());
+        assert_eq!(r.state.players().by_seat(Seat(1)).unwrap().econ.trade_goods, 111 + r.start_state().players().by_seat(Seat(1)).unwrap().econ.trade_goods);
+        assert_eq!(r.state.players().by_seat(Seat(1)).unwrap().misc.spec_ops_destroyed, 0);
+    }
+
+    // -- the placement ------------------------------------------------------------------------------------------------------------
+
+    #[test]
+    fn a_space_area_is_a_spot_only_for_the_seats_own_ships() {
+        covers!("silent::g4::place::spots");
+        use ti4_engine_core_factions::silent::g4::place::{spots, Target};
+        let ring = ring7();
+        let (state, _) = Scenario::new(&[Faction::TheYinBrotherhood, Faction::TheEmiratesOfHacan])
+            .map_from(&ring)
+            .unit(ring[1], None, Unit::CruiserI, 1, 1) // another player's ship
+            .unit(ring[2], None, Unit::CruiserI, 0, 1) // the seat's own ship
+            .build();
+        let found = spots(&state, Seat(0), Target::ControlledPlanetOrShipSpace);
+        assert_eq!(found, vec![(ring[2], None)]);
+        assert!(spots(&state, Seat(0), Target::ControlledPlanet).is_empty());
+    }
+
+    #[test]
+    fn nothing_is_asked_when_the_box_holds_none() {
+        covers!("silent::g4::iconoclast::ICONOCLAST");
+        use ti4_engine_core::tables::Scope;
+        use ti4_engine_core::generated::UnitBaseType;
+        use ti4_engine_core_factions::cd_registry::yin::timing::placed_form;
+        let spots_systems: Vec<(System, Planet)> = ti4_engine_core_tests::scenario::plain_systems().into_iter().filter_map(|s| s.data().planets.first().map(|p| (s, *p))).take(2).collect();
+        // Every Naalu mech stands on the board: Iconoclast asks nothing when another player gains a relic.
+        let (probe, kernel) = Scenario::new(&[Faction::TheNaaluCollective, Faction::TheEmiratesOfHacan]).build();
+        let mech = placed_form(&probe, Scope(u32::from(kernel.sources.0)), Seat(0), UnitBaseType::Mech).expect("the Naalu place a mech");
+        let scenario = Scenario::new(&[Faction::TheNaaluCollective, Faction::TheEmiratesOfHacan]).control(spots_systems[0].1, 0).control(spots_systems[1].1, 0).unit(spots_systems[0].0, Some(spots_systems[0].1), mech, 0, 4);
+        let (state, kernel) = scenario.build();
+        let mut r = Rig::from_parts(state, kernel, EmitEvent::new(fx::event(EventKind::RelicGained, Payload::new().with(Key::Player, Val::Seat(Seat(1)))))).with_abilities(table());
+        r.run();
+        let use_it = r.opts().iter().position(|o| *o != Opt::Decline).expect("the mech");
+        r.pick(use_it);
+        assert!(r.is_done(), "no mech in the box, so no question and nothing placed: {}", r.transcript());
     }
 }

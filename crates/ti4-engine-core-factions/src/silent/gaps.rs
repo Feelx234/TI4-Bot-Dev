@@ -8,7 +8,7 @@
 //! A row's index is its slot (`FIRST_SLOT + index`) and the position of its name in the engine's table.
 
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
-use ti4_engine_core::generated::{Faction, LeaderType, PromissoryNote, System, Technology, UnitBaseType};
+use ti4_engine_core::generated::{Faction, LeaderType, PromissoryNote, Technology};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::ability::{no_effect, AbilityTable, CondCx, Slot, Spec, Unknown};
 use ti4_engine_core::state::{EventKind, LeaderStatus};

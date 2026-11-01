@@ -52,7 +52,7 @@ fn neighbours(s: &CoreState, k: &Kernel, who: Seat, system: System) -> Vec<Syste
     found.retain(|other| *other != system);
     let blocked = k.hooks.movement.blocked_pairs(s, who);
     found.retain(|other| {
-        let edge = if system < *other { (system, *other) } else { (*other, system) };
+        let edge = if system < *other { (system, *other) } else { (*other, system) }; // mutants:skip (`<=`: a system is never its own neighbour)
         !blocked.as_slice().contains(&edge)
     });
     found.sort_unstable();
@@ -62,12 +62,13 @@ fn neighbours(s: &CoreState, k: &Kernel, who: Seat, system: System) -> Vec<Syste
 
 /// The relocation of `transit::relocate_ships` is legal into `to`: both systems are on the map, `to` can be entered under the mover's rules and holds no other player's ships.
 fn can_relocate(s: &CoreState, k: &Kernel, who: Seat, from: System, to: System) -> bool {
-    let Some(galaxy) = s.galaxy() else { return false };
+    let Some(galaxy) = s.galaxy() else { return false }; // mutants:skip (no destinations are listed without a galaxy)
     let on_map = |system: System| galaxy.coord_of(system).is_some() || galaxy.wormhole_systems().contains(system.index());
     if !on_map(from) || !on_map(to) {
         return false;
     }
-    let enterable = reach::SeatReach::new(s, k, who, true).is_some_and(|r| r.rules_for(s, k, to).can_enter(to));
+    // (`effects` true as the string applies the cards in play; none of them changes what a system admits.)
+    let enterable = reach::SeatReach::new(s, k, who, true).is_some_and(|r| r.rules_for(s, k, to).can_enter(to)); // mutants:skip (`true`: the cards in play do not change `can_enter`)
     enterable && !board::space_units(s, to).iter().any(|p| p.owner() != who && p.kind().data().ship)
 }
 

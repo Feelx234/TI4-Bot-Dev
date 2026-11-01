@@ -21,7 +21,7 @@ fn condition(c: &CondCx<'_>) -> bool {
     c.event.payload.seat(Key::Player) == Some(me)
         && c.state.players().by_seat(me).is_some_and(|p| p.tech.owned.contains(Technology::YinSpinnerOmega))
         && !spots(c.state, me, Target::ControlledPlanetOrShipSpace).is_empty()
-        && form_and_room(c.state, c.kernel, me, UnitBaseType::Infantry, 1).is_some_and(|(_, room)| room > 0)
+        && form_and_room(c.state, c.kernel, me, UnitBaseType::Infantry, 1).is_some_and(|(_, room)| room > 0) // mutants:skip (infantry have no plastic limit, so the box is never empty; `1`: whether it holds one is the same question for any count)
 }
 
 fn spin(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {

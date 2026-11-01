@@ -23,14 +23,6 @@ fn condition(c: &CondCx<'_>) -> bool {
 
 fn deploy(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let me = eff.owner();
-    // (The window can have closed since the condition was read: the string repeats it.)
-    let ready = {
-        let (s, _) = eff.read();
-        s.players().by_seat(me).is_some_and(|p| p.faction == Faction::TheNaaluCollective) && eff.event.payload.seat(Key::Player).is_some_and(|gainer| gainer != me) && !spots(s, me, Target::ControlledPlanet).is_empty()
-    };
-    if !ready {
-        return Ok(());
-    }
     choose(eff, Placement { who: me, base: UnitBaseType::Mech, count: 1, target: Target::ControlledPlanet, optional: false, ability: code::ICONOCLAST });
     Ok(())
 }

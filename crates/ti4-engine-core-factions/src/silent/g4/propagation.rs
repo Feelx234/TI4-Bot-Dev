@@ -37,12 +37,9 @@ fn propagate(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         return Ok(());
     }
     let owed = pending(eff.read().0, me);
-    if owed == 0 {
-        return Ok(());
-    }
     let key = MarkKey::NekroPropagation(me);
     let tail = eff.state().marks_mut().tail.edit();
-    if owed == 1 {
+    if owed <= 1 {
         tail.remove(&key);
     } else {
         tail.insert(key, MarkVal::Atom(Atom::Num(owed - 1)));

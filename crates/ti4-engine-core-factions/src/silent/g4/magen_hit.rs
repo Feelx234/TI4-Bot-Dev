@@ -92,7 +92,7 @@ fn hit(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
                     .map(|(index, piece)| {
                         let data = rd(s, k).data(piece.kind());
                         let sturdy = !piece.sustained() && data.is_some_and(|d| d.sustain_damage);
-                        let cost_halves = data.and_then(|d| d.cost_halves).unwrap_or(0);
+                        let cost_halves = data.and_then(|d| d.cost_halves).unwrap_or(0); // mutants:skip (every ground force prints a cost)
                         Opt::Reaction(ROpt::G(GOpt::U(UOpt::Target { index: u8::try_from(index).unwrap_or(u8::MAX), owner: opponent, unit: piece.kind(), damaged: piece.sustained(), sturdy, cost_halves })))
                     })
                     .collect()
@@ -108,13 +108,6 @@ fn hit(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
             *picked
         }
     };
-    // `assign_selected_ground_hit_in_timing`: the unit must still be there, a ground force.
-    {
-        let (s, k) = eff.read();
-        if !s.board().planet(planet).units.iter().any(|p| *p == target) || !is_ground_force_here(rd(s, k), opponent, system, planet, target) {
-            return Ok(());
-        }
-    }
     let sustain = {
         let can = {
             let (s, k) = eff.read();

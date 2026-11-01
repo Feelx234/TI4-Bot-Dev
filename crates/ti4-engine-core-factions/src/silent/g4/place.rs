@@ -73,7 +73,7 @@ fn max_fit(s: &CoreState, k: &Kernel, who: Seat, system: System, planet: Option<
 #[must_use]
 pub fn form_and_room(s: &CoreState, k: &Kernel, who: Seat, base: UnitBaseType, count: usize) -> Option<(Unit, usize)> {
     let unit = placed_form_overridden(s, k, scope(k), who, base)?;
-    let room = usize::try_from(fleet::remaining_all(s, scope(k), who, unit)).unwrap_or(0);
+    let room = usize::try_from(fleet::remaining_all(s, scope(k), who, unit)).unwrap_or(0); // mutants:skip (the box never holds a negative number)
     Some((unit, room.min(count)))
 }
 
@@ -89,11 +89,11 @@ pub struct Placement {
     pub ability: usize,
 }
 
-/// `place_units_choosing`: ask where (unless one spot decides it) and place; returns how many arrived.
-pub fn choose(eff: &mut Eff<'_, '_>, p: Placement) -> usize {
+/// `place_units_choosing`: ask where (unless one spot decides it) and place (how many arrived is nobody's to read: the callers ask nothing after).
+pub fn choose(eff: &mut Eff<'_, '_>, p: Placement) {
     let (wanted, fitting) = {
         let (s, k) = eff.read();
-        let Some((unit, wanted)) = form_and_room(s, k, p.who, p.base, p.count) else { return 0 };
+        let Some((unit, wanted)) = form_and_room(s, k, p.who, p.base, p.count) else { return };
         let fitting: Vec<(System, Option<Planet>, usize)> = spots(s, p.who, p.target)
             .into_iter()
             .filter_map(|(system, planet)| {
@@ -104,12 +104,12 @@ pub fn choose(eff: &mut Eff<'_, '_>, p: Placement) -> usize {
         (wanted, fitting)
     };
     if wanted == 0 || fitting.is_empty() {
-        return 0;
+        return;
     }
     let (system, planet, fit) = match fitting.as_slice() {
         [only] if !p.optional => *only,
         _ => {
-            let most = fitting.iter().map(|(_, _, fit)| *fit).max().unwrap_or(0);
+            let most = fitting.iter().map(|(_, _, fit)| *fit).max().unwrap_or(0); // mutants:skip (the list is not empty here)
             let mut opts: Opts = fitting.iter().map(|(system, planet, fit)| Opt::Reaction(ROpt::G(GOpt::U(UOpt::Spot { system: *system, planet: *planet, fit: u8::try_from(*fit).unwrap_or(u8::MAX) })))).collect();
             if p.optional {
                 opts.push(Opt::Decline);
@@ -129,13 +129,13 @@ pub fn choose(eff: &mut Eff<'_, '_>, p: Placement) -> usize {
                 },
                 opts,
             };
-            let Pick::Opt(Opt::Reaction(ROpt::G(GOpt::U(UOpt::Spot { system, planet, .. })))) = eff.ask(&choice) else { return 0 };
-            let Some(chosen) = fitting.iter().find(|(s, pl, _)| *s == system && *pl == planet) else { return 0 };
+            let Pick::Opt(Opt::Reaction(ROpt::G(GOpt::U(UOpt::Spot { system, planet, .. })))) = eff.ask(&choice) else { return };
+            let Some(chosen) = fitting.iter().find(|(s, pl, _)| *s == system && *pl == planet) else { return };
             *chosen
         }
     };
     let (s, k) = eff.state_and_kernel();
     let scope = scope(k);
     let form = placed_form_overridden(s, k, scope, p.who, p.base);
-    fx::place_counted(s, k, scope, p.who, system, planet, form, fit)
+    let _ = fx::place_counted(s, k, scope, p.who, system, planet, form, fit);
 }

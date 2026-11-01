@@ -30,7 +30,7 @@ fn is_home_system(k: &Kernel, system: System) -> bool {
     let scope = scope(k);
     Planet::ALL.iter().any(|p| {
         let d = p.data();
-        d.homeworld_of.is_some() && d.system == Some(system) && scope.0 & ti4_engine_core::tables::source_bit(d.source) != 0
+        d.homeworld_of.is_some() && d.system == Some(system) && scope.0 & ti4_engine_core::tables::source_bit(d.source) != 0 // mutants:skip (a map holds only systems of the sources in play)
     })
 }
 
