@@ -140,6 +140,8 @@ fn a_leader_printed_during_the_action_phase_is_a_free_option_of_the_closing_menu
     let faction = Faction::ALL.iter().copied().find(|f| ti4_engine_core::query::tech::tag_is(agent.data().faction, *f)).unwrap();
     let (mut s, k) = Scenario::new(&[faction, Faction::TheFederationOfSol]).phase(Phase::Action).active(Some(0)).build();
     s.players_mut().edit(0).leaders.status.insert(agent, ti4_engine_core::state::LeaderStatus::Readied);
+    // Guild Ships (Hacan, the faction of the agent chosen below) reach every seat: the partner is already used up, so no transaction source remains to offer.
+    s.trade_mut().transactions_this_turn.get_or_insert_with(Seat(0), Default::default).insert(Seat(1));
     // The menu lists exactly what the action menu's leaders source lists and calls free: "end your turn" first, then those.
     let free: Vec<TuOpt> = ti4_engine_core::driver::menu_sources::leaders(&s, &k, Seat(0)).into_iter().filter(|o| ti4_engine_core::driver::menu_sources::leader_is_free(*o) == Some(true)).collect();
     let mut expected = vec![TuOpt::EndTurn];
@@ -155,6 +157,8 @@ fn a_free_leader_of_the_closing_menu_is_asked_and_its_dispatch_is_a_counted_gap(
     let faction = Faction::ALL.iter().copied().find(|f| ti4_engine_core::query::tech::tag_is(L::CarthOfGoldenSands.data().faction, *f)).unwrap();
     let (mut s, k) = Scenario::new(&[faction, Faction::TheFederationOfSol]).phase(Phase::Action).active(Some(0)).build();
     s.players_mut().edit(0).leaders.status.insert(L::CarthOfGoldenSands, ti4_engine_core::state::LeaderStatus::Readied);
+    // Guild Ships (Hacan, the faction of the agent chosen below) reach every seat: the partner is already used up, so no transaction source remains to offer.
+    s.trade_mut().transactions_this_turn.get_or_insert_with(Seat(0), Default::default).insert(Seat(1));
     s.pending_mut().turn_closing = Some(Seat(0));
     let e = env(&k);
     let q = ask_ask(&s, &e).unwrap().unwrap().choice;
