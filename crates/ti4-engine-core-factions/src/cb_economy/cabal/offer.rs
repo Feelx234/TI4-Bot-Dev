@@ -38,6 +38,12 @@ pub fn payment_code(owner: Seat, unit: Unit) -> u16 {
     (u16::from(owner.0) << 8) | u16::try_from(unit.index()).unwrap_or(0)
 }
 
+/// The captured model a payment code names: the seat it belongs to and its form (the inverse of [`payment_code`]).
+#[must_use]
+pub fn payment_model(code: u16) -> Option<(Seat, Unit)> {
+    Unit::from_index(usize::from(code & 0xff)).map(|unit| (Seat(u8::try_from(code >> 8).unwrap_or(u8::MAX)), unit))
+}
+
 /// `riftmeld_payments`: every captured model the Cabal could return for `tech`, in capture order. (A model of one owner and form held twice is one payment: both pay the same.)
 fn payments(s: &ti4_engine_core::state::CoreState, k: &Kernel, who: Seat, tech: Technology) -> Vec<(Waiver, Seat, UnitBaseType)> {
     let Some(base) = unit_upgrade_base(k, tech) else { return Vec::new() };

@@ -10,9 +10,9 @@
 //! of the window (`strategy_core`, `strategy_cards_core`).
 
 use ti4_engine_core::choice::agenda::Shown;
-use ti4_engine_core::choice::strategy::{Ask, Opt, Pool, Subtype};
+use ti4_engine_core::choice::strategy::{Ask, Opt, Pool, Subtype, Waiver};
 use ti4_engine_core::choice::Opt as AnyOpt;
-use ti4_engine_core::generated::{Planet, PublicObjective, StrategyCard, StrategyCardKind, System, Technology};
+use ti4_engine_core::generated::{Faction, Planet, PublicObjective, StrategyCard, StrategyCardKind, System, Technology, Unit, UnitBaseType};
 use ti4_engine_core::ids::Seat;
 
 use super::{Family, Render, Wording};
@@ -91,6 +91,8 @@ impl Family for Fam {
             Ask::ResearchTechnology { .. } => "research a technology".to_owned(),
             Ask::Follow { card, .. } => follow_words(*card).0.to_owned(),
             Ask::Draft => "choose a strategy card".to_owned(),
+            Ask::ResearchWaiver { tech, .. } => format!("research {}: choose a prerequisite waiver", tech.as_str()),
+            Ask::ResearchWaiverPayment { waiver, .. } => format!("{}: choose the payment", waiver_label(*waiver)),
         }
     }
 
@@ -113,6 +115,8 @@ impl Family for Fam {
             Subtype::ConstructionChooseAbility => "construction_choose_ability",
             Subtype::WarfareFreeTactical => "warfare_free_tactical",
             Subtype::Draft => "draft_strategy_card",
+            Subtype::ResearchWaiver => "research_waiver",
+            Subtype::ResearchWaiverPayment => "research_waiver_payment",
         }
         .to_owned()
     }
@@ -187,6 +191,17 @@ impl Family for Fam {
                 option.payload.insert("cost_tokens".to_owned(), serde_json::Value::from(0));
                 option
             }
+            Opt::ResearchWaiver(index) => {
+                let waiver = match a {
+                    Ask::ResearchWaiver { offered, .. } => offered.get(usize::from(*index)).copied().flatten(),
+                    _ => None,
+                };
+                ChoiceOption::labelled(format!("waiver|{index}"), "research_waiver", waiver.map_or("ignore its prerequisites", waiver_label))
+            }
+            Opt::ResearchPayment(payment) => {
+                let (id, label) = payment_words(r, *payment);
+                ChoiceOption::labelled(id, "research_waiver_payment", label)
+            }
             Opt::Objective(o) => ChoiceOption::labelled(o.as_str(), "objective", o.as_str()),
             Opt::Card(card) => ChoiceOption::labelled(card.as_str(), crate::draft::STRATEGY_CARD_KIND, crate::draft::strategy_card_label(ti4_content::ContentStore::embedded(), card.as_str())),
             Opt::Build => ChoiceOption::labelled("structure", "build", "place a structure"),
@@ -251,6 +266,11 @@ impl Family for Fam {
             Ask::Draft => StrategyCard::from_id(id).map(Opt::Card),
             Ask::ImperialScore => PublicObjective::from_id(id).map(Opt::Objective),
             Ask::ResearchTechnology { .. } => Technology::from_id(id).map(Opt::Research),
+            Ask::ResearchWaiver { offered, .. } => {
+                let index = id.strip_prefix("waiver|")?.parse::<u8>().ok()?;
+                offered.get(usize::from(index)).copied().flatten().map(|_| Opt::ResearchWaiver(index))
+            }
+            Ask::ResearchWaiverPayment { waiver, .. } => parse_payment(r, *waiver, id).map(Opt::ResearchPayment),
             Ask::Follow { .. } => match id {
                 "no" => Some(Opt::Skip),
                 "yes" => Some(Opt::Follow),
@@ -281,6 +301,27 @@ impl Family for Fam {
             d.insert("card".to_owned(), card.as_str().into());
             d.insert("played_by".to_owned(), r.seat_text(*primary).into());
             d.insert("costs_token".to_owned(), (*costs_token).into());
+        }
+        if let Ask::ResearchWaiver { tech, .. } = a {
+            // `strategy_cards::resolve_research`: the offer card of the waiver question.
+            d = crate::choice::offer_details(
+                crate::choice::offer_card(
+                    "Research without prerequisites",
+                    "faction ability",
+                    Some("A faction ability lets you research this technology without its prerequisites"),
+                    Some("Choose how, and pay its cost on the next step. Declining researches nothing."),
+                ),
+                vec![crate::choice::offer_fact_technology("Technology", tech.as_str())],
+                &[("decline", crate::choice::offer_caption("Don't use a waiver", Some("Nothing is researched")))],
+            );
+        }
+        if let Ask::ResearchWaiverPayment { tech, waiver } = a {
+            let label = waiver_label(*waiver);
+            d = crate::choice::offer_details(
+                crate::choice::offer_card("Pay for the waiver", "faction ability", Some(label), Some("Choose what pays for it. Declining researches nothing and pays nothing.")),
+                vec![crate::choice::offer_fact_technology("Technology", tech.as_str())],
+                &[("decline", crate::choice::offer_caption("Don't pay", Some("Nothing is researched or paid")))],
+            );
         }
         if let Ask::PdsAlternative { system, planet } = a {
             // `strategy_cards::construction_structure`: the offer card of the alternative.
@@ -316,5 +357,169 @@ impl Family for Fam {
             },
             _ => Wording::default(),
         }
+    }
+}
+
+// -- the research window's faction waivers (`strategy_cards::resolve_research`) --------------------------------------------------------------
+
+/// What a waiver says (`ResearchWaiver::label` of the string module that offers it: the Cabal's Riftmeld, Yin's Brother Omar).
+fn waiver_label(waiver: Waiver) -> &'static str {
+    match waiver.module {
+        Faction::TheVuilraithCabal => "return 1 captured unit of that type to ignore all of its prerequisites",
+        Faction::TheYinBrotherhood => "return 1 infantry to reinforcements to ignore its prerequisites",
+        _ => "ignore its prerequisites",
+    }
+}
+
+/// The text of a unit base type (`UnitKind::base_type`).
+fn base_text(base: UnitBaseType) -> &'static str {
+    match base {
+        UnitBaseType::Carrier => "carrier",
+        UnitBaseType::Cruiser => "cruiser",
+        UnitBaseType::Destroyer => "destroyer",
+        UnitBaseType::Dreadnought => "dreadnought",
+        UnitBaseType::Fighter => "fighter",
+        UnitBaseType::Flagship => "flagship",
+        UnitBaseType::Infantry => "infantry",
+        UnitBaseType::Mech => "mech",
+        UnitBaseType::Pds => "pds",
+        UnitBaseType::Spacedock => "spacedock",
+        UnitBaseType::Warsun => "warsun",
+    }
+}
+
+/// The system a planet stands in, as the position has it (the tile it is printed on where there is no position).
+fn system_of(r: &Render, planet: Planet) -> Option<System> {
+    if let Some(position) = r.position() {
+        let state: &ti4_engine_core::state::CoreState = &position.state;
+        if let Some((system, _)) = state.board().systems().find(|(system, _)| ti4_engine_core::query::board::planets_of(state, *system).any(|p| p == planet)) {
+            return Some(system);
+        }
+    }
+    planet.data().system
+}
+
+/// The id and the label of a payment of a research waiver (`riftmeld_payments`, `yin::infantry_payments`).
+fn payment_words(r: &Render, payment: Waiver) -> (String, String) {
+    use ti4_engine_core_factions::cb_economy::cabal::offer::payment_model;
+    use ti4_engine_core_factions::cd_registry::yin::query::{payment_place, PaymentPlace};
+    match payment.module {
+        Faction::TheVuilraithCabal => match payment_model(payment.code) {
+            Some((owner, unit)) => {
+                let owner = r.seats.get(usize::from(owner.0)).map_or("", String::as_str);
+                (format!("captured|{owner}|{}", unit.as_str()), format!("return 1 captured {} taken from {owner}", base_text(unit.data().base_type)))
+            }
+            None => (String::new(), String::new()),
+        },
+        Faction::TheYinBrotherhood => match payment_place(payment.code) {
+            Some(PaymentPlace::Planet(planet)) => {
+                let system = system_of(r, planet).map_or("", System::as_str);
+                (format!("ground|{system}|{}", planet.as_str()), format!("return 1 infantry from {} in {system}", planet.as_str()))
+            }
+            Some(PaymentPlace::Space(system)) => (format!("space|{}", system.as_str()), format!("return 1 infantry from space in {}", system.as_str())),
+            None => (String::new(), String::new()),
+        },
+        _ => (String::new(), String::new()),
+    }
+}
+
+/// The payment of the waiver the id names (the inverse of [`payment_words`]).
+fn parse_payment(r: &Render, waiver: Waiver, id: &str) -> Option<Waiver> {
+    use ti4_engine_core_factions::cb_economy::cabal::offer::payment_code;
+    use ti4_engine_core_factions::cd_registry::yin::query::{place_code, PaymentPlace};
+    let mut parts = id.split('|');
+    let code = match (waiver.module, parts.next()?) {
+        (Faction::TheVuilraithCabal, "captured") => {
+            let (owner, unit) = (r.seat(parts.next()?)?, Unit::from_id(parts.next()?)?);
+            payment_code(owner, unit)
+        }
+        (Faction::TheYinBrotherhood, "ground") => {
+            let (_, planet) = (System::from_id(parts.next()?)?, Planet::from_id(parts.next()?)?);
+            place_code(PaymentPlace::Planet(planet))
+        }
+        (Faction::TheYinBrotherhood, "space") => place_code(PaymentPlace::Space(System::from_id(parts.next()?)?)),
+        _ => return None,
+    };
+    parts.next().is_none().then_some(Waiver { module: waiver.module, code })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ti4_engine_core::generated::Unit;
+
+    fn r() -> Render {
+        Render::new(vec!["a".to_owned(), "b".to_owned(), "c".to_owned()])
+    }
+
+    /// The captured model of a Cabal payment is named by the string's unit id and base type: every unit of the catalogue.
+    #[test]
+    fn the_unit_ids_and_base_types_of_a_captured_model_are_the_strings() {
+        let content = ti4_content::ContentStore::embedded();
+        let catalogue = ti4_content::units::catalogue(content, ti4_model::content_types::FULL);
+        let mut seen = 0;
+        for (id, kind) in catalogue.iter() {
+            let Some(unit) = Unit::from_id(id) else { panic!("the catalogue's unit {id} is not a typed unit") };
+            seen += 1;
+            assert_eq!(<Unit as crate::generated::IdStr>::as_str(unit), *id, "the id of {id}");
+            assert_eq!(base_text(unit.data().base_type), kind.base_type(), "the base type of {id}");
+        }
+        assert!(seen >= 40, "the catalogue's units are the typed ones: {seen}");
+    }
+
+    /// Every payment code prints an id that parses back to it, and the words are the string's.
+    #[test]
+    fn the_payments_of_both_modules_print_and_parse_back() {
+        use ti4_engine_core_factions::cb_economy::cabal::offer::payment_code;
+        use ti4_engine_core_factions::cd_registry::yin::query::{place_code, PaymentPlace};
+        let render = r();
+        let cabal = Waiver { module: Faction::TheVuilraithCabal, code: 0 };
+        let model = Waiver { module: Faction::TheVuilraithCabal, code: payment_code(Seat(1), Unit::CruiserI) };
+        assert_eq!(payment_words(&render, model), ("captured|b|cruiser".to_owned(), "return 1 captured cruiser taken from b".to_owned()));
+        assert_eq!(parse_payment(&render, cabal, "captured|b|cruiser"), Some(model));
+        assert_eq!(parse_payment(&render, cabal, "captured|z|cruiser"), None, "no such seat");
+        assert_eq!(parse_payment(&render, cabal, "captured|b|cruiser|x"), None, "trailing text");
+        assert_eq!(parse_payment(&render, cabal, "space|01"), None, "another module's id");
+        let yin = Waiver { module: Faction::TheYinBrotherhood, code: 0 };
+        let planet_of = Planet::ALL.into_iter().find(|p| p.data().system.is_some()).expect("a printed planet");
+        let home = planet_of.data().system.expect("printed");
+        let space = Waiver { module: Faction::TheYinBrotherhood, code: place_code(PaymentPlace::Space(home)) };
+        assert_eq!(payment_words(&render, space), (format!("space|{}", home.as_str()), format!("return 1 infantry from space in {}", home.as_str())));
+        assert_eq!(parse_payment(&render, yin, &format!("space|{}", home.as_str())), Some(space));
+        let ground = Waiver { module: Faction::TheYinBrotherhood, code: place_code(PaymentPlace::Planet(planet_of)) };
+        let (id, label) = payment_words(&render, ground);
+        let (planet, system) = (planet_of.as_str(), home.as_str());
+        assert_eq!((id.as_str(), label.as_str()), (format!("ground|{system}|{planet}").as_str(), format!("return 1 infantry from {planet} in {system}").as_str()), "the printed tile of the planet without a position");
+        assert_eq!(parse_payment(&render, yin, &id), Some(ground));
+        assert_eq!(parse_payment(&render, yin, &format!("ground|{system}")), None);
+        assert_eq!(parse_payment(&render, yin, "captured|b|cruiser"), None);
+    }
+
+    /// The waiver question's words, options and offer card (`strategy_cards::resolve_research`).
+    #[test]
+    fn the_waiver_question_words_are_the_strings() {
+        let render = r();
+        let tech = Technology::from_id("cr2").expect("a technology");
+        let cabal = Waiver { module: Faction::TheVuilraithCabal, code: 0 };
+        let yin = Waiver { module: Faction::TheYinBrotherhood, code: 0 };
+        let ask = Ask::ResearchWaiver { tech, offered: [Some(cabal), Some(yin)] };
+        assert_eq!(Fam::prompt(&render, &ask), "research cr2: choose a prerequisite waiver");
+        let first = Fam::option(&render, &ask, &Opt::ResearchWaiver(0));
+        assert_eq!((first.id.as_str(), first.kind.as_str(), first.label.as_str()), ("waiver|0", "research_waiver", "return 1 captured unit of that type to ignore all of its prerequisites"));
+        let second = Fam::option(&render, &ask, &Opt::ResearchWaiver(1));
+        assert_eq!((second.id.as_str(), second.label.as_str()), ("waiver|1", "return 1 infantry to reinforcements to ignore its prerequisites"));
+        assert_eq!(Fam::parse(&render, &ask, "waiver|1"), Some(Opt::ResearchWaiver(1)));
+        assert_eq!(Fam::parse(&render, &ask, "waiver|2"), None, "only two were offered");
+        let single = Ask::ResearchWaiver { tech, offered: [Some(cabal), None] };
+        assert_eq!(Fam::parse(&render, &single, "waiver|1"), None);
+        let pay = Ask::ResearchWaiverPayment { tech, waiver: yin };
+        assert_eq!(Fam::prompt(&render, &pay), "return 1 infantry to reinforcements to ignore its prerequisites: choose the payment");
+        assert_eq!(Fam::subtype(&render, &Subtype::ResearchWaiver), "research_waiver");
+        assert_eq!(Fam::subtype(&render, &Subtype::ResearchWaiverPayment), "research_waiver_payment");
+        let details = Fam::details(&render, &pay);
+        assert_eq!(details["card"]["title"], "Pay for the waiver");
+        assert_eq!(details["card"]["window"], "return 1 infantry to reinforcements to ignore its prerequisites");
+        assert_eq!(details["captions"]["decline"]["label"], "Don't pay");
+        assert_eq!(Fam::details(&render, &ask)["captions"]["decline"]["hint"], "Nothing is researched");
     }
 }

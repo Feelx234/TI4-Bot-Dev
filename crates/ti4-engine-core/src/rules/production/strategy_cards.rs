@@ -5,7 +5,7 @@
 //! [`super::strategy_primaries`].
 
 use crate::choice::generic::{Content, Rule};
-use crate::choice::strategy::{gain_pool_choice, rule_ctx, Ask as SAsk, Opt as SOpt, Subtype as SSub};
+use crate::choice::strategy::{gain_pool_choice, rule_ctx, waiver_ctx, Ask as SAsk, Opt as SOpt, Subtype as SSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
 use crate::generated::{Planet, System, UnitBaseType};
@@ -699,7 +699,29 @@ pub enum RStage {
     Choose,
     /// Paying the bill, one face at a time ([`PayStep`]).
     Pay,
+    /// A technology only a faction waiver opens: waiting on the waiver (or the decline).
+    Waive,
+    /// The waiver's payment: waiting on what pays (or the decline).
+    WaivePay,
     Done,
+}
+
+/// A technology picked whose prerequisites only a faction waiver covers (`strategy_cards::resolve_research`): the waiver question under way.
+#[derive(Debug, Clone, Copy)]
+struct Waiving {
+    tech: Technology,
+    /// The waiver chosen (its place in `research_waiver_offers`), once the payment is asked.
+    picked: Option<u8>,
+}
+
+/// What a chosen technology came to ([`Research::try_settle`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Settled {
+    Landed,
+    /// The path is not the window's (the run is the string's).
+    Failed,
+    /// Only a faction waiver opens it: the waiver is asked.
+    Waiver,
 }
 
 /// Technology: the primary (one free research, then one for six resources) and the secondary (one for four).
@@ -712,9 +734,12 @@ pub enum RStage {
 /// the Anti-Intellectual Revolution takes a ship, and Research Agreement hands the technology to its holder. A Nekro
 /// seat gains three command tokens instead (Propagation).
 ///
-/// Not carried (the window marks [`Research::failed`]; the adapter declines the run, one test each): a technology
-/// only a faction waiver opens (a question about the waiver and its payment) and a research Inheritance Systems can no
-/// longer pay after the bill.
+/// A technology only a faction waiver opens (Cabal's Riftmeld, Yin's Brother Omar) asks the waiver and then its payment
+/// (`strategy_cards::resolve_research`); declining either puts the technology on the list the offer skips, and in the paid
+/// research restores the position from before the bill (the string pays first, then asks, then `*state = before`).
+///
+/// Not carried (the window marks [`Research::failed`]; the adapter declines the run, one test each): a research
+/// Inheritance Systems can no longer pay after the bill.
 #[derive(Debug, Clone)]
 pub struct Research {
     pub who: Seat,
@@ -732,13 +757,19 @@ pub struct Research {
     /// Technology Rider (package W4; `strategy_cards::offer_free_research`): one free research asked as the card's own question,
     /// and nothing after it (no paid second research).
     rider: bool,
+    /// The technologies whose waiver was declined in this research (`declined_waivers`): the offer skips them.
+    declined: SmallList<Technology, 8>,
+    /// The waiver question under way.
+    waiving: Option<Waiving>,
+    /// The position before the bill of a paid research (`before = state.clone()`), restored when the waiver is declined.
+    before: Option<Box<CoreState>>,
 }
 
 impl Research {
     /// `cost`: the resources the paid research costs (6 for the primary's second, 4 for the secondary).
     #[must_use]
     pub const fn new(who: Seat, primary: bool, cost: i64, scope: Scope) -> Self {
-        Self { who, primary, cost, scope, roster: None, stage: RStage::Start, pay: None, chosen: None, failed: false, researched: SmallList::new(), rider: false }
+        Self { who, primary, cost, scope, roster: None, stage: RStage::Start, pay: None, chosen: None, failed: false, researched: SmallList::new(), rider: false, declined: SmallList::new(), waiving: None, before: None }
     }
 
     /// Technology Rider ("research 1 technology", `strategy_cards::offer_free_research`): the Technology primary's free research,
@@ -762,7 +793,7 @@ impl Research {
     }
 
     fn open(&self, s: &CoreState, k: &Kernel) -> SmallList<Technology, 40> {
-        tech::researchable(s, self.scope, reach::blanked(s), self.who, &KernelHooks::new(s, k, self.who)).iter().collect()
+        tech::researchable(s, self.scope, reach::blanked(s), self.who, &KernelHooks::new(s, k, self.who)).iter().filter(|t| !self.declined.as_slice().contains(t)).collect()
     }
 
     fn begin_paid(&mut self, s: &CoreState, k: &Kernel) {
@@ -867,10 +898,15 @@ impl Research {
     /// `technology::research` for a technology just chosen (and the bill paid): the prerequisites are met or paid, then
     /// the research completes. `false`, with the run to be the string's, where the path is not carried.
     fn settle(&mut self, s: &mut CoreState, k: &Kernel, t: Technology) -> bool {
+        self.try_settle(s, k, t) == Settled::Landed
+    }
+
+    /// [`Self::settle`], telling a technology only a faction waiver opens from a path that is not the window's.
+    fn try_settle(&mut self, s: &mut CoreState, k: &Kernel, t: Technology) -> Settled {
         let blanked = reach::blanked(s);
         let (met, inheritance, waiver) = {
             let hooks = KernelHooks::new(s, k, self.who);
-            let Some(ctx) = ResearchCtx::of(s, self.scope, blanked, self.who, &hooks) else { return false };
+            let Some(ctx) = ResearchCtx::of(s, self.scope, blanked, self.who, &hooks) else { return Settled::Failed };
             (ctx.prerequisites_met(t, &hooks, true), tech::inheritance_ready(s, self.who, &hooks), hooks.waiver_offer(t))
         };
         if met {
@@ -879,24 +915,107 @@ impl Research {
             // Ignore the prerequisites: exhaust the card and pay two resources with the first plan.
             let env = fx_pay::PayEnv { scope: self.scope, blanked };
             if !fx_pay::pay_first_plan(s, k, env, self.who, Spend::Resources, tech::INHERITANCE_SYSTEMS_COST) {
-                return false;
+                return Settled::Failed;
             }
             fx_strategy::exhaust_technology(s, self.who, Technology::InheritanceSystems);
         } else {
-            // Only a faction waiver opens it (a question), or the two resources are gone after the bill (the string
+            // Only a faction waiver opens it (the waiver and its payment are asked), or the two resources are gone after the bill (the string
             // restores the position): not carried.
-            let _ = waiver;
-            return false;
+            return if waiver { Settled::Waiver } else { Settled::Failed };
         }
         self.complete(s, k, t);
-        true
+        Settled::Landed
     }
 
     fn land(&mut self, s: &mut CoreState, k: &Kernel, t: Technology) {
-        if !self.settle(s, k, t) {
-            self.failed = true;
+        match self.try_settle(s, k, t) {
+            Settled::Landed => {}
+            Settled::Failed => self.failed = true,
+            Settled::Waiver => return self.start_waiver(s, k, t),
         }
         self.stage = RStage::Done;
+    }
+
+    /// `strategy_cards::resolve_research`: the waiver is asked (more than two modules' waivers cannot be put in the question: the run is the
+    /// string's).
+    fn start_waiver(&mut self, s: &CoreState, k: &Kernel, t: Technology) {
+        if k.hooks.strategy.research_waiver_offers(s, k, self.who, t).len() > 2 {
+            self.failed = true;
+            self.stage = RStage::Done;
+            return;
+        }
+        self.waiving = Some(Waiving { tech: t, picked: None });
+        self.stage = RStage::Waive;
+    }
+
+    /// The waiver or its payment is declined (or fails): nothing is researched; in the paid research the position from before the bill is back;
+    /// the technology is not offered again, the technology question is asked anew.
+    fn decline_waiver(&mut self, s: &mut CoreState) {
+        let Some(waiving) = self.waiving.take() else { return };
+        self.stage = match self.before.take() {
+            Some(before) => {
+                *s = *before;
+                RStage::Choose
+            }
+            None => RStage::Free,
+        };
+        self.declined.push(waiving.tech);
+    }
+
+    /// The waiver is paid and the technology researched without its prerequisites (`technology::research_with_waiver`).
+    fn waive_and_pay(&mut self, sx: &mut Sx<'_>, payment: crate::choice::strategy::Waiver) -> Result<(), Illegal> {
+        let waiving = self.waiving.ok_or(Illegal)?;
+        let backup = sx.state.clone();
+        let kernel = sx.kernel;
+        if !kernel.hooks.strategy.research_waiver_paid(&mut sx.cx(), self.who, waiving.tech, payment) {
+            // The payment failed: the position is back as before it, and nothing is researched.
+            *sx.state = backup;
+            self.decline_waiver(sx.state);
+            return Ok(());
+        }
+        self.waiving = None;
+        let paid = self.before.take().is_some();
+        self.complete(sx.state, sx.kernel, waiving.tech);
+        if paid || self.rider {
+            self.stage = RStage::Done;
+        } else {
+            self.declined = SmallList::new();
+            self.begin_paid(sx.state, sx.kernel);
+        }
+        Ok(())
+    }
+
+    /// The offers of the waiver in play: `resolve_research`'s `waivers`.
+    fn waiver_offers(&self, s: &CoreState, k: &Kernel) -> Vec<crate::kernel::hooks::ResearchWaiver> {
+        self.waiving.map_or_else(Vec::new, |w| k.hooks.strategy.research_waiver_offers(s, k, self.who, w.tech))
+    }
+
+    /// `resolve_research`'s first question: which waiver.
+    fn waiver_choice(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        let tech = self.waiving?.tech;
+        let offers = self.waiver_offers(s, k);
+        let mut offered = [None; 2];
+        for (slot, offer) in offered.iter_mut().zip(&offers) {
+            *slot = Some(offer.waiver);
+        }
+        let mut options = opts((0..offers.len().min(2)).filter_map(|i| u8::try_from(i).ok()).map(SOpt::ResearchWaiver));
+        options.push(Opt::Decline);
+        Some(Choice { actor: self.who, ask: ask(SAsk::ResearchWaiver { tech, offered }), ctx: waiver_ctx(SSub::ResearchWaiver), opts: options })
+    }
+
+    /// `resolve_research`'s second question: what pays the waiver chosen.
+    fn payment_choice(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        let waiving = self.waiving?;
+        let offers = self.waiver_offers(s, k);
+        let offer = offers.get(usize::from(waiving.picked?))?;
+        let mut options = opts(offer.payments.as_slice().iter().map(|p| SOpt::ResearchPayment(*p)));
+        options.push(Opt::Decline);
+        Some(Choice {
+            actor: self.who,
+            ask: ask(SAsk::ResearchWaiverPayment { tech: waiving.tech, waiver: offer.waiver }),
+            ctx: waiver_ctx(SSub::ResearchWaiverPayment),
+            opts: options,
+        })
     }
 
     fn after_step(&mut self, s: &mut CoreState, k: &Kernel) {
@@ -972,7 +1091,26 @@ impl Window for Research {
                         self.begin_paid(sx.state, sx.kernel);
                     }
                 }
-                RStage::Free => return Next::Continue(self.research_choice(sx.state, sx.kernel, false).ask),
+                RStage::Free => {
+                    if self.open(sx.state, sx.kernel).is_empty() {
+                        // Every technology left was declined (`offer_research_inner`'s loop ends): the paid research follows.
+                        self.declined = SmallList::new();
+                        if self.rider {
+                            self.stage = RStage::Done;
+                        } else {
+                            self.begin_paid(sx.state, sx.kernel);
+                        }
+                    } else {
+                        return Next::Continue(self.research_choice(sx.state, sx.kernel, false).ask);
+                    }
+                }
+                RStage::Waive | RStage::WaivePay => match self.ask_of(sx.state, sx.kernel) {
+                    Some(choice) => return Next::Continue(choice.ask),
+                    None => {
+                        self.failed = true;
+                        self.stage = RStage::Done;
+                    }
+                },
                 RStage::Choose => {
                     if self.open(sx.state, sx.kernel).is_empty() {
                         self.stage = RStage::Done;
@@ -1001,6 +1139,8 @@ impl Window for Research {
             RStage::Free => Some(self.research_choice(s, k, false)),
             RStage::Choose => Some(self.research_choice(s, k, true)),
             RStage::Pay => self.pay.as_ref()?.ask_of(s, k),
+            RStage::Waive => self.waiver_choice(s, k),
+            RStage::WaivePay => self.payment_choice(s, k),
             RStage::Start | RStage::Done => None,
         }
     }
@@ -1015,20 +1155,31 @@ impl Window for Research {
             return Err(Illegal);
         }
         match (self.stage, chosen) {
+            (RStage::Waive | RStage::WaivePay, Opt::Decline) => self.decline_waiver(sx.state),
+            (RStage::Waive, Opt::Strategy(SOpt::ResearchWaiver(index))) => {
+                self.waiving.as_mut().ok_or(Illegal)?.picked = Some(index);
+                self.stage = RStage::WaivePay;
+            }
+            (RStage::WaivePay, Opt::Strategy(SOpt::ResearchPayment(payment))) => self.waive_and_pay(sx, payment)?,
             (RStage::Choose, Opt::Decline) => self.stage = RStage::Done,
-            (RStage::Free, Opt::Strategy(SOpt::Research(t))) => {
-                if self.settle(sx.state, sx.kernel, t) {
+            (RStage::Free, Opt::Strategy(SOpt::Research(t))) => match self.try_settle(sx.state, sx.kernel, t) {
+                Settled::Landed => {
+                    self.declined = SmallList::new();
                     if self.rider {
                         self.stage = RStage::Done;
                     } else {
                         self.begin_paid(sx.state, sx.kernel);
                     }
-                } else {
+                }
+                Settled::Failed => {
                     self.failed = true;
                     self.stage = RStage::Done;
                 }
-            }
+                Settled::Waiver => self.start_waiver(sx.state, sx.kernel, t),
+            },
             (RStage::Choose, Opt::Strategy(SOpt::Research(t))) => {
+                // The position before the bill: a declined waiver puts it back (`before = state.clone()` of `paid_research`).
+                self.before = Some(Box::new(sx.state.clone()));
                 if self.cost > 0 && !sx.state.meta().rules_at_least(RULES_TECH_PAYMENT_CHOICE) {
                     // Below `RULES_TECH_PAYMENT_CHOICE` the cheapest plan is spent without asking (`payment::plans`'s first); a bill no plan
                     // pays ends the research with nothing changed.
@@ -1071,10 +1222,10 @@ mod tests {
         Some(ResearchWaiver { waiver: Waiver { module: Faction::ALL[0], code: 1 }, payments: SmallList::new() })
     }
 
-    /// Bail: a technology only a faction waiver opens is a question about the waiver and its payment; the window ends
-    /// `failed` and changes nothing (the adapter declines the run).
+    /// A technology only a faction waiver opens is a question about the waiver and its payment (lane G5): the window asks it, the run stays the
+    /// window's, and nothing changes until the payment is made (`ti4-engine-core-tests/tests/research_waiver.rs` plays the whole of it).
     #[test]
-    fn bail_a_technology_only_a_waiver_opens_ends_the_window_failed() {
+    fn a_technology_only_a_waiver_opens_asks_the_waiver_and_changes_nothing_yet() {
         let mut s = game();
         let mut k = Kernel::plain();
         k.hooks.strategy.research_waiver_offer.push(offers_a_waiver);
@@ -1090,8 +1241,9 @@ mod tests {
         let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
         let before = s.players().by_seat(Seat(0)).unwrap().tech.owned;
         let status = d.resume(&mut s, &k, c.pick(walled).unwrap()).unwrap();
-        assert!(matches!(status, Status::Done), "the window ends");
-        assert!(d.window.failed, "the waiver is a question: the string plays it");
+        let Status::Asking(c) = status else { panic!("the waiver is asked") };
+        assert!(matches!(c.ask, Ask::Strategy(SAsk::ResearchWaiver { .. })), "{:?}", c.ask);
+        assert!(!d.window.failed, "the window stays on its path");
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().tech.owned, before, "nothing was gained");
         assert!(d.window.researched.is_empty());
     }

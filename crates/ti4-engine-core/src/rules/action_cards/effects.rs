@@ -3501,10 +3501,10 @@ mod tests {
         }
     }
 
-    /// Bail: a research only a faction waiver opens is a question about the waiver and its payment: the child window ends `failed`
-    /// and the run is unsupported.
+    /// A research only a faction waiver opens is a question about the waiver and its payment (lane G5): the child window asks it, the run is
+    /// still carried.
     #[test]
-    fn bail_a_research_only_a_waiver_opens_marks_the_run_unsupported() {
+    fn a_research_only_a_waiver_opens_asks_the_waiver_inside_the_play() {
         use crate::driver::{Driver, Status};
         use crate::kernel::hooks::{ResearchWaiver, Waiver};
         use crate::kernel::Resolver;
@@ -3531,7 +3531,9 @@ mod tests {
         let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), linked(), 1);
         let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("the free research asks") };
         let status = d.resume(&mut s, &k, c.pick(walled).unwrap()).unwrap();
-        assert!(matches!(status, Status::Done) && d.window.unsupported(), "the waiver is a question: the string plays it");
+        let Status::Asking(c) = status else { panic!("the waiver is asked") };
+        assert!(matches!(c.ask, crate::choice::Ask::Strategy(crate::choice::strategy::Ask::ResearchWaiver { .. })), "{:?}", c.ask);
+        assert!(!d.window.unsupported(), "the question is carried");
     }
 
     /// Bail: Leadership with a payment the production rules do not follow is the string's (a command token in a Mahact pool is not: the core reads

@@ -173,12 +173,8 @@ pub struct LeaderPrimary {
 pub type Followers = Vec<crate::choice::Choice>;
 
 /// A waiver offered with a secondary (`hooks_strategy::SecondaryWaiver`, `{id, label}`): the module
-/// and its code; the label is the adapter's.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Waiver {
-    pub module: Faction,
-    pub code: u16,
-}
+/// and its code; the label is the adapter's. (Defined with the strategy questions, which name it: [`crate::choice::strategy::Waiver`].)
+pub use crate::choice::strategy::Waiver;
 
 /// `hooks_strategy::ResearchWaiver`: the waiver and its payment alternatives.
 #[derive(Debug, Clone, PartialEq, Eq)]
