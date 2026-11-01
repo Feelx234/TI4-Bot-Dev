@@ -840,8 +840,6 @@ impl Research {
     /// The paid research begins: Doctor Sucaban is offered first, before the affordability gate (the whole point of the card is to make a research
     /// affordable that was not), then the research is paid for the cost that is left.
     fn begin_paid(&mut self, s: &mut CoreState, k: &Kernel) {
-        self.offer_at = 0;
-        self.sucaban = SmallList::new();
         if self.cost > 0 && !infantry_sites(s, self.who).is_empty() {
             self.sucaban = sucaban_sources(s, self.who);
         }
@@ -857,6 +855,13 @@ impl Research {
         // (A copy is provisional until a technology lands: the string keeps the position it asked from.)
         self.checkpoint = source.copied.then(|| Box::new(s.clone()));
         self.stage = RStage::Offer;
+    }
+
+    /// The offer was declined (or the card could not be exhausted): nothing changed, and the next source is asked.
+    fn skip_offer(&mut self, s: &mut CoreState, k: &Kernel) {
+        self.checkpoint = None;
+        self.offer_at += 1;
+        self.next_offer(s, k);
     }
 
     /// The offers are over: the research is paid for what the infantry left of the bill, if the seat can pay it.
@@ -1159,20 +1164,14 @@ impl Window for Research {
             return Err(Illegal);
         }
         match (self.stage, chosen) {
-            (RStage::Offer, Opt::Decline) => {
-                self.checkpoint = None;
-                self.offer_at += 1;
-                self.next_offer(sx.state, sx.kernel);
-            }
+            (RStage::Offer, Opt::Decline) => self.skip_offer(sx.state, sx.kernel),
             (RStage::Offer, Opt::Strategy(SOpt::Exhaust)) => {
                 let source = self.sucaban.as_slice().get(self.offer_at).copied().ok_or(Illegal)?;
                 if fx_strategy::exhaust_ready_agent(sx.state, sx.kernel, source.holder, source.card()) {
                     self.stage = RStage::Trade;
                 } else {
                     // (`leaders::exhaust` said no: the next source is asked.)
-                    self.checkpoint = None;
-                    self.offer_at += 1;
-                    self.next_offer(sx.state, sx.kernel);
+                    self.skip_offer(sx.state, sx.kernel);
                 }
             }
             (RStage::Trade, Opt::Decline) => self.after_offers(sx.state, sx.kernel),

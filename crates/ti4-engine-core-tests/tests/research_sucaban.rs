@@ -229,3 +229,28 @@ fn a_ssruu_with_no_agent_to_copy_asks_nothing() {
     rig.run();
     assert!(rig.is_done(), "no Jol-Nar agent at the table: nothing to copy, and four resources are not at hand");
 }
+
+#[test]
+fn only_the_infantry_of_the_researcher_are_places_to_take_from() {
+    covers!("rules::production::strategy_cards::Research");
+    // Seat 1 has infantry of its own on another planet and seat 0 a mech in space: neither is a place the researcher can take an infantry from.
+    let other = Planet::ALL.into_iter().find(|p| *p != Planet::Starpoint && p.data().system.is_some() && p.data().system != Some(system_of(Planet::Starpoint))).expect("another planet");
+    let mut rig = table(Faction::TheXxchaKingdom, 4, 1);
+    rig.state.board_mut().planet_mut(other).units.push(Piece::new(Unit::InfantryI, Seat(1)));
+    rig.state.board_mut().sys_mut(system_of(Planet::Starpoint)).units.push(Piece::new(Unit::Eidolon, Seat(0)));
+    rig.state.board_mut().planet_mut(other).units.push(Piece::new(Unit::Eidolon, Seat(0)));
+    let mut rig = Rig::from_parts(rig.state.clone(), rig.kernel.clone(), Research::new(Seat(0), false, 4, ti4_engine_core_tests::inv::ALL_SOURCES));
+    rig.run().pick_opt(strat(SOpt::Exhaust));
+    assert_eq!(rig.opts(), vec![standing(system_of(Planet::Starpoint), Some(Planet::Starpoint)), Opt::Decline]);
+}
+
+#[test]
+fn a_bill_of_one_resource_is_still_traded_against() {
+    covers!("rules::production::strategy_cards::Research");
+    let mut rig = table(Faction::TheXxchaKingdom, 1, 2);
+    rig.run();
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::SucabanOffer { .. })), "{:?}", rig.asked().ask);
+    rig.pick_opt(strat(SOpt::Exhaust));
+    rig.pick(0);
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::ResearchTechnology { cost: 0, decline: true, .. })), "{:?}", rig.asked().ask);
+}
