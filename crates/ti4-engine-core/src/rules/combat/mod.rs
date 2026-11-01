@@ -65,7 +65,7 @@ pub const RULES_RETREAT_HAZARDS: u32 = 11;
 /// A bound on the round loop (`combat::MAX_ROUNDS`).
 pub const MAX_ROUNDS: u32 = 50;
 
-pub use crate::kernel::read::Rd;
+pub use crate::kernel::read::{planet_combatants, planets_of_sorted, planetary_maximum_participates, ships_of, Rd};
 
 /// `neutral_units::is_neutral`: an owner seat that is not a player.
 #[must_use]
@@ -90,58 +90,6 @@ pub fn combatants(rd: Rd<'_>, system: System) -> SmallList<Seat, 8> {
         found.push(p.owner());
     }
     found
-}
-
-/// This player's ships in the system, in board order, then the planet-standing combatants.
-#[must_use]
-pub fn ships_of(rd: Rd<'_>, player: Seat, system: System) -> Vec<Piece> {
-    let mut ships: Vec<Piece> = rd
-        .s
-        .board()
-        .sys(system)
-        .units
-        .iter()
-        .filter(|p| p.owner() == player && rd.is_ship(p.kind()))
-        .copied()
-        .collect();
-    ships.extend(planet_combatants(rd, player, system).into_iter().map(|(_, _, p)| p));
-    ships
-}
-
-/// The planets whose unit lists live in `system`, in planet (text) order.
-#[must_use]
-pub fn planets_of_sorted(s: &CoreState, system: System) -> SmallList<Planet, 8> {
-    let mut v: SmallList<Planet, 8> = qboard::planets_of(s, system).collect();
-    v.as_mut_slice().sort_unstable();
-    v
-}
-
-/// Units standing on a planet that fight this system's space combat as ships: a Naaz Eidolon Maximum
-/// (while its owner has a ship in space) and the ground forces a Nekro Alastor chose.
-#[must_use]
-pub fn planet_combatants(rd: Rd<'_>, player: Seat, system: System) -> Vec<(Planet, u16, Piece)> {
-    let maximum = planetary_maximum_participates(rd, player, system);
-    let chosen = rd.k.hooks.seam.alastor_participants.collect(rd.q(), &SeatSystemSite { who: player, system });
-    let mut found = Vec::new();
-    for planet in planets_of_sorted(rd.s, system).iter() {
-        for (index, unit) in rd.s.board().planet(*planet).units.iter().enumerate() {
-            if unit.owner() != player {
-                continue;
-            }
-            let voltron = maximum && unit.kind() == Unit::EidolonMaximum;
-            if voltron || chosen.iter().any(|(p, i)| p == planet && usize::from(*i) == index) {
-                found.push((*planet, index as u16, *unit));
-            }
-        }
-    }
-    found
-}
-
-/// The corpus clarification for Eidolon Maximum: a planet-standing unit joins its owner's fleet in space
-/// combat; cargo alone is not a fleet.
-#[must_use]
-pub fn planetary_maximum_participates(rd: Rd<'_>, player: Seat, system: System) -> bool {
-    rd.s.board().sys(system).units.iter().any(|p| p.owner() == player && rd.is_ship(p.kind()))
 }
 
 /// `combat::hits_on`: the value a unit needs to roll, or `None` if it does not fight.

@@ -27,6 +27,7 @@ use crate::containers::SmallList;
 use crate::generated::{ActionCard, Agenda, Planet, PlanetTrait, StrategyCard, System, UnitBaseType};
 use crate::ids::Seat;
 use crate::keys::{Prediction, PredictionTag, VoteBar};
+use crate::kernel::read::{ships_of, Rd};
 use crate::kernel::stage::{Illegal, Ran, Sx, Window};
 use crate::kernel::children::{AreaLinks, ErasedChild, ExploreEnd, Report, Spawn};
 use crate::kernel::{Kernel, Next, fx, fx_ground, fx_pay};
@@ -510,25 +511,7 @@ impl Play {
     #[must_use]
     pub fn of(core: &CoreState, card: ActionCard, who: Seat, env: Env) -> Option<Self> {
         let fx = Fx::of(card)?;
-        // Intercept's combatants include the units that fight from a planet (a Naaz Eidolon Maximum, the ground
-        // forces a Nekro Alastor chose): the kernel's combat rules decide them, which this area may not import.
-        if fx == Fx::Intercept
-            && core.players().iter().any(|p| matches!(p.faction, crate::generated::Faction::TheNaazRokhaAlliance | crate::generated::Faction::TheNekroVirus))
-        {
-            return None;
-        }
-        // Courageous To The End names "your opponent" as the other seat with ships in the system, and the casualty it chooses is any of
-        // that seat's combatants: the units that fight from a planet are the combat area's, which this area may not import.
-        if fx == Fx::Courageous
-            && core.players().iter().any(|p| matches!(p.faction, crate::generated::Faction::TheNaazRokhaAlliance | crate::generated::Faction::TheNekroVirus))
-        {
-            return None;
-        }
         // The deck reserve (a replay's forced draws) is the host's: the string draws through it.
-        // A command token held in a Mahact fleet pool changes the reinforcements the pool question previews.
-        if fx == Fx::Summit && env.mahact_held > 0 {
-            return None;
-        }
         if matches!(fx, Fx::Veto | Fx::Dig | Fx::Impersonation | Fx::Probe | Fx::Perform { .. }) && core.cards().reserve.is_some() {
             // XF-2 (docs/DISABLE_XF123.md): the turn-redo reserve is switched off; dead after the flip (D2-8), deleted in D4.
             crate::unsupported::hit(crate::unsupported::Disabled::DeckReserve);
@@ -550,7 +533,7 @@ impl Play {
         if fx == Fx::Infiltrate && env.facts.rules_version < RULES_INFILTRATE_FIX {
             return None;
         }
-        // A mech the seat places with an announcement of its own (Naaz) is the string's.
+        // No mech to place (the roster is missing, or a faction effect forbids placing it): the string's.
         if fx == Fx::Refit && env.facts.mech.unit.is_none() {
             return None;
         }
@@ -834,30 +817,7 @@ impl Play {
                 spots.as_mut_slice().sort_by_key(|(_, p)| *p);
                 spots.as_slice().iter().map(|(s, p)| Opt::Spot(*s, *p)).collect()
             }
-            Fx::Jam if self.step == 0 => {
-                // Non-home systems of the map that hold one of the holder's ships or touch such a system.
-                let Some(galaxy) = core.galaxy() else { return SmallList::new() };
-                let scope = self.env.scope;
-                let on_map = |s: System| galaxy.coord_of(crate::ids::system_at(System::ALL.iter().position(|x| *x == s).unwrap_or(0))).is_some();
-                let mut reach: SmallList<System, 64> = SmallList::new();
-                let mut add = |s: System| {
-                    if !reach.as_slice().contains(&s) {
-                        reach.push(s);
-                    }
-                };
-                for (i, system) in System::ALL.iter().copied().enumerate() {
-                    if on_map(system) && board::space_units(core, system).iter().any(|p| p.owner() == who && scope.unit(p.kind()).is_some_and(|d| d.ship)) {
-                        add(system);
-                        for j in galaxy.adjacent(crate::ids::system_at(i)).iter() {
-                            if let Some(near) = System::ALL.get(j) {
-                                add(*near);
-                            }
-                        }
-                    }
-                }
-                reach.as_mut_slice().sort_unstable();
-                reach.as_slice().iter().copied().filter(|s| !is_home_system(scope, *s)).map(Opt::System).collect()
-            }
+            Fx::Jam if self.step == 0 => jam_systems(core, self.env.scope, who).as_slice().iter().copied().map(Opt::System).collect(),
             Fx::Perform { .. } => {
                 // The cards of the other seats that are not exhausted (seating order), then the unclaimed ones.
                 let mut out = SmallList::new();
@@ -990,9 +950,7 @@ impl Play {
                 out
             }
             Fx::Refit => {
-                let facts = self.env.facts.mech;
-                let left = facts.unit.map_or(0, |u| crate::query::fleet::remaining(core, self.env.scope, who, u, facts.on_card));
-                if left <= 0 {
+                if self.mechs_left(core) <= 0 {
                     return SmallList::new();
                 }
                 let mut out: SmallList<Opt, 16> = SmallList::new();
@@ -1331,7 +1289,15 @@ impl Play {
                 units.remove(usize::from(*index));
             }
             fx::place_unit(core, self.who, *system, Some(*planet), mech);
+            // A Naaz mech announces itself when it is placed (Absolute Synergy).
+            fx::stage_naaz_mech_placed(core, self.who, *system, mech);
         }
+    }
+
+    /// The mechs of the holder's kind left in the reinforcements.
+    fn mechs_left(&self, core: &CoreState) -> i64 {
+        let facts = self.env.facts.mech;
+        facts.unit.map_or(0, |u| crate::query::fleet::remaining(core, self.env.scope, self.who, u, facts.on_card))
     }
 
     /// The failed half of Exchange Program: both seats discard one fleet token (an empty pool has nothing to discard).
@@ -1354,7 +1320,7 @@ impl Play {
     }
 
     /// The effect that needs no pick (and the part of a pick effect that precedes the question).
-    fn before(&mut self, core: &mut CoreState) {
+    fn before(&mut self, core: &mut CoreState, k: &Kernel) {
         match self.fx {
             Fx::SupplyBase => {
                 fx::gain_trade_goods_staged(core, self.who, 3, self.env.supply_base);
@@ -1478,7 +1444,9 @@ impl Play {
             Fx::Intercept => {
                 // The combatants are the seats with ships in the active system (the seated ones, in seating order).
                 let Some(system) = core.meta().active_system else { return };
-                let ships = |seat: Seat| board::space_units(core, system).iter().any(|p| p.owner() == seat && self.env.scope.unit(p.kind()).is_some_and(|d| d.ship));
+                // A unit standing on a planet fights as a ship (a Naaz Eidolon Maximum, the ground forces a Nekro Alastor chose): `ships_of`.
+                let rd = Rd::new(core, k);
+                let ships = |seat: Seat| !ships_of(rd, seat, system).is_empty();
                 let combatants: SmallList<Seat, 8> = seats::seating_order(core).as_slice().iter().copied().filter(|s| ships(*s)).collect();
                 if !combatants.as_slice().contains(&self.who) {
                     return;
@@ -1898,6 +1866,11 @@ impl Play {
             (Fx::Decoy, Opt::Spot(system, planet)) => self.land(core, system, planet),
             (Fx::Refit, Opt::Troop { system, planet, index, .. }) => {
                 let Some(first) = self.troop else {
+                    // A Naaz seat takes no second infantry once the box holds one mech more only (`supply::allowed(.., 2)`).
+                    if self.env.facts.mech.unit == Some(crate::generated::Unit::Eidolon) && self.mechs_left(core) < 2 {
+                        self.refit(core, &[(system, planet, index)]);
+                        return false;
+                    }
                     self.troop = Some((system, planet, index));
                     return true;
                 };
@@ -2072,7 +2045,7 @@ impl Play {
         if matches!(self.fx, Fx::Reroll | Fx::Scramble) {
             return self.begin_reroll(sx);
         }
-        self.before(sx.state);
+        self.before(sx.state, sx.kernel);
         // Rules version 23: with nothing to take the five influence are never spent (older games paid first).
         if self.fx == Fx::Plagiarize && self.env.facts.rules_version >= RULES_ACTION_CARD_COSTS && self.options(sx.state, sx.kernel, &sx.table.links).is_empty() {
             self.stage = Stage::Done;
@@ -2104,7 +2077,8 @@ impl Play {
             return;
         }
         let scope = self.env.scope;
-        let ship = |seat: Seat| board::space_units(core, system).iter().any(|p| p.owner() == seat && scope.unit(p.kind()).is_some_and(|d| d.ship));
+        let rd = Rd::new(core, sx.kernel);
+        let ship = |seat: Seat| !ships_of(rd, seat, system).is_empty();
         // A neutral owner's ship is "your opponent" after the seated ones (the string's `combatants`); nobody chooses its loss: the hit flow
         // gives it to the unit lowest on the reference card.
         let seated = seats::seating_order(core).as_slice().iter().copied().find(|s| *s != self.who && ship(*s));
@@ -2596,7 +2570,10 @@ impl Play {
         let core = &mut *sx.state;
         if self.fx == Fx::Summit {
             let Pick::Opt(crate::choice::Opt::Strategy(crate::choice::strategy::Opt::Pool(pool))) = pick else { return Err(Illegal) };
-            fx::gain_token(core, self.who, pool, 1);
+            // Reinforcements count the tokens a Mahact fleet pool holds (the host's fact: the marks may not be part of the lend).
+            if economy::tokens_in_reinforcements(core, self.who, self.env.mahact_held) > 0 {
+                fx::gain_token(core, self.who, pool, 1);
+            }
             self.step += 1;
             if self.step >= Self::SUMMIT_TOKENS {
                 self.stage = Stage::Done;
@@ -2698,6 +2675,36 @@ impl Window for Play {
     }
 }
 
+
+/// Signal Jamming's systems (`action_cards::jamming_systems`): the non-home systems of the map that hold one of the seat's ships or touch such a
+/// system, in system order. Also the menu's test of whether the card has a target (`driver::menu_cards`).
+#[must_use]
+pub fn jam_systems(core: &CoreState, scope: crate::tables::Scope, who: Seat) -> SmallList<System, 64> {
+    let Some(galaxy) = core.galaxy() else { return SmallList::new() };
+    let on_map = |s: System| galaxy.coord_of(crate::ids::system_at(System::ALL.iter().position(|x| *x == s).unwrap_or(0))).is_some();
+    let mut reach: SmallList<System, 64> = SmallList::new();
+    let mut add = |s: System| {
+        if !reach.as_slice().contains(&s) {
+            reach.push(s);
+        }
+    };
+    for (i, system) in System::ALL.iter().copied().enumerate() {
+        if on_map(system) && board::space_units(core, system).iter().any(|p| p.owner() == who && scope.unit(p.kind()).is_some_and(|d| d.ship)) {
+            add(system);
+            for j in galaxy.adjacent(crate::ids::system_at(i)).iter() {
+                if let Some(near) = System::ALL.get(j) {
+                    add(*near);
+                }
+            }
+        }
+    }
+    reach.as_mut_slice().sort_unstable();
+    let mut out = SmallList::new();
+    for s in reach.as_slice().iter().copied().filter(|s| !is_home_system(scope, *s)) {
+        out.push(s);
+    }
+    out
+}
 
 #[cfg(test)]
 mod tests {
@@ -3126,16 +3133,6 @@ mod tests {
         }
     }
 
-    /// Bail: Summit while the holder has a command token in a Mahact fleet pool (the reinforcements the pool question
-    /// previews differ from the core's count).
-    #[test]
-    fn bail_summit_declines_while_a_command_token_is_held_in_a_mahact_pool() {
-        let core = CoreState::all_loaded();
-        let who = Seat(0);
-        assert!(Play::of(&core, ActionCard::Summit, who, bare_env()).is_some());
-        assert!(Play::of(&core, ActionCard::Summit, who, Env { mahact_held: 1, ..bare_env() }).is_none());
-    }
-
     /// Bail: a card that pays a bill (Pirate Fleet) while a readied Keleres agent could be offered before the payment.
     #[test]
     fn bail_a_paid_card_declines_while_the_keleres_agent_could_be_offered() {
@@ -3149,9 +3146,9 @@ mod tests {
         assert!(Play::of(&core, ActionCard::PirateContract1, Seat(0), env).is_some());
     }
 
-    /// Bail: Refit Troops for a seat whose mech is a faction unit announced when placed (no plain mech to place).
+    /// Bail: Refit Troops for a seat that has no mech to place (no roster, or a faction effect forbids placing it).
     #[test]
-    fn bail_refit_troops_declines_without_a_plain_mech() {
+    fn bail_refit_troops_declines_without_a_mech_to_place() {
         let core = CoreState::all_loaded();
         let with_mech = Env { facts: super::super::Facts { mech: super::super::Placed { unit: Some(crate::generated::Unit::FactionlessMech), on_card: 0 }, ..super::super::Facts::default() }, ..bare_env() };
         assert!(Play::of(&core, ActionCard::RefitTroops, Seat(0), with_mech).is_some());
@@ -3807,22 +3804,19 @@ mod tests {
         }
     }
 
-    /// Bail: the units that fight from a planet (a Naaz Eidolon Maximum, the ground forces of a Nekro Alastor) are combatants of the
-    /// combat area's, which this area may not import: Courageous To The End is the string's at a table with such a seat.
+    /// The units that fight from a planet (a Naaz Eidolon Maximum, the ground forces of a Nekro Alastor) are combatants of the kernel's
+    /// `ships_of` (the shared definition of the combat rules): a table with such a seat plays Courageous To The End and Intercept.
     #[test]
-    fn bail_courageous_to_the_end_declines_at_a_table_with_a_naaz_or_nekro_seat() {
+    fn courageous_to_the_end_and_intercept_are_played_at_a_table_with_a_naaz_or_nekro_seat() {
         use crate::generated::Faction as F;
         let (s, _) = fight(&[], None);
-        assert!(Play::of(&s, ActionCard::CourageousToTheEnd, Seat(0), hits_env()).is_some());
         for faction in [F::TheNaazRokhaAlliance, F::TheNekroVirus] {
             let mut table = s.clone();
             table.players_mut().by_seat_mut(Seat(2)).unwrap().faction = faction;
-            assert!(Play::of(&table, ActionCard::CourageousToTheEnd, Seat(0), hits_env()).is_none(), "{faction:?}");
+            for card in [ActionCard::CourageousToTheEnd, ActionCard::Intercept, ActionCard::ExperimentalBattlestation] {
+                assert!(Play::of(&table, card, Seat(0), hits_env()).is_some(), "{card:?} at a table with {faction:?}");
+            }
         }
-        // The other card has no such condition: its combatants are the combat area's own (the hit flow is a child window).
-        let mut naaz = s.clone();
-        naaz.players_mut().by_seat_mut(Seat(2)).unwrap().faction = F::TheNaazRokhaAlliance;
-        assert!(Play::of(&naaz, ActionCard::ExperimentalBattlestation, Seat(0), hits_env()).is_some());
     }
 
     /// A neutral owner's ship is "your opponent" after the seated ones (nobody chooses its loss: the hit flow gives it to the unit lowest

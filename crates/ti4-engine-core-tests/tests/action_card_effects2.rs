@@ -321,6 +321,41 @@ fn intercept_bars_the_other_combatants_from_retreating_this_combat_round() {
     assert!((0..4).all(|n| barred(&r3.state, n).is_none()));
 }
 
+/// A Nekro seat whose Alastor chose ground forces for this combat fights it from the planet: it is a combatant (the shared `ships_of`)
+/// and its retreat is barred. The core used to decline the card at any table with a Nekro or Naaz seat.
+#[test]
+fn intercept_counts_the_ground_forces_a_nekro_alastor_chose_as_a_combatant() {
+    covers_card!(ActionCard::Intercept);
+    use ti4_engine_core::keys::DecimalTextOrd;
+    let table = || Scenario::new(&[Faction::TheArborec, Faction::TheNekroVirus, Faction::TheFederationOfSol, Faction::TheWinnu]).map_ring(7);
+    let barred = |s: &CoreState, n: u8| s.players().by_seat(Seat(n)).unwrap().card_timers.retreat_barred_round.get();
+    let chosen = |s: &mut CoreState, count: u32| {
+        let key = MarkKey::NekroAlastor(DecimalTextOrd(s.meta().activation_seq), sys(1), Seat(1), planet(1), Unit::InfantryI);
+        s.marks_mut().tail.edit().insert(key, MarkVal::Atom(Atom::Num(count)));
+    };
+    let mut st = table().active_system(sys(1)).unit(sys(1), None, Unit::CruiserI, 0, 1).unit(sys(1), Some(planet(1)), Unit::InfantryI, 1, 2).state();
+    st.meta_mut().combat_round_seq = 4;
+    // Nothing chosen: the infantry stays on the planet, seat 1 does not fight in space.
+    let mut idle = rig(ActionCard::Intercept, st.clone());
+    idle.run();
+    assert!(idle.is_done());
+    assert_eq!((barred(&idle.state, 0), barred(&idle.state, 1)), (None, None), "no Alastor choice, no combatant");
+    // Two infantry chosen: seat 1 fights, and Intercept bars it.
+    chosen(&mut st, 2);
+    let mut r = rig(ActionCard::Intercept, st.clone());
+    r.run();
+    assert!(r.is_done());
+    assert_eq!((barred(&r.state, 0), barred(&r.state, 1), barred(&r.state, 2)), (None, Some(4), None));
+    // The holder is the one who fights from the planet: it is in the fight, and bars the ship's owner.
+    let mut holder = table().active_system(sys(1)).unit(sys(1), None, Unit::CruiserI, 0, 1).unit(sys(1), Some(planet(1)), Unit::InfantryI, 1, 1).state();
+    holder.meta_mut().combat_round_seq = 4;
+    chosen(&mut holder, 1);
+    let play = Play::of(&holder, ActionCard::Intercept, Seat(1), env()).expect("a play at a table with a Nekro seat");
+    let mut r = Rig::from_parts(holder, ti4_engine_core_tests::kernel_all(), play).with_table(linked()).seeded(1);
+    r.run();
+    assert_eq!((barred(&r.state, 0), barred(&r.state, 1)), (Some(4), None), "the holder fights from its planet");
+}
+
 #[test]
 fn rescue_moves_a_ship_of_ours_from_another_system_into_the_active_system_where_we_have_one() {
     covers_card!(ActionCard::Rescue);

@@ -438,6 +438,38 @@ fn courageous_to_the_end_rolls_two_dice_and_costs_the_opponent_a_ship_for_each_d
     assert!(rig.is_done() && rig.driver.window.faces().is_empty(), "no opponent ship left");
 }
 
+/// A Nekro opponent that fights the space combat only from its planet (the ground forces its Alastor chose) is "your opponent": the dice are
+/// rolled and each hit costs it one of those ground forces. The core used to decline the card at any table with a Nekro or Naaz seat.
+#[test]
+fn courageous_to_the_end_finds_a_nekro_opponent_that_fights_from_its_planet() {
+    covers_card!(ActionCard::CourageousToTheEnd);
+    use ti4_engine_core::keys::{Atom, DecimalTextOrd, MarkKey, MarkVal};
+    let table = || Scenario::new(&[Faction::TheArborec, Faction::TheNekroVirus, Faction::TheFederationOfSol, Faction::TheWinnu]).map_ring(4);
+    let mut some = false;
+    for seed in 0..40u64 {
+        let mut st = table().unit(sys_of(1), Some(planet_of(1)), Unit::InfantryI, 1, 3).state();
+        st.transient_mut().combat.last_ship_destroyed = Some((sys_of(1), Seat(0), Unit::DreadnoughtI));
+        let key = MarkKey::NekroAlastor(DecimalTextOrd(st.meta().activation_seq), sys_of(1), Seat(1), planet_of(1), Unit::InfantryI);
+        st.marks_mut().tail.edit().insert(key, MarkVal::Atom(Atom::Num(3)));
+        let mut rig = solo(ActionCard::CourageousToTheEnd, st, seed).expect("a play at a table with a Nekro seat");
+        rig.run();
+        rig.auto(ti4_engine_core_tests::rig::Policy::First);
+        assert!(rig.is_done());
+        let faces = rig.driver.window.faces().to_vec();
+        assert_eq!(faces.len(), 2, "two dice: the Nekro seat is the opponent");
+        let hits = faces.iter().filter(|f| **f >= 5).count();
+        assert_eq!(rig.state.transient().combat.pending_destructions.len(), hits, "seed {seed}: one ground force lost for each die that reached 5");
+        some |= hits > 0;
+    }
+    assert!(some);
+    // The same infantry without the Alastor's choice stays on the planet: nobody fights, no dice.
+    let mut st = table().unit(sys_of(1), Some(planet_of(1)), Unit::InfantryI, 1, 3).state();
+    st.transient_mut().combat.last_ship_destroyed = Some((sys_of(1), Seat(0), Unit::DreadnoughtI));
+    let mut rig = solo(ActionCard::CourageousToTheEnd, st, 1).expect("a play");
+    rig.run();
+    assert!(rig.is_done() && rig.driver.window.faces().is_empty(), "ground forces that were not chosen do not fight in space");
+}
+
 /// W15: the two dice of Courageous To The End are the roll of an ability (the host keeps them in the ledger as the string notes them,
 /// the holder's, no hit number); a play that rolled nothing (someone else's ship, no opponent left) has no roll to keep, and neither has
 /// a card that rolls no ability dice.

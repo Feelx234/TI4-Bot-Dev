@@ -109,6 +109,34 @@ fn a_strategic_action_chosen_from_the_menu_stops_nowhere_and_opens_the_follower_
     assert!(s.pending().window(WindowKind::StrategySecondary).is_some() || outcome == Ok(true), "the follower window stands");
 }
 
+/// Signal Jamming on the menu (`action_cards::is_playable`): a non-home system the seat's ships are in or next to, and a rival to strand a token of.
+/// The core used to answer with the counted gap `MenuGap::ActionCard` for the card, which stopped every game that dealt it to a seat.
+#[test]
+fn signal_jamming_is_listed_when_a_ship_has_a_system_in_reach_and_a_rival_exists() {
+    use ti4_engine_core::driver::menu_cards;
+    let jam = ti4_engine_core::generated::ActionCard::SignalJamming;
+    let systems = ti4_engine_core_tests::scenario::plain_systems();
+    let listed = |scenario: Scenario| {
+        let (s, k) = scenario.hand(0, &[jam]).build();
+        menu_cards::action_cards(&s, &k, Seat(0))
+    };
+    let base = |seats: usize| Scenario::lobby(seats).phase(Phase::Action).active(Some(0)).map_ring(3);
+    assert_eq!(listed(base(3).unit(systems[0], None, Unit::CruiserI, 0, 1)), Ok(vec![TuOpt::Play { index: 0, card: jam }]), "a ship, systems in reach, two rivals");
+    assert_eq!(listed(base(3)), Ok(vec![]), "no ship of the seat's: nothing in reach");
+    assert_eq!(listed(base(3).unit(systems[0], None, Unit::CruiserI, 1, 1)), Ok(vec![]), "a rival's ship is no reach");
+    assert_eq!(listed(base(3).unit(systems[0], Some(systems[0].data().planets[0]), Unit::InfantryI, 0, 1)), Ok(vec![]), "a ground force is no ship");
+    assert_eq!(listed(base(1).unit(systems[0], None, Unit::CruiserI, 0, 1)), Ok(vec![]), "no rival whose token could be stranded");
+}
+
+/// A position that holds no map cannot be judged: the menu is the counted gap, not a menu without the card.
+#[test]
+fn signal_jamming_in_a_position_without_a_map_is_the_counted_gap() {
+    use ti4_engine_core::driver::menu_cards;
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).hand(0, &[ti4_engine_core::generated::ActionCard::SignalJamming]).build();
+    s.loaded = ti4_engine_core::state::SliceSet::of_without(ti4_engine_core::state::SliceSet::ALL, ti4_engine_core::state::Slice::Map);
+    assert_eq!(menu_cards::action_cards(&s, &k, Seat(0)), Err(MenuGap::ActionCard));
+}
+
 #[test]
 fn an_option_no_window_runs_yet_is_a_gap_that_names_it_and_leaves_the_position() {
     // Airo Shir Aur runs a space combat as a child: its facts are the combat lane's, so the menu offers it and the dispatch names it.
