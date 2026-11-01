@@ -33,7 +33,7 @@ Pure refactor: `RULES_VERSION`, serde, fixtures and fingerprints are unchanged (
 ## 3. Task 3: clippy findings that predate H4
 
 `g2_abilities.rs:734` (`is_done() || true`: the position does ask the agent's own window of its holder, so the assertion is `!is_done() && actor == Seat(1)`), `strategic_live_tests.rs:340` (`while reconcile` -> `if reconcile { loop }`), `plain_draw_within_limit` (deleted, unused), `Status::Lane` and the `Gap`/unread fields of the audit enums (`ability_audit.rs`, `reactions_core.rs`), `live/trade.rs` `into_owned`, `tactical_live.rs` `to_owned`, `trade_live_tests.rs` complex type (alias), the two large-enum-variant warnings of `driver/agenda/{close,flow}.rs` (allow with reason), `scoring.rs` `contains`, bridge `native_play.rs` x2 / `native_subject.rs`, `status_phase.rs` imports and `contains`, unused imports of `trade_tcs.rs` / `tactical_composer.rs`.
-`clippy_core.sh` (runner, commit `10936cf20`): the engine reports 41 warnings, none new against the baseline of 41; the core crates reported only the two unused imports, fixed afterwards. Final run: see the report of the lane.
+`clippy_core.sh` (runner, commit `10936cf20`): the engine reports 41 warnings, none new against the baseline of 41; the core crates reported only the two unused imports, fixed afterwards. Final run (commit `cf618cedf`): `clippy_core: ok (cargo rc 0, engine warnings 41, baseline 41)`.
 
 ## 4. Not done / what remains
 
