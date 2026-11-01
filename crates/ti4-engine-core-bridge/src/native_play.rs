@@ -429,9 +429,12 @@ impl NativeGame {
             if self.after_glue {
                 break;
             }
+            // A job the step before left open (the end of a turn a hook ended) runs first: `advance_job` runs the job that is open instead of opening the
+            // reconcile. The reconcile follows it, and the events it announces come behind that job's (the string's next step starts after the turn ended).
+            let left_open = is_open::<TurnFlowWin>(&self.core);
             let mut lone = live::LoneCard(&mut bot);
             match live::live_reconcile(&mut self.core, &lcx, &mut lone) {
-                Ok(step) if step.finished => break,  // mutants:skip (the reconcile job is one window; the loop ends on its first call)
+                Ok(step) if step.finished && !left_open => break,  // mutants:skip (the reconcile job is one window; the loop ends on its first call)
                 Ok(_) => {}
                 Err(stop) => return stop_to_step("reconcile", stop),
             }
@@ -491,7 +494,10 @@ impl NativeGame {
         debug_assert!(one, "the renderer's code table continues the position's (a text minted into one and not the other would name two things)");
         self.steps += 1;
         // The string's step goes on past a finished aftermath into the tail of the tactical action (and the end of the action) up to its next question.
-        self.after_glue = out.finished && (glued(arm) || arm == Arm::Aftermath || (self.after_glue && arm == Arm::Tactical && asked.is_empty()));
+        // (And past the hand-off of a tactical action to its aftermath, when no movement question stands between them: a Ceasefire denies the movement and the
+        // string's step runs from the activation through the aftermath to the closing menu; the events the activation staged wait for the step after.)
+        let handed_off = arm == Arm::Tactical && self.core.pending().window(ti4_engine_core::state::WindowKind::Aftermath).is_some();
+        self.after_glue = out.finished && (glued(arm) || arm == Arm::Aftermath || handed_off || (self.after_glue && arm == Arm::Tactical && asked.is_empty()));
         Step::Played(Played { arm, source, asked, events, finished: out.finished })
     }
 
