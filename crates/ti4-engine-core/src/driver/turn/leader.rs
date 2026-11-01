@@ -9,7 +9,7 @@
 //! Grom (the Thunder's Edge card set's Xxcha hero). A copy of an agent through Ssruu (`Opt::Borrowed`) runs the same body and exhausts Ssruu.
 //! The rest of the agents and heroes are still lent (docs/KM4_RESUME.md lists them with what each needs).
 
-use super::component::{announce_staged, conclude, Verdict};
+use super::component::{announce_staged, conclude, verdict};
 use super::inline::{gap_flow, run as run_window, Flow};
 use crate::choice::turn::Opt;
 use crate::generated::{Leader, Planet, System, Unit, UnitBaseType};
@@ -103,7 +103,7 @@ fn agent_action(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: 
     if used {
         exhaust_agent(sx, who, leader, borrowed);
     }
-    conclude(sx, who, key, if used { Verdict::Resolved } else { Verdict::Failed { withhold: true } }, true)
+    conclude(sx, who, key, verdict(used), true)
 }
 
 /// The end of a free use ("during the action phase" is not an ACTION, OP-07): the use does not take the turn, so there is no Extreme Duress and
@@ -115,7 +115,7 @@ fn agent_free(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bo
     if announce_staged(sx) == Flow::Halt {
         return Flow::Halt;
     }
-    if used {
+    if used { // mutants:skip: the menu offers a free use only when it can resolve, so the failed arm is the defensive twin of the string's
         sx.plain(PlainRec::bare(PlainKind::LeaderAbilityResolved));
     } else {
         sx.plain(PlainRec::bare(PlainKind::ComponentActionFailed));
@@ -129,7 +129,7 @@ fn hero(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, used: bool) -> Flo
     if used {
         crate::rules::leaders::purge(sx.state, who, leader);
     }
-    conclude(sx, who, key, if used { Verdict::Resolved } else { Verdict::Failed { withhold: true } }, true)
+    conclude(sx, who, key, verdict(used), true)
 }
 
 /// Ggrocuto Rinn: ready an exhausted planet (asked when there are several), and remove an infantry from a planet next to one of the seat's. An
@@ -147,7 +147,7 @@ fn carth(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool) -
     // The replenish is announced as the string does (a Cabal's `COMMODITIES_REPLENISHED`, a Trade Agreement's gain): the source is the interned
     // `trade_agreement` of the table's non-supply gains.
     let mut window = HacanAgent::with_source(who, sx.table.codes.not_from_supply[3]);
-    if run_window(sx, &mut window) == Flow::Halt || super::component::announce_events(sx) == Flow::Halt {
+    if run_window(sx, &mut window) == Flow::Halt || super::component::announce_events(sx) == Flow::Halt { // mutants:skip: a halted step is rolled back by the driver whatever the job does after the halt
         return Flow::Halt;
     }
     agent_free(sx, who, key, leader, borrowed, window.used)
@@ -158,7 +158,7 @@ fn carth(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool) -
 /// meets it).
 fn nekro_malleon(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let mut window = NekroMalleon::new(who, sx.table.codes.turn.nekroagent);
-    if run_window(sx, &mut window) == Flow::Halt || super::component::announce_events(sx) == Flow::Halt {
+    if run_window(sx, &mut window) == Flow::Halt || super::component::announce_events(sx) == Flow::Halt { // mutants:skip: a halted step is rolled back by the driver whatever the job does after the halt
         return Flow::Halt;
     }
     agent_free(sx, who, key, Leader::NekroMalleon, false, window.used)
@@ -186,7 +186,7 @@ fn letani_ospha(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: 
 /// string `exhaust` moves only a readied card, so an unlocked hero stays as she is.
 fn darktalon(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     let used = crate::rules::leaders::activate_letnev_hero(sx.state, who);
-    conclude(sx, who, key, if used { Verdict::Resolved } else { Verdict::Failed { withhold: true } }, true)
+    conclude(sx, who, key, verdict(used), true)
 }
 
 /// The Helmsman: the flagship and the dreadnoughts are placed in one system holding no rival ships.

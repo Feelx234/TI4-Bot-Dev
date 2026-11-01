@@ -82,6 +82,15 @@ pub enum Verdict {
     Failed { withhold: bool },
 }
 
+/// The verdict of a body that reports whether it resolved. A failed body (withheld from the menu for the rest of the turn) is the defensive twin of the
+/// string's: the menu offers an option only when its body can resolve (`leaders::can_resolve_action`, the windows' own probes), so no position
+/// reaches the `Failed` arm through the menu.
+// mutants:skip
+#[must_use]
+pub const fn verdict(resolved: bool) -> Verdict {
+    if resolved { Verdict::Resolved } else { Verdict::Failed { withhold: true } }
+}
+
 /// Everything after a body (`Game::apply_choice`): what the body staged is announced (`announce`: the faction and leader arms do it, the
 /// technology, relic, device and action-card arms do not), Extreme Duress settles, the verdict is told, and a
 /// resolved action ends (`finish_action`). `key` is the option's key (the failed-action withholding).

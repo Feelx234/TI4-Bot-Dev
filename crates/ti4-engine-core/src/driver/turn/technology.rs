@@ -2,7 +2,7 @@
 //! core's `SlingRelay` window asks the dock system, the ship and the payment through the tape; the technology exhausts when a ship was produced. The
 //! technology arm of the string announces nothing after its body (`conclude`: no staged announcements).
 
-use super::component::{conclude, Verdict};
+use super::component::{conclude, verdict};
 use super::inline::{gap_flow, run as run_window, Flow};
 use crate::generated::Technology;
 use crate::ids::Seat;
@@ -40,5 +40,5 @@ fn sling_relay(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     if window.produced {
         fx_strategy::exhaust_technology_text(sx.state, who, Technology::SlingRelay);
     }
-    conclude(sx, who, key, if window.produced { Verdict::Resolved } else { Verdict::Failed { withhold: true } }, false)
+    conclude(sx, who, key, verdict(window.produced), false)
 }
