@@ -3,73 +3,73 @@
   "status": "legacy"
  },
  "action_cards::hand_limit": {
-  "status": "legacy"
+  "status": "native"
  },
  "action_cards::insider_peek": {
-  "status": "legacy"
+  "status": "native"
  },
  "action_cards::is_insider_peek_key": {
-  "status": "legacy"
+  "status": "native"
  },
  "action_cards::name_of": {
   "status": "native"
  },
  "choice::AlwaysDecline": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::Choice": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::ChoiceOption": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::ChoiceOption::is_decline": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::Decider": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::DecisionLog::default": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::DecisionRecord": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::FirstOption": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::IllegalChoice": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::Observed": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::Observed::movable_into": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::PublicSeat": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::Scripted": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::SeatObservation": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::SeededRandom": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::Table": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::Table::window_skipped": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::ask_private": {
-  "status": "legacy"
+  "status": "pending"
  },
  "choice::validate": {
-  "status": "legacy"
+  "status": "pending"
  },
  "combat::CASUALTY_KIND": {
   "status": "native"
@@ -78,13 +78,13 @@
   "status": "native"
  },
  "combat::cancellable_hits": {
-  "status": "legacy"
+  "status": "native"
  },
  "combat::opponent_with_ships": {
-  "status": "legacy"
+  "status": "native"
  },
  "combat::space_cannon_guns": {
-  "status": "legacy"
+  "status": "native"
  },
  "core_sync::guard::factions_known": {
   "status": "native"
@@ -93,31 +93,31 @@
   "status": "native"
  },
  "decision_context::CONTEXT_VERSION": {
-  "status": "legacy"
+  "status": "pending"
  },
  "decision_context::ConstraintKind": {
-  "status": "legacy"
+  "status": "pending"
  },
  "decision_context::ConstraintKind::UnitsToRemove": {
-  "status": "legacy"
+  "status": "pending"
  },
  "decision_context::DecisionContext": {
-  "status": "legacy"
+  "status": "pending"
  },
  "decision_context::DecisionContext::without_display_fields": {
-  "status": "legacy"
+  "status": "pending"
  },
  "decision_context::DecisionSource": {
-  "status": "legacy"
+  "status": "pending"
  },
  "decision_context::DecisionSource::Reaction": {
-  "status": "legacy"
+  "status": "pending"
  },
  "decision_context::DecisionTarget": {
-  "status": "legacy"
+  "status": "pending"
  },
  "decision_context::DecisionTrigger": {
-  "status": "legacy"
+  "status": "pending"
  },
  "deck::EXPLORATION_TRAITS": {
   "status": "legacy"
@@ -129,22 +129,22 @@
   "status": "legacy"
  },
  "dice::Roll": {
-  "status": "legacy"
+  "status": "pending"
  },
  "dice::SIDES": {
-  "status": "legacy"
+  "status": "pending"
  },
  "diplomacy::candidates::OPEN_KIND": {
   "status": "native"
  },
  "entropic_scars::abilities_usable": {
-  "status": "legacy"
+  "status": "native"
  },
  "exploration::attachment_for": {
   "status": "native"
  },
  "exploration::frontier_systems": {
-  "status": "legacy"
+  "status": "native"
  },
  "exploration::gain_fragment": {
   "status": "legacy"
@@ -159,19 +159,19 @@
   "status": "native"
  },
  "faction_abilities::has": {
-  "status": "legacy"
+  "status": "native"
  },
  "factions::AssetKind::Technology": {
-  "status": "legacy"
+  "status": "native"
  },
  "factions::assets": {
-  "status": "legacy"
+  "status": "native"
  },
  "factions::hooks_economy::production_cost_reduction": {
-  "status": "legacy"
+  "status": "native"
  },
  "factions::mahact::fleet_pool_owners": {
-  "status": "legacy"
+  "status": "native"
  },
  "fingerprint::CanonicalH": {
   "status": "legacy"
@@ -186,7 +186,7 @@
   "status": "legacy"
  },
  "fleet::standing": {
-  "status": "legacy"
+  "status": "native"
  },
  "fleet_strength::Descriptors": {
   "status": "native"
@@ -228,13 +228,13 @@
   "status": "native"
  },
  "invasion::bombardable": {
-  "status": "legacy"
+  "status": "native"
  },
  "laws::apply_to_galaxy": {
   "status": "legacy"
  },
  "legendary::ionian_available": {
-  "status": "legacy"
+  "status": "native"
  },
  "map_feasibility::apply": {
   "status": "legacy"
@@ -306,28 +306,28 @@
   "status": "pending"
  },
  "objectives::scoreable_on": {
-  "status": "legacy"
+  "status": "native"
  },
  "observation::ExecutionObservation": {
-  "status": "legacy"
+  "status": "pending"
  },
  "planets::in_system": {
-  "status": "legacy"
+  "status": "native"
  },
  "planets::tech_specialties_now": {
-  "status": "legacy"
+  "status": "native"
  },
  "planets::traits_now": {
-  "status": "legacy"
+  "status": "native"
  },
  "preview::Outcome": {
-  "status": "legacy"
+  "status": "pending"
  },
  "preview::Outcome::Unknown": {
-  "status": "legacy"
+  "status": "pending"
  },
  "preview::Quantity": {
-  "status": "legacy"
+  "status": "pending"
  },
  "production::AGENT_OPTION_KIND": {
   "status": "native"
@@ -384,10 +384,10 @@
   "status": "legacy"
  },
  "promissory::faction_name": {
-  "status": "legacy"
+  "status": "native"
  },
  "promissory::may_receive": {
-  "status": "legacy"
+  "status": "native"
  },
  "promissory::receive": {
   "status": "legacy"
@@ -399,10 +399,10 @@
   "status": "legacy"
  },
  "reach_query::ReachOrigin": {
-  "status": "legacy"
+  "status": "pending"
  },
  "reach_query::who_can_reach": {
-  "status": "legacy"
+  "status": "pending"
  },
  "reactions::ACTION_CARD_KIND": {
   "status": "native"
@@ -414,10 +414,10 @@
   "status": "native"
  },
  "rng::RngPositions": {
-  "status": "legacy"
+  "status": "pending"
  },
  "rng::RngSync": {
-  "status": "legacy"
+  "status": "pending"
  },
  "seating::LOBBY_FACTIONS": {
   "status": "legacy"
@@ -438,7 +438,7 @@
   "status": "native"
  },
  "secondary_preview::SecondaryPreview": {
-  "status": "legacy"
+  "status": "pending"
  },
  "secondary_preview::preview_secondary": {
   "status": "legacy"
@@ -471,22 +471,22 @@
   "status": "native"
  },
  "strategy::SecondaryResolution": {
-  "status": "legacy"
+  "status": "pending"
  },
  "strategy_cards::INFLUENCE_PER_TOKEN": {
   "status": "native"
  },
  "strategy_cards::card_kind": {
-  "status": "legacy"
+  "status": "native"
  },
  "strategy_cards::card_name": {
   "status": "native"
  },
  "supply::plastic": {
-  "status": "legacy"
+  "status": "native"
  },
  "supply::remaining": {
-  "status": "legacy"
+  "status": "native"
  },
  "tactical::ACTIVATE_KIND": {
   "status": "native"
@@ -501,7 +501,7 @@
   "status": "pending"
  },
  "tactical::effective_move_value_for_ship": {
-  "status": "legacy"
+  "status": "native"
  },
  "tactical::movable_into": {
   "status": "pending"
@@ -546,7 +546,7 @@
   "status": "native"
  },
  "timing::Relation": {
-  "status": "legacy"
+  "status": "pending"
  },
  "transactions::OPEN_KIND": {
   "status": "native"
@@ -564,6 +564,6 @@
   "status": "legacy"
  },
  "valuation::unit_value": {
-  "status": "legacy"
+  "status": "native"
  }
 }

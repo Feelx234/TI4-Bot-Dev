@@ -14,7 +14,7 @@ server, wasm, rule-bot, rule-bot-typed and selfplay; every `ti4_engine::a::b` pa
   * the first segment is a shell module (`pub mod objectives { ... }`) that names the second segment in an explicit `pub use crate::..::{x, y}` (no
     glob) or defines it inline (`pub mod`, `pub fn`, `pub const`, ...), looking through nested shell modules (`diplomacy::candidates`).
 A path that is not native but whose item (second segment) is defined in `crates/ti4-engine-next/src/queries/<module>.rs` (or, for exploration,
-objectives and secrets, `queries/content.rs`) is **pending**: the native item exists and is parity-tested, the shell of the module does not export
+objectives and secrets, `queries/content.rs`), or in lane A's copy `wire/<module>.rs` (`observed.rs` for `choice`), is **pending**: the native item exists and is parity-tested, the shell of the module does not export
 it yet because its type is also spoken by the legacy `Observed`/`Game` (lane D's swap adds the `pub use`; docs/D28B_RESUME.md).
 Everything else is **legacy** (reached through the facade glob `pub use ti4_engine_legacy::*;`).
 
@@ -182,12 +182,26 @@ QUERY_ALIASES = {'exploration': ['content'], 'objectives': ['content'], 'secrets
 
 
 def query_definitions():
-    """{queries file stem: text}."""
-    out = {}
+    """{module: text} of the native items waiting for the swap: `queries/<module>.rs` and the lane A wire copies."""
+    out = dict(wire_definitions())
     qdir = os.path.join(THIN, 'queries')
     for f in sorted(os.listdir(qdir)):
         if f.endswith('.rs'):
-            out[f[:-3]] = open(os.path.join(qdir, f), encoding='utf-8').read()
+            out[f[:-3]] = out.get(f[:-3], '') + open(os.path.join(qdir, f), encoding='utf-8').read()
+    return out
+
+
+def wire_definitions():
+    """{module: text} of the lane A copies (`wire/<module>.rs`, plus `observed.rs` for the `choice` module)."""
+    out = {}
+    wdir = os.path.join(THIN, 'wire')
+    if os.path.isdir(wdir):
+        for f in sorted(os.listdir(wdir)):
+            if f.endswith('.rs') and f != 'mod.rs':
+                out[f[:-3]] = open(os.path.join(wdir, f), encoding='utf-8').read()
+    obs = os.path.join(THIN, 'observed.rs')
+    if os.path.exists(obs):
+        out['choice'] = out.get('choice', '') + open(obs, encoding='utf-8').read()
     return out
 
 
