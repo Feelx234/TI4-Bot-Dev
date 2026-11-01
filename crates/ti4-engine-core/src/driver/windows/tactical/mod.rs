@@ -107,9 +107,9 @@ impl TacticalAction {
     }
 
     /// The head of the aftermath at the enforcement (a fresh one, or the held one at its question).
-    fn build_head(&self, core: &CoreState, k: &Kernel, codes: &crate::kernel::ability::TacticalCodes, skip_to_commit: bool) -> Option<Head> {
+    fn build_head(&self, core: &CoreState, k: &Kernel, codes: &crate::kernel::ability::TacticalCodes, guns: &[(crate::generated::Unit, Code, Code)], skip_to_commit: bool) -> Option<Head> {
         let system = core.meta().active_system?;
-        let f = facts::head_facts(core, k, codes, self.p.player, system, &self.p.notes_at_start, skip_to_commit);
+        let f = facts::head_facts(core, k, codes, guns, self.p.player, system, &self.p.notes_at_start, skip_to_commit);
         let enforce = Enforce::new(self.p.player, system, f.limits).resumed(core, k);
         Some(Head::enforcing(f, enforce))
     }
@@ -226,12 +226,12 @@ impl Window for TacticalAction {
                     let skip = sx.kernel.hooks.general.skip_to_commit(&mut sx.cx(), seat, system).unwrap_or(false);
                     Machine::forget_arrivals(sx);
                     crate::rules::tactical::destroy_blockaded_mobile_docks(sx.state, system);
-                    self.head = self.build_head(sx.state, sx.kernel, &codes, skip);
+                    self.head = self.build_head(sx.state, sx.kernel, &codes, &sx.table.facts.combat.guns, skip);
                     self.p.stage = TStage::Heading(THead { skip_to_commit: skip, step: THeadStep::Enforcing });
                 }
                 TStage::Heading(h) => {
                     if self.head.is_none() {
-                        self.head = self.build_head(sx.state, sx.kernel, &codes, h.skip_to_commit);
+                        self.head = self.build_head(sx.state, sx.kernel, &codes, &sx.table.facts.combat.guns, h.skip_to_commit);
                     }
                     let Some(head) = self.head.as_mut() else { return Self::bail(sx, TacticalGap::NoGalaxy) };
                     head.f.cannon.kind = codes.space_cannon;
@@ -298,7 +298,7 @@ impl Window for TacticalAction {
             },
             TStage::Heading(h) if h.step == THeadStep::Enforcing => match &self.head {
                 Some(head) => head.ask_of(s, k),
-                None => self.build_head(s, k, &crate::kernel::ability::TacticalCodes::default(), h.skip_to_commit)?.ask_of(s, k),
+                None => self.build_head(s, k, &crate::kernel::ability::TacticalCodes::default(), &[], h.skip_to_commit)?.ask_of(s, k),
             },
             _ => None,
         }
@@ -355,7 +355,7 @@ impl Held for TacticalAction {
         let mut me = Self::new(t.clone());
         match &t.stage {
             TStage::Activating | TStage::Moving | TStage::Loading { .. } => me.leaf = me.build_leaf(core, k, Code(0)),
-            TStage::Heading(h) => me.head = me.build_head(core, k, &crate::kernel::ability::TacticalCodes::default(), h.skip_to_commit),
+            TStage::Heading(h) => me.head = me.build_head(core, k, &crate::kernel::ability::TacticalCodes::default(), &[], h.skip_to_commit),
             _ => {}
         }
         Some(me)

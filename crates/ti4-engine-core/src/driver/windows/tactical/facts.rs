@@ -11,7 +11,7 @@ use crate::query::{board, fleet, laws, reach};
 use crate::rules::abilities;
 use crate::rules::combat::space_cannon_offense::Facts as CannonFacts;
 use crate::rules::tactical::fleet::Limits;
-use crate::state::{CoreState, NoteHold};
+use crate::state::{Code, CoreState, NoteHold};
 
 use crate::driver::kernel_env::KernelEnv;
 use crate::driver::windows::aftermath::Facts as HeadFacts;
@@ -107,7 +107,7 @@ pub fn map_edits(core: &CoreState) -> usize {
 
 /// The facts of the head of the aftermath for `seat`'s action in `system`.
 #[must_use]
-pub fn head_facts(core: &CoreState, k: &Kernel, codes: &TacticalCodes, seat: Seat, system: System, notes: &NoteHold, skip_to_commit: bool) -> HeadFacts {
+pub fn head_facts(core: &CoreState, k: &Kernel, codes: &TacticalCodes, guns: &[(crate::generated::Unit, Code, Code)], seat: Seat, system: System, notes: &NoteHold, skip_to_commit: bool) -> HeadFacts {
     let cannon = CannonFacts {
         active: seat,
         system,
@@ -123,8 +123,8 @@ pub fn head_facts(core: &CoreState, k: &Kernel, codes: &TacticalCodes, seat: Sea
         // The Jol-Nar commander asks about each die of its holder's roll (the question is the head's, which the tactical window does not
         // route yet: it is a counted gap there, never a silent skip).
         jolnar: core.players().iter().filter(|p| crate::query::leaders::has_commander_ability_in(core, p.seat, crate::generated::Leader::AgnlanOln)).map(|p| p.seat).collect(),
-        // The live path carries no renderer: a staged entry's own code is the label of a question.
-        unit_texts: Vec::new(),
+        // The texts of the guns on the board (the adapter's `CombatTexts::guns`): a staged roll is named by its unit's type id like the string's.
+        unit_texts: guns.to_vec(),
         planet_texts: Vec::new(),
     };
     HeadFacts { player: seat, system, limits: limits(core, k, seat, system), cannon, notes: notes.clone(), skip_to_commit, pre_roll: codes.pre_roll }

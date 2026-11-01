@@ -151,9 +151,6 @@ pub struct StepOut {
     /// `ledger.events.len()` when the call began: the plain/typed events of the step are the queue from here
     /// (`render::events::pushed_since`).
     pub events_from: usize,
-    /// `ledger.events.len()` when each question of `asked` was put (parallel to it): the events of the step before a question are the queue from
-    /// `events_from` to there. (A question from inside an emission is put before the event it suspends is written.)
-    pub asked_at: Vec<usize>,
 }
 
 /// Render `asking` for the asker: the string form of the core question with its display facts.
@@ -266,7 +263,7 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
     // to the render's copy, and a code the render handed out must exist in the state.
     cx.render.sync_codes(&mut core.texts.codes);
     let events_from = core.ledger.events.len();
-    let mut step = StepOut { finished: false, asked: Vec::new(), out: Out::default(), events_from, asked_at: Vec::new() };
+    let mut step = StepOut { finished: false, asked: Vec::new(), out: Out::default(), events_from };
     let merge = |step: &mut StepOut, out: Out| {
         step.out.emitted.extend(out.emitted);
         step.out.opened.extend(out.opened);
@@ -292,7 +289,6 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
     loop {
         let rendered = render_asking(cx, core, &asking);
         step.asked.push(rendered.clone());
-        step.asked_at.push(core.ledger.events.len());
         let id = asker.ask(&Question { asking: &asking, rendered })?;
         // A free-form deal arrives as text: its terms are written to the window before the pick that names them is applied.
         let named = trade::pick(core, &asking.choice, &id);

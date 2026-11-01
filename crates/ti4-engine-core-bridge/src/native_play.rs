@@ -171,8 +171,6 @@ pub struct Asked {
     pub prompt: String,
     pub options: Vec<String>,
     pub chosen: String,
-    /// How many of the step's events were in the queue when the question was put (a step cut between two questions splits its events there).
-    pub events_before: usize,
 }
 
 /// The seat-bound answerer: a deterministic seeded random chooser over the offered options (the random pick under the rule bot, `ti4_rule_bot::
@@ -204,7 +202,6 @@ impl Asker for Bot<'_> {
             prompt: rendered.prompt.clone(),
             options: rendered.options.iter().map(|o| o.id.clone()).collect(),
             chosen: chosen.clone(),
-            events_before: 0,
         });
         Ok(chosen)
     }
@@ -461,15 +458,7 @@ impl NativeGame {
             after_arm(&mut self.core, arm);
         }
         // 5. Commit: the decisions, the events, the code table.
-        let mut asked = std::mem::take(&mut bot.asked);
-        // The asker could not see the queue: the engine noted its length at each question put (the questions it answered itself, the last card of a
-        // draft, are not in `asked`).
-        let mut at = out.asked.iter().zip(&out.asked_at);
-        for a in &mut asked {
-            if let Some((_, n)) = at.find(|(c, _)| c.player.as_str() == a.player && c.prompt == a.prompt && c.options.iter().map(|o| o.id.as_str()).eq(a.options.iter().map(String::as_str))) {
-                a.events_before = n.saturating_sub(out.events_from);
-            }
-        }
+        let asked = std::mem::take(&mut bot.asked);
         self.decided = bot.index;
         for a in &asked {
             let mut h = Sha256::new();
@@ -887,7 +876,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 // The native steps asked more than the legacy step did, and the extra questions are the last ones of the group: a glued native step (the
                 // string ends its step after a seat's last question of the action and asks the first follower in the NEXT step). They open the next group,
                 // which the next legacy step must open with the same questions (a question the string never asks is a difference there, at the first
-                // question of that step). A step cut in two splits its events where the later question was put (`Asked::events_before`).
+                // question of that step). A step cut in two keeps its events with the later half (the events a native step pushes after its last answer): the head is compared as a prefix, the surplus of the legacy events is owed to the later half.
                 if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
                     eprintln!("  group has {have} questions, the legacy step used {used}, carry {}", carry.is_some());
                 }
@@ -904,15 +893,8 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                         if m > 0 {
                             let mut head = tail[0].clone();
                             head.asked.truncate(m);
-                            // The events the step had pushed when its question `m` was put are the head's (the legacy step ran up to there); the
-                            // rest follow the later questions.
-                            let cut_events = tail[0].asked[m].events_before.min(head.events.len());
-                            head.events.truncate(cut_events);
-                            tail[0].events.drain(..cut_events);
+                            head.events.clear();
                             tail[0].asked.drain(..m);
-                            for a in &mut tail[0].asked {
-                                a.events_before = a.events_before.saturating_sub(cut_events);
-                            }
                             group.push(head);
                         }
                     }
@@ -1077,11 +1059,12 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
         return Some(found);
     }
     // The events are two streams: what one side pushed beyond the other's end of step is matched by the other's next step. A step that ends an
-    // arm the string's close goes on after (non-strict) may leave either side ahead; a strict step must end level.
+    // arm the string's close goes on after (non-strict) may leave either side ahead; a strict step must end level, unless the group was cut in two
+    // (`ahead`): the string's events beyond the head are the later half's (a reaction asked inside the step, the question after it in the same native step).
     let native_stream: Vec<String> = owed.native.drain(..).chain(group.iter().flat_map(|p| p.events.iter().cloned())).collect();
     let legacy_stream: Vec<String> = owed.legacy.drain(..).chain(events.iter().cloned()).collect();
     let common = native_stream.len().min(legacy_stream.len());
-    let at = (0..common).find(|i| native_stream[*i] != legacy_stream[*i]).or_else(|| (strict && native_stream.len() != legacy_stream.len()).then_some(common));
+    let at = (0..common).find(|i| native_stream[*i] != legacy_stream[*i]).or_else(|| (strict && !ahead && native_stream.len() != legacy_stream.len()).then_some(common));
     if let Some(at) = at {
         let show = |v: &[String]| v.get(at).map_or_else(|| format!("<end after {}>", v.len()), Clone::clone);
         return Some(diff("events", format!("[{at}]"), show(&native_stream), show(&legacy_stream)));
