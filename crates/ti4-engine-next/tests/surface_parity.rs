@@ -242,3 +242,83 @@ fn the_fleet_limit_of_a_table_the_core_cannot_hold_is_the_pool_capped_by_the_law
         }
     }
 }
+
+#[test]
+fn the_content_reads_answer_as_the_legacy_ones_do() {
+    use ti4_model::content_types::{ContentType, FULL, POK};
+    use ti4_model::id::{ObjectiveId, PlanetId};
+    let content = content();
+    let planets: Vec<PlanetId> = ti4_content::galaxy::all_planets(content, FULL).keys().map(|id| PlanetId::new(*id)).collect();
+    assert!(planets.len() > 100);
+    let cards: Vec<String> = content.records(ContentType::Explores).iter().filter_map(|r| r.id().map(str::to_owned)).collect();
+    assert!(cards.len() > 40);
+    for sources in [POK, FULL] {
+        for planet in &planets {
+            assert_eq!(old::exploration::traits_of(content, sources, planet), thin::queries::content::traits_of(content, sources, planet), "traits_of {planet}");
+        }
+    }
+    for card in &cards {
+        assert_eq!(old::exploration::resolution(content, card), thin::queries::content::resolution(content, card), "resolution {card}");
+        for planet in planets.iter().step_by(7) {
+            assert_eq!(old::exploration::attachment_for(content, card, planet), thin::queries::content::attachment_for(content, card, planet), "attachment_for {card} {planet}");
+        }
+    }
+    let objectives: Vec<ObjectiveId> = [ContentType::PublicObjectives, ContentType::SecretObjectives]
+        .into_iter()
+        .flat_map(|c| content.records(c).iter().filter_map(|r| r.id().map(ObjectiveId::new)).collect::<Vec<_>>())
+        .chain([ObjectiveId::new("no-such-objective")])
+        .collect();
+    assert!(objectives.len() > 40);
+    for objective in &objectives {
+        assert_eq!(old::objectives::points_for(content, objective), thin::queries::content::points_for(content, objective), "points_for {objective}");
+    }
+    for pos in positions() {
+        let mut state = pos.state.clone();
+        for vp in [0, 3, 9, 10, 11] {
+            for (i, player) in state.players.iter_mut().enumerate() {
+                player.victory_points = if i % 2 == 0 { vp } else { vp / 2 };
+            }
+            assert_eq!(old::objectives::leader(&state), thin::queries::content::leader(&state), "{}: leader at {vp}", pos.label);
+            assert_eq!(old::objectives::winner(&state), thin::queries::content::winner(&state), "{}: winner at {vp}", pos.label);
+        }
+        for player in players(&pos.state) {
+            assert_eq!(old::secrets::scored_count(&pos.state, content, &player), thin::queries::content::scored_count(&pos.state, content, &player), "{}: scored_count", pos.label);
+        }
+    }
+}
+
+#[test]
+fn the_fleet_strength_functions_are_the_legacy_ones() {
+    use ti4_model::content_types::POK;
+    let content = content();
+    let fleets: Vec<Vec<(String, usize)>> = vec![
+        vec![],
+        vec![("fighter".to_owned(), 4)],
+        vec![("carrier".to_owned(), 2), ("fighter".to_owned(), 6), ("dreadnought".to_owned(), 1)],
+        vec![("cruiser".to_owned(), 3), ("destroyer".to_owned(), 2), ("warsun".to_owned(), 1), ("flagship".to_owned(), 1), ("no-such-unit".to_owned(), 2)],
+        vec![("dreadnought".to_owned(), 3), ("pds".to_owned(), 2), ("mech".to_owned(), 2), ("infantry".to_owned(), 5)],
+    ];
+    let damaged = vec![("dreadnought".to_owned(), 1), ("warsun".to_owned(), 1)];
+    for faction in ["sol", "jolnar", "sardakk", "letnev", "", "no-such-faction"] {
+        assert_eq!(old::fleet_strength::modifier(faction), thin::queries::fleet_strength::modifier(faction), "{faction}");
+        let mut seen = Vec::new();
+        for fleet in &fleets {
+            for dmg in [&Vec::new(), &damaged] {
+                let o = old::fleet_strength::descriptors(content, POK, faction, fleet, dmg);
+                let t = thin::queries::fleet_strength::descriptors(content, POK, faction, fleet, dmg);
+                assert_eq!(format!("{o:?}"), format!("{t:?}"), "descriptors {faction} {fleet:?}");
+                seen.push((o, t));
+            }
+        }
+        for (o1, t1) in &seen {
+            for (o2, t2) in &seen {
+                assert_eq!(old::fleet_strength::matchup(o1, o2).to_bits(), thin::queries::fleet_strength::matchup(t1, t2).to_bits(), "matchup");
+            }
+        }
+    }
+    for hits_on in 0..13 {
+        for modifier in -3..4 {
+            assert_eq!(old::fleet_strength::hit_chance(hits_on, modifier).to_bits(), thin::queries::fleet_strength::hit_chance(hits_on, modifier).to_bits());
+        }
+    }
+}
