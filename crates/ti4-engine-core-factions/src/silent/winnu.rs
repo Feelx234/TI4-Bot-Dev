@@ -335,6 +335,11 @@ fn copy(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
+/// The note of the activation, registered with the other abilities of the `SYSTEM_ACTIVATED / after` bucket in the string's module order (`activation::register`).
+pub fn register_activation(t: &mut AbilityTable) {
+    t.add(Spec::new(RECLAMATION_TACTICAL, AbilityKind::Ability, EventKind::SystemActivated, Relation::After, tactical_note).when(tactical_when));
+}
+
 /// Registered in the string order of the Winnu module: the marks, Reclamation, the Reclaimer, Hegemonic Trade Policy, the agent, then the copies.
 pub fn register_abilities(t: &mut AbilityTable) {
     use EventKind as E;
@@ -344,7 +349,6 @@ pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(RECLAIMER, AbilityKind::Unit, E::ActionCompleted, Relation::After, reclaimer).optional().when(reclaimer_when));
     t.add(Spec::new(HTP, AbilityKind::Technology, E::ProductionUsed, Relation::After, htp).optional().when(htp_when));
     t.add(Spec::new(AGENT, AbilityKind::Leader, E::ProductionUsed, Relation::After, agent).optional().when(agent_when));
-    t.add(Spec::new(RECLAMATION_TACTICAL, AbilityKind::Ability, E::SystemActivated, Relation::After, tactical_note).when(tactical_when));
     t.add(Spec::new(AGENT_COPY, AbilityKind::Leader, E::ProductionUsed, Relation::After, copy).applies(Applies::Faction(Faction::TheWinnu)).pair(lends).optional().when(copy_when));
 }
 

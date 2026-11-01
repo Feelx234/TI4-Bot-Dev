@@ -430,6 +430,24 @@ fn a_free_tactical_action_leaves_the_marks_of_the_activation_the_string_leaves()
     assert_eq!(marks_of(&core, MarkKey::SardakkAgentTactical(Seat(0))), Some(MarkVal::Atom(Atom::System(tiles[3]))), "Warfare: the Sardakk mark");
 }
 
+/// Found by the whole-game shadow (muaat 3p, mentak 5p): the string announces the events an effect staged (a trade good a prelude question gave) at the start of its
+/// NEXT step (`announce_staged_ground_events`); `Live::emit_typed` announces none. The activation of a tactical action emitted them before its own events.
+#[test]
+fn an_event_staged_before_the_activation_waits_for_the_next_step_and_is_not_announced_by_the_activation() {
+    covers!("driver::windows::tactical::TacticalAction");
+    let (sc, tiles) = row();
+    let (mut core, k) = sc.build();
+    ti4_engine_core::kernel::fx::stage(&mut core, ti4_engine_core::kernel::fx::trade_goods_gained(Seat(0), 1, Code(5)));
+    let env = env(&k, 1);
+    open_tactical(&mut core, Seat(0));
+    let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!("the activation is asked") };
+    advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3]))))).unwrap();
+    let staged: Vec<EventKind> = core.pending().staged.iter().map(|e| e.kind).collect();
+    assert_eq!(staged, vec![EventKind::TradeGoodsGained], "still staged: the next step announces it");
+    let announced = core.ledger.events.iter().filter(|e| matches!(e, Emit::Typed(t) if t.kind == EventKind::TradeGoodsGained)).count();
+    assert_eq!(announced, 0, "the activation announced nothing of it");
+}
+
 #[test]
 fn e_res_siphons_pays_four_trade_goods_to_each_other_holder_with_ships_in_the_activated_system() {
     covers!("driver::windows::tactical::TacticalAction");

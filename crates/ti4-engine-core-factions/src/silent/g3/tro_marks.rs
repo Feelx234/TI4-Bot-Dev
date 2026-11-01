@@ -58,8 +58,12 @@ fn hero_forget(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     Ok(())
 }
 
-pub fn register_abilities(t: &mut AbilityTable) {
+/// The mark is an ability of the activation window: it is registered with the other abilities of that bucket, in the string's module order (`activation::register`).
+pub fn register_activation(t: &mut AbilityTable) {
     t.add(Spec::new(MARK, AbilityKind::Leader, EventKind::SystemActivated, Relation::After, remember).when(mark_condition));
+}
+
+pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(TURN, AbilityKind::Leader, EventKind::TurnBegan, Relation::After, forget).when(condition));
     t.add(Spec::new(STRATEGIC, AbilityKind::Leader, EventKind::StrategicActionBegan, Relation::After, forget).when(condition));
     t.add(Spec::new(HERO_TURN, AbilityKind::Leader, EventKind::TurnBegan, Relation::After, hero_forget).when(hero_condition));

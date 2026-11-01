@@ -14,6 +14,7 @@ const G3_EMITTERS: &[(&str, Option<&str>)] = &[
     ("STATUS_PHASE_ENDED", None),
     ("STRATEGIC_ACTION_BEGAN", None),
     ("STRATEGY_PHASE_BEGAN", Some("the phase arm")),
+    ("SYSTEM_ACTIVATED", Some("the tactical activation (`rules::tactical::activate`)")),
     ("TECHNOLOGY_GAINED", Some("the turn prelude's reconcile (a technology nobody announced)")),
     ("TURN_BEGAN", Some("the turn prelude")),
     ("UNITS_COMMITTED", Some("the invasion window")),
