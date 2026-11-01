@@ -375,6 +375,54 @@ fn the_sardakk_agent_and_the_winnu_remember_the_activation() {
     assert_eq!(marks_of(&core, MarkKey::PrivateSeat(Seat(0), Word::WinnuTactical)), Some(MarkVal::Atom(Atom::Num(1))));
 }
 
+/// The row of [`row`] for other factions (seat 0 plays, with a cruiser on B).
+fn row_of(factions: &[Faction]) -> (Scenario, [System; 4]) {
+    let p = plain_systems();
+    let tiles = [p[0], p[1], p[2], p[3]];
+    let sc = Scenario::new(factions)
+        .map_hexes(&[(tiles[0], Hex::new(0, 0)), (tiles[1], Hex::new(1, 0)), (tiles[2], Hex::new(2, 0)), (tiles[3], Hex::new(3, 0))])
+        .tokens(0, 3, 4, 2)
+        .active(Some(0))
+        .phase(Phase::Action)
+        .unit(tiles[1], None, Unit::CruiserI, 0, 1);
+    (sc, tiles)
+}
+
+#[test]
+fn a_free_tactical_action_leaves_the_marks_of_the_activation_the_string_leaves() {
+    covers!("driver::windows::tactical::TacticalAction");
+    covers!("driver::windows::tactical::begin_free");
+    use ti4_engine_core::choice::strategy::Opt as SOpt;
+    use ti4_engine_core::driver::windows::strategic::begin::begin_strategic;
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal, Word};
+    // The abilities of the string answer the typed `SYSTEM_ACTIVATED` of the free action (`begin_free_tactical_text`) like the ordinary activation's: the
+    // Winnu note that a tactical action began, the Sardakk agent T'ro remembers the system. Z'eu's free action (`open_free`) ...
+    let (sc, tiles) = row_of(&[Faction::TheWinnu, Faction::SardakkNorr]);
+    let (mut core, k) = sc.build();
+    core.players.edit(1).leaders.status.insert(Leader::Tro, ti4_engine_core::state::LeaderStatus::Readied);
+    let zeu = env(&k, 1);
+    open_free(&mut core, Seat(0), tiles[3]);
+    advance_tactical(&mut core, &zeu, None).unwrap();
+    assert_eq!(marks_of(&core, MarkKey::PrivateSeat(Seat(0), Word::WinnuTactical)), Some(MarkVal::Atom(Atom::Num(1))), "Z'eu: the Winnu mark");
+    assert_eq!(marks_of(&core, MarkKey::SardakkAgentTactical(Seat(0))), Some(MarkVal::Atom(Atom::System(tiles[3]))), "Z'eu: the Sardakk mark");
+    // ... and Thunder's Edge Warfare's primary (`begin_free`).
+    let (sc, tiles) = row_of(&[Faction::TheWinnu, Faction::SardakkNorr]);
+    let (mut core, k) = sc.build();
+    core.players.edit(1).leaders.status.insert(Leader::Tro, ti4_engine_core::state::LeaderStatus::Readied);
+    core.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::WarfareThundersEdge);
+    let env = env(&k, 5);
+    let (mut live, _) = begin_strategic(&mut core, &env, StrategyCard::WarfareThundersEdge).unwrap();
+    while let Live::Asks(q) = live {
+        let answer = match q.choice.ask {
+            Ask::Strategy(ti4_engine_core::choice::strategy::Ask::TeWarfareTactical) => pick(&q.choice, |o| *o == Opt::Strategy(SOpt::System(tiles[3]))),
+            _ => Pick::Opt(q.choice.opts.as_slice()[0]),
+        };
+        live = ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut core, &env, Some(answer)).unwrap().0;
+    }
+    assert_eq!(marks_of(&core, MarkKey::PrivateSeat(Seat(0), Word::WinnuTactical)), Some(MarkVal::Atom(Atom::Num(1))), "Warfare: the Winnu mark");
+    assert_eq!(marks_of(&core, MarkKey::SardakkAgentTactical(Seat(0))), Some(MarkVal::Atom(Atom::System(tiles[3]))), "Warfare: the Sardakk mark");
+}
+
 #[test]
 fn e_res_siphons_pays_four_trade_goods_to_each_other_holder_with_ships_in_the_activated_system() {
     covers!("driver::windows::tactical::TacticalAction");

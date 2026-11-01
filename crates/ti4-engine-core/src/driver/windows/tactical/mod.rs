@@ -190,6 +190,7 @@ impl Window for TacticalAction {
                 TStage::Free(system) => {
                     let mut leaf = Machine::free(seat, Self::leaf_facts(&codes), system).live();
                     let _ = leaf.step(sx);
+                    hooks::marks(sx, seat, system);
                     self.leaf = None;
                     self.p.stage = TStage::Moving;
                 }

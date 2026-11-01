@@ -109,8 +109,9 @@ fn ready(core: &crate::state::CoreState, who: Seat, tech: Technology) -> bool {
     fx_strategy::text_carrier(core, who, tech).is_some_and(|card| core.players().by_seat(who).is_some_and(|p| !p.tech.exhausted.contains(card)))
 }
 
-/// The "after you activate" marks of the Sardakk agent and of the Winnu.
-fn marks(sx: &mut Sx<'_>, seat: Seat, system: System) {
+/// The "after you activate" marks of the Sardakk agent and of the Winnu. A free tactical action writes them too: the string's abilities answer
+/// the typed `SYSTEM_ACTIVATED` of `begin_free_tactical_text` like the ordinary activation's.
+pub(super) fn marks(sx: &mut Sx<'_>, seat: Seat, system: System) {
     let sardakk: Vec<Seat> = sx
         .state
         .players()

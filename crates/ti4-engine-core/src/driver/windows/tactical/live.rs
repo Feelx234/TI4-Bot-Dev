@@ -36,6 +36,7 @@ pub fn begin_free(sx: &mut crate::kernel::stage::Sx<'_>, seat: Seat, system: Sys
     let leaf_facts = crate::rules::tactical::Facts { pool: sx.table.codes.tactical.tactic };
     let mut leaf = crate::rules::tactical::Machine::free(seat, leaf_facts, system).live();
     let _ = crate::kernel::stage::Window::step(&mut leaf, sx);
+    super::hooks::marks(sx, seat, system);
     TacticalAction::new(Tactical { player: seat, stage: TStage::Moving, notes_at_start: notes }).to_pending(sx.state);
 }
 
