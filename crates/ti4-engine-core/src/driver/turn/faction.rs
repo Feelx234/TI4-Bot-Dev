@@ -38,6 +38,7 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, key: u32, action: ComponentAction) -> Flo
         c::FABRICATION_RELIC => fabrication(sx, who, key, FabMode::Relic { bmf: false }),
         c::FABRICATION_TOKEN => fabrication(sx, who, key, FabMode::Token),
         c::BLACK_MARKET_FORGERY => fabrication(sx, who, key, FabMode::Relic { bmf: true }),
+        c::WORMHOLE_GENERATOR => wormhole_generator(sx, who, key),
         // mutants:skip (the key default): every option on the menu has a key
         _ => gap_flow(sx, TurnGap::Menu(MenuGap::Unrouted(super::action::gap_code(&crate::driver::dispatch::Dispatch::Faction(action)), Opt::Faction(action).key().unwrap_or(0)))), // mutants:skip (the key default): every option on the menu has a key
     }
@@ -207,6 +208,45 @@ fn mageon_implants(sx: &mut Sx<'_>, who: Seat, key: u32, target: u16) -> Flow {
     }
     if window.unsupported {
         return gap_flow(sx, TurnGap::NoLink);
+    }
+    conclude_announced(sx, who, key, verdict(window.done))
+}
+
+/// Wormhole Generator (Ghost): place or move a Creuss wormhole token into a system that holds a planet the seat controls or a non-home system holding
+/// no other player's ship. Each token (alpha, then beta) into each such system it is not in, the systems in map order; none without a map.
+fn wormhole_generator(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    use crate::generated::Wormhole;
+    let scope = reach::scope_of(sx.kernel);
+    let mut systems: Vec<(crate::hex::Hex, crate::generated::System)> = Vec::new();
+    if let Some(galaxy) = sx.state.galaxy() {
+        systems = galaxy
+            .in_play()
+            .iter()
+            .filter_map(crate::generated::System::from_index)
+            .filter(|s| !galaxy.is_hyperlane(*s))
+            .filter_map(|s| galaxy.coord_of(s).map(|hex| (hex, s)))
+            .collect();
+        systems.sort_unstable_by_key(|(hex, _)| *hex);
+    }
+    let others_ships = |system: crate::generated::System| {
+        crate::query::board::space_units(sx.state, system).iter().any(|p| p.owner() != who && scope.unit(p.kind()).is_some_and(|d| d.ship))
+    };
+    let open: Vec<crate::generated::System> = systems
+        .iter()
+        .map(|(_, system)| *system)
+        .filter(|system| crate::query::board::controls_a_planet_in(sx.state, *system, who) || (!system.data().home_system && !others_ships(*system)))
+        .collect();
+    let mut destinations = Vec::new();
+    for kind in [Wormhole::Alpha, Wormhole::Beta] {
+        for system in &open {
+            if sx.state.explore().wormhole_tokens.get(&kind) != Some(system) {
+                destinations.push((kind, *system));
+            }
+        }
+    }
+    let mut window = crate::rules::technology_windows::WormholeGenerator::new(who, destinations);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
     }
     conclude_announced(sx, who, key, verdict(window.done))
 }

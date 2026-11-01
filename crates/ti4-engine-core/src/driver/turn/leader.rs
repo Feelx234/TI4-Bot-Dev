@@ -50,6 +50,10 @@ pub const fn routed(leader: Leader, borrowed: bool) -> bool {
             | Leader::LetaniMiasmiala
             | Leader::RinTheMastersLegacy
             | Leader::RiftwalkerMeian
+            | Leader::UNITDSGNFLAYESH
+            | Leader::KyverBladeAndKey
+            | Leader::ItFeedsOnCarrion
+            | Leader::HeshAndPrit
     )
 }
 
@@ -90,6 +94,10 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool)
         Leader::LetaniMiasmiala => miasmiala(sx, who, key),
         Leader::RinTheMastersLegacy => rin(sx, who, key),
         Leader::RiftwalkerMeian => riftwalker_meian(sx, who, key),
+        Leader::UNITDSGNFLAYESH => super::hero::flayesh(sx, who, key),
+        Leader::KyverBladeAndKey => super::hero::kyver(sx, who, key),
+        Leader::ItFeedsOnCarrion => super::hero::carrion(sx, who, key),
+        Leader::HeshAndPrit => super::hero::hesh_and_prit(sx, who, key),
         _ => unrouted(sx, key),
     }
 }

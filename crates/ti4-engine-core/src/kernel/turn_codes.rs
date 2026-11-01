@@ -62,6 +62,8 @@ pub struct TurnCodes {
     pub relic: Code,
     /// `silver_flame`: the purpose of the Silver Flame's die.
     pub silver_flame: Code,
+    /// `nekrohero`: the source of the trade goods UNIT.DSGN.FLAYESH gains.
+    pub nekrohero: Code,
 }
 
 /// Why the live turn flow stops (a counted gap, never a silent skip): what the job needs and the core does not hold yet.

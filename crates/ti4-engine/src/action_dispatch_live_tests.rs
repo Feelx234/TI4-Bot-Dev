@@ -375,3 +375,44 @@ fn rin_chosen_from_the_menu_swaps_a_technology_like_the_string() {
     let state = super::turn_live_tests::based(state);
     lockstep(&state, &["component|leader|jolnarhero"], "COMPONENT_ACTION_RESOLVED");
 }
+
+// ---- lane F2e: the heroes that read the position for their facts, against the string ----
+
+/// A planet with a technology specialty, in a system that is on the board, with the units of the other seats on it.
+fn specialty_planet(state: &mut GameState) -> (ti4_model::id::SystemId, ti4_model::id::PlanetId) {
+    let content = ti4_content::ContentStore::embedded();
+    let (system, planet) = ti4_content::galaxy::all_planets(content, ti4_model::content_types::POK)
+        .iter()
+        .filter(|(_, p)| p.homeworld_of().is_none() && !p.is_placed_during_play() && !p.is_legendary() && !p.tech_specialties().is_empty())
+        .find_map(|(id, p)| p.system_id().map(|s| (ti4_model::id::SystemId::new(s), ti4_model::id::PlanetId::new(*id))))
+        .expect("a planet with a specialty");
+    let _ = state;
+    (system, planet)
+}
+
+#[test]
+fn flayesh_chosen_from_the_menu_devours_a_planet_like_the_string() {
+    let mut state = leader_table(&[("a", "nekro"), ("b", "sol"), ("c", "hacan")], "nekrohero", LeaderStatus::Unlocked);
+    let (system, planet) = specialty_planet(&mut state);
+    crate::fixtures::put(&mut state, &system, "cruiser", &pid("a"), 1);
+    crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &pid("b"), 2);
+    let state = super::turn_live_tests::based(state);
+    lockstep(&state, &["component|leader|nekrohero"], "COMPONENT_ACTION_RESOLVED");
+}
+
+#[test]
+fn kyver_chosen_from_the_menu_takes_a_card_like_the_string() {
+    let mut state = leader_table(&[("a", "yssaril"), ("b", "sol"), ("c", "hacan")], "yssarilhero", LeaderStatus::Unlocked);
+    state.player_mut(&pid("b")).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[0].as_str()), ti4_model::id::ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[3].as_str())];
+    state.player_mut(&pid("c")).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new(ti4_engine_core::generated::ActionCard::ALL[5].as_str())];
+    let state = super::turn_live_tests::based(state);
+    lockstep(&state, &["component|leader|yssarilhero"], "COMPONENT_ACTION_RESOLVED");
+}
+
+#[test]
+fn hesh_and_prit_chosen_from_the_menu_gains_a_relic_like_the_string() {
+    let mut state = leader_table(&[("a", "naaz"), ("b", "sol"), ("c", "hacan")], "naazhero", LeaderStatus::Unlocked);
+    state.relic_deck = vec![ti4_model::id::RelicId::new("dynamiscore")];
+    let state = super::turn_live_tests::based(state);
+    lockstep(&state, &["component|leader|naazhero", "decline"], "COMPONENT_ACTION_RESOLVED");
+}

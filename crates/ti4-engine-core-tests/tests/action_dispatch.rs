@@ -111,12 +111,12 @@ fn a_strategic_action_chosen_from_the_menu_stops_nowhere_and_opens_the_follower_
 
 #[test]
 fn an_option_no_window_runs_yet_is_a_gap_that_names_it_and_leaves_the_position() {
-    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).hand(1, &[ti4_engine_core::generated::ActionCard::ALL[0]]).build();
-    s.players_mut().edit(0).leaders.status.insert(ti4_engine_core::generated::Leader::KyverBladeAndKey, ti4_engine_core::state::LeaderStatus::Unlocked);
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).goods(0, 8).build();
+    s.players_mut().edit(0).cards.explore.push(ti4_engine_core::generated::Explore::EnigmaticDevice1);
     let e = env_r(&k);
     let held = s.clone();
-    let result = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(_))));
-    assert!(matches!(result, Err(LiveError::Unknown(Unknown::TurnGap(TurnGap::Menu(MenuGap::Unrouted(5, _)))))), "{result:?}");
+    let result = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Device(_))));
+    assert!(matches!(result, Err(LiveError::Unknown(Unknown::TurnGap(TurnGap::Menu(MenuGap::Unrouted(8, _)))))), "{result:?}");
     assert_eq!(s, held, "nothing was written");
 }
 
@@ -1152,5 +1152,146 @@ fn the_titan_prototype_chosen_from_the_menu_lets_the_named_player_build_or_gain_
     pick(&mut s, &e, |o| matches!(o, Opt::Relic(ti4_engine_core::choice::relic::Opt::Builder(Seat(1))))).unwrap();
     assert_eq!(s.players().by_seat(Seat(1)).unwrap().econ.trade_goods, 1, "the consolation");
     assert!(!s.players().by_seat(Seat(0)).unwrap().cards.relics.as_slice().contains(&Relic::JRXS455O), "purged");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// Lane F2e: Wormhole Generator places a Creuss token in a system that holds no other player's ship (or a planet the seat controls), exhausts the
+/// technology and ends the action. A system with a rival's ship that the seat does not control is not offered.
+#[test]
+fn wormhole_generator_chosen_from_the_menu_places_a_token_and_exhausts_the_technology() {
+    use ti4_engine_core::choice::technology::Opt as TecOpt;
+    use ti4_engine_core::generated::Wormhole;
+    use ti4_engine_core::kernel::hooks::components as c;
+    let ps = ti4_engine_core_tests::scenario::plain_systems();
+    let (mut s, k) = Scenario::new(&[Faction::TheGhostsOfCreuss, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_ring(7)
+        .unit(ps[1], None, Unit::CruiserI, 1, 1)
+        .tech(0, Technology::WormholeGenerator)
+        .tokens(0, 3, 3, 2)
+        .build();
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Faction(a)) if a.code == c::WORMHOLE_GENERATOR)).unwrap();
+    assert!(matches!(live, Live::Asks(_)));
+    let q = ask_ask(&mut s, &e).unwrap().unwrap().choice;
+    let offered: Vec<(Wormhole, System)> = q.opts.as_slice().iter().filter_map(|o| match o {
+        Opt::Technology(TecOpt::Token(kind, system)) => Some((*kind, *system)),
+        _ => None,
+    }).collect();
+    assert!(!offered.is_empty() && offered.iter().all(|(_, system)| *system != ps[1]), "a rival's ships keep the token out: {offered:?}");
+    assert_eq!(offered[0].0, Wormhole::Alpha, "alpha first");
+    let want = offered[0];
+    pick(&mut s, &e, |o| matches!(o, Opt::Technology(TecOpt::Token(kind, system)) if (*kind, *system) == want)).unwrap();
+    assert_eq!(s.explore().wormhole_tokens.get(&want.0), Some(&want.1), "the token stands there");
+    assert!(s.players().by_seat(Seat(0)).unwrap().tech.exhausted.contains(Technology::WormholeGenerator));
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+// ---- lane F2e: the heroes that read the position for their facts ----
+
+fn touch(s: &mut CoreState, systems: &[System]) {
+    for system in systems {
+        s.board_mut().sys_mut(*system).flags.set(ti4_engine_core::state::SysFlags::TOUCHED, true);
+    }
+}
+
+/// Lane F2e: UNIT.DSGN.FLAYESH devours a planet with a technology specialty in a system holding the seat's unit: the other seats' units on it die, the
+/// seat gains the planet's resources and influence as trade goods and a technology of the specialty's colour, and the hero is purged.
+#[test]
+fn flayesh_chosen_from_the_menu_devours_the_planet_and_gains_goods_and_a_technology() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let planet = *Planet::ALL.iter().find(|p| !p.data().specialties.is_empty() && p.data().system.is_some() && !p.data().legendary).expect("a planet with a specialty");
+    let system = planet.data().system.expect("on a tile");
+    let (mut s, k) = Scenario::new(&[Faction::TheNekroVirus, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[system])
+        .unit(system, None, Unit::CruiserI, 0, 1)
+        .unit(system, Some(planet), Unit::InfantryI, 1, 2)
+        .goods(0, 0)
+        .tokens(0, 3, 3, 2)
+        .build();
+    touch(&mut s, &[system]);
+    s.players_mut().edit(0).leaders.status.insert(Leader::UNITDSGNFLAYESH, ti4_engine_core::state::LeaderStatus::Unlocked);
+    let e = env_r(&k);
+    let owned = s.players().by_seat(Seat(0)).unwrap().tech.owned.len();
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::UNITDSGNFLAYESH)))).unwrap();
+    first_options(&mut s, &e, live, 6);
+    assert_eq!(ti4_engine_core::query::board::planet_units(&s, planet).iter().filter(|p| p.owner() == Seat(1)).count(), 0, "the other seats' units are gone");
+    assert_eq!(typed(&s, EventKind::GroundForceDestroyed), 2, "each ground force that fell is announced");
+    let p = s.players().by_seat(Seat(0)).unwrap();
+    assert!(p.econ.trade_goods > 0, "the planet's value is gained as trade goods");
+    assert_eq!(p.tech.owned.len(), owned + 1, "one technology gained");
+    assert_eq!(status(&s, 0, Leader::UNITDSGNFLAYESH), Some(ti4_engine_core::state::LeaderStatus::Purged));
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+    let _ = LeaderStatus::Purged;
+}
+
+/// Lane F2e: Hesh and Prit gains a relic (the choice of strategy cards declined) and is purged.
+#[test]
+fn hesh_and_prit_chosen_from_the_menu_gains_a_relic_and_is_purged() {
+    use ti4_engine_core::generated::{Leader, Relic};
+    use ti4_engine_core::state::LeaderStatus;
+    let (mut s, k) = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).tokens(0, 3, 3, 2).build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::HeshAndPrit, LeaderStatus::Unlocked);
+    s.decks_mut().relic = ti4_engine_core::Deck::new(vec![Relic::DynamisCore]);
+    s.strategy_mut().unclaimed.push(ti4_engine_core::generated::StrategyCard::ALL[0]);
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::HeshAndPrit)))).unwrap();
+    assert!(matches!(live, Live::Asks(_)), "the card is asked");
+    pick(&mut s, &e, |o| matches!(o, Opt::Decline)).unwrap();
+    let p = s.players().by_seat(Seat(0)).unwrap();
+    assert!(p.cards.relics.as_slice().contains(&Relic::DynamisCore), "the relic is gained");
+    assert_eq!(status(&s, 0, Leader::HeshAndPrit), Some(LeaderStatus::Purged));
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// Lane F2e: Kyver shows a card of each other player; the seat takes the first and the hero is purged.
+#[test]
+fn kyver_chosen_from_the_menu_takes_a_shown_card_and_is_purged() {
+    use ti4_engine_core::generated::{ActionCard, Leader};
+    use ti4_engine_core::state::LeaderStatus;
+    let (mut s, k) = Scenario::new(&[Faction::TheYssarilTribes, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .hand(1, &[ActionCard::ALL[0], ActionCard::ALL[3]])
+        .hand(2, &[ActionCard::ALL[5]])
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::KyverBladeAndKey, LeaderStatus::Unlocked);
+    let mut e = env_r(&k);
+    // The printed-name groups: every card is its own name.
+    e.table.facts.card_groups = (0..ActionCard::ALL.len()).map(|i| u8::try_from(i % 250).unwrap_or(0)).collect();
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::KyverBladeAndKey)))).unwrap();
+    first_options(&mut s, &e, live, 12);
+    assert_eq!(status(&s, 0, Leader::KyverBladeAndKey), Some(LeaderStatus::Purged));
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// Lane F2e: It Feeds on Carrion rolls a die for each other player's non-fighter ship next to a dimensional tear and is purged.
+#[test]
+fn it_feeds_on_carrion_chosen_from_the_menu_rolls_for_the_ships_next_to_a_tear_and_is_purged() {
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::state::LeaderStatus;
+    let tempesta = ti4_engine_core_tests::scenario::system_of(Planet::Tempesta);
+    let mut ring = vec![tempesta];
+    ring.extend(ti4_engine_core_tests::scenario::plain_systems().into_iter().filter(|s| *s != tempesta).take(6));
+    let (mut s, k) = Scenario::new(&[Faction::TheVuilraithCabal, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&ring)
+        .unit(tempesta, Some(Planet::Tempesta), Unit::DimensionalTearI, 0, 1)
+        .unit(tempesta, None, Unit::CruiserI, 1, 1)
+        .unit(ring[1], None, Unit::DestroyerI, 2, 1)
+        .tokens(0, 3, 3, 2)
+        .build();
+    touch(&mut s, &ring[..2]);
+    s.players_mut().edit(0).leaders.status.insert(Leader::ItFeedsOnCarrion, LeaderStatus::Unlocked);
+    let e = env_r(&k);
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::ItFeedsOnCarrion)))).unwrap();
+    first_options(&mut s, &e, live, 8);
+    assert_eq!(status(&s, 0, Leader::ItFeedsOnCarrion), Some(LeaderStatus::Purged));
     assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
 }

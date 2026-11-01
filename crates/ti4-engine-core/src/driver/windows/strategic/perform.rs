@@ -129,7 +129,7 @@ fn home_of(sx: &Sx<'_>, who: Seat) -> Option<System> {
 
 /// The announcement the string stages at the end of a use of PRODUCTION that made something (`UNITS_PRODUCED`, no timing handle: staged for the
 /// next step's reconcile).
-fn announce_made(sx: &mut Sx<'_>, who: Seat, system: System, made: &crate::kernel::children::Made) {
+pub(crate) fn announce_made(sx: &mut Sx<'_>, who: Seat, system: System, made: &crate::kernel::children::Made) {
     use crate::choice::production::Spot;
     use crate::state::List;
     let codes = sx.table.codes.turn;

@@ -50,6 +50,7 @@ pub fn codes(r: &Render) -> TurnCodes {
         yssaril_mech: r.code("yssaril_mech"),
         relic: r.code("relic"),
         silver_flame: r.code("silver_flame"),
+        nekrohero: r.code("nekrohero"),
         strategy_secondary: r.code("strategy_secondary"),
         trade_primary: r.code("trade_primary"),
         place_structure: r.code("place_structure"),

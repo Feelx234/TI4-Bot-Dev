@@ -19,6 +19,7 @@ pub mod component;
 pub mod draft;
 pub mod end;
 pub mod faction;
+pub mod hero;
 pub mod facts;
 pub mod inline;
 pub mod leader;

@@ -118,7 +118,7 @@ fn enigmatic_device(sx: &mut Sx<'_>, who: Seat) -> Result<bool, Flow> {
     let scope = crate::query::reach::scope_of(sx.kernel);
     let hooks = crate::rules::production::strategy_cards::KernelHooks::new(sx.state, sx.kernel, who);
     let open = crate::query::tech::researchable_by_prerequisites(sx.state, scope, crate::query::reach::blanked(sx.state), who, &hooks);
-    let mut options: Vec<Technology> = grantable(sx, who).into_iter().filter(|t| open.contains(*t)).collect();
+    let options: Vec<Technology> = grantable(sx, who).into_iter().filter(|t| open.contains(*t)).collect();
     let mut window = crate::rules::relic_windows::GainTechnology::new(who, Relic::EnigmaticDevice, &options);
     if run_window(sx, &mut window) == Flow::Halt {
         return Err(Flow::Halt);

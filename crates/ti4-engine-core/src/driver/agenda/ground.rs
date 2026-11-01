@@ -2,8 +2,8 @@
 //! STAGES a row per ground force that fell (`fx_ground::stage_destroyed`); the next step's reconcile turns each into a
 //! `GROUND_FORCE_DESTROYED` through the reaction windows (Infantry II, Saar's Trade Convoy ...), in the order they were staged.
 //!
-//! Only the rows of an agenda's effect (`DestroyReason::Agenda`) are announced here: their cause text is one of the agenda codes. A row
-//! of another cause is left for the lane that stages it (the action cards, the technologies).
+//! Only the rows of an agenda's effect (`DestroyReason::Agenda`: their cause text is one of the agenda codes) and of UNIT.DSGN.FLAYESH (`nekrohero`)
+//! are announced here. A row of another cause is left for the lane that stages it (the action cards, the technologies).
 
 use crate::driver::turn::inline::{halted, Flow};
 use crate::kernel::agenda_codes::GROUND_CAUSES;
@@ -19,11 +19,19 @@ fn staged(sx: &Sx<'_>) -> Vec<(MarkKey, Payload)> {
     for (key, value) in core.marks().tail.iter() {
         let MarkKey::PrivateStagedGround(n) = key else { continue };
         let MarkVal::Rec(f) = value else { continue };
-        let [MarkVal::Atom(Atom::Word(Word::Destroyed)), MarkVal::Atom(Atom::System(system)), MarkVal::Atom(Atom::Planet(planet)), MarkVal::Atom(Atom::Seat(owner)), MarkVal::Atom(Atom::Unit(unit)), MarkVal::Atom(Atom::Word(damaged)), MarkVal::Atom(Atom::Destroy(DestroyReason::Agenda(agenda))), rest @ ..] = f.as_slice() else { continue };
-        let at = *agenda as usize;
-        if at >= GROUND_CAUSES { // mutants:skip: unreachable (an agenda's index is below its count), the guard spares an index panic
-            continue;
-        }
+        let [MarkVal::Atom(Atom::Word(Word::Destroyed)), MarkVal::Atom(Atom::System(system)), MarkVal::Atom(Atom::Planet(planet)), MarkVal::Atom(Atom::Seat(owner)), MarkVal::Atom(Atom::Unit(unit)), MarkVal::Atom(Atom::Word(damaged)), MarkVal::Atom(Atom::Destroy(reason)), rest @ ..] = f.as_slice() else { continue };
+        let cause = match reason {
+            DestroyReason::Agenda(agenda) => {
+                let at = *agenda as usize;
+                if at >= GROUND_CAUSES { // mutants:skip: unreachable (an agenda's index is below its count), the guard spares an index panic
+                    continue;
+                }
+                codes.ground_cause[at]
+            }
+            // UNIT.DSGN.FLAYESH (Nekro's hero) is announced the same way, its own cause.
+            DestroyReason::LeaderBare(crate::generated::Leader::UNITDSGNFLAYESH) => sx.table.codes.turn.nekrohero,
+            _ => continue,
+        };
         let mut payload = Payload::new()
             .with(Key::System, Val::System(*system))
             .with(Key::Planet, Val::Planet(*planet))
@@ -33,7 +41,7 @@ fn staged(sx: &Sx<'_>) -> Vec<(MarkKey, Payload)> {
         if rest.iter().any(|v| matches!(v, MarkVal::Atom(Atom::Word(Word::Galvanized)))) {
             payload.set(Key::Galvanized, Val::Flag(true));
         }
-        payload.set(Key::Cause, Val::Code(codes.ground_cause[at]));
+        payload.set(Key::Cause, Val::Code(cause));
         rows.push((*n, *key, payload));
     }
     rows.sort_by_key(|(n, _, _)| *n);
