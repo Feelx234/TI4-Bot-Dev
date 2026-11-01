@@ -1012,7 +1012,7 @@ impl Decider for ReplayingDecider {
 pub fn spawn_session_worker(
     mut config: SessionConfig,
 ) -> (Arc<Mutex<SessionShared>>, JoinHandle<()>) {
-    ti4_engine::exploration::mark_legacy_device_ids(&mut config.state, &config.prior_decisions);
+    ti4_engine::builders::exploration::mark_legacy_device_ids(&mut config.state, &config.prior_decisions);
     let prior_count = config.prior_decisions.len();
     let prior_records = config.prior_decisions.clone();
     let prior_queue = Arc::new(Mutex::new(VecDeque::from(config.prior_decisions.clone())));

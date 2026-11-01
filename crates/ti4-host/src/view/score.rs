@@ -279,7 +279,7 @@ pub fn project_score_facts(state: &GameState, content: &ContentStore) -> ScoreFa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ti4_engine::objectives::adjust_victory_points;
+    use ti4_engine::builders::objectives::adjust_victory_points;
     use ti4_model::content_types::POK;
 
     fn game() -> GameState {

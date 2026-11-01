@@ -12,7 +12,8 @@ use ti4_content::factions;
 use ti4_content::galaxy::{self, Galaxy};
 use ti4_content::units;
 use ti4_engine::seating::{self, MECATOL};
-use ti4_engine::{fleet, invasion, leaders, production};
+use ti4_engine::builders::leaders;
+use ti4_engine::{fleet, invasion, production};
 use ti4_model::content_types::{ContentType, POK};
 use ti4_model::id::{
     ActionCardId, FactionId, PlanetId, PlayerId, RelicId, SystemId, TechnologyId, UnitTypeId,
@@ -568,7 +569,7 @@ pub fn apply(
     // A seat's units are its own faction's and its upgraded versions (LRR 90): the fleets above
     // are written with generic ids, and the techs a preset grants replace them at once.
     for player in players {
-        ti4_engine::technology::apply_unit_upgrades(state, content, POK, player);
+        ti4_engine::builders::technology::apply_unit_upgrades(state, content, POK, player);
     }
     if parts.short {
         short_game(state, players, seed);
@@ -1369,7 +1370,7 @@ fn explore_preset(
 fn deal_notes(content: &ContentStore, state: &mut GameState, players: &[PlayerId], others: usize) {
     // Game creation already deals after seating, so this only restates the hands before the
     // spread below (a no-op on a fresh game; kept so a preset applied to any opening state works).
-    ti4_engine::promissory::deal(state, content, POK);
+    ti4_engine::builders::promissory::deal(state, content, POK);
     let count = players.len();
     let spread = others.min(count.saturating_sub(1)).max(1);
     let owned: Vec<Vec<String>> = players
@@ -1389,23 +1390,23 @@ fn deal_notes(content: &ContentStore, state: &mut GameState, players: &[PlayerId
         for (index, note) in notes.iter().enumerate() {
             let holder = &players[(j + count - 1 - index % spread) % count];
             if holder != &players[j] && note_can_move(state, holder, note) {
-                ti4_engine::promissory::take(state, content, holder, note);
+                ti4_engine::builders::promissory::take(state, content, holder, note);
             }
         }
     }
     if count > 1 {
-        let name = ti4_engine::promissory::faction_name(state, &players[1]);
-        ti4_engine::promissory::receive(
+        let name = ti4_engine::builders::promissory::faction_name(state, &players[1]);
+        ti4_engine::builders::promissory::receive(
             state,
             &players[0],
-            &ti4_engine::promissory::support(&name),
+            &ti4_engine::builders::promissory::support(&name),
         );
     }
 }
 
 /// Whether the preset may hand `note` to `holder` (Mahact refuses Alliance, Hubris).
 fn note_can_move(state: &GameState, holder: &PlayerId, note: &str) -> bool {
-    ti4_engine::promissory::may_receive(state, holder, note)
+    ti4_engine::builders::promissory::may_receive(state, holder, note)
 }
 
 /// The faction kit of `world`: every faction technology, every leader usable, and the legendary
@@ -2482,11 +2483,11 @@ mod tests {
         let list = players(4);
         let (state, _) = preset_game(content(), &list, 7, None, "world+fac:naalu").unwrap();
         for player in &list {
-            let name = ti4_engine::promissory::faction_name(&state, player);
-            let foreign = ti4_engine::promissory::held_by(&state, player)
+            let name = ti4_engine::builders::promissory::faction_name(&state, player);
+            let foreign = ti4_engine::builders::promissory::held_by(&state, player)
                 .into_iter()
                 .filter(|note| {
-                    ti4_engine::promissory::owner_of(note).as_deref() != Some(name.as_str())
+                    ti4_engine::builders::promissory::owner_of(note).as_deref() != Some(name.as_str())
                 })
                 .count();
             assert!(foreign >= 4, "{player} holds {foreign} foreign notes");

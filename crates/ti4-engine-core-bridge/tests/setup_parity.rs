@@ -1065,7 +1065,11 @@ fn map_edits_are_made_recorded_and_replayed_like_the_legacy_ones() {
             let assignments: BTreeMap<PlayerId, FactionId> = a0.players.iter().map(|s| (s.id.clone(), s.faction.clone())).collect();
             let filler = native::neutral_systems(content(), 36, sources);
             let refs: Vec<&str> = filler.iter().map(SystemId::as_str).collect();
-            let galaxy = native::build_board(content(), &assignments, &refs, sources).unwrap();
+            // The base scope has too few neutral tiles for a board of this size.
+            let Ok(galaxy) = native::build_board(content(), &assignments, &refs, sources) else {
+                assert_eq!(name, "base", "{n}p board must build outside the base scope");
+                continue;
+            };
             let _ = (&table, &b0);
             let ids: Vec<String> = galaxy.system_ids().iter().map(|s| (*s).to_owned()).collect();
             let edits: Vec<(nm::MapEdit, legacy::movement::MapEdit)> = vec![
