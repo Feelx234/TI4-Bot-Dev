@@ -491,6 +491,51 @@ fn an_event_a_reaction_emits_inside_another_is_mirrored_after_its_parent_by_the_
     assert_eq!(at(EventKind::ActionCardPlayed), at(EventKind::ProductionUsed) + 1, "the card follows its parent: {typed:?}");
 }
 
+/// The string asks AI Development Algorithm's question INSIDE the step (before it emits `PRODUCTION_USED`) and mirrors its timing log when the step
+/// ends, before the aftermath's own line: `INVASION_BEGAN`, `PRODUCTION_USED`, `INVASION_RESOLVED`. The core had `INVASION_RESOLVED` first (found by
+/// `native_play --shadow`, nomad 4 players: the question is a tape question of the use, and the step that answers it must not flush the line early).
+#[test]
+fn the_production_used_event_follows_a_nested_question_of_the_use_before_the_aftermaths_own_line() {
+    covers!("driver::windows::chain::AftermathChain");
+    use ti4_engine_core::generated::Technology as T;
+    use ti4_engine_core::state::EventKind;
+    let (mut core, k) = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec])
+        .map_from(&[sys()])
+        .active(Some(0))
+        .active_system(sys())
+        .unit(sys(), None, Unit::CarrierI, 0, 1)
+        .unit(sys(), Some(sys().data().planets[0]), Unit::SpaceDockI, 0, 1)
+        .control(sys().data().planets[0], 0)
+        .goods(0, 6)
+        .tokens(0, 3, 3, 2)
+        .tech(0, T::AIDevelopmentAlgorithm)
+        .tech(0, T::CarrierII)
+        .build();
+    let env = env(&k, 3, &[]);
+    let mut a = Aftermath::new(Seat(0), sys(), AStage::Invading, Before::default(), NoteHold::new());
+    a.fight = AFight::Over;
+    a.feats_noted = true;
+    a.holds = true;
+    AftermathChain::new(a).to_pending(&mut core);
+    let (asked, end) = play(&mut core, &env, &mut |c: &Choice| {
+        if matches!(c.ask, Ask::Technology(_)) { c.opts.as_slice().iter().position(|o| *o == Opt::Decline).unwrap_or(0) } else { stop_producing(c) }
+    });
+    assert_eq!(end, Ok(()));
+    assert!(asked.iter().any(|c| matches!(c.ask, Ask::Technology(_))), "AI Development Algorithm asks for the discount");
+    let queue: Vec<String> = core
+        .ledger()
+        .events
+        .iter()
+        .map(|e| match e {
+            Emit::Typed(t) => format!("{:?}", t.kind),
+            Emit::Plain(p) => format!("{:?}", p.kind),
+        })
+        .collect();
+    let at = |name: &str| queue.iter().position(|k| k == name).unwrap_or_else(|| panic!("{name} in {queue:?}"));
+    assert!(at("InvasionBegan") < at(&format!("{:?}", EventKind::ProductionUsed)), "{queue:?}");
+    assert!(at(&format!("{:?}", EventKind::ProductionUsed)) < at("InvasionResolved"), "{queue:?}");
+}
+
 /// A unit built in the step is made (and announced) before `PRODUCTION_RESOLVED`; a clone in the middle of the use continues identically.
 #[test]
 fn a_unit_built_in_the_aftermath_production_step_is_announced_before_it_is_resolved() {

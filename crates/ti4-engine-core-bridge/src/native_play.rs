@@ -260,6 +260,9 @@ pub struct NativeGame {
     chain: String,
     /// A fork (the shadow's lookahead): no trace.
     quiet: bool,
+    /// The last step was a glued one that finished (`glued`: the turn prelude, the strategy announcement): the string runs it together with the next
+    /// step, whose reconcile hooks are not run (the events a prelude question staged are announced at the start of the string's NEXT step).
+    after_glue: bool,
 }
 
 /// The slices a position loads: all, and the map only when the game has a string galaxy.
@@ -318,6 +321,7 @@ impl NativeGame {
             events: Vec::new(),
             chain: String::new(),
             quiet: false,
+            after_glue: false,
         })
     }
 
@@ -350,6 +354,7 @@ impl NativeGame {
             events: self.events.clone(),
             chain: self.chain.clone(),
             quiet: true,
+            after_glue: self.after_glue,
         }
     }
 
@@ -395,6 +400,7 @@ impl NativeGame {
     /// One step of the loop. The position is what it was before the call unless the result is [`Step::Played`].
     pub fn step(&mut self) -> Step {
         let before = self.core.clone();
+        let after_glue = self.after_glue;
         let (codes, factions) = (self.render.codes_snapshot(), self.render.factions.clone());
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.step_inner()));
         let result = result.unwrap_or_else(|p| {
@@ -402,6 +408,7 @@ impl NativeGame {
             Step::Defect(Defect { arm: "?".to_owned(), what: format!("PANIC: {text}") })
         });
         if matches!(result, Step::Gap(_) | Step::Defect(_)) {
+            self.after_glue = after_glue;
             self.core = before;
             self.render = Render::new(self.cx.owners.ids().to_vec()).with_factions(factions).with_codes(codes);
         }
@@ -413,8 +420,8 @@ impl NativeGame {
         let lcx = live::Cx::new(&self.render, &env);
         let mut bot = Bot { seed: self.seed, seats: &self.seats, index: self.decided, asked: Vec::new() };
         let from = self.core.ledger.events.len();
-        // 1. The reconcile hooks every step starts with.
-        for _ in 0..8 {  // mutants:skip (the reconcile job is one window; the bound is defensive)
+        // 1. The reconcile hooks every step starts with (not the second half of a glued pair: the string's step runs on from the prelude).
+        for _ in 0..(if self.after_glue { 0 } else { 8 }) {  // mutants:skip (the reconcile job is one window; the bound is defensive)
             let mut lone = live::LoneCard(&mut bot);
             match live::live_reconcile(&mut self.core, &lcx, &mut lone) {
                 Ok(step) if step.finished => break,  // mutants:skip (the reconcile job is one window; the loop ends on its first call)
@@ -473,6 +480,7 @@ impl NativeGame {
         let one = self.render.sync_codes(&mut self.core.texts.codes);
         debug_assert!(one, "the renderer's code table continues the position's (a text minted into one and not the other would name two things)");
         self.steps += 1;
+        self.after_glue = glued(arm) && out.finished;
         Step::Played(Played { arm, source, asked, events, finished: out.finished })
     }
 
@@ -827,6 +835,9 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 if group.iter().all(|p| p.asked.is_empty()) && !owed.legacy.is_empty() && legacy.options().is_some() {
                     let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
                     let events: Vec<String> = group.iter().flat_map(|p| p.events.iter().cloned()).collect();
+                    if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
+                        eprintln!("  native steps with no legacy step of their own: {arms:?} events {events:?} against the owed legacy events {:?}", owed.legacy);
+                    }
                     if let Some((at, n, l)) = owed.settle(events, Vec::new()) {
                         first_difference = Some(Difference { step: native.steps, arms, what: "events", path: format!("[{at}]"), native: n, legacy: l, known: None });
                         break End::Finished;

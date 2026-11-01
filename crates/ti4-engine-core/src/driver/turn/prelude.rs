@@ -27,7 +27,7 @@ const SPEC_OPS_SURVIVES_ON: u8 = 5;
 const DIE_SIDES: u32 = 10;
 
 /// The events effects staged without a resolver in reach, announced in the order staged (a window may stage more).
-fn announce_staged(sx: &mut Sx<'_>) -> Flow {
+pub(super) fn announce_staged(sx: &mut Sx<'_>) -> Flow {
     // The ground forces an agenda's effect destroyed come first (`hooks_ground::try_announce_staged_events`), then the staged events.
     if crate::driver::agenda::ground::announce(sx) == Flow::Halt {
         return Flow::Halt;
