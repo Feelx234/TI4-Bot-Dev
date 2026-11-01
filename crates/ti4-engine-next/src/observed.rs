@@ -21,6 +21,12 @@ impl<'a> Observed<'a> {
     pub fn new(state: &'a GameState, content: &'a ContentStore, sources: SourceSet, galaxy: Option<&'a Galaxy>) -> Self {
         Self { state, content, sources, galaxy }
     }
+
+    /// The position, content, source scope and map for the crate's own loaders (`seen_load`, the parity tools).
+    /// Not public: the doc of [`Observed`] promises that no method hands a decider the state.
+    pub(crate) const fn parts(&self) -> (&'a GameState, &'a ContentStore, SourceSet, Option<&'a Galaxy>) {
+        (self.state, self.content, self.sources, self.galaxy)
+    }
 }
 
 /// An [`Observed`] bound to one seat (the seat of the choice being asked).

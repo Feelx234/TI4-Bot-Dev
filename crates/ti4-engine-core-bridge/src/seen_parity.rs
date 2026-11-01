@@ -8,8 +8,8 @@
 use std::collections::BTreeSet;
 
 use ti4_engine::choice::SeatObservation;
-use ti4_engine::generated::IdStr;
-use ti4_engine::seen_load::SeenOwned;
+use ti4_engine_legacy::generated::IdStr;
+use ti4_engine_legacy::seen_load::SeenOwned;
 use ti4_engine_core::generated::{Agenda, StrategyCard, System};
 use ti4_engine_core::keys::{Outcome, Prediction};
 use ti4_engine_core::query::economy::Spend as CoreSpend;

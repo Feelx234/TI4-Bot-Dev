@@ -18,3 +18,6 @@ pub fn route_suffix(id: &str) -> Option<(&str, usize)> {
 pub fn route_count(choice: &Choice, option_id: &str) -> usize {
     choice.details.get(ROUTES_DETAIL).and_then(|routes| routes.get(option_id)).and_then(serde_json::Value::as_array).map_or(0, Vec::len)
 }
+
+/// The choice kind for activating a system.
+pub const ACTIVATE_KIND: &str = "activate";

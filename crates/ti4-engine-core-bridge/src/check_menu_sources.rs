@@ -5,7 +5,7 @@
 
 use ti4_content::ContentStore;
 use ti4_engine::choice::ChoiceOption;
-use ti4_engine::generated::IdStr;
+use ti4_engine_legacy::generated::IdStr;
 use ti4_engine_core::generated::StrategyCard;
 use ti4_model::id::{PlayerId, StrategyCardId};
 use ti4_model::state::GameState;

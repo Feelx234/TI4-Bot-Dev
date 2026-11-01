@@ -16,6 +16,13 @@ pub mod wire;
 pub mod ties;
 /// What a decider may see (8b3).
 pub mod observed;
+// The glue (8b2): copies of the legacy modules, cut loose from the string rule modules.
+pub mod core_sync;
+pub mod kernel_sync;
+pub mod live;
+pub mod product;
+pub mod render;
+pub mod seen_load;
 
 // ---- lane B (surface, 8d): constants, queries, previews ----
 

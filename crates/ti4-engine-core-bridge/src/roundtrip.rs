@@ -15,7 +15,7 @@ use std::time::Instant;
 
 use serde_json::Value;
 use ti4_content::galaxy::Galaxy;
-use ti4_engine::core_sync::{Codec, Ctx, Slice, SliceSet, Sources};
+use ti4_engine_legacy::core_sync::{Codec, Ctx, Slice, SliceSet, Sources};
 use ti4_engine_core::state::CoreState;
 use ti4_model::state::GameState;
 
@@ -23,7 +23,7 @@ use ti4_model::state::GameState;
 /// `core_sync::materialize::slice_of_field` (the reverse lend and the footprint audit read it too).
 #[must_use]
 pub fn slice_of_key(key: &str) -> Slice {
-    ti4_engine::core_sync::materialize::slice_of_field(key)
+    ti4_engine_legacy::core_sync::materialize::slice_of_field(key)
 }
 
 /// Mean-cost accumulator of one slice.

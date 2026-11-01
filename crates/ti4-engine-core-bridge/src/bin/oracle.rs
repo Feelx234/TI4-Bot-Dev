@@ -49,8 +49,8 @@ fn take_flag(args: &mut Vec<String>, name: &str) -> Option<String> {
 }
 
 fn main() {
-    ti4_engine::core_sync::unmapped::set_strict_for_gate();
-    ti4_engine::core_sync::unsupported::set_disabled_policy_for_gate();
+    ti4_engine_legacy::core_sync::unmapped::set_strict_for_gate();
+    ti4_engine_legacy::core_sync::unsupported::set_disabled_policy_for_gate();
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let allow_path = take_flag(&mut args, "--allow").unwrap_or_else(|| DEFAULT_PATH.to_owned());
     let list = AllowList::load(&allow_path).unwrap_or_else(|e| fail(&e));
@@ -59,7 +59,7 @@ fn main() {
         merge(&args[1..], &list, rules_version);
     }
     let core = take_flag(&mut args, "--core");
-    let native = take_flag(&mut args, "--native").map(|text| ti4_engine::live::arms::parse(&text).unwrap_or_else(|e| fail(&e)));
+    let native = take_flag(&mut args, "--native").map(|text| ti4_engine_legacy::live::arms::parse(&text).unwrap_or_else(|e| fail(&e)));
     if let Some(arms) = native {
         native_subject::set_native_arms(arms);
     }

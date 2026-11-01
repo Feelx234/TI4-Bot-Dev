@@ -14,7 +14,7 @@
 
 use std::time::Instant;
 
-use ti4_engine::core_sync::{Codec, Ctx, Sources};
+use ti4_engine_legacy::core_sync::{Codec, Ctx, Sources};
 use ti4_engine_core::state::{CoreState, SliceSet};
 use ti4_engine_core_bridge::workload::{Position, golden_positions};
 use ti4_model::state::GameState;

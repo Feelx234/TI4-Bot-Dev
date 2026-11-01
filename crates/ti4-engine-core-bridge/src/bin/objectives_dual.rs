@@ -19,7 +19,7 @@
 use ti4_content::ContentStore;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, Observed, SeatObservation, ask_private};
 use ti4_engine_legacy::dual::{self, Area, AreaMask, Backend};
-use ti4_engine::generated::IdStr;
+use ti4_engine_legacy::generated::IdStr;
 use ti4_engine_legacy::objectives::Imagined;
 use ti4_engine_legacy::objectives_core::{ObjView, scoped};
 use ti4_engine_core::generated::{Attachment, Planet, PublicObjective, SecretObjective, System, Technology};

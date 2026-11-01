@@ -4,8 +4,8 @@
 //! itself. The variants are those of `check_leaders` (every leader unlocked or locked, goods, technologies, exhausted planets...).
 
 use ti4_content::ContentStore;
-use ti4_engine::core_sync::{CoreView, Ctx, Sources};
-use ti4_engine::generated::IdStr;
+use ti4_engine_legacy::core_sync::{CoreView, Ctx, Sources};
+use ti4_engine_legacy::generated::IdStr;
 use ti4_engine_legacy::leaders_view::LeaderView;
 use ti4_engine_legacy::strategy_view::StratView;
 use ti4_engine_core::driver::kernel_env::KernelEnv;
@@ -92,7 +92,7 @@ pub fn check_position(p: &Position, report: &mut EnvReport) {
 pub fn check_variants(p: &Position, variants: Vec<(&'static str, ti4_model::state::GameState)>, report: &mut EnvReport) {
     let content = ContentStore::embedded();
     report.positions += 1;
-    let kernel = ti4_engine::live::kernel::kernel_for(p.sources);
+    let kernel = ti4_engine_legacy::live::kernel::kernel_for(p.sources);
     for (name, g) in variants {
         report.variants += 1;
         let label = format!("{} [{name}]", p.label);

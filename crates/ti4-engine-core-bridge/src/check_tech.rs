@@ -11,7 +11,7 @@ use ti4_engine_legacy::technology as st;
 use ti4_engine_core::generated::{Faction, Technology, UnitBaseType};
 use ti4_engine_core::query::tech::{self as q};
 use ti4_model::id::{PlayerId, TechnologyId};
-use ti4_engine::generated::IdStr;
+use ti4_engine_legacy::generated::IdStr;
 
 use crate::workload::Position;
 

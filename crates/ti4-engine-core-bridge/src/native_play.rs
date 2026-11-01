@@ -26,11 +26,11 @@ use std::rc::Rc;
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use ti4_engine::core_sync::codec::rng::TextSeeds;
-use ti4_engine::core_sync::{materialize, Codec, Ctx, Sources};
+use ti4_engine_legacy::core_sync::codec::rng::TextSeeds;
+use ti4_engine_legacy::core_sync::{materialize, Codec, Ctx, Sources};
 use ti4_engine_legacy::game::Game;
-use ti4_engine::live::{self, arms, Asker, Question, Stop};
-use ti4_engine::render::Render;
+use ti4_engine_legacy::live::{self, arms, Asker, Question, Stop};
+use ti4_engine_legacy::render::Render;
 use ti4_engine_core::driver::live::{is_open, live_arm, LiveError};
 use ti4_engine_core::driver::session::{live_ask_arm, step_arm, Arm, AskArm, Facts};
 use ti4_engine_core::driver::turn::{self, TurnFlowWin};
@@ -466,7 +466,7 @@ impl NativeGame {
             h.update(format!("{}\u{1}{}\u{1}{}", a.player, a.prompt, a.chosen).as_bytes());
             self.chain = hex(&h.finalize());
         }
-        let events = ti4_engine::render::events::pushed_since(&self.render, &self.cx, &self.core, from)
+        let events = ti4_engine_legacy::render::events::pushed_since(&self.render, &self.cx, &self.core, from)
             .map(|lines| lines.into_iter().map(|p| p.text().to_owned()).collect::<Vec<_>>())
             .unwrap_or_else(|| vec!["<a line the tables cannot name>".to_owned()]);
         self.events.extend(events.iter().cloned());
@@ -479,7 +479,7 @@ impl NativeGame {
     /// The final scores `(faction, victory points)` in seat order.
     #[must_use]
     pub fn scores(&self) -> Vec<(String, i16)> {
-        self.core.players().iter().map(|p| (<ti4_engine_core::generated::Faction as ti4_engine::generated::IdStr>::as_str(p.faction).to_owned(), p.econ.victory_points)).collect()
+        self.core.players().iter().map(|p| (<ti4_engine_core::generated::Faction as ti4_engine_legacy::generated::IdStr>::as_str(p.faction).to_owned(), p.econ.victory_points)).collect()
     }
 
     /// The decision chain only (hex): equal for two games that were asked the same questions and answered them the same way.
@@ -995,7 +995,7 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
         // compared by name, in order, and kept out of the position (the position carries only what the codec carries).
         let mut legacy_state = legacy.state_json();
         let legacy_staged = crate::native_subject::strip_staged(&mut legacy_state);
-        let native_staged: Vec<String> = native.core.pending().staged.iter().map(|e| ti4_engine::kernel_sync::text::event_text(&native.render, e.kind)).collect();
+        let native_staged: Vec<String> = native.core.pending().staged.iter().map(|e| ti4_engine_legacy::kernel_sync::text::event_text(&native.render, e.kind)).collect();
         if legacy_staged != native_staged {
             return Some(diff("staged", "pending.staged".to_owned(), format!("{native_staged:?}"), format!("{legacy_staged:?}")));
         }
@@ -1077,7 +1077,7 @@ mod tests {
     use ti4_engine_core::ids::Seat;
     use ti4_engine_core::rules::token_gain::TokenGain;
     use ti4_engine_core::state::{StatusReport, Tokens, TurnJob};
-    use ti4_engine::live::Question;
+    use ti4_engine_legacy::live::Question;
 
     use super::*;
 

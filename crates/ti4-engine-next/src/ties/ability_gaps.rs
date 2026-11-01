@@ -1,0 +1,22 @@
+//! The names of the LOUD gaps of the live path (`ti4_engine_core_factions::silent::gaps::GAPS`): row `i` is the string ability `GAP_IDS[i]` (its id with the
+//! owner's faction left out as `*`). The registry of a native game registers the row for every seat, so the id a row is shown with is the string's with
+//! the owner filled in.
+
+use ti4_engine_core::kernel::ability::Slot;
+
+/// The string ability each row stands for, in the order of the rows.
+pub const GAP_IDS: &[&str] = &[
+];
+
+/// The row a slot belongs to, if it is a gap's.
+pub fn index_of(slot: Slot) -> Option<usize> {
+    let index = usize::from(slot.0.checked_sub(ti4_engine_core_factions::silent::gaps::FIRST_SLOT)?);
+    (index < GAP_IDS.len()).then_some(index)
+}
+
+/// The id row `index` is registered under for the faction called `owner`.
+pub fn display_id(index: usize, owner: &str) -> String {
+    let mut parts: Vec<&str> = GAP_IDS[index].split(':').collect();
+    parts[1] = owner;
+    parts.join(":")
+}

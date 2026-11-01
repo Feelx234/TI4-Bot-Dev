@@ -232,8 +232,8 @@ thread_local! {
 }
 
 fn main() {
-    ti4_engine::core_sync::unmapped::set_strict_for_gate();
-    ti4_engine::core_sync::unsupported::set_disabled_policy_for_gate();
+    ti4_engine_legacy::core_sync::unmapped::set_strict_for_gate();
+    ti4_engine_legacy::core_sync::unsupported::set_disabled_policy_for_gate();
     let o = parse();
     let mask = AreaMask::parse(&o.areas, AreaMask::STRING).unwrap_or_else(|e| {
         eprintln!("{e}");
@@ -258,13 +258,13 @@ fn main() {
     dual::set_fail_fast(false);
     dual::set_default_mask(mask);
     let native = match &o.native {
-        Some(text) => ti4_engine::live::arms::parse(text).unwrap_or_else(|e| {
+        Some(text) => ti4_engine_legacy::live::arms::parse(text).unwrap_or_else(|e| {
             eprintln!("{e}");
             std::process::exit(2)
         }),
-        None => ti4_engine::live::arms::from_env(),
+        None => ti4_engine_legacy::live::arms::from_env(),
     };
-    println!("playthrough: {} games | areas {} | card set {} | starting_tech {} | native arms {:?}", specs.len(), o.areas, o.card_set, o.starting_tech, ti4_engine::live::arms::names(native));
+    println!("playthrough: {} games | areas {} | card set {} | starting_tech {} | native arms {:?}", specs.len(), o.areas, o.card_set, o.starting_tech, ti4_engine_legacy::live::arms::names(native));
     let mut played = Vec::new();
     for spec in &specs {
         let p = play(&o, spec);
@@ -284,7 +284,7 @@ fn main() {
         played.push(p);
     }
     let report = GAME_REPORTS.with(|r| std::mem::take(&mut *r.borrow_mut()));
-    let lent = ti4_engine::product::take_lent();
+    let lent = ti4_engine_legacy::product::take_lent();
     let unfinished = played.iter().filter(|p| !p.finished && !p.capped).count();
     let capped = played.iter().filter(|p| p.capped).count();
     let bailing = played.iter().filter(|p| p.bails > 0).count();
@@ -309,7 +309,7 @@ fn main() {
         println!("{n:9}  {label}");
     }
     println!("---- coverage of the live path (steps run natively, by arm) ----");
-    for (arm, n) in ti4_engine::live::coverage::take() {
+    for (arm, n) in ti4_engine_legacy::live::coverage::take() {
         println!("{n:9}  {arm}");
     }
     // Under TI4_BAIL_IS_FAILURE every counted bail is ALSO a difference (`bail::<label>`): those are the tables above. What is listed here

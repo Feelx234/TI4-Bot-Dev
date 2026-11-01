@@ -17,7 +17,7 @@ use rand::RngCore;
 use rand_chacha::ChaCha8Rng;
 use sha2::{Digest, Sha256};
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation, SeededRandom};
-use ti4_engine::render::Typed;
+use ti4_engine_legacy::render::Typed;
 use ti4_selfplay::spec::{GameSpec, SEATS};
 
 /// Where the typed question of a decision comes from.
@@ -270,7 +270,7 @@ impl Shadow {
     fn check_view(&mut self, seen: &SeatObservation<'_>, subtype: &str, decision: usize) {
         let p = &mut self.report.parity;
         p.positions += 1;
-        match ti4_engine::seen_load::SeenOwned::of(seen.observed()) {
+        match ti4_engine_legacy::seen_load::SeenOwned::of(seen.observed()) {
             Err(e) => *p.unmapped.entry(format!("{:?}: {} [{subtype} #{decision}]", e.slice, e.what)).or_default() += 1,
             Ok(owned) => {
                 let found = crate::seen_parity::check(seen, &owned);

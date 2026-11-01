@@ -38,6 +38,7 @@ string-action-cards = ["ti4-engine-legacy/string-action-cards"]
 string-agenda = ["ti4-engine-legacy/string-agenda"]
 
 [dev-dependencies]
+proptest.workspace = true
 zstd.workspace = true
 
 [lints]

@@ -265,7 +265,7 @@ impl<M: MaskChoice> Subject for MaskSubject<M> {
     }
 
     fn disabled(&self) -> Option<String> {
-        ti4_engine::core_sync::unsupported::find(&self.game.state).map(|d| format!("{d:?}"))
+        ti4_engine_legacy::core_sync::unsupported::find(&self.game.state).map(|d| format!("{d:?}"))
     }
 
     fn decisions_hash(&self) -> String {
