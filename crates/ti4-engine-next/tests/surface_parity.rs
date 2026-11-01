@@ -105,3 +105,51 @@ fn the_movement_queries_answer_as_the_legacy_ones_do() {
     assert!(ships > 50, "only {ships} movable ships compared");
     assert!(routes > 50, "only {routes} routes compared");
 }
+
+#[test]
+fn the_production_queries_answer_as_the_legacy_ones_do() {
+    use thin::queries::production as t;
+    let content = content();
+    let types = ti4_content::units::catalogue(content, ti4_model::content_types::POK);
+    let mut compared = 0_usize;
+    for pos in positions() {
+        let systems: Vec<SystemId> = pos.galaxy.system_ids().into_iter().map(SystemId::new).collect();
+        for player in players(&pos.state) {
+            for (o, n) in [(old::production::Spend::Resources, t::Spend::Resources), (old::production::Spend::Influence, t::Spend::Influence)] {
+                assert_eq!(
+                    old::production::available(&pos.state, content, pos.sources, &player, o),
+                    t::available(&pos.state, content, pos.sources, &player, n),
+                    "{}: available {player} {o:?}",
+                    pos.label
+                );
+            }
+            assert_eq!(old::production::trade_good_worth(&pos.state, &player), t::trade_good_worth(&pos.state, &player), "{}: trade_good_worth {player}", pos.label);
+            for system in &systems {
+                assert_eq!(
+                    old::production::capacity(&pos.state, content, pos.sources, &player, system),
+                    t::capacity(&pos.state, content, pos.sources, &player, system),
+                    "{}: capacity {player} {system}",
+                    pos.label
+                );
+                for unit in old::production::BUILDABLE {
+                    let kind = types.get(unit).expect("a buildable unit");
+                    assert_eq!(
+                        old::production::placements(&pos.state, content, pos.sources, &player, system, kind),
+                        t::placements(&pos.state, content, pos.sources, &player, system, kind),
+                        "{}: placements {player} {system} {unit}",
+                        pos.label
+                    );
+                    compared += 1;
+                }
+            }
+        }
+        let mut with_law = pos.state.clone();
+        with_law.laws.insert("conscription".to_owned(), "for".to_owned());
+        for state in [Some(&pos.state), Some(&with_law), None] {
+            for kind in types.values() {
+                assert_eq!(old::production::price_of_under(state, kind), t::price_of_under(state, kind), "{}: price_of_under {}", pos.label, kind.id());
+            }
+        }
+    }
+    assert!(compared > 1000, "only {compared} placement questions compared");
+}
