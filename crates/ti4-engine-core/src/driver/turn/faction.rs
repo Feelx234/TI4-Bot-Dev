@@ -38,6 +38,12 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, key: u32, action: ComponentAction) -> Flo
         c::FABRICATION_RELIC => fabrication(sx, who, key, FabMode::Relic { bmf: false }),
         c::FABRICATION_TOKEN => fabrication(sx, who, key, FabMode::Token),
         c::BLACK_MARKET_FORGERY => fabrication(sx, who, key, FabMode::Relic { bmf: true }),
+        c::WORMHOLE_GENERATOR => wormhole_generator(sx, who, key),
+        c::C4R_PLACE => c4r_place(sx, who, key),
+        c::C4R_REPAIR => c4r_repair(sx, who, key),
+        c::C4R_DRAW => c4r_draw(sx, who, key),
+        c::TERRAFORM => terraform(sx, who, key, action.arg),
+        c::VORTEX => vortex(sx, who, key),
         // mutants:skip (the key default): every option on the menu has a key
         _ => gap_flow(sx, TurnGap::Menu(MenuGap::Unrouted(super::action::gap_code(&crate::driver::dispatch::Dispatch::Faction(action)), Opt::Faction(action).key().unwrap_or(0)))), // mutants:skip (the key default): every option on the menu has a key
     }
@@ -207,6 +213,99 @@ fn mageon_implants(sx: &mut Sx<'_>, who: Seat, key: u32, target: u16) -> Flow {
     }
     if window.unsupported {
         return gap_flow(sx, TurnGap::NoLink);
+    }
+    conclude_announced(sx, who, key, verdict(window.done))
+}
+
+/// Wormhole Generator (Ghost): place or move a Creuss wormhole token into a system that holds a planet the seat controls or a non-home system holding
+/// no other player's ship. Each token (alpha, then beta) into each such system it is not in, the systems in map order; none without a map.
+fn wormhole_generator(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    use crate::generated::Wormhole;
+    let scope = reach::scope_of(sx.kernel);
+    let mut systems: Vec<(crate::hex::Hex, crate::generated::System)> = Vec::new();
+    if let Some(galaxy) = sx.state.galaxy() {
+        systems = galaxy
+            .in_play()
+            .iter()
+            .filter_map(crate::generated::System::from_index)
+            .filter(|s| !galaxy.is_hyperlane(*s))
+            .filter_map(|s| galaxy.coord_of(s).map(|hex| (hex, s)))
+            .collect();
+        systems.sort_unstable_by_key(|(hex, _)| *hex);
+    }
+    let others_ships = |system: crate::generated::System| {
+        crate::query::board::space_units(sx.state, system).iter().any(|p| p.owner() != who && scope.unit(p.kind()).is_some_and(|d| d.ship))
+    };
+    let open: Vec<crate::generated::System> = systems
+        .iter()
+        .map(|(_, system)| *system)
+        .filter(|system| crate::query::board::controls_a_planet_in(sx.state, *system, who) || (!system.data().home_system && !others_ships(*system)))
+        .collect();
+    let mut destinations = Vec::new();
+    for kind in [Wormhole::Alpha, Wormhole::Beta] {
+        for system in &open {
+            if sx.state.explore().wormhole_tokens.get(&kind) != Some(system) {
+                destinations.push((kind, *system));
+            }
+        }
+    }
+    let mut window = crate::rules::technology_windows::WormholeGenerator::new(who, destinations);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    conclude_announced(sx, who, key, verdict(window.done))
+}
+
+/// Nekro's ???_ERROR_ERROR_???, the PDS: place 1 PDS on a planet the seat controls (the planet is asked when there are several), then exhaust the card.
+fn c4r_place(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    use crate::rules::promissory_windows::{PlaceUnits, Then};
+    let Some(roster) = roster(sx) else { return gap_flow(sx, TurnGap::NoRoster) };
+    let scope = reach::scope_of(sx.kernel);
+    let pds = fx_strategy::placed_unit(sx.state, sx.kernel, scope, roster, who, UnitBaseType::Pds)
+        .filter(|unit| !sx.kernel.hooks.economy.effect_placement_forbidden(sx.state, sx.kernel, who, *unit));
+    let mut window = PlaceUnits::new(who, pds, 1, None, false, scope, crate::state::Code(0), Then::C4rPds); // mutants:skip: a capped placement names the card, not this source
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    conclude_announced(sx, who, key, verdict(window.placed > 0)) // mutants:skip: the menu lists the action only when a PDS has a planet to go on, so `placed` is never 0
+}
+
+/// Nekro's ???_ERROR_ERROR_???, the repair: every damaged unit of the seat is repaired and the card is exhausted.
+fn c4r_repair(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    let done = crate::rules::faction_component::c4r_repair(sx.state, who);
+    conclude_announced(sx, who, key, verdict(done))
+}
+
+/// Nekro's ???_ERROR_ERROR_???, the draw: discard an action card, exhaust the card, draw one (the hand limit is asked after the draw).
+fn c4r_draw(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    let mut window = crate::rules::promissory_windows::C4rDraw::new(who, sx.state.meta().rules_at_least(OFFICIAL_ACTION_DECK));
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    if window.unsupported {
+        return gap_flow(sx, TurnGap::NoLink);
+    }
+    conclude_announced(sx, who, key, verdict(window.done))
+}
+
+/// `ti4_model::state::RULES_OFFICIAL_ACTION_DECK`: from this version the unofficial action cards leave the deck before a draw.
+const OFFICIAL_ACTION_DECK: u32 = 30;
+
+/// Terraform (the Titans promissory note): attach it to the planet the option names.
+fn terraform(sx: &mut Sx<'_>, who: Seat, key: u32, arg: u16) -> Flow {
+    let Some(planet) = crate::generated::Planet::from_index(usize::from(arg)) else { return gap_flow(sx, TurnGap::ReplayDiverged) };
+    // (The menu lists no home planet; the rule reads the flag again.)
+    let home = planet.data().homeworld_of.is_some() || sx.state.players().iter().any(|p| p.home_planets.as_slice().contains(&planet)); // mutants:skip: the menu lists no home planet
+    let done = crate::rules::faction_component::terraform(sx.state, who, planet, home);
+    conclude_announced(sx, who, key, verdict(done))
+}
+
+/// Cabal's Vortex: capture a non-structure unit type of another player next to one of the seat's space docks (the type is asked when there are several).
+fn vortex(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    let neutral = sx.table.facts.plays.as_ref().and_then(|p| p.shared.neutral);
+    let mut window = crate::rules::technology_windows::Vortex::new(who, sx.state.galaxy().is_some(), neutral, reach::scope_of(sx.kernel));
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
     }
     conclude_announced(sx, who, key, verdict(window.done))
 }

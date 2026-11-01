@@ -6,7 +6,7 @@
 //! Maw of Worlds. The adapter side is `ti4-engine/src/render/relic.rs`.
 
 use super::agenda::Shown;
-use crate::generated::{ActionCard, Planet, PublicObjective, Relic, Technology};
+use crate::generated::{ActionCard, Explore, Planet, PublicObjective, Relic, Technology};
 use crate::ids::Seat;
 use crate::state::Code;
 
@@ -30,6 +30,8 @@ pub enum Ask {
     /// "gain which technology" for a source that is no relic (Research Team, an agenda): the source's interned text is the
     /// question's origin (package W13).
     GainTechnologyFrom { source: Code },
+    /// "research which technology with the Enigmatic Device": the exploration card in the play area is the question's origin.
+    DeviceTechnology { card: Explore },
     /// Fabrication, Black Market Forgery: "purge {count} fragment(s) of which type" (the source ability or note is the question's origin).
     FragmentType { count: u8 },
     /// Fabrication: which command pool gains the token.
@@ -72,6 +74,8 @@ pub enum Subtype {
     ChooseTechnology(Relic),
     /// `{source}_choose_technology` of a source that is no relic.
     ChooseTechnologyFrom(Code),
+    /// `enigmatic_device_choose_technology`.
+    DeviceChooseTechnology,
     /// `fragment_type`.
     FragmentType,
     /// `token_pool`.

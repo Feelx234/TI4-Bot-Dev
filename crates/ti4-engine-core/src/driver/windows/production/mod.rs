@@ -178,7 +178,7 @@ impl ProductionMachine {
 }
 
 /// The planet-value swap lasts one use of PRODUCTION (Hegemonic Trade Policy): `production::end_value_swap`.
-fn end_value_swap(core: &mut CoreState) {
+pub(crate) fn end_value_swap(core: &mut CoreState) {
     core.transient_mut().production.value_swapped_planet = None;
     core.marks_mut().tail.edit().remove(&crate::state::MarkKey::ProductionValueSwapSeq());
 }

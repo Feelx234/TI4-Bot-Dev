@@ -128,6 +128,17 @@ fn pay_table(units: &[(Unit, usize)], controlled: bool) -> (Scenario, Planet) {
     (sc, planet)
 }
 
+/// The planet's board entry (the units' entry) is enough to pay with: an uncontrolled planet that holds the seat's infantry still asks.
+#[test]
+fn an_infantry_on_a_planet_nobody_controls_still_asks() {
+    covers!("rules::explore_windows::PayMechOrInfantry");
+    let card = Explore::ALL[0];
+    let (sc, planet) = pay_table(&[(Unit::InfantryI, 2)], false);
+    let mut rig = Rig::new(sc, PayMechOrInfantry::new(Seat(0), card, planet, PayReward::TradeGood));
+    rig.run();
+    assert_eq!(rig.opts(), vec![ex(EOpt::RemoveInfantry), ex(EOpt::KeepInfantry)]);
+}
+
 #[test]
 fn a_mech_on_the_planet_pays_without_a_question_an_infantry_asks_and_nothing_pays_nothing() {
     covers!("rules::explore_windows::PayMechOrInfantry");

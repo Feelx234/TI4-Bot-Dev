@@ -481,7 +481,7 @@ fn menu_body_is_lent(id: &str) -> bool {
     use ti4_engine::generated::IdStr;
     use ti4_engine_core::generated::Leader;
     /// The ids of the faction component actions the core runs (the arms of `driver::turn::faction::run`; keep in step).
-    const ROUTED_FACTION: [&str; 16] = [
+    const ROUTED_FACTION: [&str; 22] = [
         "faction|winnu|lgf",
         "faction|orbital_drop",
         "faction|production_biomes",
@@ -498,6 +498,12 @@ fn menu_body_is_lent(id: &str) -> bool {
         "faction|empyrean|blood_pact",
         "faction|empyrean|dark_pact",
         "faction|yssaril|mi|",
+        "faction|ghost|wg",
+        "faction|nekro|c4r|pds",
+        "faction|nekro|c4r|repair",
+        "faction|nekro|c4r|draw",
+        "faction|titans|terraform|",
+        "faction|cabal|vortex",
     ];
     if let Some(rest) = id.strip_prefix("component|leader|") {
         let (borrowed, alias) = rest.strip_prefix("yssarilagent|").map_or((false, rest), |alias| (true, alias));
@@ -512,7 +518,7 @@ fn menu_body_is_lent(id: &str) -> bool {
     if let Some(alias) = id.strip_prefix("relic|") {
         return !ti4_engine_core::generated::Relic::ALL.iter().any(|r| r.as_str() == alias && ti4_engine_core::driver::turn::relic::routed(*r));
     }
-    (id.starts_with("component|") && !id.starts_with("component|trade|")) || id.starts_with("play_area:")
+    id.starts_with("component|") && !id.starts_with("component|trade|")
 }
 
 /// Take the `private:#staged:event:*` marks out of a position: the `type` of each, in key order.

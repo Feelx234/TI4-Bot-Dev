@@ -17,7 +17,8 @@ use crate::kernel::fx_strategy;
 use crate::kernel::stage::Sx;
 use crate::kernel::turn_codes::{MenuGap, TurnGap};
 use crate::query::{board, reach};
-use crate::rules::leader_windows::{ArmageddonRelay, HacanAgent, Helmsman, LetaniOspha, NekroMalleon, XxchaAgent, XxchaHeroTe};
+use crate::rules::leader_production::{ArborecHero, Umbat};
+use crate::rules::leader_windows::{ArmageddonRelay, HacanAgent, Helmsman, LetaniOspha, NekroMalleon, RiftwalkerMeian, RinHero, SwapFacts, XxchaAgent, XxchaHeroTe};
 use crate::state::{PlainKind, PlainRec};
 
 /// The unit roster of the table's play facts (the forms a seat places).
@@ -30,7 +31,7 @@ fn roster(sx: &Sx<'_>) -> Option<&'static crate::query::tech::UnitRoster> {
 #[must_use]
 pub const fn routed(leader: Leader, borrowed: bool) -> bool {
     if borrowed {
-        return matches!(leader, Leader::GgrocutoRinn | Leader::CarthOfGoldenSands | Leader::LetaniOspha);
+        return matches!(leader, Leader::GgrocutoRinn | Leader::CarthOfGoldenSands | Leader::LetaniOspha | Leader::Umbat);
     }
     matches!(
         leader,
@@ -45,6 +46,17 @@ pub const fn routed(leader: Leader, borrowed: bool) -> bool {
             | Leader::TheHelmsman
             | Leader::GurnoAggero
             | Leader::XxekirGromTe
+            | Leader::Umbat
+            | Leader::LetaniMiasmiala
+            | Leader::RinTheMastersLegacy
+            | Leader::RiftwalkerMeian
+            | Leader::UNITDSGNFLAYESH
+            | Leader::KyverBladeAndKey
+            | Leader::ItFeedsOnCarrion
+            | Leader::HeshAndPrit
+            | Leader::MirikAunSissiri
+            | Leader::ConservatorProcyon
+            | Leader::MathisMathinus
     )
 }
 
@@ -56,6 +68,7 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool)
             Leader::GgrocutoRinn => xxcha_agent(sx, who, key, leader, true),
             Leader::CarthOfGoldenSands => carth(sx, who, key, leader, true),
             Leader::LetaniOspha => letani_ospha(sx, who, key, leader, true),
+            Leader::Umbat => umbat(sx, who, key),
             _ => unrouted(sx, key),
         };
     }
@@ -80,6 +93,17 @@ pub fn run(sx: &mut Sx<'_>, who: Seat, key: u32, leader: Leader, borrowed: bool)
         Leader::TheHelmsman => helmsman(sx, who, key),
         Leader::GurnoAggero => saar_hero(sx, who, key),
         Leader::XxekirGromTe => xxcha_hero_te(sx, who, key),
+        Leader::Umbat => umbat(sx, who, key),
+        Leader::LetaniMiasmiala => miasmiala(sx, who, key),
+        Leader::RinTheMastersLegacy => rin(sx, who, key),
+        Leader::RiftwalkerMeian => riftwalker_meian(sx, who, key),
+        Leader::UNITDSGNFLAYESH => super::hero::flayesh(sx, who, key),
+        Leader::KyverBladeAndKey => super::hero::kyver(sx, who, key),
+        Leader::ItFeedsOnCarrion => super::hero::carrion(sx, who, key),
+        Leader::HeshAndPrit => super::hero::hesh_and_prit(sx, who, key),
+        Leader::MirikAunSissiri => super::hero::flock_migration(sx, who, key),
+        Leader::ConservatorProcyon => super::hero::conservator_procyon(sx, who, key),
+        Leader::MathisMathinus => super::hero::mathis_mathinus(sx, who, key),
         _ => unrouted(sx, key),
     }
 }
@@ -221,4 +245,104 @@ fn xxcha_hero_te(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
         return Flow::Halt;
     }
     hero(sx, who, key, Leader::XxekirGromTe, window.used)
+}
+
+/// Umbat (Muaat agent): a player chosen by the holder produces up to 2 units of cost 4 or less in a system with a war sun or the flagship. Each
+/// player's use has the facts of a production by an ability (`probe::ability_facts`); the end of the use is the string adapter's tail
+/// ([`super::produce::finish_uses`]). The agent is spent once a player was chosen; a copy through Ssruu spends Ssruu (the window knows which text
+/// the seat acts on).
+fn umbat(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    let Some(roster) = roster(sx) else { return gap_flow(sx, TurnGap::NoRoster) };
+    let seats: Vec<Seat> = sx.state.players().iter().map(|p| p.seat).collect();
+    let mut facts = Vec::new();
+    for seat in seats {
+        for system in Umbat::candidates(sx.state, seat) {
+            let Some(use_facts) = crate::rules::production::probe::ability_facts(sx.state, sx.kernel, roster, seat, system, 2, Some(4)) else { return gap_flow(sx, TurnGap::NoRoster) }; // mutants:skip: the ceiling is 4 and no unit costs exactly 5 (halves: 1, 2, 4, 6, 8, 16, 20, 24), so 4 and 5 offer the same units
+            facts.push(use_facts);
+        }
+    }
+    let mut window = Umbat::new(who, facts);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    if window.unsupported {
+        return gap_flow(sx, TurnGap::NoLink);
+    }
+    if let (Some(target), Some(made)) = (window.target, window.made.clone()) {
+        super::produce::finish_uses(sx, target, &[made]);
+    }
+    if super::component::announce_events(sx) == Flow::Halt { // mutants:skip: a halted step is rolled back by the driver whatever the job does after the halt
+        return Flow::Halt;
+    }
+    agent_action(sx, who, key, Leader::Umbat, window.copied, window.used)
+}
+
+/// Letani Miasmiala (Arborec hero): one use of PRODUCTION by an ability in every system holding one of the seat's ground forces, with no limit
+/// on the number of units. Purged when some unit was made.
+fn miasmiala(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    let Some(roster) = roster(sx) else { return gap_flow(sx, TurnGap::NoRoster) };
+    let mut facts = Vec::new();
+    for system in ArborecHero::ground_force_systems(sx.state, who) {
+        let Some(use_facts) = crate::rules::production::probe::ability_facts(sx.state, sx.kernel, roster, who, system, HERO_LIMIT, None) else { return gap_flow(sx, TurnGap::NoRoster) };
+        facts.push(use_facts);
+    }
+    let mut window = ArborecHero::new(who, facts);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    if window.unsupported {
+        return gap_flow(sx, TurnGap::NoLink);
+    }
+    super::produce::finish_uses(sx, who, &window.made);
+    if super::component::announce_events(sx) == Flow::Halt { // mutants:skip: a halted step is rolled back by the driver whatever the job does after the halt
+        return Flow::Halt;
+    }
+    hero(sx, who, key, Leader::LetaniMiasmiala, window.used())
+}
+
+/// The number of units one use of Letani Miasmiala may make: none is set by the card; the purse and the box bound it (`arborec::HERO_LIMIT`).
+const HERO_LIMIT: i64 = 1000;
+
+/// Rin, the Master's Legacy (Jol-Nar hero): each non-unit-upgrade technology may be swapped for one of its colour. The replacements are listed in the order of
+/// the corpus file and the technologies held in the order of their alias text (the string's `BTreeSet` order): both orders are the adapter's tables.
+fn rin(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    let Some(plays) = sx.table.facts.plays.as_ref() else { return gap_flow(sx, TurnGap::NoRoster) };
+    let (alias_order, corpus) = (plays.tech_order, sx.table.codes.agenda.tech_corpus);
+    let mut order = crate::generated::Technology::ALL.to_vec();
+    order.sort_by(|a, b| corpus(*a, *b));
+    let mut by_alias = crate::generated::Technology::ALL.to_vec();
+    by_alias.sort_by(|a, b| alias_order(*a, *b));
+    let mut window = RinHero::new(who, order, by_alias);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    hero(sx, who, key, Leader::RinTheMastersLegacy, window.used)
+}
+
+/// Riftwalker Meian (Ghost hero): swap the positions of two systems that hold a wormhole or the seat's units. The systems the card may not name are the
+/// two Creuss systems, the Wormhole Nexus and the Fracture's; the wormholes are the map's (printed and tokens).
+fn riftwalker_meian(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
+    use crate::bits::SysSet;
+    use crate::generated::System;
+    let scope = reach::scope_of(sx.kernel);
+    let (mut allowed, mut wormholes) = (SysSet::EMPTY, SysSet::EMPTY);
+    let has_map = sx.state.galaxy().is_some();
+    if let Some(galaxy) = sx.state.galaxy() {
+        for system in System::ALL {
+            let excluded = matches!(system, System::CreussGateCreuss | System::CreussCreuss | System::MalliceLockedNexus | System::MalliceNexus)
+                || scope.system(system).is_some_and(|d| d.tile_back == Some(crate::generated::TileBack::Fracture));
+            if excluded {
+                continue;
+            }
+            allowed.insert(system.index());
+            if galaxy.wormhole_kinds(system) != 0 {
+                wormholes.insert(system.index());
+            }
+        }
+    }
+    let mut window = RiftwalkerMeian::new(who, has_map, SwapFacts { allowed, wormholes });
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Flow::Halt;
+    }
+    hero(sx, who, key, Leader::RiftwalkerMeian, window.used)
 }

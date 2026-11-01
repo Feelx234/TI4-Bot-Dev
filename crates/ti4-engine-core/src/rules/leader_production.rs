@@ -225,7 +225,7 @@ impl Umbat {
     }
 
     /// The systems holding a war sun or the flagship of the seat in the space area, in system order.
-    fn candidates(core: &CoreState, who: Seat) -> Vec<System> {
+    pub fn candidates(core: &CoreState, who: Seat) -> Vec<System> {
         let mut found: Vec<System> = core
             .board()
             .systems()

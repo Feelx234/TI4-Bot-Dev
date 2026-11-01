@@ -545,7 +545,7 @@ impl InvasionMachine {
         if let Some(why) = exploring.unsupported() {
             return Err(Why::Exploration(why));
         }
-        if exploring.explored() {
+        if exploring.explored() { // mutants:skip: `report.explored` is read by the string dual adapter's report only (`engine/invasion.rs` `into_report`), no core driver reads it
             self.p.report.explored.push(planet);
         }
         self.advance_control(sx, &planets, usize::from(index))
@@ -564,7 +564,7 @@ impl InvasionMachine {
         if sx.state.players().by_seat(invader).is_some_and(|p| p.tech.owned.contains(Technology::IntegratedEconomy)) {
             return Err(Why::IntegratedEconomy);
         }
-        let infiltrate_fix = sx.state.meta().rules_at_least(1);
+        let infiltrate_fix = sx.state.meta().rules_at_least(1); // mutants:skip: only the latest rules version is played, which is past version 2 as well
         let roster = sx.table.facts.roster.or_else(|| sx.table.facts.plays.as_ref().and_then(|p| p.roster));
         let mut w = ControlGained::new(ControlFacts { invader, system, planet, previous, infiltrate_fix, announce: true }, roster);
         let _ = w.step(sx);

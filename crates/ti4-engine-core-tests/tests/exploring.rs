@@ -352,6 +352,7 @@ fn a_merchant_station_a_mercenary_outfit_and_a_mech_or_infantry_that_pays() {
     let (mut rig, _, _) = quick(spot, ExploreType::Industrial, &[Explore::MerchantStation1]);
     rig.run();
     assert!(rig.is_done());
+    assert!(rig.driver.window.unsupported().is_none(), "the replenish went through: the exploration did not fail");
     assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities, i16::from(Faction::TheArborec.data().commodities));
     // Mercenary Outfit: place one infantry or nothing.
     let make = || {
