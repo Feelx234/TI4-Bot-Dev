@@ -55,7 +55,9 @@ fn the_extra_die_of_a_round_agent_is_not_a_barrage_die() {
     covers!("rules::combat::barrage_plan");
     use ti4_engine_core::generated::Leader;
     use ti4_engine_core::keys::{Atom, DecimalTextOrd, MarkKey, MarkVal};
-    let (mut state, kernel) = arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::DestroyerI, 0, 1).build();
+    let (mut state, mut kernel) = arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::DestroyerI, 0, 1).build();
+    // The live kernel's hook for the round agents' marks (`ti4_engine::live::kernel`); the test kernel has none of the faction hooks.
+    kernel.hooks.direct.borrowed_round_agents_extra_die_for.push(ti4_engine_core_factions::cc_ground::borrowed::query::extra_die_for);
     let plain = barrage_plan(Rd::new(&state, &kernel), Seat(0), sys());
     assert_eq!(plain, vec![BarrageRoll { unit: Some(Unit::DestroyerI), hits_on: 9, dice: 2 }]);
     // The Letnev agent was used by seat 1 on seat 0's destroyer (ordinal 0 of its ships here) in combat round 3.
