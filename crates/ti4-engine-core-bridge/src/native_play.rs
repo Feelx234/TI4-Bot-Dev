@@ -746,6 +746,8 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
     let mut first_difference = None;
     // A step the group's extension ran ahead of the loop and that is not a played one (a gap, a defect, the end).
     let mut carry: Option<Step> = None;
+    // The step in `carry` was held back once so the group before it is compared first.
+    let mut flush_first = false;
     // The events one side is ahead of the other (the string's step goes on into the next arm's first run where the native steps split, and the
     // other way round): they open the events of the next group.
     let mut owed = Owed::default();
@@ -759,11 +761,19 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
         let base = legacy.game().state.clone();
         match carry.take().unwrap_or_else(|| native.step()) {
             Step::Played(p) => {
-                matrix.note_played(&p);
-                let arm = p.arm;
-                group.push(p);
-                if glued(arm) {
-                    continue;
+                // A step that asks nothing and flips the phase (`Arm::Phase`) never joins the questions of a group the legacy step has used up: the string
+                // ends its step at the close of the status phase (after its last answer) and flips the next phase in a step of its own.
+                if opens_a_step_of_its_own(&p, &group, flush_first) {
+                    carry = Some(Step::Played(p));
+                    flush_first = true;
+                } else {
+                    flush_first = false;
+                    matrix.note_played(&p);
+                    let arm = p.arm;
+                    group.push(p);
+                    if glued(arm) {
+                        continue;
+                    }
                 }
                 // A native step that asks nothing while the legacy game already stands at a question: the string ran that stretch in an earlier step
                 // (its events were owed to this one); there is no legacy step to compare it with, its events are owed to the next.
@@ -788,7 +798,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 let mut catch_up = 0; // mutants:skip (the counter only feeds the defensive bound)
                 // (Or the string took a step that did and said nothing -- the scoring window of an event nobody scores, ahead of the phase flip --
                 // where the native loop has a step of its own: the answers are still unused.)
-                while run.records.is_empty() && (!owed.native.is_empty() || run.events.is_empty()) && run.info.error.is_none() && !group.iter().all(|p| p.asked.is_empty()) && catch_up_allowed(catch_up) {
+                while run.records.is_empty() && (!owed.native.is_empty() || run.events.is_empty()) && run.info.error.is_none() && (!group.iter().all(|p| p.asked.is_empty()) || steps_idle(&run, &group)) && catch_up_allowed(catch_up) {
                     let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
                     let _ = (legacy.decisions_since(), legacy.events_since());
                     if let Some((at, n, l)) = owed.settle(Vec::new(), run.events.clone()) {
@@ -804,7 +814,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 let mut used = run.records.len();
                 let mut have: usize = group.iter().map(|p| p.asked.len()).sum();
                 while have < used {
-                    match native.step() {
+                    match carry.take().unwrap_or_else(|| native.step()) {
                         Step::Played(q) => {
                             matrix.note_played(&q);
                             have += q.asked.len();
@@ -820,6 +830,9 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 // string ends its step after a seat's last question of the action and asks the first follower in the NEXT step). They open the next group,
                 // which the next legacy step must open with the same questions (a question the string never asks is a difference there, at the first
                 // question of that step). A step cut in two keeps its events with the later half (the events a native step pushes after its last answer).
+                if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
+                    eprintln!("  group has {have} questions, the legacy step used {used}, carry {}", carry.is_some());
+                }
                 let mut tail = Vec::new();
                 if have > used && used > 0 && run.info.error.is_none() {
                     let mut before = 0;
@@ -839,7 +852,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                         }
                     }
                 }
-                if let Some(d) = compare_run(&mut legacy, &native, &base, &group, &run, &mut owed, !tail.is_empty()) {
+                if let Some(d) = compare_run(&mut legacy, &native, &base, &group, &run, &mut owed, !tail.is_empty() || carry.is_some()) {
                     first_difference = Some(d);
                     break End::Finished;
                 }
@@ -858,6 +871,20 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
     };
     let played = Played1 { end, rounds: native.round(), steps: native.steps, scores: native.scores(), fingerprint: native.fingerprint(), matrix };
     Ok(Shadowed { played, compared, first_difference })
+}
+
+/// Whether the native step `p` (just played) must not join `group`: it flips the phase (or makes the forced last pick of the draft) without a
+/// question while the group still holds answers the legacy step takes (the string's step ends at the close of the status phase / after the
+/// pick that was asked, the next phase begins / the forced pick is made in the following step). Held back
+/// once (`held`), so the group is compared first and `p` opens the next.
+fn opens_a_step_of_its_own(p: &Played, group: &[Played], held: bool) -> bool {
+    !held && (p.arm == Arm::Phase || p.source == Some(AskArm::Draft)) && p.asked.is_empty() && group.iter().any(|q| !q.asked.is_empty())
+}
+
+/// The legacy step did and said nothing (no question, no event, no error) where the native steps of `group` pushed events and asked nothing: the
+/// string's idle step ahead of the phase flip (the scoring window of an event nobody scores); the next legacy step is the one to compare.
+fn steps_idle(run: &LegacyRun, group: &[Played]) -> bool {
+    run.events.is_empty() && group.iter().any(|p| !p.events.is_empty())
 }
 
 /// The events one side has pushed that the other has not, yet (a native step and a legacy step end in different places inside one arm's close).
@@ -960,6 +987,7 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
         eprintln!("  legacy: answered {:?} -> asked {:?}", asked.iter().map(|a| a.chosen.as_str()).collect::<Vec<_>>(), records.iter().map(|r| (r.player.as_str().to_owned(), r.prompt.clone(), r.chosen.clone())).collect::<Vec<_>>());
         eprintln!("  legacy events: {events:?}");
         eprintln!("  native events: {:?}", group.iter().flat_map(|p| p.events.iter()).collect::<Vec<_>>());
+        eprintln!("  native group: {}", group.iter().map(|p| format!("{}[asked {} events {:?}]", p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s))), p.asked.len(), p.events)).collect::<Vec<_>>().join(" + "));
         // The legacy position BEFORE the compared step, for a closer look (`TI4_NATIVE_PLAY_DUMP=<dir>`).
         if let Some(dir) = std::env::var_os("TI4_NATIVE_PLAY_DUMP") && let Ok(json) = serde_json::to_string(base) {
             let _ = std::fs::write(std::path::Path::new(&dir).join(format!("base-{}.json", native.steps)), json);
