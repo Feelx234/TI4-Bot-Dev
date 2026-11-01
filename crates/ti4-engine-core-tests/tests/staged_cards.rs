@@ -102,10 +102,6 @@ fn an_announcement_in_the_middle_of_a_window_is_the_same_as_after_an_event_and_n
     rig2.run();
     let _ = &mut probe;
     assert_eq!(typed(&rig2).len(), before, "nothing staged: nothing announced");
-    // Nothing staged at all: the call announces (and counts) zero.
-    let mut none = Rig::new(Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]), Probe { direct: true, done: false, mode: Mode::Nothing });
-    none.run();
-    assert!(typed(&none).is_empty());
     assert_eq!(rig2.driver.window.count, None);
     let mut none = Rig::from_parts(empty.state.clone(), ti4_engine_core::kernel::Kernel::plain(), Probe { direct: true, done: false, solo: true, count: None });
     none.state.players_mut().by_seat_mut(Seat(1)).unwrap().cards.hand.push(C::Spy);
