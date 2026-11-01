@@ -1130,8 +1130,7 @@ mod tests {
             // The agent (Emissary Taivra) would be offered at the activation of a wormhole system: it is lane M6c's.
             state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("ghostagent"), ti4_model::state::LeaderStatus::Exhausted);
             let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "done_moving", pick];
-            // The `routes` of a move question (the alternatives to a wormhole route) are lane M6c's.
-            let diffs: Vec<String> = lockstep_buying(state.clone(), &hub.galaxy, &script, 0).into_iter().filter(|d| !d.contains("detailsroutes")).collect();
+            let diffs: Vec<String> = lockstep_buying(state.clone(), &hub.galaxy, &script, 0);
             assert!(diffs.is_empty(), "{pick}: {diffs:#?}");
             let fighters = |s: &Side| s.state["board"][target.as_str()]["units"].as_array().map_or(0, |u| u.iter().filter(|x| x["type_id"] == "fighter").count());
             assert_eq!(fighters(&string_run(&state, &hub.galaxy, &script, 0)), usize::from(pick != "decline"), "{pick}");
@@ -1330,15 +1329,15 @@ mod tests {
     #[test]
     fn the_additional_die_of_the_argent_commander_runs_in_the_space_cannon_offense_in_lockstep() {
         let (hub, origin, target, planet) = planet_hub();
-        let (mut offered, mut asked) = (0, 0);
+        let (mut offered, mut asked, mut routed) = (0, 0, 0);
         for seed in 1..=12_u64 {
-            for two_types in [false, true] {
+            for (two_types, ship) in [(false, "carrier"), (true, "carrier"), (false, "cruiser"), (true, "cruiser")] {
                 let mut state = table(&[("a", "sol"), ("b", "argent")]);
                 state.rng_seed = seed;
                 state.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("argentcommander"), ti4_model::state::LeaderStatus::Unlocked);
-                // (A lone carrier, which has one route: a ship with several routes asks a movement question whose route alternatives the native
-                // path does not produce.)
-                crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+                // (A lone carrier has one route; a cruiser from the ring has several, so its movement question lists them in `details.routes`: the
+                // native path produces the same list as the string, the cannon's window after it is compared in the same run.)
+                crate::fixtures::put(&mut state, &origin, ship, &a(), 1);
                 state.system_mut(&target).planet_control.insert(planet.clone(), b());
                 crate::fixtures::put_on_planet(&mut state, &target, &planet, "pds", &b(), 2);
                 if two_types {
@@ -1346,13 +1345,15 @@ mod tests {
                 }
                 let script = [TACTICAL_ACTION_ID, target.as_str(), &mv(&origin, 0), "done_moving"];
                 let diffs: Vec<String> = lockstep(state.clone(), &hub.galaxy, &script).into_iter().collect();
-                assert!(diffs.is_empty(), "seed {seed} two types {two_types}: {diffs:#?}");
+                assert!(diffs.is_empty(), "seed {seed} two types {two_types} {ship}: {diffs:#?}");
                 let side = string_run(&state, &hub.galaxy, &script, 0);
                 offered += side.asked.iter().filter(|q| q.options.iter().any(|o| o.id.contains("argentcommander:UNIT_ABILITY_ROLLED"))).count();
                 asked += side.asked.iter().filter(|q| q.prompt.ends_with("choose a unit to roll 1 additional die")).count();
+                routed += side.asked.iter().filter(|q| q.details.contains_key("routes")).count();
             }
         }
         assert!(offered > 0, "the string never offered the commander in the cannon's window");
         assert!(asked > 0, "the string never asked which PDS rolls the die");
+        assert!(routed > 0, "no movement question of the string listed several routes");
     }
 }

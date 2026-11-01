@@ -285,6 +285,7 @@ mod tests {
             assert_eq!(l.prompt, s.prompt, "question {i}");
             assert_eq!(l.options, s.options, "question {i}: {}", s.prompt);
             assert_eq!(l.context, s.context, "question {i}: {}", s.prompt);
+            assert_eq!(l.details, s.details, "question {i}: {}", s.prompt);
         }
     }
 

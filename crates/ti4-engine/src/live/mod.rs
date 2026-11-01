@@ -18,6 +18,7 @@ pub mod arms;
 pub mod coverage;
 pub mod details;
 pub mod env;
+pub mod explore;
 pub mod kernel;
 pub mod plays;
 pub mod trade;
