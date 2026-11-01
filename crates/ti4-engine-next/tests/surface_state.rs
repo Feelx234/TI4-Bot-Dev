@@ -124,6 +124,10 @@ fn the_value_boosts_answer_as_the_legacy_ones_do() {
     assert!(helios > 20, "only {helios} Helios docks listed");
 }
 
+fn at_faction(faction: &str, what: &str) -> String {
+    format!("{faction}: {what}")
+}
+
 fn dbg<T: std::fmt::Debug>(t: &T) -> String {
     format!("{t:?}")
 }
@@ -367,7 +371,21 @@ fn the_fleet_standing_answers_as_the_legacy_one_does() {
                 }
             }
         }
-        for (label, state) in [("as is", &pos.state), ("fleet regulations", &capped), ("fighter ii", &upgraded), ("stacked", &stacked)] {
+        // Darktalon Treilla's hero: fleet supply is unlimited for the round it was used (and only that round).
+        let mut unlimited = stacked.clone();
+        let mut other_round = stacked.clone();
+        for p in &mut unlimited.players {
+            p.fleet_supply_unlimited_until = Some(pos.state.round);
+        }
+        for p in &mut other_round.players {
+            p.fleet_supply_unlimited_until = Some(pos.state.round + 1);
+        }
+        for player in players(&unlimited) {
+            assert!(thin::queries::fleet::is_unlimited(&unlimited, &player) && !thin::queries::fleet::is_unlimited(&other_round, &player));
+            assert_eq!(old::fleet::is_unlimited(&unlimited, &player), thin::queries::fleet::is_unlimited(&unlimited, &player));
+            assert_eq!(old::fleet::is_unlimited(&other_round, &player), thin::queries::fleet::is_unlimited(&other_round, &player));
+        }
+        for (label, state) in [("as is", &pos.state), ("fleet regulations", &capped), ("fighter ii", &upgraded), ("stacked", &stacked), ("unlimited fleet supply", &unlimited), ("unlimited next round", &other_round)] {
             for player in players(state) {
                 for system in systems_of(&pos) {
                     let a = old::fleet::standing(state, content, pos.sources, &player, &system, None);
@@ -501,6 +519,12 @@ fn the_card_and_value_reads_answer_as_the_legacy_ones_do() {
             peek.faction_marks.insert(old::action_cards::insider_peek_key(&player), peek.agenda_deck.iter().take(3).map(String::as_str).collect::<Vec<_>>().join(","));
             let mut stale = peek.clone();
             stale.agenda_deck.rotate_left(1);
+            // A deck of exactly the three cards seen: the peek is still the whole deck.
+            let mut whole = peek.clone();
+            whole.agenda_deck.truncate(3);
+            whole.faction_marks.insert(old::action_cards::insider_peek_key(&player), whole.agenda_deck.join(","));
+            assert_eq!(old::action_cards::insider_peek(&whole, &player), thin::queries::action_cards::insider_peek(&whole, &player), "{}: insider_peek of a deck of three", pos.label);
+            assert_eq!(thin::queries::action_cards::insider_peek(&whole, &player).len(), 3);
             for (label, state) in [("as is", &pos.state), ("sanctions", &sanctions)] {
                 assert_eq!(old::action_cards::hand_limit(state, content, &player), thin::queries::action_cards::hand_limit(state, content, &player), "{}: hand_limit {player} ({label})", pos.label);
             }
@@ -578,16 +602,46 @@ fn every_lobby_faction_answers_as_the_legacy_one_does() {
     let content = content();
     let sources = ti4_model::content_types::POK;
     let key = |units: &[ti4_model::units::Unit]| units.iter().map(|u| format!("{} {} {} {}", u.type_id, u.owner, u.sustained_damage, u.galvanized)).collect::<Vec<_>>();
-    let (mut tables, mut guns, mut bombarded, mut abilities_held) = (0_usize, 0_usize, 0_usize, 0_usize);
+    let (mut tables, mut guns, mut bombarded, mut abilities_held, mut unshielded) = (0_usize, 0_usize, 0_usize, 0_usize, 0_usize);
     for (n, faction) in old::seating::LOBBY_FACTIONS.iter().enumerate() {
         let (state, galaxy) = armed_table(faction, 3 + n as u64);
         let ids = players(&state);
+        // Without the war sun: the shields of the second seat's PDS then fall to the commander (L1Z1X), Arc Secundus (Letnev) or nobody.
+        let mut no_sun = state.clone();
+        for board in no_sun.board.values_mut() {
+            board.units.retain(|unit| unit.type_id.as_str() != "warsun");
+        }
+        for player in &ids {
+            for (system, board) in &no_sun.board {
+                for planet in board.planet_control.keys() {
+                    let (a, b) = (old::invasion::bombardable(&no_sun, content, sources, system, planet, player), thin::queries::invasion::bombardable(&no_sun, content, sources, system, planet, player));
+                    assert_eq!(a, b, "{}", at_faction(faction, &format!("bombardable without a war sun {player} {planet}")));
+                    unshielded += usize::from(a);
+                }
+            }
+        }
+        if *faction == "l1z1x" {
+            // The one table where the commander is the whole answer: a shielded planet is bombardable by the L1Z1X seat (its commander is unlocked)
+            // and by nobody else at the table.
+            let (system, planet) = no_sun.board.iter().find_map(|(id, b)| b.planet_units.iter().find(|(_, units)| units.iter().any(|u| u.type_id.as_str() == "pds2")).map(|(p, _)| (id.clone(), p.clone()))).expect("the shielded planet");
+            assert!(thin::queries::invasion::bombardable(&no_sun, content, sources, &system, &planet, &ids[0]), "the L1Z1X commander strips the shield");
+            assert!(!thin::queries::invasion::bombardable(&no_sun, content, sources, &system, &planet, &ids[2]), "another seat cannot bombard a shielded planet");
+        }
+        if *faction == "mahact" {
+            // Hubris: nobody gives the Mahact an Alliance note.
+            assert!(!thin::queries::promissory::may_receive(&state, &ids[0], "an:sol"));
+            assert!(thin::queries::promissory::may_receive(&state, &ids[1], "an:sol"));
+            assert!(thin::queries::promissory::may_receive(&state, &ids[0], "ms:sol"));
+        }
         let all_abilities: Vec<String> = ti4_content::factions::get(content, faction).map(|f| f.abilities().iter().map(|a| (*a).to_owned()).collect()).unwrap_or_default();
         let at = |what: &str| format!("{faction}: {what}");
         for player in &ids {
             assert_eq!(dbg(&old::production::buildable_for(&state, content, sources, player)), dbg(&thin::queries::production::buildable_for(&state, content, sources, player)), "{}", at(&format!("buildable_for {player}")));
             assert_eq!(old::factions::hooks_economy::production_cost_reduction(&state, player, &SystemId::new("17")), thin::queries::factions::production_cost_reduction(&state, player, &SystemId::new("17")), "{}", at("production_cost_reduction"));
             assert_eq!(old::action_cards::hand_limit(&state, content, player), thin::queries::action_cards::hand_limit(&state, content, player), "{}", at("hand_limit"));
+            for note in ["an:sol", "an:mahact", "ms:sol", "an", "plain"] {
+                assert_eq!(old::promissory::may_receive(&state, player, note), thin::queries::promissory::may_receive(&state, player, note), "{}", at(&format!("may_receive {player} {note}")));
+            }
             assert_eq!(old::factions::mahact::fleet_pool_owners(&state, player), thin::queries::factions::fleet_pool_owners(&state, player), "{}", at("fleet_pool_owners"));
             for ability in &all_abilities {
                 let (a, b) = (old::faction_abilities::has(&state, content, player, ability), thin::queries::faction_abilities::has(&state, content, player, ability));
@@ -623,23 +677,33 @@ fn every_lobby_faction_answers_as_the_legacy_one_does() {
         tables += 1;
     }
     assert_eq!(tables, 24);
-    assert!(guns > 100 && bombarded > 20 && abilities_held > 30, "guns {guns}, bombardable {bombarded}, abilities held {abilities_held}");
+    assert!(guns > 100 && bombarded > 20 && abilities_held > 30 && unshielded > 5, "guns {guns}, bombardable {bombarded}, abilities held {abilities_held}, bombardable without a war sun {unshielded}");
 }
 
 #[test]
 fn who_can_reach_answers_as_the_legacy_one_does() {
     let content = content();
-    let (mut rows, mut boosted) = (0_usize, 0_usize);
+    let (mut rows, mut boosted, mut damaged) = (0_usize, 0_usize, 0_usize);
     for pos in positions() {
-        for destination in systems_of(&pos) {
-            let a = old::reach_query::who_can_reach(&pos.state, content, pos.sources, &pos.galaxy, &destination);
-            let b = thin::queries::reach_query::who_can_reach(&pos.state, content, pos.sources, &pos.galaxy, &destination);
-            assert_eq!(serde_json::to_string(&a).unwrap(), serde_json::to_string(&b).unwrap(), "{}: who_can_reach {destination}", pos.label);
-            rows += a.len();
-            boosted += a.iter().flat_map(|o| o.ships.iter()).filter(|s| s.gravity_drive > 0 || s.ionian > 0).count();
+        // Also the position with every ship damaged (a sustained ship still moves, and is counted as damaged).
+        let mut hurt = pos.state.clone();
+        for board in hurt.board.values_mut() {
+            for unit in &mut board.units {
+                unit.sustained_damage = true;
+            }
+        }
+        for (label, state) in [("as is", &pos.state), ("all damaged", &hurt)] {
+            for destination in systems_of(&pos) {
+                let a = old::reach_query::who_can_reach(state, content, pos.sources, &pos.galaxy, &destination);
+                let b = thin::queries::reach_query::who_can_reach(state, content, pos.sources, &pos.galaxy, &destination);
+                assert_eq!(serde_json::to_string(&a).unwrap(), serde_json::to_string(&b).unwrap(), "{}: who_can_reach {destination} ({label})", pos.label);
+                rows += a.len();
+                boosted += a.iter().flat_map(|o| o.ships.iter()).filter(|s| s.gravity_drive > 0 || s.ionian > 0).count();
+                damaged += a.iter().flat_map(|o| o.ships.iter()).map(|s| s.damaged as usize).sum::<usize>();
+            }
         }
     }
-    assert!(rows > 300, "only {rows} origins compared ({boosted} with a boost)");
+    assert!(rows > 300 && damaged > 100, "only {rows} origins compared ({boosted} with a boost, {damaged} damaged ships)");
 }
 
 #[test]
@@ -739,4 +803,54 @@ fn the_effective_move_value_answers_as_the_legacy_one_does() {
         }
     }
     assert!(compared > 2000, "only {compared} ship values compared");
+}
+
+#[test]
+fn a_leaked_secret_is_scoreable_as_a_public_objective_as_the_legacy_one_says() {
+    // Classified Document Leaks puts a secret objective among the revealed ones, where anybody whose position meets it may score it.
+    let content = content();
+    let aliases: Vec<String> = content.records(ti4_model::content_types::ContentType::SecretObjectives).iter().filter_map(|r| r.text("alias").map(ToOwned::to_owned)).collect();
+    let (mut scoreable, mut counted) = (0_usize, 0_usize);
+    for pos in positions().into_iter().take(8) {
+        for alias in &aliases {
+            let mut state = pos.state.clone();
+            state.revealed_objectives = vec![ti4_model::id::ObjectiveId::new(alias.as_str())];
+            for player in players(&state) {
+                for galaxy in [None, Some(&pos.galaxy)] {
+                    let (a, b) = (old::objectives::scoreable_on(&state, content, pos.sources, &player, galaxy), thin::queries::objectives::scoreable_on(&state, content, pos.sources, &player, galaxy));
+                    assert_eq!(a, b, "{}: scoreable_on {player} with {alias} revealed", pos.label);
+                    scoreable += usize::from(!a.is_empty());
+                    let (o, t) = (old::choice::Observed::new(&state, content, pos.sources, galaxy), thin::observed::Observed::new(&state, content, pos.sources, galaxy));
+                    assert_eq!(o.scoreable_public(&player), t.scoreable_public(&player), "{}: scoreable_public {player} with {alias} revealed", pos.label);
+                    counted += o.scoreable_public(&player);
+                }
+            }
+        }
+    }
+    assert!(scoreable > 20 && counted > 20, "scoreable_on {scoreable}, scoreable_public {counted}");
+}
+
+#[test]
+fn laws_order_blanks_the_laws_only_in_the_action_phase_of_its_turn() {
+    use ti4_model::state::Phase;
+    let mut blanked_runs = 0_usize;
+    for pos in positions().into_iter().take(4) {
+        for phase in [Phase::Strategy, Phase::Action, Phase::Status, Phase::Agenda] {
+            for (label, mark) in [("no mark", None), ("this turn", Some(pos.state.turn_seq.to_string())), ("another turn", Some((pos.state.turn_seq + 1).to_string()))] {
+                let mut state = pos.state.clone();
+                state.phase = phase;
+                state.laws.insert("conscription".to_owned(), String::new());
+                state.laws.insert("regulations".to_owned(), String::new());
+                if let Some(mark) = mark {
+                    state.faction_marks.insert("keleres|laws_blank".to_owned(), mark);
+                }
+                assert_eq!(old::laws::blanked(&state), thin::queries::laws::blanked(&state), "{}: blanked in {phase:?} ({label})", pos.label);
+                assert_eq!(old::laws::active(&state, "conscription"), thin::queries::laws::active(&state, "conscription"), "{}: active in {phase:?} ({label})", pos.label);
+                assert_eq!(old::laws::single_unit_production(&state), thin::queries::laws::single_unit_production(&state));
+                assert_eq!(old::laws::fleet_pool_cap(&state, 6), thin::queries::laws::fleet_pool_cap(&state, 6));
+                blanked_runs += usize::from(thin::queries::laws::blanked(&state));
+            }
+        }
+    }
+    assert!(blanked_runs >= 4, "only {blanked_runs} blanked states");
 }

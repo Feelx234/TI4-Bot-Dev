@@ -1,5 +1,7 @@
 # D2-8 lane B resume: the surface (8d)
 
+> Continued by `docs/D28B2_RESUME.md` (lane B2): the objectives family, the production tail, the state queries, the `ties` collapse and `tools/engine_core/surface_paths.py` are done there; the list "What remains of lane B" below is the state at 03e6f974b.
+
 Branch `core-d28b-surface`, cut from `core-d28a-types` (f2ef551e3). Pure refactor: no `RULES_VERSION`, serde, fixture, fingerprint or wire-TS change. No push; the live branch was not touched. Files written: `crates/ti4-engine-next/src/{kinds.rs, queries/*}`, the lane-B section of `lib.rs`, `tests/{surface_parity.rs, surface_common/mod.rs}`, small edits in lane A's `ties/*` (constants now `pub use crate::kinds::...`), `observed.rs` and `tests/observed_parity.rs` (see below), one dev-dependency (`ti4-host`) in the thin `Cargo.toml` for the tests.
 
 ## Design (how a native item is made)
