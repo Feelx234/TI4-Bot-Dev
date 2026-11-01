@@ -210,7 +210,7 @@ fn jae_mir_kan_table(suite: bool) -> GameState {
 #[test]
 fn jae_mir_kan_while_the_nomad_holds_the_suite_runs_like_the_string_and_tells_the_suite() {
     let state = jae_mir_kan_table(true);
-    let (string, native) = both(&state, "pok5trade", &["follow|waived|0|agent|18", "no", "no"]);
+    let (string, native) = both(&state, "pok5trade", &["follow|waived|0|agent|18", "decline", "no", "no"]);
     assert_same(&string, &native);
     assert!(has(&string, "STRATEGIC_ACTION_COMPLETE") && has(&string, "STRATEGY_SECONDARY_FOLLOWED"), "{:?}", string.events);
     assert_eq!(string.staged, ["AGENT_EXHAUSTED"], "the suite is told");
@@ -221,7 +221,7 @@ fn jae_mir_kan_while_the_nomad_holds_the_suite_runs_like_the_string_and_tells_th
 #[test]
 fn jae_mir_kan_with_a_nomad_that_lacks_the_suite_stages_nothing_like_the_string() {
     let state = jae_mir_kan_table(false);
-    let (string, native) = both(&state, "pok5trade", &["follow|waived|0|agent|18", "no", "no"]);
+    let (string, native) = both(&state, "pok5trade", &["follow|waived|0|agent|18", "decline", "no", "no"]);
     assert_same(&string, &native);
     assert!(string.staged.is_empty() && native.staged.is_empty(), "{:?} {:?}", string.staged, native.staged);
 }
