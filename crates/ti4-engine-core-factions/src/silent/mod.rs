@@ -32,10 +32,11 @@ pub fn register_abilities(t: &mut AbilityTable) {
     muaat::register_abilities(t);
     naaz::register_abilities(t);
     scavenge::register_abilities(t);
+    g3::register_saar(t);
+    g3::register_abilities(t);
     winnu::register_abilities(t);
     sol::register_last(t);
     empyrean::register_last(t);
-    g3::register_abilities(t);
 }
 
 /// Pillage, before the movement package: the Nomad's Artuno shares `TRADE_GOODS_GAINED` with it and the Mentak module comes first in the string.

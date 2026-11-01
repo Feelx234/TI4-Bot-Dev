@@ -14,7 +14,7 @@ use crate::cd_registry::yin::timing::placed_form_overridden;
 use crate::common::scope;
 
 /// `leader:*:solcommander:GROUND_COMBAT_STARTED:after`.
-pub const CLAIRE_GIBSON: Slot = Slot(42_060);
+pub const CLAIRE_GIBSON: Slot = Slot(43_060);
 
 fn claire_when(c: &CondCx<'_>) -> bool {
     let me = c.def.owner;

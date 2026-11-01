@@ -24,11 +24,11 @@ use ti4_engine_core::state::{CoreState, EDeck, EventKind, Key, LeaderStatus};
 use crate::common::scope;
 
 /// `leader:*:naazagent:TURN_PASSED:after`.
-pub const AGENT: Slot = Slot(42_070);
+pub const AGENT: Slot = Slot(43_070);
 /// `leader:*:naazcommander:PLANET_CONTROL_GAINED:after`.
-pub const COMMANDER: Slot = Slot(42_071);
+pub const COMMANDER: Slot = Slot(43_071);
 /// Ssruu copying Garv and Gunn (`leader:{lender faction}:{lender}:yssarilagent:naazagent:TURN_PASSED:after`).
-pub const AGENT_COPY: Slot = Slot(42_072);
+pub const AGENT_COPY: Slot = Slot(43_072);
 
 /// The most steps one exploration takes on the tape (its questions are few and short).
 const STEPS: u8 = 32;

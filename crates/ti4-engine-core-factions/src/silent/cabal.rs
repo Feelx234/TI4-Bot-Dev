@@ -19,7 +19,7 @@ use crate::cd_registry::yin::timing::placed_form;
 use crate::common::scope;
 
 /// `leader:*:cabalagent:COMMODITIES_REPLENISHED:after`.
-pub const STILLNESS: Slot = Slot(42_050);
+pub const STILLNESS: Slot = Slot(43_050);
 
 /// The base types the agent looks at, in the string's order.
 const BASES: [UnitBaseType; 11] = [

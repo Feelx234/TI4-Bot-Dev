@@ -11,9 +11,9 @@ use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::state::{EventKind, Key, LeaderStatus, List};
 
 /// `leader:*:muaatcommander:STRATEGY_TOKEN_SPENT:after`.
-pub const MAGMUS: Slot = Slot(42_020);
+pub const MAGMUS: Slot = Slot(43_020);
 /// `leader:*:muaatcommander_unlock:UNITS_PRODUCED:after`.
-pub const UNLOCK: Slot = Slot(42_021);
+pub const UNLOCK: Slot = Slot(43_021);
 
 fn magmus_when(c: &CondCx<'_>) -> bool {
     c.event.payload.seat(Key::Player) == Some(c.def.owner) && ti4_engine_core::query::leaders::has_commander_ability_in(c.state, c.def.owner, Leader::Magmus)

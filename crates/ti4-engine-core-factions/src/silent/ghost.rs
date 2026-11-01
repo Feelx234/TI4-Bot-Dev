@@ -21,9 +21,9 @@ use crate::cd_registry::yin::timing::placed_form_overridden;
 use crate::common::{mark, num, scope};
 
 /// `leader:*:ghostcommander:SHIP_MOVED:after`.
-pub const MOVED: Slot = Slot(42_030);
+pub const MOVED: Slot = Slot(43_030);
 /// `leader:*:ghostcommander:MOVEMENT_FINISHED:after`.
-pub const FINISHED: Slot = Slot(42_031);
+pub const FINISHED: Slot = Slot(43_031);
 
 fn key(s: &CoreState, owner: Seat) -> MarkKey {
     MarkKey::PrivateGhostCommander(owner, DecimalTextOrd(s.meta().activation_seq))

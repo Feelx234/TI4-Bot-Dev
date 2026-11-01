@@ -23,11 +23,11 @@ use ti4_engine_core::state::{CoreState, EventKind, EventRec, Key, LeaderStatus, 
 use crate::common::scope;
 
 /// `leader:*:empyreanagent:MOVEMENT_FINISHED:after`.
-pub const ACAMAR: Slot = Slot(42_040);
+pub const ACAMAR: Slot = Slot(43_040);
 /// `technology:*:vw:MOVEMENT_FINISHED:after`.
-pub const VOIDWATCH: Slot = Slot(42_041);
+pub const VOIDWATCH: Slot = Slot(43_041);
 /// `leader:*:empyreancommander:SHIP_MOVED:after`.
-pub const XUANGE: Slot = Slot(42_042);
+pub const XUANGE: Slot = Slot(43_042);
 
 // -- Acamar ----------------------------------------------------------------------------------------------------------------------
 

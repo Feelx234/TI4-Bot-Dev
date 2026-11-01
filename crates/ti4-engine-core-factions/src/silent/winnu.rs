@@ -28,19 +28,19 @@ use crate::cd_registry::yin::timing::placed_form_overridden;
 use crate::common::{is_faction, mark, rec, scope};
 
 /// `ability:*:reclamation_mark:PLANET_CONTROL_GAINED:after`.
-pub const RECLAMATION_MARK: Slot = Slot(42_001);
+pub const RECLAMATION_MARK: Slot = Slot(43_001);
 /// `ability:*:reclamation_clear:TURN_BEGAN:after`.
-pub const RECLAMATION_CLEAR: Slot = Slot(42_002);
+pub const RECLAMATION_CLEAR: Slot = Slot(43_002);
 /// `ability:*:reclamation:ACTION_COMPLETED:after`.
-pub const RECLAMATION: Slot = Slot(42_003);
+pub const RECLAMATION: Slot = Slot(43_003);
 /// `unit:*:winnu_mech:ACTION_COMPLETED:after`.
-pub const RECLAIMER: Slot = Slot(42_004);
+pub const RECLAIMER: Slot = Slot(43_004);
 /// `technology:*:htp:PRODUCTION_USED:after`.
-pub const HTP: Slot = Slot(42_005);
+pub const HTP: Slot = Slot(43_005);
 /// `leader:*:winnuagent:PRODUCTION_USED:after`.
-pub const AGENT: Slot = Slot(42_006);
+pub const AGENT: Slot = Slot(43_006);
 /// Ssruu copying Berekar Berekon (`leader:{lender faction}:{lender}:yssarilagent:winnuagent:PRODUCTION_USED:after`).
-pub const AGENT_COPY: Slot = Slot(42_007);
+pub const AGENT_COPY: Slot = Slot(43_007);
 
 fn is_winnu(s: &CoreState, who: Seat) -> bool {
     is_faction(s, who, Faction::TheWinnu)
