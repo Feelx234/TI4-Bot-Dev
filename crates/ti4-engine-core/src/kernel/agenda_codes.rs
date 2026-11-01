@@ -1,6 +1,8 @@
 //! The texts the agenda phase (lane D, `driver::agenda`) names that the core holds as interned codes, and the closed list of the places
 //! the live agenda phase cannot follow the string yet. The adapter interns the texts once per game (`reactions_core::set_table_codes`).
 
+use crate::generated::Leader;
+use crate::keys::{ActionCardCause, DestroyReason};
 use crate::state::Code;
 
 /// The interned texts of the agenda phase.
@@ -32,7 +34,18 @@ pub struct AgendaCodes {
     pub tech_corpus: fn(crate::generated::Technology, crate::generated::Technology) -> core::cmp::Ordering,
     /// The cause `agenda:<alias>` of a ground force an agenda's effect destroyed, by the agenda's index in `Agenda::ALL`.
     pub ground_cause: [Code; GROUND_CAUSES],
+    /// The cause text of the ground forces other effects destroyed and left staged ([`GROUND_OTHER`], by position): the next flush announces them
+    /// too, in the order staged (`hooks_ground::try_announce_staged_events` announces every staged row, whatever its cause).
+    pub ground_other: [Code; GROUND_OTHER.len()],
 }
+
+/// The causes besides an agenda's that stage a ground force: Plague and Unstable Planet, Nova Seed, and the Nekro hero.
+pub const GROUND_OTHER: [DestroyReason; 4] = [
+    DestroyReason::ActionCard(ActionCardCause::Plague),
+    DestroyReason::ActionCard(ActionCardCause::UnstablePlanet),
+    DestroyReason::NovaSeed,
+    DestroyReason::LeaderBare(Leader::UNITDSGNFLAYESH),
+];
 
 /// Room for every agenda (`Agenda::COUNT` is 63).
 pub const GROUND_CAUSES: usize = 64;
@@ -54,6 +67,7 @@ impl Default for AgendaCodes {
             grant: Code(0),
             tech_corpus: |a, b| a.cmp(&b),
             ground_cause: [Code(0); GROUND_CAUSES],
+            ground_other: [Code(0); GROUND_OTHER.len()],
         }
     }
 }
