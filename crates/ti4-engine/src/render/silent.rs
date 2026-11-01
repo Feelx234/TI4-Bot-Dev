@@ -21,6 +21,7 @@ pub(super) fn prompt(r: &Render, a: &Ask) -> String {
         Ask::Voidwatch => "Voidwatch: which promissory note to give".to_owned(),
         Ask::Stillness => "The Stillness of Stars: which unit do you capture".to_owned(),
         Ask::NaazAgent | Ask::NaazCopy => "Garv and Gunn: explore which of your planets".to_owned(),
+        Ask::T(t) => super::silent3::prompt(r, t),
     }
 }
 
@@ -37,6 +38,7 @@ pub(super) fn subtype(s: &Subtype) -> String {
         Subtype::Stillness => "stillness_target",
         Subtype::NaazAgent => "agent_planet",
         Subtype::NaazCopy => "borrowed_agent_planet",
+        Subtype::T(t) => return super::silent3::subtype(t),
     }
     .to_owned()
 }
@@ -85,6 +87,7 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
             let name = ti4_content::galaxy::planet(content, planet.as_str(), ti4_model::content_types::FULL).and_then(|record| record.name()).unwrap_or(planet.as_str());
             ChoiceOption::labelled(planet.as_str(), "planet", format!("explore {name}"))
         }
+        (Ask::T(a), Opt::T(o)) => super::silent3::option(r, a, o),
         _ => panic!("option {o:?} in the question {a:?}"),
     }
 }
@@ -92,6 +95,7 @@ pub(super) fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
 pub(super) fn parse(r: &Render, a: &Ask, id: &str) -> Option<ROpt> {
     use ti4_engine_core::generated::{Planet, System};
     match a {
+        Ask::T(t) => super::silent3::parse(r, t, id),
         Ask::Landing(_) => <Planet as IdStr>::from_id(id).map(|p| ROpt::G(Opt::Planet(p))),
         Ask::NaazAgent | Ask::NaazCopy => <Planet as IdStr>::from_id(id).map(|p| ROpt::G(Opt::Explore(p))),
         Ask::Pillage => {

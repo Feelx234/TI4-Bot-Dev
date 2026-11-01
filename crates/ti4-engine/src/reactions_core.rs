@@ -29,6 +29,9 @@ struct Named {
     card: &'static str,
 }
 
+/// The texts the rules of `silent::g3` name in their questions (`silent::g3::code`, the same places); unused places hold a placeholder.
+const G3_CODE_TEXTS: [&str; 16] = ["nekro_flagship", "technology:exo2", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused", "g3_unused"];
+
 /// The ported rules with a card key, in table order (the per-owner registration order of `reactions::arm`).
 const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::cb_economy::argent::timing::AGENT, kind: "leader", card: "argentagent" },
@@ -127,6 +130,24 @@ const NAMED: &[Named] = &[
     Named { slot: cabal::CLEAR_SPACE, kind: "ability", card: "devour_clear" },
     Named { slot: cabal::MARK_GROUND, kind: "ability", card: "devour_mark" },
     Named { slot: cabal::CLEAR_GROUND, kind: "ability", card: "devour_clear" },
+    Named { slot: ti4_engine_core_factions::silent::g3::zeta::ZETA, kind: "unit", card: "saar_mech" },
+    Named { slot: ti4_engine_core_factions::silent::g3::ragh::RAGH, kind: "promissory", card: "ragh" },
+    Named { slot: ti4_engine_core_factions::silent::g3::alastor::ALASTOR, kind: "unit", card: "nekro_flagship" },
+    Named { slot: ti4_engine_core_factions::silent::g3::exo2::EXO2, kind: "technology", card: "exo2" },
+    Named { slot: ti4_engine_core_factions::silent::g3::zeu::ZEU, kind: "leader", card: "naaluagent-te" },
+    Named { slot: ti4_engine_core_factions::silent::g3::nekro_commander::ACIDOS, kind: "leader", card: "nekrocommander" },
+    Named { slot: ti4_engine_core_factions::silent::g3::suffi_an::SUFFI_AN, kind: "leader", card: "mentakagent" },
+    Named { slot: ti4_engine_core_factions::silent::g3::mentak_commander::SULA, kind: "leader", card: "mentakcommander" },
+    Named { slot: ti4_engine_core_factions::silent::g3::bio::BIO, kind: "technology", card: "bio" },
+    Named { slot: ti4_engine_core_factions::silent::g3::oracle::ORACLE, kind: "leader", card: "naaluhero" },
+    Named { slot: ti4_engine_core_factions::silent::g3::scepter::SCEPTER, kind: "promissory", card: "scepter" },
+    Named { slot: ti4_engine_core_factions::silent::g3::iff::IFF, kind: "promissory", card: "iff" },
+    Named { slot: ti4_engine_core_factions::silent::g3::tro_marks::HERO_TURN, kind: "leader", card: "sardakkhero_turn" },
+    Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR, kind: "promissory", card: "tekklar" },
+    Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR_END, kind: "promissory", card: "tekklar_end" },
+    Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR_TURN, kind: "promissory", card: "tekklar_turn" },
+    Named { slot: ti4_engine_core_factions::silent::g3::tro_marks::TURN, kind: "leader", card: "sardakkagent_turn" },
+    Named { slot: ti4_engine_core_factions::silent::g3::tro_marks::STRATEGIC, kind: "leader", card: "sardakkagent_strategic" },
 ];
 
 /// The last segment of a registered id: the relation, except for Salvage Operations' produce half, which the string
@@ -162,6 +183,7 @@ const PAIRS: &[(Slot, &str, PairStyle)] = &[
     (ti4_engine_core_factions::cd_registry::sardakk::timing::TRO_COPY, "sardakkagent", PairStyle::A),
     (ti4_engine_core_factions::silent::winnu::AGENT_COPY, "winnuagent", PairStyle::A),
     (ti4_engine_core_factions::silent::naaz::AGENT_COPY, "naazagent", PairStyle::A),
+    (ti4_engine_core_factions::silent::g3::suffi_an::SUFFI_AN_COPY, "mentakagent", PairStyle::A),
 ];
 
 fn is_reaction_slot(slot: Slot) -> bool {
@@ -254,6 +276,7 @@ pub fn table() -> AbilityTable {
             // Cavalry (SPACE_COMBAT_ENDED).
             ti4_engine_core_factions::cc_ground::register_abilities(&mut t);
             ti4_engine_core_factions::ca_combat::register_abilities(&mut t);
+            ti4_engine_core_factions::silent::g3::register_after_ca_combat(&mut t);
             ti4_engine_core_factions::ce_movement::register_late_abilities(&mut t);
             ti4_engine_core_factions::cb_economy::register_late_abilities(&mut t);
             ti4_engine_core_factions::cd_registry::register_abilities(&mut t);
@@ -622,7 +645,9 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
             scavenge: r.code("scavenge"),
             mitosis: r.code("mitosis"),
             naaz_agent: r.code("naazagent"),
+            ..Default::default()
         };
+        table.codes.silent.g3 = G3_CODE_TEXTS.map(|text| r.code(text));
 }
 
 fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {
@@ -736,7 +761,6 @@ mod tests {
     fn bail_every_family_that_stays_in_the_string_is_named() {
         let t = table();
         for id in [
-            "leader:sardakk:sardakkhero_turn:TURN_BEGAN:after",
             "promissory:letnev:ambuscade:UNIT_ABILITY_ROLLED:when",
             "ability:sol:propagation:SPACE_COMBAT_ENDED:after",
             // The Nomad's tail (package W9): Mercer hangs on the end of a tactical action and asks which ground forces move
@@ -1022,4 +1046,5 @@ mod tests {
         ("unit:*:keleres_flagship:SYSTEM_ACTIVATED:when", Status::Dropped("Keleres")),
         ("unit:*:titans_flagship:SYSTEM_ACTIVATED:after", Status::Gap("Titans flagship Ouranos: DEPLOY replaces a PDS by the flagship (the Nekro flagship when the Z token carries the text): the deploy needs the supply, the planet question and the unit swap")),
     ];
+    include!("reactions_core_g3_tests.rs");
 }

@@ -1005,4 +1005,5 @@ mod tests {
         let side = string_run(&state, &hub.galaxy, &script, 0);
         assert!(side.asked.iter().any(|q| q.options.iter().any(|o| o.id.contains("naazcommander:PLANET_CONTROL_GAINED"))), "the string offers the commander: {:?}", side.asked.iter().map(|q| q.prompt.clone()).collect::<Vec<_>>());
     }
+    include!("combat_live_g3_tests.rs");
 }

@@ -141,5 +141,7 @@ fn returns(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(INF2_RETURN, AbilityKind::Technology, EventKind::TurnBegan, Relation::After, returns).when(condition));
     t.add(Spec::new(WARRIOR_RETURN, AbilityKind::Unit, EventKind::TurnBegan, Relation::After, returns).applies(Applies::Faction(Faction::TheArborec)).when(condition));
+    // The Creuss' IFF sits between the Arborec's and the Mahact's modules of the string (all three are the start of a turn).
+    super::g3::iff::register_abilities(t);
     t.add(Spec::new(LEGIONNAIRE_RETURN, AbilityKind::Unit, EventKind::TurnBegan, Relation::After, returns).when(condition));
 }

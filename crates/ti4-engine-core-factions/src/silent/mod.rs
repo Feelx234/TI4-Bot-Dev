@@ -5,6 +5,7 @@ pub mod gaps;
 pub mod cabal;
 pub mod empyrean;
 pub mod ghost;
+pub mod g3;
 pub mod gift;
 pub mod mitosis;
 pub mod muaat;
@@ -19,6 +20,7 @@ use ti4_engine_core::kernel::ability::AbilityTable;
 
 /// The rules of this module, registered after the faction packages (only abilities of one window share a bucket).
 pub fn register_abilities(t: &mut AbilityTable) {
+    g3::register_first(t);
     gift::register_abilities(t);
     mitosis::register_abilities(t);
     returns::register_abilities(t);
@@ -33,6 +35,7 @@ pub fn register_abilities(t: &mut AbilityTable) {
     winnu::register_abilities(t);
     sol::register_last(t);
     empyrean::register_last(t);
+    g3::register_abilities(t);
 }
 
 /// Pillage, before the movement package: the Nomad's Artuno shares `TRADE_GOODS_GAINED` with it and the Mentak module comes first in the string.

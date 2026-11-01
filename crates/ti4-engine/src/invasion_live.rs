@@ -276,6 +276,8 @@ mod tests {
         }
     }
 
+    include!("invasion_live_g3_tests.rs");
+
     fn assert_same_questions(live: &[Choice], string: &[Choice]) {
         assert_eq!(live.len(), string.len(), "live {:?}\nstring {:?}", live.iter().map(|c| &c.prompt).collect::<Vec<_>>(), string.iter().map(|c| &c.prompt).collect::<Vec<_>>());
         for (i, (l, s)) in live.iter().zip(string).enumerate() {
@@ -302,6 +304,13 @@ mod tests {
 
     /// Run `state` both ways and compare the questions, the position of the planets, the points and the control.
     fn check(label: &str, state: &GameState, seed: u64, system: &SystemId, hero: bool, pick: Box<dyn FnMut(&Choice) -> usize>) -> usize {
+        check_ignoring(label, state, seed, system, hero, pick, &[])
+    }
+
+    /// [`check`] with the events named in `ignore` left out of the comparison of the announced events (the native run lists the top-level emissions only: what an
+    /// ability announced inside a window is not among them).
+    #[allow(clippy::too_many_arguments, reason = "the position, the run and the events left out")]
+    fn check_ignoring(label: &str, state: &GameState, seed: u64, system: &SystemId, hero: bool, pick: Box<dyn FnMut(&Choice) -> usize>, ignore: &[&str]) -> usize {
         let string = string_run(state.clone(), seed, system, "a", hero, pick);
         let mut padded = string.answers.clone();
         padded.extend(std::iter::repeat_n("fight".to_owned(), 6));
@@ -318,10 +327,12 @@ mod tests {
         }
         assert_same_questions(&asked, &string.asked);
         // The announcement of a card declared in a window of the invasion (`ACTION_CARD_PLAYED`, `ACTION_CARD_DISCARDED`) is compared by the card's
-        // effect on the position below (the hand, the structures), not as an event of the invasion.
-        let plays = |e: &(String, std::collections::BTreeMap<String, serde_json::Value>)| e.0 != "ACTION_CARD_PLAYED" && e.0 != "ACTION_CARD_DISCARDED";
-        let (native_events, string_events): (Vec<_>, Vec<_>) = (events.iter().filter(|e| plays(e)).collect(), string.events.iter().filter(|e| plays(e)).collect());
-        assert_eq!(native_events, string_events, "{label}: the events the invasion announced");
+        // effect on the position below (the hand, the structures), not as an event of the invasion. The events named in `ignore` (a native run lists
+        // top-level emissions only) are left out as well: both filters apply.
+        let kept = |all: &[(String, std::collections::BTreeMap<String, serde_json::Value>)]| {
+            all.iter().filter(|(name, _)| !ignore.contains(&name.as_str()) && name != "ACTION_CARD_PLAYED" && name != "ACTION_CARD_DISCARDED").cloned().collect::<Vec<_>>()
+        };
+        assert_eq!(kept(&events), kept(&string.events), "{label}: the events the invasion announced");
         assert_eq!(windows, string.scoring, "{label}: the scoring windows the invasion pauses for");
         assert_eq!(gs.feat_occurrence_seq, string.state.feat_occurrence_seq, "{label}: the feat occurrences");
         assert!(gs.active_invasion.is_none() && string.state.active_invasion.is_none());

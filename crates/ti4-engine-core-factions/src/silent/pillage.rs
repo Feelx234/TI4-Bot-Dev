@@ -3,24 +3,22 @@
 //! and `...:TRANSACTION_RESOLVED:after`). The taken commodity becomes a trade good in the Mentak player's hands and the gain is staged (source `pillage`).
 //!
 //! Suffi An (the Mentak agent: "after the Pillage faction ability is used against another player: you may exhaust this card; if you do, you and that player each
-//! draw 1 action card") and Ssruu's copy of it need the action-card draw as a child window: they are the loud gaps `gaps::SUFFI_AN` and `gaps::SUFFI_AN_COPY`; the take is
-//! native and a position where the agent could answer stops the step right after it (`Unknown::AbilityGap`).
+//! draw 1 action card") and Ssruu's copy of it answer the use (`g3::suffi_an`, lane G3): the take ends in `g3::suffi_an::after_pillage`.
 
 use ti4_engine_core::choice::generic::Content;
 use ti4_engine_core::choice::reaction::{AbilityKind, Ask as RAsk, Opt as ROpt, Relation, Subtype as RSub};
 use ti4_engine_core::choice::silent::{Ask as GAsk, Opt as GOpt, Subtype as GSub};
 use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use ti4_engine_core::containers::SmallList;
-use ti4_engine_core::generated::{Faction, Leader, PromissoryNote};
+use ti4_engine_core::generated::{Faction, PromissoryNote};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec, Unknown};
+use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec};
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::kernel::{fx, Kernel};
 use ti4_engine_core::query::trade;
 use ti4_engine_core::rules::trade::KernelEnv;
-use ti4_engine_core::state::{Code, CoreState, EventKind, EventRec, Key, LeaderStatus, NoteKey};
+use ti4_engine_core::state::{Code, CoreState, EventKind, EventRec, Key, NoteKey};
 
-use super::gaps;
 
 /// Pillage after a gain of trade goods (`ability:*:pillage:TRADE_GOODS_GAINED:after`).
 pub const PILLAGE_GAINED: Slot = Slot(40_008);
@@ -126,16 +124,8 @@ fn pillage(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     }
     let source = eff.codes().not_from_supply[1];
     fx::gain_trade_goods_staged(eff.state(), me, 1, source);
-    // Suffi An answers the use of Pillage (a draw of action cards for two seats, a child window); Ssruu's copy of it too.
-    let (s, _) = eff.read();
-    let agent = s.players().by_seat(me).is_some_and(|p| p.leaders.status.get(&Leader::SuffiAnMentakagent) == Some(&LeaderStatus::Readied));
-    let copy = s.players().iter().any(|p| p.faction == Faction::TheYssarilTribes);
-    if copy {
-        eff.unknown(Unknown::AbilityGap(gaps::slot(gaps::SUFFI_AN_COPY)));
-    } else if agent && !s.decks().action.is_empty() {
-        eff.unknown(Unknown::AbilityGap(gaps::slot(gaps::SUFFI_AN)));
-    }
-    Ok(())
+    // Suffi An answers the use of Pillage (the owner's question, or the event a Ssruu copy answers).
+    super::g3::suffi_an::after_pillage(eff, me, target)
 }
 
 pub fn register_abilities(t: &mut AbilityTable) {

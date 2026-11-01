@@ -292,6 +292,8 @@ pub struct SilentCodes {
     pub mitosis: crate::state::Code,
     /// The leader `naazagent`, the source of Garv and Gunn's question.
     pub naaz_agent: crate::state::Code,
+    /// The texts lane G3's rules name (`reactions_core::G3_CODE_TEXTS`, the places of `ti4_engine_core_factions::silent::g3::code`): the aliases of the questions' sources.
+    pub g3: [crate::state::Code; 16],
 }
 
 /// The `source` texts of `UNITS_PRODUCED`: `ability` for the units an ability produces, `production` for the PRODUCTION of a unit (the adapter's

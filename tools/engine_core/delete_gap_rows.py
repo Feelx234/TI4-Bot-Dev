@@ -44,6 +44,8 @@ for ln in lines:
 assert k == len(old_ids), (k, len(old_ids))
 g = '\n'.join(out)
 for const, row in (('SUFFI_AN', 'leader:*:mentakagent:PILLAGE_USED:after'), ('SUFFI_AN_COPY', 'leader:*:a:yssarilagent:mentakagent:PILLAGE_USED:after')):
+    if row not in new_index or f'pub const {const}:' not in g:
+        continue  # lane G3 ported Suffi An: the constants and the rows are gone
     g = re.sub(rf'pub const {const}: usize = \d+;', f'pub const {const}: usize = {new_index[row]};', g)
 open(G, 'w').write(g)
 

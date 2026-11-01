@@ -205,7 +205,9 @@ fn scavenge_pays_a_trade_good_to_the_saar_who_gained_a_planet_and_only_to_them()
     let (_, planets) = two_planet_system();
     let gained = |seat: u8| fx::event(EventKind::PlanetControlGained, Payload::new().with(Key::Player, Val::Seat(Seat(seat))).with(Key::Planet, Val::Planet(planets[0])).with(Key::System, Val::System(planets[0].data().system.unwrap())));
     let goods = |r: &Rig<EmitEvent>, seat: u8| r.state.players().by_seat(Seat(seat)).unwrap().econ.trade_goods;
-    let r = rig(Scenario::new(&[Faction::TheClanOfSaar, Faction::TheEmiratesOfHacan]), |_| {}, gained(0));
+    let mut r = rig(Scenario::new(&[Faction::TheClanOfSaar, Faction::TheEmiratesOfHacan]), |_| {}, gained(0));
+    // (Scavenge pays the good that makes Scavenger Zeta's deploy possible: lane G3's optional rule, declined here.)
+    r.decline();
     assert!(r.is_done());
     assert_eq!((goods(&r, 0), goods(&r, 1)), (1, 0));
     // Another seat gains the planet: the Saar earns nothing.
