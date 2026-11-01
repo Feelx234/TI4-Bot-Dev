@@ -4105,20 +4105,7 @@ dependencies = [
 name = "ti4-engine"
 version = "0.1.0"
 dependencies = [
- "proptest",
- "rand 0.9.5",
- "rand_chacha 0.9.0",
- "serde",
- "serde_json",
- "sha2",
- "strum",
- "thiserror 2.0.20",
- "ti4-content",
- "ti4-engine-core",
- "ti4-engine-core-factions",
- "ti4-model",
- "ts-rs",
- "zstd 0.13.3",
+ "ti4-engine-legacy",
 ]
 
 [[package]]
@@ -4175,6 +4162,26 @@ dependencies = [
  "ti4-engine-core-bridge",
  "ti4-engine-core-factions",
  "ti4-model",
+]
+
+[[package]]
+name = "ti4-engine-legacy"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "rand 0.9.5",
+ "rand_chacha 0.9.0",
+ "serde",
+ "serde_json",
+ "sha2",
+ "strum",
+ "thiserror 2.0.20",
+ "ti4-content",
+ "ti4-engine-core",
+ "ti4-engine-core-factions",
+ "ti4-model",
+ "ts-rs",
+ "zstd 0.13.3",
 ]
 
 [[package]]

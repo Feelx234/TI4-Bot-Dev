@@ -1,0 +1,29 @@
+[package]
+name = "ti4-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The product-facing engine crate. Facade stage: re-exports ti4-engine-legacy (crates/ti4-engine); docs/todo/D2-7-legacy-split.md."
+
+[dependencies]
+# Facade stage: the engine itself. Becomes optional (`lend-string`) in D2-8/D2-9.
+ti4-engine-legacy.workspace = true
+
+# New features go on `ti4-engine-legacy` AND are forwarded here (a dependent that uses `--features ti4-engine/x` needs them).
+[features]
+default = ["typed-core"]
+typed-core = ["ti4-engine-legacy/typed-core"]
+ts = ["ti4-engine-legacy/ts"]
+observed-count = ["ti4-engine-legacy/observed-count"]
+native-subject = ["ti4-engine-legacy/native-subject"]
+string-movement = ["ti4-engine-legacy/string-movement"]
+string-objectives = ["ti4-engine-legacy/string-objectives"]
+string-factions = ["ti4-engine-legacy/string-factions"]
+string-trade = ["ti4-engine-legacy/string-trade"]
+string-exploration = ["ti4-engine-legacy/string-exploration"]
+string-strategy = ["ti4-engine-legacy/string-strategy"]
+string-action-cards = ["ti4-engine-legacy/string-action-cards"]
+string-agenda = ["ti4-engine-legacy/string-agenda"]
+
+[lints]
+workspace = true

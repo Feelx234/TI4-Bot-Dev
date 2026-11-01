@@ -4,6 +4,7 @@ members = [
     "crates/ti4-model",
     "crates/ti4-content",
     "crates/ti4-engine",
+    "crates/ti4-engine-next",
     "crates/ti4-engine-core",
     "crates/ti4-engine-core-factions",
     "crates/ti4-engine-core-bridge",
@@ -39,7 +40,10 @@ rust-version = "1.94"
 # Internal
 ti4-model = { path = "crates/ti4-model" }
 ti4-content = { path = "crates/ti4-content" }
-ti4-engine = { path = "crates/ti4-engine" }
+# The product-facing engine crate: a thin package in `crates/ti4-engine-next` (docs/todo/D2-7-legacy-split.md). Facade stage: it re-exports the legacy.
+ti4-engine = { path = "crates/ti4-engine-next" }
+# The string engine (the directory keeps its old name `crates/ti4-engine`): tests and comparison oracle, never production after the flip.
+ti4-engine-legacy = { path = "crates/ti4-engine" }
 ti4-engine-core = { path = "crates/ti4-engine-core" }
 ti4-engine-core-factions = { path = "crates/ti4-engine-core-factions" }
 ti4-engine-core-tests = { path = "crates/ti4-engine-core-tests" }
@@ -96,7 +100,7 @@ enumset = "1.1.5"
 strum = { version = "0.27", features = ["derive"] }
 strum_macros = "0.27"
 proptest = "1.6"
-# TypeScript types of the wire (`ts` features of ti4-model, ti4-engine, ti4-calc, ti4-host, ti4-wasm).
+# TypeScript types of the wire (`ts` features of ti4-model, ti4-engine (forwarded to ti4-engine-legacy), ti4-calc, ti4-host, ti4-wasm).
 ts-rs = { version = "12.0.1", features = ["no-serde-warnings"] }
 eframe = { version = "=0.35.0", default-features = false, features = ["accesskit", "default_fonts", "glow"] }
 # Keep GTK/Wayland defaults off; XDG Portal is the Linux backend and builds on WSL without GTK.
@@ -157,7 +161,7 @@ opt-level = 3
 
 # Lighter test profiles (docs/ENGINE_COMPUTE.md 3): for `cargo test` loops where compile time matters
 # more than binary speed. Not used by verify_package.sh (that stays on `gate`). Results of the tests are
-# identical; only the generated code differs. `cargo test --profile lockstep -p ti4-engine --lib`.
+# identical; only the generated code differs. `cargo test --profile lockstep -p ti4-engine-legacy --lib`.
 # lockstep: gate with opt-level 1 (still inlines small functions, a fraction of the codegen time).
 [profile.lockstep]
 inherits = "gate"
