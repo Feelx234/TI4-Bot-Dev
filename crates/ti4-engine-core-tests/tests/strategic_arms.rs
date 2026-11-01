@@ -629,7 +629,7 @@ fn a_ported_waiver_is_taken_although_another_offered_one_is_not_carried() {
     s.cards_mut().promissory.edit().insert(note, Seat(1));
     let mut tokens = SeatSet::EMPTY;
     tokens.insert(Seat(0));
-    s.players_mut().edit(1).cards.plots.push(Plot { card: Some(ti4_engine_core::generated::PlotCard::Enervate), tokens, faceup: true });
+    s.players_mut().edit(1).cards.plots.push(Plot { card: Some(ti4_engine_core::state::PlotCard::Enervate), tokens, faceup: true });
     s.players_mut().by_seat_mut(Seat(1)).unwrap().econ.strategic_tokens = 0;
     s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::Trade);
     s.pending_mut().open(OpenWindow::StrategySecondary(secondary_of(Seat(0), StrategyCard::Trade, &[Seat(1)], true)));
