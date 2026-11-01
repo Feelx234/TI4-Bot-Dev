@@ -21,6 +21,7 @@ pub mod env;
 pub mod explore;
 pub mod kernel;
 pub mod plays;
+pub mod reaction_preview;
 pub mod trade;
 pub mod strategic;
 pub mod turn;
@@ -167,12 +168,12 @@ pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
     let position = render::Position { state: std::rc::Rc::new(at.clone()), kernel: read_with };
     let mut rendered = Typed::new_at(cx.render, position, asking.choice.clone(), phase, round).rendered;
     (cx.complete)(at, cx.env.kernel, &asking.choice, &mut rendered);
-    details::infiltrate_preview(cx.render, at, cx.env.kernel, cx.env.table.facts.plays_provider.as_ref(), &asking.choice, &mut rendered);
     // A question asked from inside an emission carries the trigger of its window and the battle / invasion it is asked in; its display
     // facts read the position it was put in (the driver rolled the step back).
     if let Some((facts, at)) = &asking.nested {
         crate::dual_window::complete_nested(cx.render, &asking.choice, facts, &crate::dual_window::NestedPos::of_core(cx.render, at), at, &mut rendered);
         crate::combat_live::after_nested(&asking.choice, &mut rendered);
+        reaction_preview::complete(cx.render, at, cx.env.kernel, cx.env.table.facts.plays_provider.as_ref(), facts, &asking.choice, &mut rendered);
     } else if matches!(asking.choice.ctx.origin, ti4_engine_core::choice::Origin::ActionCard(_)) {
         // A question of an action card played from a window (Crash Landing's planet, asked while the combat or the invasion goes on) is asked by the
         // string through `ask_seeing` too: it names the battle and the invasion the position is in.
