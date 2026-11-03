@@ -197,27 +197,16 @@ pub fn galaxy_from_legacy(galaxy: &Galaxy) -> Result<CoreGalaxy, Unmapped> {
         raw.place_off_map(sys(id)?)
             .map_err(|_| Unmapped::Duplicate(id.to_owned()).noted())?;
     }
-    // Kinds as the string galaxy reports them (printed, token, a copy's retained or suppressed kinds)
-    // with Nexus Sovereignty lifted; the switch itself is copied below, so `wormhole_kinds` applies it
-    // like the string galaxy does and the Ghosts' "cannot be prevented" can read the lifted kinds.
-    let lifted;
-    let galaxy_kinds = if galaxy.nexus_wormholes_off {
-        let mut copy = galaxy.clone();
-        copy.nexus_wormholes_off = false;
-        lifted = copy;
-        &lifted
-    } else {
-        galaxy
-    };
+    // The map's own kinds (printed, or a copy's retained or suppressed kinds) and the kinds the tokens give are kept apart, both without Nexus
+    // Sovereignty's suppression: the switch itself is copied below, so `wormhole_kinds` applies it like the string galaxy does and the Ghosts'
+    // "cannot be prevented" can read the lifted kinds. The tokens come and go while the game is played (the core rebuilds them from its own
+    // position: `driver::turn::prelude::sync_wormhole_tokens`).
     let in_play: Vec<SystemIx> = raw.in_play().iter().map(ti4_engine_core::ids::system_at).collect();
     for ix in in_play {
-        raw.set_wormholes(ix, wormhole_mask(galaxy_kinds.wormhole_kinds(system_id(ix)))?);
+        raw.set_wormholes(ix, wormhole_mask(galaxy.map_wormhole_kinds(system_id(ix)))?);
     }
-    for id in galaxy.token_wormholes.keys() {
-        let ix = sys(id)?;
-        if !raw.in_play().contains(ix.index()) {
-            raw.set_token_wormholes(ix, wormhole_mask(galaxy_kinds.wormhole_kinds(id))?);
-        }
+    for (id, kinds) in &galaxy.token_wormholes {
+        raw.set_token_wormholes(sys(id)?, wormhole_mask(kinds.iter().map(String::as_str))?);
     }
     let hyperlanes: BTreeSet<&str> = galaxy.hyperlanes().into_iter().collect();
     for ix in SystemIx::ALL {

@@ -224,8 +224,10 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
             // A seat that can research a unit upgrade while the combat goes on (Reveal Prototype: "at the start of a combat round, spend 4 resources
             // to research a unit upgrade"; the Nekro's Technological Singularity) may field any form of the base types it has units of: those are named
             // too, or the machine stands at the roller of the form it researched.
-            if researches_in_combat(core, owner) {
-                pieces.extend(forms_of(unit.data().base_type, p.faction, false));
+            // (Only the ships: a form of a ground force or a structure rolls no die in a space combat, and a fight that names more than `MAX_TYPES` unit types
+            // names none, so a seat with infantry, PDS and docks in the system stood the machine at every roller: `CombatUnported`.)
+            if researches_in_combat(core, owner) && unit.data().ship {
+                pieces.extend(forms_of(unit.data().base_type, p.faction, false).filter(|u| u.data().ship));
             }
             // Brother Milor (the Yin agent, or a Ssruu that copies it): "after a player's unit is destroyed during combat: you may exhaust this card to
             // allow that player to place 2 fighters in the destroyed unit's system". The fighters land in the middle of the fight, for whichever side

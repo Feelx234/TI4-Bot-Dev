@@ -226,8 +226,10 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
             // A seat that can research a unit upgrade while the combat goes on (Reveal Prototype: "at the start of a combat round, spend 4 resources
             // to research a unit upgrade"; the Nekro's Technological Singularity) may field any form of the base types it has units of: those are named
             // too, or the machine stands at the roller of the form it researched.
-            if researches_in_combat(core, owner) {
-                pieces.extend(forms_of(unit.data().base_type, p.faction, false));
+            // (Only the ships: a form of a ground force or a structure rolls no die in a space combat, and a fight that names more than `MAX_TYPES` unit types
+            // names none, so a seat with infantry, PDS and docks in the system stood the machine at every roller: `CombatUnported`.)
+            if researches_in_combat(core, owner) && unit.data().ship {
+                pieces.extend(forms_of(unit.data().base_type, p.faction, false).filter(|u| u.data().ship));
             }
             // Brother Milor (the Yin agent, or a Ssruu that copies it): "after a player's unit is destroyed during combat: you may exhaust this card to
             // allow that player to place 2 fighters in the destroyed unit's system". The fighters land in the middle of the fight, for whichever side
@@ -866,6 +868,32 @@ mod tests {
         assert!(named.contains(&U::CruiserI) && named.contains(&U::FighterI) && named.contains(&U::DreadnoughtI), "{named:?}");
         assert!(!named.contains(&U::InfantryI), "a ground force is no ship of the fleet: {named:?}");
         assert!(!named.contains(&U::DestroyerI), "a rival's ship in the fleet's own system is not the fleet's: {named:?}");
+    }
+
+    /// Lane S: the forms a seat that can research in the middle of the fight may field are the forms of its SHIPS: the ground forces and the structures it has in the
+    /// system roll no die in a space combat, and naming their forms as well put the fight over `MAX_TYPES` unit types, which names none (the machine then stood at the
+    /// first roller: sol, 4 players, seed 7 of the Z-gate command).
+    #[test]
+    fn a_seat_that_can_research_in_the_fight_names_the_forms_of_its_ships_only() {
+        let (hub, _origin, target, planet) = planet_hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        for ship in ["cruiser", "carrier", "dreadnought", "fighter"] {
+            crate::fixtures::put(&mut state, &target, ship, &a(), 1);
+        }
+        crate::fixtures::put(&mut state, &target, "destroyer", &b(), 1);
+        for unit in ["infantry", "pds", "spacedock"] {
+            crate::fixtures::put_on_planet(&mut state, &target, &planet, unit, &b(), 1);
+        }
+        state.player_mut(&b()).unwrap().action_cards.push(ti4_model::id::ActionCardId::new("reveal_prototype"));
+        let mut cx = Ctx::of(&state).expect("owners");
+        let mut core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&crate::rng::RngPositions::default()) }, SliceSet::ALL).expect("the position loads");
+        let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+        let (seat_a, seat_b) = (render.seat("a").expect("a"), render.seat("b").expect("b"));
+        core.transient_mut().combat.active_space_combat = Some((<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(target.as_str()).expect("a system"), seat_a, seat_b));
+        let named: Vec<ti4_engine_core::generated::Unit> = super::combat_texts(&mut core, &render).unit_codes.iter().map(|(u, _)| *u).collect();
+        use ti4_engine_core::generated::Unit as U;
+        assert!(named.contains(&U::DestroyerI) && named.contains(&U::DestroyerII), "the fight names its ships and the form that can be researched: {named:?}");
+        assert!(!named.contains(&U::InfantryII) && !named.contains(&U::PDSII), "the forms of ground forces and structures are no roller: {named:?}");
     }
 
     /// Lane L: Airo Shir Aur starts a fight no step has opened yet (`active_space_combat` is written when the card moves the fleet), so the texts of the

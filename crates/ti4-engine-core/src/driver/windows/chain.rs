@@ -172,11 +172,12 @@ impl AftermathChain {
                     }
                     Opened::NoFight(winner) => {
                         // The string's `AftermathWindow::new` settles the combat window (and so presents the finished, empty, fight) unless the head's
-                        // space cannon offense paused for a scoring window; after such a pause a system nobody holds any more (the guns destroyed the
-                        // only ship) shows nothing, a side that holds it or a declared draw does (lane H3's lockstep, narrowed by integration 13: the
-                        // whole-game shadow found 35 of 96 games where nobody had ships there and the string presented the fight).
-                        let m = sx.state.meta();
-                        if !self.p.head_paused || winner.is_some() || m.combat_draw_round.is(m.combat_round_seq) {
+                        // space cannon offense paused for a scoring window; after such a pause the window it built is already done (fewer than two sides
+                        // hold the system), `settle` never settles it, and nothing is presented: neither for a system nobody holds (lane H3's lockstep, the
+                        // guns destroyed the only ship) nor for one a side holds (lane S: the guns of the defender destroyed the activator's ship, the
+                        // defender's own ship stays; the whole-game shadow, jolnar 5 players seed 1). Without a pause the finished fight is presented
+                        // (integration 13: a tactical action that moved no ship, 35 of 96 games).
+                        if !self.p.head_paused {
                             sx.state.transient_mut().combat.presentation.edit().phase = sx.table.facts.combat.phases[4];
                         }
                         self.p.outcome = Some((winner, 0));

@@ -169,10 +169,15 @@ pub fn flush_staged_events(sx: &mut Sx<'_>) -> Flow {
             if super::inline::halted(sx) {
                 return Flow::Halt;
             }
-            if sx.emit_mirrored(rec).is_err() {
+            if sx.emit_mirrored_bare(rec).is_err() {
                 if !super::inline::halted(sx) {
                     super::inline::gap(sx, crate::kernel::turn_codes::TurnGap::EmissionRefused);
                 }
+                return Flow::Halt;
+            }
+            // What the windows of that event staged (Pillage's gain) is the string's nested emission: announced inside the event, so before the card moves
+            // that follow it (`Live::emit_typed` ends with them): the Nekro agent's discard follows the gain AND the pillage of the gain.
+            if super::prelude::announce_staged(sx) == Flow::Halt || crate::driver::windows::status_finish::announce_staged_cards(sx) == Flow::Halt { // mutants:skip: a halted step is rolled back by the driver whatever the loop does after the halt
                 return Flow::Halt;
             }
         }

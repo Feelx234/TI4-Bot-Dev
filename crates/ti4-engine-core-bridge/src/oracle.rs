@@ -156,6 +156,9 @@ struct Follower(Rc<RefCell<VecDeque<String>>>);
 impl Decider for Follower {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
         let wanted = self.0.borrow_mut().pop_front().unwrap_or_default();
+        if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some_and(|v| v == "2") {
+            eprintln!("    follower: {} {:?} wanted {wanted:?} offered {:?}", choice.player, choice.prompt, choice.ids());
+        }
         choice.answer_for(&wanted).ok_or_else(|| IllegalChoice::ScriptDiverged {
             player: choice.player.clone(),
             wanted,

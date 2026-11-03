@@ -922,6 +922,13 @@ impl Galaxy {
             .filter(|kind| !(suppressed && (*kind == "ALPHA" || *kind == "BETA")))
             .collect()
     }
+
+    /// The wormholes the map itself gives a system (printed, or copied onto it by an edit): [`Self::wormhole_kinds`] without the tokens and
+    /// without Nexus Sovereignty's suppression. The core keeps the two parts apart, because the tokens come and go while the game is played.
+    #[must_use]
+    pub fn map_wormhole_kinds(&self, system_id: &str) -> BTreeSet<&str> {
+        self.wormholes.get(system_id).into_iter().flat_map(|kinds| kinds.iter().map(String::as_str)).collect()
+    }
 }
 
 #[cfg(test)]

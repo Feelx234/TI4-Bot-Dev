@@ -294,13 +294,14 @@ fn the_events_an_invasion_emitted_are_mirrored_into_the_queue_before_its_resolve
 }
 
 /// The string's `AftermathWindow::new` settles the combat window, and so presents the finished (empty) fight, unless the head's space cannon offense
-/// paused for a scoring window; after such a pause a system nobody holds any more (the guns of the offense destroyed the only ship: it was never a
-/// fight) shows nothing, one that a side holds does. Lane H3 found the pause case (the Argent commander's lockstep); integration 13 found that the
-/// same rule must not apply without a pause (a tactical action that moved no ship: the whole-game shadow, 35 of 96 games).
+/// paused for a scoring window; after such a pause the window it built is already done and nothing is presented, whether a side holds the system
+/// or nobody does. Lane H3 found the pause case (the Argent commander's lockstep); integration 13 found that the same rule must not apply without a
+/// pause (a tactical action that moved no ship: the whole-game shadow, 35 of 96 games); lane S found that a side that holds the system does not
+/// change it (the string, jolnar 5 players seed 1: the guns of the defender destroyed the activator's only ship): the case `(1, true)` was `true`.
 #[test]
-fn an_empty_system_presents_the_finished_fight_unless_the_head_paused_and_nobody_holds_the_system() {
+fn an_empty_system_presents_the_finished_fight_unless_the_head_paused() {
     covers!("driver::windows::chain::AftermathChain");
-    for (ships, paused, presented) in [(0_usize, false, true), (0, true, false), (1, false, true), (1, true, true)] {
+    for (ships, paused, presented) in [(0_usize, false, true), (0, true, false), (1, false, true), (1, true, false)] {
         let (mut core, k) = {
             let mut sc = Scenario::new(&[Faction::TheEmbersOfMuaat, Faction::TheArborec]).map_from(&[sys()]).active(Some(0)).active_system(sys()).tokens(0, 3, 6, 3);
             if ships > 0 {
@@ -319,7 +320,7 @@ fn an_empty_system_presents_the_finished_fight_unless_the_head_paused_and_nobody
         assert_eq!(end, Ok(()), "{ships} ships, paused {paused}");
         let complete = env.table.facts.combat.phases[4];
         assert_eq!(core.transient().combat.presentation.phase == complete, presented, "{ships} ships, paused {paused}: the finished fight is presented");
-        assert!(presented || core.transient().combat.presentation.phase == untouched, "{ships} ships, paused {paused}: nothing is written for a system nobody holds after the head's pause");
+        assert!(presented || core.transient().combat.presentation.phase == untouched, "{ships} ships, paused {paused}: nothing is written after the head's pause");
     }
 }
 

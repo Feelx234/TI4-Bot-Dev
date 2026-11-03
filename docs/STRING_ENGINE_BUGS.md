@@ -35,6 +35,12 @@ with the lowest initiative or the others' clockwise order is not their initiativ
   list for such a window is the seating order from the FIRST seat of `Game::new`, whoever the speaker is, so the two agree only when the speaker is the last seat
   clockwise. It stays a known string bug (S1); the dual adapters (`reactions_core::resolver_of`, `kernel_sync::shim::replay`) hand the core the string's list as the
   seating order with its last seat as speaker, which is the string's order, so the lockstep still compares the rest of the window.
+* Lane S (2026-11-03): the same list also orders two seats whose abilities answer ONE event when the second seat's ability is the only optional one of its
+  window: the string then asks the ability's own prompt (the Mentak seat's "Suffi An: exhaust to draw 1 action card", options `exhaust` / `decline`), not the
+  window's offer. yssaril 6p seed 2 (step 1294): active seat `e` (Arborec), `PILLAGE_USED:after`; the string asks `f` (Mentak) first (seating order from `e`: e,
+  f, a, ...), the core asks `a` (Yssaril, holding Ssruu's copy of the Mentak agent) first (initiative). The harness recognises it
+  (`s1_other_seat_first`: the core's question is an ability offer of seat X, the string's question at the same place is of seat Y, and the string's order puts Y
+  before X where the ruling's puts X before Y).
 * The shadow harness (`native_play --shadow`) recognises it: a difference at a reaction question (same prompt asked of another seat, the same options in
   another order, or the script's reaction meeting another seat's reaction) while the string's order differs from the ruling's (in the status phase without an active seat: the ruling of 2026-11-03) is reported as
   `KNOWN STRING BUG ... (known string bug S1)`, counted on its own and left out of the exit code (the game cannot go on past it).
