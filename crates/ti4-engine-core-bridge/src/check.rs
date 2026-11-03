@@ -13,7 +13,7 @@ use ti4_content::ContentStore;
 use ti4_engine_legacy::movement::{Board, MovementRules};
 use ti4_engine_core::galaxy::Adjacency;
 use ti4_engine_core::movement::CoreRules;
-use ti4_engine::generated::systems::SYSTEM_IDS as SYSTEM_NAMES;
+use ti4_engine_legacy::generated::systems::SYSTEM_IDS as SYSTEM_NAMES;
 
 use crate::adapter::{
     self, MoverFlags, Seats, board_from_state, galaxy_from_legacy, is_plain, route_text,
@@ -516,7 +516,7 @@ pub fn check_content(report: &mut Report) {
     use ti4_engine_legacy::production::{Spend, planet_value, planet_value_text};
     use ti4_model::content_types::{BASE, FULL, POK};
     let content = ContentStore::embedded();
-    let planets: Vec<String> = ti4_engine::generated::planets::PLANET_IDS
+    let planets: Vec<String> = ti4_engine_legacy::generated::planets::PLANET_IDS
         .iter()
         .map(|s| (*s).to_owned())
         .chain(["nonesuch".to_owned(), "MR".to_owned(), String::new()])

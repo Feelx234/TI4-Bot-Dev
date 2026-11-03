@@ -1,4 +1,4 @@
-//! KF2: the play facts the live loop computes from the core position (`ti4_engine::live::plays`) agree with the string engine's
+//! KF2: the play facts the live loop computes from the core position (`ti4_engine_legacy::live::plays`) agree with the string engine's
 //! (`reactions_core::play_facts`) over the opening positions of the maps the host knows and the variants that matter to a played
 //! card (unit upgrades, Reveal Prototype in hand with ships in the active system, a Mahact fleet pool).
 

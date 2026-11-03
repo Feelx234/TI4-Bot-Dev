@@ -43,10 +43,10 @@ use std::sync::Mutex;
 
 use serde_json::{json, Value};
 use ti4_engine::choice::DecisionRecord;
-use ti4_engine::core_sync::codec::rng::TextSeeds;
-use ti4_engine::core_sync::{materialize, Codec, Ctx, Sources};
-use ti4_engine::live::{self, arms, Scripted};
-use ti4_engine::render::Render;
+use ti4_engine_legacy::core_sync::codec::rng::TextSeeds;
+use ti4_engine_legacy::core_sync::{materialize, Codec, Ctx, Sources};
+use ti4_engine_legacy::live::{self, arms, Scripted};
+use ti4_engine_legacy::render::Render;
 use ti4_engine_core::driver::live::{live_arm, open, LiveError};
 use ti4_engine_core::driver::session::{bit, live_ask_arm, step_arm, Arm, AskArm, Facts};
 use ti4_engine_core::driver::step::NativeArms;
@@ -148,7 +148,7 @@ fn count(table: &Mutex<BTreeMap<String, u64>>, key: String) {
 
 fn lend(arm: Arm, why: &str) {
     count(&LENT, format!("{}: {why}", arms::name(arm)));
-    ti4_engine::product::note_lent(&format!("oracle::{}", arms::name(arm)));
+    ti4_engine_legacy::product::note_lent(&format!("oracle::{}", arms::name(arm)));
 }
 
 /// How the observed window of `arm` opens its core window on `core`. `false`: no opener for the arm (the step is lent).
@@ -419,7 +419,7 @@ impl NativeSubject {
         let legacy: Vec<Value> = records.iter().map(|r| json!({ "player": r.player.as_str(), "prompt": r.prompt, "options": r.offered })).collect();
         out.extend(compare_questions(ended, early, &legacy, &native, asker.left()));
         let mut native_texts: Vec<String> = Vec::new();
-        let pushed = ti4_engine::render::events::pushed_since(&shadow.render, &shadow.cx, &shadow.core, from);
+        let pushed = ti4_engine_legacy::render::events::pushed_since(&shadow.render, &shadow.cx, &shadow.core, from);
         match pushed {
             Some(lines) => {
                 let texts: Vec<String> = lines.iter().map(|p| p.text().to_owned()).collect();
@@ -432,7 +432,7 @@ impl NativeSubject {
         // out of the position (the position carries only what the codec carries).
         let mut legacy_state = self.inner.state_json();
         let legacy_staged = strip_staged(&mut legacy_state);
-        let native_staged: Vec<String> = shadow.core.pending().staged.iter().map(|e| ti4_engine::kernel_sync::text::event_text(&shadow.render, e.kind)).collect();
+        let native_staged: Vec<String> = shadow.core.pending().staged.iter().map(|e| ti4_engine_legacy::kernel_sync::text::event_text(&shadow.render, e.kind)).collect();
         // The strategic action's arms stage `STRATEGY_TOKEN_SPENT` / `UNITS_PRODUCED` for the next step's reconcile as the string does (lane E; the
         // engine lockstep `strategic_live_tests` compares the staged names equal), but the legacy state of this oracle holds no staged mark after
         // such a step (open finding of integration 11, `docs/INTEGRATION11.md`): for these arms the staged events are not a leaf of the shadow.
@@ -478,7 +478,7 @@ pub(crate) fn without_staged_marks(mut state: Value) -> Value {
 /// tactical and strategic actions and the action cards are the core's (lane F2b).
 fn menu_body_is_lent(id: &str) -> bool {
     use ti4_engine_core::driver::turn::leader;
-    use ti4_engine::generated::IdStr;
+    use ti4_engine_legacy::generated::IdStr;
     use ti4_engine_core::generated::Leader;
     /// The ids of the faction component actions the core runs (the arms of `driver::turn::faction::run`; keep in step).
     const ROUTED_FACTION: [&str; 22] = [

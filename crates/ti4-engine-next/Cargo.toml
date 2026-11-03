@@ -8,12 +8,24 @@ description = "The product-facing engine crate. Facade stage: re-exports ti4-eng
 [dependencies]
 # Facade stage: the engine itself. Becomes optional (`lend-string`) in D2-8/D2-9.
 ti4-engine-legacy.workspace = true
+# Lane A (D2-8b): the glue and the wire types copied out of the legacy crate need the same dependencies as the legacy crate.
+ti4-model.workspace = true
+ti4-content.workspace = true
+ti4-engine-core.workspace = true
+ti4-engine-core-factions.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rand = { version = "0.9", default-features = false }
+rand_chacha.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+ts-rs = { workspace = true, optional = true }
 
 # New features go on `ti4-engine-legacy` AND are forwarded here (a dependent that uses `--features ti4-engine/x` needs them).
 [features]
 default = ["typed-core"]
 typed-core = ["ti4-engine-legacy/typed-core"]
-ts = ["ti4-engine-legacy/ts"]
+ts = ["ti4-engine-legacy/ts", "dep:ts-rs", "ti4-model/ts"]
 observed-count = ["ti4-engine-legacy/observed-count"]
 native-subject = ["ti4-engine-legacy/native-subject"]
 string-movement = ["ti4-engine-legacy/string-movement"]
@@ -24,6 +36,10 @@ string-exploration = ["ti4-engine-legacy/string-exploration"]
 string-strategy = ["ti4-engine-legacy/string-strategy"]
 string-action-cards = ["ti4-engine-legacy/string-action-cards"]
 string-agenda = ["ti4-engine-legacy/string-agenda"]
+
+[dev-dependencies]
+proptest.workspace = true
+zstd.workspace = true
 
 [lints]
 workspace = true

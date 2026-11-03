@@ -1,0 +1,227 @@
+//! Renderer of the `reaction` area: `impl Family` for `ti4_engine_core::choice::reaction` (prompt, context,
+//! option, parse) and its entry in the registry (`render/mod.rs`). Owner: package A5.
+//!
+//! The window question is `"{when|after} {EVENT}"` with subtype `reaction_{when|after}_{EVENT}`; an
+//! option is a registered ability (id = its registered text, kind `ability`, label = the printed name
+//! plus the window in words, payload `{event}`), then the generic decline.
+//!
+//! Not represented in the typed ask, and so not produced here: the `reaction:` slot's card payload
+//! (`cards`, `card_names`, `card`, `card_name`), the previews and the trigger of the context. Those are
+//! display facts built from the state at the moment the window opens; the string resolver still builds
+//! them, and the dual harness compares the identities and order of the options, not these.
+
+use serde_json::Value;
+use ti4_content::ContentStore;
+use ti4_engine_core::choice::reaction::{Ask, Opt, Relation, Subtype, Take};
+use ti4_engine_core::generated::ActionCard;
+
+use super::{Family, Render};
+use crate::generated::IdStr;
+use crate::wire::choice::ChoiceOption;
+use crate::kernel_sync::text::{ability_id, ability_text, event_text, relation_text};
+
+/// The renderer of the reaction windows.
+pub struct Fam;
+
+impl Family for Fam {
+    type Ask = Ask;
+    type Opt = Opt;
+    type Subtype = Subtype;
+
+    fn prompt(r: &Render, a: &Ask) -> String {
+        match a {
+            Ask::Window { event, relation } => format!("{} {}", relation_text(*relation), event_text(r, *event)),
+            Ask::PlayCard { event, relation } => format!("play an action card ({} {})", relation_text(*relation), event_text(r, *event)),
+            Ask::InstinctTraining { card } => format!("Instinct Training: exhaust and spend a strategy token to cancel {}", card.as_str()),
+            Ask::Legionnaire { .. } => "Crimson Legionnaire: gain 1 commodity or convert 1 to a trade good".to_owned(),
+            Ask::Cavalry => "The Cavalry: which non-fighter ship takes the Nomad flagship's abilities".to_owned(),
+            Ask::Assimilate => "gain a technology, or assimilate instead".to_owned(),
+            Ask::Salvage => "Salvage Operations: produce 1 ship of a type destroyed in the combat".to_owned(),
+            Ask::Indoctrination { planet } => format!("Indoctrination on {}: replace an enemy infantry", planet.as_str()),
+            Ask::AgentShip { copy } => format!("Captain Mendosa{}: raise which of the activating player's ships", if *copy { " (Ssruu)" } else { "" }),
+            Ask::Edict => "Edict: whose command token goes in your fleet pool".to_owned(),
+            Ask::IcarusDrive => "Icarus Drive: remove the mech to place or move a Creuss wormhole token into its system".to_owned(),
+            Ask::Terragenesis { planet } => format!("Terragenesis: sleeper token for {}", planet.as_str()),
+            Ask::G(g) => super::silent::prompt(r, g),
+            Ask::Act(a) => super::activation::prompt(r, a),
+            Ask::Watcher { actor } => format!("Watcher: which mech cancels {}'s action card", r.seat_text(*actor)),
+            Ask::AgentSwap { target } => format!(
+                "I48S: exhaust to let {} replace 1 infantry in the active system with a mech",
+                target.map_or_else(|| "the active player".to_owned(), |t| r.seat_text(t).to_owned())
+            ),
+        }
+    }
+
+    fn subtype(r: &Render, s: &Subtype) -> String {
+        match s {
+            Subtype::Window { event, relation } => format!("reaction_{}_{}", relation_text(*relation), event_text(r, *event)),
+            Subtype::PlayCard { event, relation } => format!("play_reaction_{}_{}", relation_text(*relation), event_text(r, *event)),
+            Subtype::InstinctTraining => "instinct_training_cancel".to_owned(),
+            Subtype::AgentSwap => "l1z1x_agent_swap".to_owned(),
+            Subtype::Legionnaire => "legionnaire_payment".to_owned(),
+            Subtype::Cavalry => "cavalry_ship".to_owned(),
+            Subtype::Assimilate => "assimilate".to_owned(),
+            Subtype::Watcher => "watcher_remove".to_owned(),
+            Subtype::Salvage => "salvage_produce".to_owned(),
+            Subtype::Indoctrination => "indoctrination_replace".to_owned(),
+            Subtype::IcarusDrive => "icarus_drive".to_owned(),
+            Subtype::AgentShip => "agent_ship".to_owned(),
+            Subtype::Edict => "edict_opponent".to_owned(),
+            Subtype::Terragenesis => "terragenesis_token".to_owned(),
+            Subtype::G(g) => super::silent::subtype(g),
+            Subtype::Act(a) => super::activation::subtype(a),
+        }
+    }
+
+    fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
+        match (a, o) {
+            (Ask::Window { event, .. }, Opt::Ability(id)) => {
+                let text = ability_text(r, *id);
+                let label = crate::ties::timing::ability_label(Some(ContentStore::embedded()), &text);
+                ChoiceOption::labelled(&text, "ability", label).with("event", event_text(r, *event))
+            }
+            (Ask::PlayCard { .. }, Opt::Card(card)) => {
+                let content = ContentStore::embedded();
+                let id = card.as_str();
+                let name = crate::ties::action_cards::name_of(content, &ti4_model::id::ActionCardId::new(id));
+                ChoiceOption::labelled(id, crate::ties::action_cards::ACTION_CARD_KIND, format!("play {name}")).with("card", id).with("card_name", name)
+            }
+            (Ask::InstinctTraining { .. }, Opt::Use) => ChoiceOption::labelled("use", "technology", "cancel it"),
+            (Ask::AgentSwap { .. }, Opt::Use) => ChoiceOption::labelled("use", "leader", "exhaust the agent"),
+            (Ask::Cavalry, Opt::Ship(unit)) => {
+                let id = unit.as_str();
+                ChoiceOption::labelled(id, "cavalry_ship", format!("treat a {id} as the Nomad flagship")).with("unit", id)
+            }
+            (Ask::Legionnaire { .. }, Opt::Gain) => ChoiceOption::labelled("gain", "economy", "gain 1 commodity"),
+            (Ask::Legionnaire { .. }, Opt::Convert) => ChoiceOption::labelled("convert", "economy", "convert 1 commodity to a trade good"),
+            (Ask::Assimilate, Opt::Take { how, tech, source }) => {
+                let (tech_id, source) = (tech.as_str(), r.seat_text(*source));
+                let name = crate::ties::technology::name(ContentStore::embedded(), &ti4_model::id::TechnologyId::new(tech_id));
+                let (kind, label) = match how {
+                    Take::Gain => ("gain", format!("gain {name} from {source}")),
+                    Take::TokenX => ("x", format!("place the X token on {name} of {source}")),
+                    Take::TokenY => ("y", format!("place the Y token on {name} of {source}")),
+                };
+                ChoiceOption::labelled(format!("{kind}|{source}|{tech_id}"), "nekro_assimilate", label)
+            }
+            (Ask::Salvage, Opt::Produce { unit, cost }) => {
+                let base = <ti4_engine_core::generated::UnitBaseType as IdStr>::as_str(unit.data().base_type);
+                ChoiceOption::labelled(base, "salvage", format!("produce 1 {} for {cost} resources", unit.as_str())).with("cost", i64::from(*cost))
+            }
+            (Ask::Indoctrination { .. }, Opt::Indoctrinate { base, cost, opponent }) => {
+                let base = <ti4_engine_core::generated::UnitBaseType as IdStr>::as_str(*base);
+                ChoiceOption::labelled(base, "indoctrination", format!("spend {cost} influence to replace 1 infantry of {} with a {base}", r.seat_text(*opponent))).with("cost", i64::from(*cost))
+            }
+            (Ask::AgentShip { .. }, Opt::Boost { n, system, unit, own, top }) => {
+                ChoiceOption::labelled(format!("ship|{n}"), "ship", format!("{} in {} (move {own} to {top})", unit.as_str(), system.as_str()))
+            }
+            (Ask::Edict, Opt::Opponent(who)) => {
+                let who = r.seat_text(*who);
+                ChoiceOption::labelled(who, "edict", format!("place {who}'s command token in your fleet pool"))
+            }
+            (Ask::IcarusDrive, Opt::Token(kind, system)) => {
+                let (kind, system) = (kind.as_str(), system.as_str());
+                ChoiceOption::labelled(format!("{kind}|{system}"), "creuss_token", format!("Icarus Drive: the {kind} token into {system}")).with("system", system)
+            }
+            (Ask::Terragenesis { planet }, Opt::Sleeper { from: None }) => ChoiceOption::labelled("place", "sleeper", format!("place a sleeper token on {}", planet.as_str())),
+            (Ask::Terragenesis { planet }, Opt::Sleeper { from: Some(from) }) => {
+                ChoiceOption::labelled(format!("move|{}", from.as_str()), "sleeper", format!("move the sleeper token on {} to {}", from.as_str(), planet.as_str()))
+            }
+            (Ask::G(g), Opt::G(o)) => super::silent::option(r, g, o),
+            (Ask::Act(a), Opt::Act(o)) => super::activation::option(r, a, o),
+            (Ask::Watcher { .. }, Opt::Site { system, planet }) => {
+                let system = system.as_str();
+                let place = planet.map_or_else(|| "space".to_owned(), |p| p.as_str().to_owned());
+                ChoiceOption::labelled(format!("watcher|{system}|{place}"), "watcher", format!("remove the Watcher in system {system}")).with("system", system)
+            }
+            _ => panic!("option {o:?} in the question {a:?}"),
+        }
+    }
+
+    fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
+        if let Ask::PlayCard { .. } = a {
+            return ActionCard::from_id(id).map(Opt::Card);
+        }
+        if let Ask::Cavalry = a {
+            return <ti4_engine_core::generated::Unit as IdStr>::from_id(id).map(Opt::Ship);
+        }
+        if let Ask::Salvage | Ask::Indoctrination { .. } | Ask::AgentShip { .. } = a {
+            // The id is the base type: the option is matched against the rendered ones of its question.
+            return None;
+        }
+        if let Ask::Edict = a {
+            return r.seat(id).map(Opt::Opponent);
+        }
+        if let Ask::IcarusDrive = a {
+            let (kind, system) = id.split_once('|')?;
+            return Some(Opt::Token(<ti4_engine_core::generated::Wormhole as IdStr>::from_id(kind)?, <ti4_engine_core::generated::System as IdStr>::from_id(system)?));
+        }
+        if let Ask::G(g) = a {
+            return super::silent::parse(r, g, id);
+        }
+        if let Ask::Act(a) = a {
+            return super::activation::parse(r, a, id);
+        }
+        if let Ask::Terragenesis { .. } = a {
+            return match id.strip_prefix("move|") {
+                Some(from) => Some(Opt::Sleeper { from: Some(<ti4_engine_core::generated::Planet as IdStr>::from_id(from)?) }),
+                None => (id == "place").then_some(Opt::Sleeper { from: None }),
+            };
+        }
+        if let Ask::Watcher { .. } = a {
+            let mut parts = id.splitn(3, '|');
+            let (Some("watcher"), Some(system), Some(place)) = (parts.next(), parts.next(), parts.next()) else { return None };
+            let planet = if place == "space" { None } else { Some(<ti4_engine_core::generated::Planet as IdStr>::from_id(place)?) };
+            return Some(Opt::Site { system: <ti4_engine_core::generated::System as IdStr>::from_id(system)?, planet });
+        }
+        if let Ask::Assimilate = a {
+            let mut parts = id.splitn(3, '|');
+            let (kind, source, tech) = (parts.next()?, parts.next()?, parts.next()?);
+            let how = match kind {
+                "gain" => Take::Gain,
+                "x" => Take::TokenX,
+                "y" => Take::TokenY,
+                _ => return None,
+            };
+            return Some(Opt::Take {
+                how,
+                tech: <ti4_engine_core::generated::Technology as IdStr>::from_id(tech)?,
+                source: r.seat(source)?,
+            });
+        }
+        if let Ask::Legionnaire { .. } = a {
+            return match id {
+                "gain" => Some(Opt::Gain),
+                "convert" => Some(Opt::Convert),
+                _ => None,
+            };
+        }
+        if !matches!(a, Ask::Window { .. }) {
+            return (id == "use").then_some(Opt::Use);
+        }
+        // An ability id: `kind:...:EVENT:when|after|produce`, known to the interner (registered).
+        let parts: Vec<&str> = id.split(':').collect();
+        if parts.len() < 4 {
+            return None;
+        }
+        r.find_code(id)?;
+        Some(Opt::Ability(ability_id(r, id)))
+    }
+
+    fn details(r: &Render, a: &Ask) -> serde_json::Map<String, Value> {
+        match a {
+            Ask::G(ti4_engine_core::choice::silent::Ask::U(u)) => super::silent4::details(r, u),
+            _ => serde_json::Map::new(),
+        }
+    }
+}
+
+/// The relation of a lowercase word.
+#[must_use]
+pub fn relation_of(word: &str) -> Option<Relation> {
+    match word {
+        "when" => Some(Relation::When),
+        "after" => Some(Relation::After),
+        _ => None,
+    }
+}

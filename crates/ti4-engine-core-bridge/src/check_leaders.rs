@@ -7,7 +7,7 @@
 
 use ti4_content::ContentStore;
 use ti4_engine_legacy::dual::{Area, AreaMask, Backend, with_mask};
-use ti4_engine::generated::IdStr;
+use ti4_engine_legacy::generated::IdStr;
 use ti4_engine_legacy::leaders as st;
 use ti4_engine_legacy::faction_abilities as fa;
 use ti4_engine_legacy::leaders_view::{LeaderView, READS_ABILITIES, READS_ABILITY, READS_ACTIONS, READS_STATUS, READS_UNLOCK};

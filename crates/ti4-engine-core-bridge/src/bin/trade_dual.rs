@@ -18,7 +18,7 @@
 
 use ti4_content::ContentStore;
 use ti4_engine_legacy::dual::{self, Area, AreaMask, Backend};
-use ti4_engine::generated::IdStr;
+use ti4_engine_legacy::generated::IdStr;
 use ti4_engine_legacy::trade_core::TradeView;
 use ti4_engine_legacy::transactions::{self, Offer, PlanetTerm, Terms};
 use ti4_engine_core::generated::{ActionCard, Planet, SecretObjective};

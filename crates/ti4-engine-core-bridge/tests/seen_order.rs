@@ -1,7 +1,7 @@
 //! Enum order = text order (docs/todo/D3-bots.md trap T6, D3-1 item 5): the string bot iterates `BTreeMap<..Id, _>` in
 //! the order of the id type; the typed view iterates enum order. Every id table the bot iterates must agree.
 
-use ti4_engine::generated::IdStr;
+use ti4_engine_legacy::generated::IdStr;
 use ti4_engine_core::generated::{Faction, Planet, PublicObjective, SecretObjective, StrategyCard, System, Technology, Unit};
 
 /// The texts of an enum in enum order must be the texts sorted by the order of the string id type `S`.

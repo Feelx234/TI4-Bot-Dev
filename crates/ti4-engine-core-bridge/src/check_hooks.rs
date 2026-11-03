@@ -7,7 +7,7 @@
 //! demand that both answers occurred for every leader (a hook that is never `true` is not compared on the interesting side).
 
 use ti4_content::ContentStore;
-use ti4_engine::generated::IdStr;
+use ti4_engine_legacy::generated::IdStr;
 use ti4_engine_core::generated::{Leader, LeaderType, Planet, System, Technology};
 use ti4_engine_core::tables::{Flags, SystemFlags};
 use ti4_model::id::{LeaderId, ObjectiveId, PlanetId, PlayerId, SystemId, TechnologyId, UnitTypeId};
@@ -109,7 +109,7 @@ fn first_planet(content: &ContentStore, g: &GameState, system: &SystemId) -> Opt
 /// The first `n` systems in `ok`: those on the map first, then the others in id order (a unit may stand in a system the map does not hold).
 fn systems_where(p: &Position, n: usize, ok: impl Fn(System) -> bool) -> Vec<SystemId> {
     // Out of the game's sources a system holds no planet for the core (the string reads the whole corpus in a few hooks): not a position the game reaches.
-    let scope = ti4_engine_core::query::reach::scope_of(ti4_engine::live::kernel::kernel_for(p.sources));
+    let scope = ti4_engine_core::query::reach::scope_of(ti4_engine_legacy::live::kernel::kernel_for(p.sources));
     let all: Vec<System> = System::ALL.iter().copied().filter(|s| scope.system(*s).is_some() && ok(*s)).collect();
     let (on, off): (Vec<System>, Vec<System>) = all.into_iter().partition(|s| p.galaxy.coord_of(s.as_str()).is_some());
     on.into_iter().chain(off).take(n).map(|s| SystemId::new(s.as_str())).collect()

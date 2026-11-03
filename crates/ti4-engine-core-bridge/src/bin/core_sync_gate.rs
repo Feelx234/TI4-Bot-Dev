@@ -16,14 +16,14 @@
 //! 4. time every slice's load and store, and count its string-side JSON bytes (lend cost table).
 //!
 //! The per-position check is `ti4_engine_core_bridge::roundtrip` (shared with `alpha_roundtrip`). The process
-//! counts every `Unmapped` it meets (`ti4_engine::core_sync::unmapped`) and prints the census by (slice, reason);
+//! counts every `Unmapped` it meets (`ti4_engine_legacy::core_sync::unmapped`) and prints the census by (slice, reason);
 //! `--strict` exits 1 on any refusal (the whole census is printed first; `TI4_UNMAPPED=strict` in the environment
 //! makes the first refusal a panic instead, to find its call site).
 //!
 //! Exit status 1 when any round trip differs.
 
 
-use ti4_engine::core_sync::Slice;
+use ti4_engine_legacy::core_sync::Slice;
 use ti4_engine_core::state::CoreState;
 use ti4_engine_core_bridge::roundtrip::{Checker, inline_size};
 use ti4_engine_core_bridge::workload::{Position, golden_positions, template_openings};
@@ -48,7 +48,7 @@ fn fixtures(galaxy: &ti4_content::galaxy::Galaxy) -> Vec<Position> {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let strict = args.iter().any(|a| a == "--strict");
-    ti4_engine::core_sync::unsupported::set_disabled_policy_for_gate();
+    ti4_engine_legacy::core_sync::unsupported::set_disabled_policy_for_gate();
     let config = args.first().map_or("tools/engine_profile/profile-20.json", String::as_str);
     let games: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(20);
     let stride: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(10);
@@ -95,7 +95,7 @@ fn main() {
     for m in stats.core_diffs.iter().take(20) {
         println!("CORE DIFF {m}");
     }
-    let census = ti4_engine::core_sync::unmapped::take();
+    let census = ti4_engine_legacy::core_sync::unmapped::take();
     println!("unmapped (census of the run, by slice and reason): {}", census.total);
     for (reason, n) in census.by_name() {
         println!("  {n:>8}  {reason}");

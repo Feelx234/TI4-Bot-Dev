@@ -194,7 +194,10 @@ impl Asker for Bot<'_> {
             return Err(Stop::Blocked);
         }
         let place = self.seats.iter().position(|s| s == rendered.player.as_str()).unwrap_or(0);  // mutants:skip (a seat text always found; the fallback place)
-        let (picked, _, _) = ti4_rule_bot::choose_explained(rendered, None, self.seed, place, self.index);
+        // The rule bot is the string bot, which reads the legacy `Choice`: the same wire value, through JSON (the parity of the two types is
+        // `ti4-engine/tests/wire_parity.rs`).
+        let legacy: ti4_engine_legacy::choice::Choice = serde_json::from_value(serde_json::to_value(rendered).expect("a choice serialises")).expect("the legacy type reads the thin one");
+        let (picked, _, _) = ti4_rule_bot::choose_explained(&legacy, None, self.seed, place, self.index);
         self.index += 1;
         let chosen = rendered.options[picked.min(rendered.options.len() - 1)].id.clone();  // mutants:skip (picked is always below the length: the clamp is defensive)
         self.asked.push(Asked {
@@ -504,7 +507,7 @@ impl NativeGame {
     /// The final scores `(faction, victory points)` in seat order.
     #[must_use]
     pub fn scores(&self) -> Vec<(String, i16)> {
-        self.core.players().iter().map(|p| (<ti4_engine_core::generated::Faction as ti4_engine::generated::IdStr>::as_str(p.faction).to_owned(), p.econ.victory_points)).collect()
+        self.core.players().iter().map(|p| (<ti4_engine_core::generated::Faction as ti4_engine_legacy::generated::IdStr>::as_str(p.faction).to_owned(), p.econ.victory_points)).collect()
     }
 
     /// The decision chain only (hex): equal for two games that were asked the same questions and answered them the same way.
@@ -1524,7 +1527,8 @@ mod tests {
             for index in 0..6 {
                 let mut bot = Bot { seed: 9, seats: &seats, index, asked: Vec::new() };
                 let id = bot.ask(&Question { asking: &asking, rendered: choice.clone() }).unwrap();
-                let (picked, _, _) = ti4_rule_bot::choose_explained(&choice, None, 9, place, index);
+                let legacy: ti4_engine_legacy::choice::Choice = serde_json::from_value(serde_json::to_value(&choice).unwrap()).unwrap();
+                let (picked, _, _) = ti4_rule_bot::choose_explained(&legacy, None, 9, place, index);
                 assert_eq!(id, choice.options[picked].id, "place {place}, index {index}");
                 assert_eq!(bot.index, index + 1, "one decision more");
                 assert_eq!(bot.asked.len(), 1);

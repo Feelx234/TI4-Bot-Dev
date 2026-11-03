@@ -20,7 +20,7 @@ use ti4_server::storage::FileGameStore;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let strict = args.iter().any(|a| a == "--strict");
-    ti4_engine::core_sync::unsupported::set_disabled_policy_for_gate();
+    ti4_engine_legacy::core_sync::unsupported::set_disabled_policy_for_gate();
     let every = args
         .iter()
         .position(|a| a == "--every")
@@ -87,7 +87,7 @@ fn main() {
     for (reason, (n, example)) in &total.unmapped {
         println!("UNMAPPED x{n}: {reason} (e.g. {example})");
     }
-    let census = ti4_engine::core_sync::unmapped::take();
+    let census = ti4_engine_legacy::core_sync::unmapped::take();
     println!(
         "alpha_roundtrip: {} games listed, {checked} checked, {skipped} skipped, {failed} failed | positions {} | differences {} | core diffs {} | unmapped {} (census {}) | max owners {} texts {} blobs {} | rules versions {rules_versions:?}",
         ids.len(),

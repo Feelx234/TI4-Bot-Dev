@@ -1,4 +1,4 @@
-//! The play facts of the live loop against the string engine's (package KF2, `ti4_engine::live::plays`): for every position variant the
+//! The play facts of the live loop against the string engine's (package KF2, `ti4_engine_legacy::live::plays`): for every position variant the
 //! facts an action card played inside a window reads (`PlayFacts`: the unit a seat places for infantry and cruiser, the Mahact
 //! pools, Reveal Prototype's set and payability, the blanked laws, the scope, the card tables) are computed twice, by
 //! `reactions_core::play_facts` from the string `GameState` and by `live::plays::play_facts` from the core position and the live
@@ -9,10 +9,10 @@
 //! whose research it does not port; the core answers (its hooks are the live kernel's).
 
 use ti4_content::ContentStore;
-use ti4_engine::core_sync::{CoreView, Ctx, Sources};
-use ti4_engine::generated::IdStr;
-use ti4_engine::live::plays::{self, Texts};
-use ti4_engine::render::Render;
+use ti4_engine_legacy::core_sync::{CoreView, Ctx, Sources};
+use ti4_engine_legacy::generated::IdStr;
+use ti4_engine_legacy::live::plays::{self, Texts};
+use ti4_engine_legacy::render::Render;
 use ti4_engine_core::generated::{ActionCard, Requirement, Technology, Unit as CoreUnit};
 use ti4_engine_core::kernel::ability::PlayFacts;
 use ti4_engine_core::state::{Slice, SliceSet};
@@ -147,7 +147,7 @@ fn reads() -> SliceSet {
 pub fn check_position(p: &Position, report: &mut PlayReport) {
     let _content = ContentStore::embedded();
     report.positions += 1;
-    let kernel = ti4_engine::live::kernel::kernel_for(p.sources);
+    let kernel = ti4_engine_legacy::live::kernel::kernel_for(p.sources);
     for (name, g) in variants(&p.state) {
         report.variants += 1;
         let label = format!("{} [{name}]", p.label);
