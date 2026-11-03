@@ -28,9 +28,18 @@ pub(super) struct TableAsker<'t> {
     defect: Option<String>,
     /// The question that had no option.
     empty: Option<(PlayerId, String)>,
+    /// A question showed a seat another seat's cards.
+    pub(super) hidden: bool,
+    participation: Option<&'t super::Participation>,
 }
 
 impl<'t> TableAsker<'t> {
+    /// Offer only the reactions this filter lets a seat take (a planning fork).
+    pub(super) const fn with_participation(mut self, p: Option<&'t super::Participation>) -> Self {
+        self.participation = p;
+        self
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) const fn new(
         table: &'t mut Table,
@@ -42,7 +51,7 @@ impl<'t> TableAsker<'t> {
         strategic: Option<&'t StrategicObserver>,
         aftermath: Option<&'t AftermathObserver>,
     ) -> Self {
-        Self { table, content, sources, galaxy, cx, base, strategic, aftermath, defect: None, empty: None }
+        Self { table, content, sources, galaxy, cx, base, strategic, aftermath, defect: None, empty: None, hidden: false, participation: None }
     }
 
     /// The error a stopped live call is reported as.
@@ -104,6 +113,25 @@ impl Asker for TableAsker<'_> {
         if rendered.options.is_empty() {
             self.empty = Some((rendered.player.clone(), rendered.prompt.clone()));
             return Err(Stop::Blocked);
+        }
+        if rendered.context.as_ref().is_some_and(|c| c.subtype.contains("show_") || c.subtype.contains("reveal") || c.subtype.contains("take_from_revealed")) {
+            self.hidden = true;
+        }
+        // A planning fork: an optional reaction of a seat the filter keeps out is declined without a question (and without a journal entry),
+        // and the table's observer is told the window passed that seat by.
+        if let (Some(filter), Some(context)) = (self.participation, rendered.context.as_ref())
+            && context.optional
+            && matches!(context.source, crate::wire::decision_context::DecisionSource::Reaction(_))
+            && !filter(&super::Participant { owner: rendered.player.clone(), optional: true })
+            && let Some(decline) = rendered.options.iter().find(|o| o.is_decline())
+        {
+            if let Some(trigger) = &context.trigger {
+                let relation = if trigger.relation == "after" { crate::ties::timing::Relation::After } else { crate::ties::timing::Relation::When };
+                if let Ok(state) = materialize::materialize(q.asking.nested.as_ref().map(|(_, at)| &**at).or(q.asking.at.as_deref()).unwrap_or(q.core), self.cx, self.base) {
+                    self.table.window_skipped(&rendered.player, &trigger.event_type, relation, &state);
+                }
+            }
+            return Ok(decline.id.clone());
         }
         // The last card of the draft is not a choice: the picker takes it and is told so (never journaled).
         if q.asking.choice.ask == ti4_engine_core::choice::Ask::Strategy(ti4_engine_core::choice::strategy::Ask::Draft)

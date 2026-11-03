@@ -68,6 +68,19 @@ impl Family for Fam {
                 .with("planet", planet.as_str().to_owned())
                 .with("unit", unit.as_str().to_owned())
                 .with("damaged", *damaged);
+                // OBS-008a4: the exact, immediate count of the invader's units on the planet that this landing reaches (LRR 49.2 places the unit).
+                let own_ground = r.position().and_then(|pos| {
+                    let core: &ti4_engine_core::state::CoreState = &pos.state;
+                    let invader = core.transient().invasion.active.as_ref()?.invader;
+                    Some(ti4_engine_core::query::board::planet_units(core, *planet).iter().filter(|p| p.owner() == invader).count())
+                });
+                let option = match own_ground {
+                    Some(n) => {
+                        let n = i64::try_from(n).unwrap_or(i64::MAX);
+                        option.previewed(crate::wire::preview::Preview::certain(vec![crate::wire::preview::Delta::new(crate::wire::preview::Quantity::GroundForcesOnPlanet, n, n + 1)]))
+                    }
+                    None => option,
+                };
                 match from {
                     Some((system, planet)) => option.with("from_system", system.as_str().to_owned()).with("from_planet", planet.as_str().to_owned()),
                     None => option,

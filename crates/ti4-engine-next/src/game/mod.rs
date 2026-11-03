@@ -180,6 +180,8 @@ const fn glued(arm: Arm) -> bool {
 struct Done {
     finished_game: bool,
     asked: usize,
+    /// A question showed a seat another seat's cards (the string's `observe_hidden_information` sites).
+    hidden: bool,
 }
 
 /// The stateful owner of generated choices, their decision log, and observable events; the typed core plays the game.
@@ -599,8 +601,7 @@ impl<'a> Game<'a> {
     }
 
     /// Which optional reactions this copy offers: a planning fork asks no optional reaction of the other seats (docs/todo/D2-8-wrapper.md 1.3,
-    /// `Game::timing.set_participation`). **Not enforced by the native loop yet**: the core's resolver has no such filter, so the copy offers
-    /// them and the publication gate of the plan preview stops at the first question it did not audit (a refusal, not a wrong preview).
+    /// `Game::timing.set_participation`). Enforced in the asker: an optional reaction question of a seat the filter keeps out is declined without a question, and `Table::window_skipped` is told.
     pub fn set_participation(&mut self, filter: impl Fn(&Participant) -> bool + Send + Sync + 'static) {
         self.participation = Some(Arc::new(filter));
     }
@@ -752,7 +753,7 @@ impl<'a> Game<'a> {
             return self.result(false, Some(error));
         }
         let before_rng = self.observation.as_ref().and_then(|_| self.native.as_ref().and_then(|n| materialize::rng_positions(&n.core).ok()));
-        let before_private = self.observation.as_ref().map(|_| private_marks(&self.state));
+        let before_private = self.observation.as_ref().map(|_| (private_marks(&self.state), deck_lengths(&self.state)));
         let outcome = self.step_native();
         match outcome {
             Ok(done) => {
@@ -761,9 +762,11 @@ impl<'a> Game<'a> {
                 }
                 if let Some(observation) = &self.observation {
                     if self.rng_positions_differ(before_rng.as_ref()) {
+                        if std::env::var_os("TI4_DBG_LATCH").is_some() { eprintln!("RNG {:?} -> {:?}", before_rng, self.native.as_ref().and_then(|n| materialize::rng_positions(&n.core).ok())); }
                         observation.randomness();
                     }
-                    if before_private.is_some_and(|b| b != private_marks(&self.state)) {
+                    if done.hidden || before_private.as_ref().is_some_and(|b| *b != (private_marks(&self.state), deck_lengths(&self.state))) {
+                        if std::env::var_os("TI4_DBG_LATCH").is_some() { eprintln!("HIDDEN"); }
                         observation.hidden_information();
                     }
                 }
@@ -817,14 +820,14 @@ impl<'a> Game<'a> {
 
     /// One step of the native loop. On an error the core, the code table and the decision log are what they were before the call.
     fn step_native(&mut self) -> Result<Done, GameError> {
-        let Self { state, table, events, content, sources, galaxy, native, rolls, blocked, aftermath_observer, strategic_observer, steps, secondary, .. } = self;
+        let Self { state, table, events, content, sources, galaxy, native, rolls, blocked, aftermath_observer, strategic_observer, steps, secondary, participation, .. } = self;
         let Some(native) = native.as_mut() else { return Err(GameError::Blocked("the core is not loaded".to_owned())) };
         let before = native.core.clone();
         let (codes, factions) = (native.render.codes_snapshot(), native.render.factions.clone());
         let after_glue = native.after_glue;
         let log_len = table.log.records.len();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            native_step(native, table, events, content, *sources, galaxy.as_ref(), strategic_observer.as_ref(), aftermath_observer.as_ref(), state)
+            native_step(native, table, events, content, *sources, galaxy.as_ref(), strategic_observer.as_ref(), aftermath_observer.as_ref(), participation.as_ref(), state)
         }));
         let result = match result {
             Ok(r) => r,
@@ -885,8 +888,14 @@ const fn window_name(kind: WindowKind) -> &'static str {
 }
 
 /// The private marks of a position (what only one seat may see): a change is a step that showed something.
+fn deck_lengths(state: &GameState) -> Vec<usize> {
+    let mut lens = vec![state.agenda_deck.len(), state.action_card_deck.len(), state.secret_deck.len()];
+    lens.extend(state.exploration_decks.values().map(Vec::len));
+    lens
+}
+
 fn private_marks(state: &GameState) -> BTreeMap<String, String> {
-    state.faction_marks.iter().filter(|(k, _)| k.starts_with("private:") && !k.starts_with("private:#seen:")).map(|(k, v)| (k.clone(), v.clone())).collect()
+    state.faction_marks.iter().filter(|(k, _)| k.starts_with("cards:reveal:") || k.starts_with("cards:staged:") || (k.starts_with("private:") && k.ends_with(":insider:peek"))).map(|(k, v)| (k.clone(), v.clone())).collect()
 }
 
 /// The body of `NativeGame::step_inner` with the table instead of the bot.
@@ -900,12 +909,13 @@ fn native_step(
     galaxy: Option<&Galaxy>,
     strategic: Option<&StrategicObserver>,
     aftermath: Option<&AftermathObserver>,
+    participation: Option<&Participation>,
     state: &GameState,
 ) -> Result<Done, GameError> {
     let env = live::env::env_with_plays(&n.render, &n.core, n.kernel, n.seeds.clone(), sources);
     let lcx = live::Cx::new(&n.render, &env);
     let from = n.core.ledger.events.len();
-    let mut asker = TableAsker::new(table, content, sources, galaxy, &n.cx, &n.base, strategic, aftermath);
+    let mut asker = TableAsker::new(table, content, sources, galaxy, &n.cx, &n.base, strategic, aftermath).with_participation(participation);
     // 1. The reconcile hooks every step starts with (not the second half of a glued pair: the string's step runs on from the prelude).
     for _ in 0..8 {
         if n.after_glue {
@@ -923,7 +933,7 @@ fn native_step(
     let asks = asks_of(&n.core);
     let arm = step_arm(&facts, asks);
     if arm == Arm::Finished {
-        return Ok(Done { finished_game: true, asked: 0 });
+        return Ok(Done { finished_game: true, asked: 0, hidden: false });
     }
     if live_arm(arm).is_none() {
         return Err(GameError::Core(format!("the arm {} has no live function", arms::name(arm))));
@@ -935,6 +945,7 @@ fn native_step(
     };
     asker.arm_done(arm, &out, &n.core);
     let asked = out.asked.len();
+    let hidden = asker.hidden;
     drop(asker);
     drop(lcx);
     // 4. The hand-overs between the arms.
@@ -949,7 +960,7 @@ fn native_step(
     let handed_off = arm == Arm::Tactical && n.core.pending().window(WindowKind::Aftermath).is_some();
     n.after_glue = out.finished && (glued(arm) || arm == Arm::Aftermath || handed_off || (n.after_glue && arm == Arm::Tactical && asked == 0));
     let _ = state;
-    Ok(Done { finished_game: false, asked })
+    Ok(Done { finished_game: false, asked, hidden })
 }
 
 /// [`Native::asks`] on a bare core.

@@ -132,6 +132,11 @@ impl Family for Fam {
                     .with("damaged", *damaged)
                     .with("galvanized", *galvanized)
                     .with("capacity_remaining", i64::from(*remaining))
+                    .previewed(crate::wire::preview::Preview::certain(vec![crate::wire::preview::Delta::new(
+                        crate::wire::preview::Quantity::CapacityFree,
+                        i64::from(*remaining),
+                        i64::from(*remaining) - 1,
+                    )]))
                     .with("loaded_ground", usize::from(*ground))
                     .with("loaded_fighters", usize::from(*fighters))
                     .with("system", system_id(*origin))
