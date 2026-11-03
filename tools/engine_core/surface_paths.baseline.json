@@ -1,0 +1,569 @@
+{
+ "action_cards::apply_movement_effects": {
+  "status": "legacy"
+ },
+ "action_cards::hand_limit": {
+  "status": "native"
+ },
+ "action_cards::insider_peek": {
+  "status": "native"
+ },
+ "action_cards::is_insider_peek_key": {
+  "status": "native"
+ },
+ "action_cards::name_of": {
+  "status": "native"
+ },
+ "choice::AlwaysDecline": {
+  "status": "pending"
+ },
+ "choice::Choice": {
+  "status": "pending"
+ },
+ "choice::ChoiceOption": {
+  "status": "pending"
+ },
+ "choice::ChoiceOption::is_decline": {
+  "status": "pending"
+ },
+ "choice::Decider": {
+  "status": "pending"
+ },
+ "choice::DecisionLog::default": {
+  "status": "pending"
+ },
+ "choice::DecisionRecord": {
+  "status": "pending"
+ },
+ "choice::FirstOption": {
+  "status": "pending"
+ },
+ "choice::IllegalChoice": {
+  "status": "pending"
+ },
+ "choice::Observed": {
+  "status": "pending"
+ },
+ "choice::Observed::movable_into": {
+  "status": "pending"
+ },
+ "choice::PublicSeat": {
+  "status": "pending"
+ },
+ "choice::Scripted": {
+  "status": "pending"
+ },
+ "choice::SeatObservation": {
+  "status": "pending"
+ },
+ "choice::SeededRandom": {
+  "status": "pending"
+ },
+ "choice::Table": {
+  "status": "pending"
+ },
+ "choice::Table::window_skipped": {
+  "status": "pending"
+ },
+ "choice::ask_private": {
+  "status": "pending"
+ },
+ "choice::validate": {
+  "status": "pending"
+ },
+ "combat::CASUALTY_KIND": {
+  "status": "native"
+ },
+ "combat::SUSTAIN_KIND": {
+  "status": "native"
+ },
+ "combat::cancellable_hits": {
+  "status": "native"
+ },
+ "combat::opponent_with_ships": {
+  "status": "native"
+ },
+ "combat::space_cannon_guns": {
+  "status": "native"
+ },
+ "core_sync::guard::factions_known": {
+  "status": "native"
+ },
+ "core_sync::guard::ids_supported": {
+  "status": "native"
+ },
+ "decision_context::CONTEXT_VERSION": {
+  "status": "pending"
+ },
+ "decision_context::ConstraintKind": {
+  "status": "pending"
+ },
+ "decision_context::ConstraintKind::UnitsToRemove": {
+  "status": "pending"
+ },
+ "decision_context::DecisionContext": {
+  "status": "pending"
+ },
+ "decision_context::DecisionContext::without_display_fields": {
+  "status": "pending"
+ },
+ "decision_context::DecisionSource": {
+  "status": "pending"
+ },
+ "decision_context::DecisionSource::Reaction": {
+  "status": "pending"
+ },
+ "decision_context::DecisionTarget": {
+  "status": "pending"
+ },
+ "decision_context::DecisionTrigger": {
+  "status": "pending"
+ },
+ "deck::EXPLORATION_TRAITS": {
+  "status": "legacy"
+ },
+ "deck::action_deck_len": {
+  "status": "legacy"
+ },
+ "deck::build_starting_decks": {
+  "status": "legacy"
+ },
+ "dice::Roll": {
+  "status": "pending"
+ },
+ "dice::SIDES": {
+  "status": "pending"
+ },
+ "diplomacy::candidates::OPEN_KIND": {
+  "status": "native"
+ },
+ "entropic_scars::abilities_usable": {
+  "status": "native"
+ },
+ "exploration::attachment_for": {
+  "status": "native"
+ },
+ "exploration::frontier_systems": {
+  "status": "native"
+ },
+ "exploration::gain_fragment": {
+  "status": "legacy"
+ },
+ "exploration::mark_legacy_device_ids": {
+  "status": "legacy"
+ },
+ "exploration::resolution": {
+  "status": "native"
+ },
+ "exploration::traits_of": {
+  "status": "native"
+ },
+ "faction_abilities::has": {
+  "status": "native"
+ },
+ "factions::AssetKind::Technology": {
+  "status": "native"
+ },
+ "factions::assets": {
+  "status": "native"
+ },
+ "factions::hooks_economy::production_cost_reduction": {
+  "status": "native"
+ },
+ "factions::mahact::fleet_pool_owners": {
+  "status": "native"
+ },
+ "fingerprint::CanonicalH": {
+  "status": "legacy"
+ },
+ "fingerprint::decision_h": {
+  "status": "legacy"
+ },
+ "fixtures::game": {
+  "status": "legacy"
+ },
+ "fixtures::plain_hub": {
+  "status": "legacy"
+ },
+ "fleet::standing": {
+  "status": "native"
+ },
+ "fleet_strength::Descriptors": {
+  "status": "native"
+ },
+ "fleet_strength::descriptors": {
+  "status": "native"
+ },
+ "fleet_strength::hit_chance": {
+  "status": "native"
+ },
+ "fleet_strength::matchup": {
+  "status": "native"
+ },
+ "fracture::systems": {
+  "status": "native"
+ },
+ "game::CONTINUE_ACTION_ID": {
+  "status": "legacy"
+ },
+ "game::CONTINUE_ACTION_KIND": {
+  "status": "legacy"
+ },
+ "game::Game": {
+  "status": "legacy"
+ },
+ "game::GameSnapshot": {
+  "status": "legacy"
+ },
+ "game::RunError": {
+  "status": "legacy"
+ },
+ "game::SECONDARY_PREVIEW_COMPLETE": {
+  "status": "legacy"
+ },
+ "invasion::COMMIT_KIND": {
+  "status": "native"
+ },
+ "invasion::GROUND_CASUALTY_KIND": {
+  "status": "native"
+ },
+ "invasion::bombardable": {
+  "status": "native"
+ },
+ "laws::apply_to_galaxy": {
+  "status": "legacy"
+ },
+ "legendary::ionian_available": {
+  "status": "native"
+ },
+ "map_feasibility::apply": {
+  "status": "legacy"
+ },
+ "movement::Board": {
+  "status": "legacy"
+ },
+ "movement::MapEdit": {
+  "status": "legacy"
+ },
+ "movement::MovementRules": {
+  "status": "legacy"
+ },
+ "movement::recorded_map_edits": {
+  "status": "legacy"
+ },
+ "movement::replay_map_edits": {
+  "status": "legacy"
+ },
+ "objectives::CardProgress": {
+  "status": "pending"
+ },
+ "objectives::Cost": {
+  "status": "pending"
+ },
+ "objectives::Imagined": {
+  "status": "pending"
+ },
+ "objectives::Imagined::NONE": {
+  "status": "pending"
+ },
+ "objectives::Position": {
+  "status": "pending"
+ },
+ "objectives::Position::new": {
+  "status": "pending"
+ },
+ "objectives::VICTORY_TARGET": {
+  "status": "native"
+ },
+ "objectives::adjust_victory_points": {
+  "status": "legacy"
+ },
+ "objectives::bought_progress_at": {
+  "status": "pending"
+ },
+ "objectives::cost_of": {
+  "status": "pending"
+ },
+ "objectives::counting_progress": {
+  "status": "pending"
+ },
+ "objectives::family_token": {
+  "status": "pending"
+ },
+ "objectives::home_planets_not_controlled": {
+  "status": "pending"
+ },
+ "objectives::leader": {
+  "status": "native"
+ },
+ "objectives::neighbour_planet_counts": {
+  "status": "pending"
+ },
+ "objectives::points_for": {
+  "status": "native"
+ },
+ "objectives::remaining_position_progress": {
+  "status": "pending"
+ },
+ "objectives::scoreable_on": {
+  "status": "native"
+ },
+ "observation::ExecutionObservation": {
+  "status": "pending"
+ },
+ "planets::in_system": {
+  "status": "native"
+ },
+ "planets::tech_specialties_now": {
+  "status": "native"
+ },
+ "planets::traits_now": {
+  "status": "native"
+ },
+ "preview::Outcome": {
+  "status": "pending"
+ },
+ "preview::Outcome::Unknown": {
+  "status": "pending"
+ },
+ "preview::Quantity": {
+  "status": "pending"
+ },
+ "production::AGENT_OPTION_KIND": {
+  "status": "native"
+ },
+ "production::BUILDABLE": {
+  "status": "native"
+ },
+ "production::PAY_KIND": {
+  "status": "native"
+ },
+ "production::PLACE_KIND": {
+  "status": "native"
+ },
+ "production::PRODUCE_KIND": {
+  "status": "native"
+ },
+ "production::Spend": {
+  "status": "pending"
+ },
+ "production::Spend::Influence": {
+  "status": "pending"
+ },
+ "production::Spend::Resources": {
+  "status": "pending"
+ },
+ "production::available": {
+  "status": "pending"
+ },
+ "production::buildable_for": {
+  "status": "native"
+ },
+ "production::capacity": {
+  "status": "native"
+ },
+ "production::native_payment_planets": {
+  "status": "pending"
+ },
+ "production::placements": {
+  "status": "native"
+ },
+ "production::planet_value_boosts": {
+  "status": "native"
+ },
+ "production::price_of_under": {
+  "status": "native"
+ },
+ "production::trade_good_worth": {
+  "status": "native"
+ },
+ "promissory::SUPPORT_PREFIX": {
+  "status": "native"
+ },
+ "promissory::deal": {
+  "status": "legacy"
+ },
+ "promissory::faction_name": {
+  "status": "native"
+ },
+ "promissory::may_receive": {
+  "status": "native"
+ },
+ "promissory::receive": {
+  "status": "legacy"
+ },
+ "promissory::support": {
+  "status": "legacy"
+ },
+ "promissory::take": {
+  "status": "legacy"
+ },
+ "reach_query::ReachOrigin": {
+  "status": "pending"
+ },
+ "reach_query::who_can_reach": {
+  "status": "pending"
+ },
+ "reactions::ACTION_CARD_KIND": {
+  "status": "native"
+ },
+ "reactions::window_table": {
+  "status": "legacy"
+ },
+ "relics::SHARD": {
+  "status": "native"
+ },
+ "rng::RngPositions": {
+  "status": "pending"
+ },
+ "rng::RngSync": {
+  "status": "pending"
+ },
+ "seating::LOBBY_FACTIONS": {
+  "status": "legacy"
+ },
+ "seating::MECATOL": {
+  "status": "legacy"
+ },
+ "seating::SeatingError": {
+  "status": "legacy"
+ },
+ "seating::lobby_faction_draw": {
+  "status": "legacy"
+ },
+ "seating::seat_faction": {
+  "status": "legacy"
+ },
+ "secondary_preview::MAX_ANSWERS": {
+  "status": "native"
+ },
+ "secondary_preview::SecondaryPreview": {
+  "status": "pending"
+ },
+ "secondary_preview::preview_secondary": {
+  "status": "legacy"
+ },
+ "secrets::HAND_LIMIT": {
+  "status": "native"
+ },
+ "secrets::Position": {
+  "status": "pending"
+ },
+ "secrets::progress": {
+  "status": "pending"
+ },
+ "secrets::scored_count": {
+  "status": "native"
+ },
+ "secrets::ship_systems_beside_anomaly": {
+  "status": "pending"
+ },
+ "setup::start_game_seeded_with_card_set": {
+  "status": "legacy"
+ },
+ "setup::strategy_card_setup_for_set": {
+  "status": "legacy"
+ },
+ "starting_tech::open": {
+  "status": "legacy"
+ },
+ "strategy::STRATEGY_KIND": {
+  "status": "native"
+ },
+ "strategy::SecondaryResolution": {
+  "status": "pending"
+ },
+ "strategy_cards::INFLUENCE_PER_TOKEN": {
+  "status": "native"
+ },
+ "strategy_cards::card_kind": {
+  "status": "native"
+ },
+ "strategy_cards::card_name": {
+  "status": "native"
+ },
+ "supply::plastic": {
+  "status": "native"
+ },
+ "supply::remaining": {
+  "status": "native"
+ },
+ "tactical::ACTIVATE_KIND": {
+  "status": "native"
+ },
+ "tactical::MAX_ROUTES": {
+  "status": "native"
+ },
+ "tactical::MOVE_KIND": {
+  "status": "native"
+ },
+ "tactical::Movable": {
+  "status": "pending"
+ },
+ "tactical::effective_move_value_for_ship": {
+  "status": "native"
+ },
+ "tactical::movable_into": {
+  "status": "pending"
+ },
+ "tactical::routes_of": {
+  "status": "pending"
+ },
+ "tactical::ship_routes": {
+  "status": "legacy"
+ },
+ "technology::active_aliases": {
+  "status": "native"
+ },
+ "technology::apply_unit_upgrades": {
+  "status": "legacy"
+ },
+ "technology::colour_type": {
+  "status": "native"
+ },
+ "technology::faction_of": {
+  "status": "native"
+ },
+ "technology::gravity_drive_available": {
+  "status": "native"
+ },
+ "technology::is_unit_upgrade": {
+  "status": "native"
+ },
+ "technology::name": {
+  "status": "native"
+ },
+ "technology::prerequisites": {
+  "status": "native"
+ },
+ "technology::replaced_for_faction": {
+  "status": "native"
+ },
+ "thunders_edge::breakthrough_for": {
+  "status": "legacy"
+ },
+ "timing::ACTIVE_DETAIL": {
+  "status": "native"
+ },
+ "timing::Relation": {
+  "status": "pending"
+ },
+ "transactions::OPEN_KIND": {
+  "status": "native"
+ },
+ "transit::CargoWindow": {
+  "status": "legacy"
+ },
+ "transit::LOAD_KIND": {
+  "status": "native"
+ },
+ "transit::RIFT_DESTROYS_ON": {
+  "status": "native"
+ },
+ "transit::rifts_exited": {
+  "status": "legacy"
+ },
+ "valuation::unit_value": {
+  "status": "native"
+ }
+}

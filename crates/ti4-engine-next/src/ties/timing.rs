@@ -1,4 +1,7 @@
 //! From `timing.rs` of the legacy crate.
+
+/// The constants live in `crate::kinds` (lane B); this module re-exports them.
+pub use crate::kinds::timing::{ACTIVE_DETAIL};
 use serde::{Deserialize, Serialize};
 
 /// The point relative to an event at which an ability may resolve.
@@ -11,9 +14,6 @@ pub enum Relation {
     After,
 }
 
-/// The key of [`Choice::details`] that names the active player of a reaction window in the
-/// action phase.
-pub const ACTIVE_DETAIL: &str = "active";
 
 /// The label of a reaction option for the player: the printed name of the faction ability,
 /// leader, breakthrough, technology or unit behind an ability id such as

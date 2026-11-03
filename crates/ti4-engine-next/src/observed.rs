@@ -6,9 +6,8 @@
 //! returns private data, and no method on either type produces a `GameState`.
 //!
 //! The type is a copy of the legacy `choice::Observed` (the string rule bot reads it until D3). The accessors that only read the
-//! `GameState` are copied verbatim; the ones that ask a rule module (movement, objectives, production, fleet, the faction hooks) are
-//! **delegated to a legacy `Observed` over the same position** (`Self::legacy`, built with the value) until lane B's native queries land
-//! (docs/D28A_RESUME.md lists them; each is a one-line delegate marked in this file). The delegates return the legacy result types.
+//! `GameState` are copied verbatim; the ones that ask a rule module (movement, objectives, production, fleet, the faction hooks) are answered
+//! by lane B's native queries over the typed core (`crate::queries`, docs/D28B_RESUME.md, docs/D28B2_RESUME.md): none asks the legacy crate.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -31,22 +30,24 @@ pub struct Observed<'a> {
     pub(crate) content: &'a ContentStore,
     pub(crate) sources: SourceSet,
     pub(crate) galaxy: Option<&'a Galaxy>,
-    /// The legacy view of the same position, for the accessors that still ask a legacy rule module (see the module docs). Built with the
-    /// value (a few empty caches; the legacy type has no interior-mutable field that names `'a`, so `Observed` stays covariant, which
-    /// `SeatObservation::bind` needs).
-    legacy: ti4_engine_legacy::choice::Observed<'a>,
+    /// The typed position of the objectives questions, loaded on the first one (`None` inside: the core cannot hold the position). It
+    /// names no `'a`, so `Observed` stays covariant, which `SeatObservation::bind` needs.
+    objview: std::cell::OnceCell<Option<std::rc::Rc<crate::queries::objectives::ObjView>>>,
+    /// The typed position and the answers memoised for it (movement questions), built on the first typed question.
+    seats: std::cell::RefCell<crate::queries::adapter::SeatCache>,
 }
 
 impl<'a> Observed<'a> {
     /// Wrap a position. Public so tests and sibling crates can build one.
     #[must_use]
     pub fn new(state: &'a GameState, content: &'a ContentStore, sources: SourceSet, galaxy: Option<&'a Galaxy>) -> Self {
-        Self { state, content, sources, galaxy, legacy: ti4_engine_legacy::choice::Observed::new(state, content, sources, galaxy) }
+        Self { state, content, sources, galaxy, objview: std::cell::OnceCell::new(), seats: std::cell::RefCell::new(crate::queries::adapter::SeatCache::new()) }
     }
 
-    /// The legacy view of this position (its memoised answers are shared by the delegates).
-    const fn legacy(&self) -> &ti4_engine_legacy::choice::Observed<'a> {
-        &self.legacy
+    /// The typed position of the objectives questions (loaded once); `None` when the core cannot hold the position.
+    pub(crate) fn objective_view(&self) -> Option<std::rc::Rc<crate::queries::objectives::ObjView>> {
+        ti4_model::count::bump("Observed::objective_view");
+        crate::queries::objectives::view_of(&self.objview, self.state, self.content, self.sources, self.galaxy)
     }
 
     /// The seat's public sheet. (Native; the Mahact's fleet pool also holds other players' tokens (Edict), in public view, which the
@@ -60,7 +61,7 @@ impl<'a> Observed<'a> {
             trade_goods: seat.trade_goods,
             commodities: seat.commodities,
             tactic_tokens: seat.tactic_tokens,
-            fleet_tokens: seat.fleet_tokens + self.legacy().seat(player).map_or(0, |s| s.fleet_tokens - seat.fleet_tokens),
+            fleet_tokens: seat.fleet_tokens + crate::queries::factions::mahact_foreign_tokens(self.state, player),
             strategic_tokens: seat.strategic_tokens,
             strategy_cards: &seat.strategy_cards,
             exhausted_strategy_cards: &seat.exhausted_strategy_cards,
@@ -563,7 +564,11 @@ impl<'a> Observed<'a> {
         permille
     }
 
-    // ---- delegated to the legacy view until the native queries land (lane B) ---------------------------------------------------------
+    /// The typed position (the loaded slices movement reads), built on the first typed question.
+    fn typed_position(&self) -> Option<std::rc::Rc<crate::queries::adapter::Position>> {
+        let galaxy = self.galaxy?;
+        self.seats.borrow_mut().position(self.state, self.sources, galaxy)
+    }
 
     /// [`Self::rift_exits_into`] on the typed core (`tactical::route_rift_exits`); `None` when
     /// something is not mapped. The ship type is read from the generated rows, not the content store.
@@ -577,7 +582,8 @@ impl<'a> Observed<'a> {
         boosts: (bool, bool),
         destination: &SystemId,
     ) -> Option<usize> {
-        self.legacy().typed_rift_exits(player, origin, unit_type, boosts, destination)
+        let pos = self.typed_position()?;
+        crate::queries::tactical::typed_rift_exits(&mut self.seats.borrow_mut(), &pos, player, origin, unit_type, boosts, destination)
     }
 
     /// [`Self::movable_into`] on the typed core; `None` when something is not mapped.
@@ -587,18 +593,19 @@ impl<'a> Observed<'a> {
         &self,
         player: &PlayerId,
         destination: &SystemId,
-    ) -> Option<Vec<ti4_engine_legacy::tactical::Movable>> {
-        self.legacy().typed_movable_into(player, destination)
+    ) -> Option<Vec<crate::queries::tactical::Movable>> {
+        let pos = self.typed_position()?;
+        crate::queries::tactical::typed_movable_into(&mut self.seats.borrow_mut(), &pos, self.state, player, destination)
     }
 
     #[must_use]
     pub fn recent_diplomacy_attack(&self, observer: &PlayerId, subject: &PlayerId) -> bool {
-        self.legacy().recent_diplomacy_attack(observer, subject)
+        crate::queries::diplomacy::recent_attack(self.state, observer, subject)
     }
 
     #[must_use]
     pub fn recent_diplomacy_breach(&self, observer: &PlayerId, subject: &PlayerId) -> bool {
-        self.legacy().recent_diplomacy_breach(observer, subject)
+        crate::queries::diplomacy::recent_breach(self.state, observer, subject)
     }
 
     /// Revealed public objectives whose fixed map-shaped requirement includes `system`.
@@ -611,7 +618,8 @@ impl<'a> Observed<'a> {
         player: &PlayerId,
         system: &SystemId,
     ) -> Vec<ti4_model::id::ObjectiveId> {
-        self.legacy().objectives_implicating_system(player, system)
+        ti4_model::count::bump("Observed::objectives_implicating_system");
+        self.objective_view().map(|view| view.implicating(player, system)).unwrap_or_default()
     }
 
     /// Whether a ship with this printed movement can reach a public destination.
@@ -628,7 +636,9 @@ impl<'a> Observed<'a> {
         destination: &SystemId,
         move_value: i32,
     ) -> bool {
-        self.legacy().can_reach(player, origin, destination, move_value)
+        let Some(galaxy) = self.galaxy else { return false };
+        let _ = galaxy;
+        self.typed_position().and_then(|pos| crate::queries::tactical::typed_can_reach(&mut self.seats.borrow_mut(), &pos, player, origin, destination, move_value)).unwrap_or(false)
     }
 
     /// The routes (rules version 29, [`crate::tactical::ship_routes`]) the ship at `index` of
@@ -644,8 +654,9 @@ impl<'a> Observed<'a> {
         index: usize,
         boosts: (bool, bool),
         destination: &SystemId,
-    ) -> Vec<ti4_engine_legacy::tactical::MoveRoute> {
-        self.legacy().ship_routes_into(player, origin, index, boosts, destination)
+    ) -> Vec<crate::queries::tactical::MoveRoute> {
+        let Some(galaxy) = self.galaxy else { return Vec::new() };
+        crate::queries::tactical::routes_into(self.state, self.content, self.sources, galaxy, player, destination, origin, index, boosts)
     }
 
     /// Every ship of this player that could reach `destination` if it were activated.
@@ -662,8 +673,8 @@ impl<'a> Observed<'a> {
         &self,
         player: &PlayerId,
         destination: &SystemId,
-    ) -> Vec<ti4_engine_legacy::tactical::Movable> {
-        self.legacy().movable_into(player, destination)
+    ) -> Vec<crate::queries::tactical::Movable> {
+        self.movable_into_shared(player, destination).to_vec()
     }
 
     /// [`Self::movable_into`] without the copy: the memoised list, shared.
@@ -672,8 +683,22 @@ impl<'a> Observed<'a> {
         &self,
         player: &PlayerId,
         destination: &SystemId,
-    ) -> std::rc::Rc<[ti4_engine_legacy::tactical::Movable]> {
-        self.legacy().movable_into_shared(player, destination)
+    ) -> std::rc::Rc<[crate::queries::tactical::Movable]> {
+        if self.galaxy.is_none() {
+            return std::rc::Rc::from(Vec::new());
+        }
+        // The memo slot: the player's place at the table and the destination's system index.
+        let slot = self.state.players.iter().position(|p| &p.id == player).zip(crate::ties::core_adapter::system_ix(destination.as_str()));
+        if let Some((row, system)) = slot
+            && let Some(known) = self.seats.borrow().known_movable(row, system)
+        {
+            return known;
+        }
+        let found: std::rc::Rc<[crate::queries::tactical::Movable]> = self.typed_movable_into(player, destination).unwrap_or_default().into();
+        if let Some((row, system)) = slot {
+            self.seats.borrow_mut().remember_movable(row, system, found.clone());
+        }
+        found
     }
 
     /// Gravity rifts a ship of `player` sailing from `origin` to `destination` would exit (each
@@ -688,15 +713,37 @@ impl<'a> Observed<'a> {
         boosts: (bool, bool),
         destination: &SystemId,
     ) -> usize {
-        self.legacy().rift_exits_into(player, origin, unit_type, boosts, destination)
+        if self.galaxy.is_none() {
+            return 0;
+        }
+        let ix = crate::ties::core_adapter::system_ix;
+        let slot = self
+            .state
+            .players
+            .iter()
+            .position(|p| &p.id == player)
+            .zip(ix(destination.as_str()))
+            .zip(ix(origin.as_str()))
+            .zip(crate::queries::adapter::unit_ix(unit_type))
+            .map(|(((row, to), from), kind)| crate::queries::adapter::rift_key(row, to, from, kind, boosts));
+        if let Some(key) = slot
+            && let Some(known) = self.seats.borrow().known_rift_exits(key)
+        {
+            return known;
+        }
+        let found = self.typed_rift_exits(player, origin, unit_type, boosts, destination).unwrap_or(0);
+        if let Some(key) = slot {
+            self.seats.borrow_mut().remember_rift_exits(key, found);
+        }
+        found
     }
 
     /// Every unit of this player a ship leaving `origin` could carry: fighters and ground forces
     /// in its space area and on its planets, in the engine's own order. Reads only the seat's own
     /// units.
     #[must_use]
-    pub fn loadable(&self, player: &PlayerId, origin: &SystemId) -> Vec<ti4_engine_legacy::transit::Cargo> {
-        self.legacy().loadable(player, origin)
+    pub fn loadable(&self, player: &PlayerId, origin: &SystemId) -> Vec<crate::queries::transit::Cargo> {
+        crate::queries::transit::loadable(self.state, self.content, self.sources, player, origin)
     }
 
     /// Public resources or influence a player can currently spend.
@@ -705,42 +752,42 @@ impl<'a> Observed<'a> {
     /// cards and trade goods are visible at the table; the engine remains the single owner of
     /// the exact payment accounting used by policy and later factual feature capture.
     #[must_use]
-    pub fn available_spend(&self, player: &PlayerId, kind: ti4_engine_legacy::production::Spend) -> i64 {
-        self.legacy().available_spend(player, kind)
+    pub fn available_spend(&self, player: &PlayerId, kind: crate::queries::production::Spend) -> i64 {
+        crate::queries::production::available(self.state, self.content, self.sources, player, kind)
     }
 
     /// The public fleet-supply limit after laws and standing faction abilities.
     #[must_use]
     pub fn fleet_supply_limit(&self, player: &PlayerId) -> i32 {
-        self.legacy().fleet_supply_limit(player)
+        crate::queries::factions::fleet_limit(self.state, self.content, player)
     }
 
     /// Whose command tokens sit in `mahact`'s fleet pool (Edict), one entry per token. Public: the
     /// tokens are on the table in the owner's colour.
     #[must_use]
     pub fn mahact_fleet_pool_owners(&self, mahact: &PlayerId) -> Vec<PlayerId> {
-        self.legacy().mahact_fleet_pool_owners(mahact)
+        crate::queries::factions::mahact_fleet_pool_owners(self.state, mahact)
     }
 
     /// Players with a control token on one of `owner`'s faceup plots (the Firmament's puppets),
     /// which the Heaven's Eye reads. Public: the tokens sit on faceup cards.
     #[must_use]
     pub fn firmament_puppets(&self, owner: &PlayerId) -> BTreeSet<PlayerId> {
-        self.legacy().firmament_puppets(owner)
+        crate::queries::factions::firmament_puppeted(self.state, owner)
     }
 
     /// Whether `system` holds an active breach (the Crimson Rebellion). Public: the token's face
     /// shows.
     #[must_use]
     pub fn active_breach_in(&self, system: &SystemId) -> bool {
-        self.legacy().active_breach_in(system)
+        crate::queries::factions::crimson_active_breaches(self.state).contains(system)
     }
 
     /// Non-home systems containing a planet `player` controls, the count the Bastion flagship
     /// reads. Public: control is on the board.
     #[must_use]
     pub fn non_home_systems_with_planets(&self, player: &PlayerId) -> usize {
-        self.legacy().non_home_systems_with_planets(player)
+        crate::queries::factions::non_home_systems_with_planets(self.state, self.content, self.sources, player)
     }
 
     /// Capacity ships and ground forces owned by this player, using the opening gate's exact
@@ -751,21 +798,31 @@ impl<'a> Observed<'a> {
     /// fleet-composition bar.
     #[must_use]
     pub fn opening_fleet(&self, player: &PlayerId) -> (usize, usize) {
-        self.legacy().opening_fleet(player)
+        crate::queries::fleet::opening_fleet(self.state, player, self.content, self.sources)
     }
 
     /// Whether `system` is a Fracture system of a Fracture that is in play.
     /// Used only by training progress; it does not add a policy observation feature.
     #[must_use]
     pub fn is_fracture_system(&self, system: &SystemId) -> bool {
-        self.legacy().is_fracture_system(system)
+        self.state.fracture_in_play && crate::queries::fracture::is_fracture_system(self.content, self.sources, system)
     }
 
     /// Whether this seat currently has a ship, infantry or mech in a Fracture system.
     /// Used only by training progress; it does not add a policy observation feature.
     #[must_use]
     pub fn has_units_in_fracture(&self, player: &PlayerId) -> bool {
-        self.legacy().has_units_in_fracture(player)
+        if !self.state.fracture_in_play {
+            return false;
+        }
+        self.state.board.iter().any(|(id, system)| {
+            crate::queries::fracture::is_fracture_system(self.content, self.sources, id)
+                && system.units.iter().chain(system.planet_units.values().flatten()).any(|unit| {
+                    &unit.owner == player
+                        && ti4_content::units::unit_type(self.content, unit.type_id.as_str(), self.sources)
+                            .is_some_and(|stats| stats.is_ship() || matches!(stats.base_type(), "infantry" | "mech"))
+                })
+        })
     }
 
     /// How many revealed public objectives this seat could score right now.
@@ -775,7 +832,8 @@ impl<'a> Observed<'a> {
     /// victory points per faction, which is far too sparse to learn from on its own.
     #[must_use]
     pub fn scoreable_public(&self, player: &PlayerId) -> usize {
-        self.legacy().scoreable_public(player)
+        ti4_model::count::bump("Observed::scoreable_public");
+        self.objective_view().map_or(0, |view| view.scoreable_public(player))
     }
 
     /// The same for the secrets this seat holds.
@@ -784,7 +842,8 @@ impl<'a> Observed<'a> {
     /// reading a hand is not reading somebody else's.
     #[must_use]
     pub fn scoreable_secret(&self, player: &PlayerId) -> usize {
-        self.legacy().scoreable_secret(player)
+        ti4_model::count::bump("Observed::scoreable_secret");
+        self.objective_view().map_or(0, |view| view.scoreable_secret(player))
     }
 
     /// Exact progress for every revealed public objective, from the seat's point of view.
@@ -798,8 +857,9 @@ impl<'a> Observed<'a> {
     pub fn revealed_objective_progress(
         &self,
         player: &PlayerId,
-    ) -> Vec<ti4_engine_legacy::objectives::CardProgress> {
-        self.legacy().revealed_objective_progress(player)
+    ) -> Vec<crate::queries::objectives::CardProgress> {
+        ti4_model::count::bump("Observed::revealed_objective_progress");
+        self.revealed_objective_progress_gaining(player, &[])
     }
 
     /// The same, for the position this player would hold if it also controlled `gained`.
@@ -816,8 +876,9 @@ impl<'a> Observed<'a> {
         &self,
         player: &PlayerId,
         gained: &[PlanetId],
-    ) -> Vec<ti4_engine_legacy::objectives::CardProgress> {
-        self.legacy().revealed_objective_progress_gaining(player, gained)
+    ) -> Vec<crate::queries::objectives::CardProgress> {
+        ti4_model::count::bump("Observed::revealed_objective_progress_gaining");
+        self.revealed_objective_progress_imagining(player, &crate::queries::objectives::Imagined { planets: gained, ..crate::queries::objectives::Imagined::default() })
     }
 
     /// The same, for everything an option would change, not planet control alone.
@@ -831,21 +892,22 @@ impl<'a> Observed<'a> {
     pub fn revealed_objective_progress_imagining(
         &self,
         player: &PlayerId,
-        imagined: &ti4_engine_legacy::objectives::Imagined<'_>,
-    ) -> Vec<ti4_engine_legacy::objectives::CardProgress> {
-        self.legacy().revealed_objective_progress_imagining(player, imagined)
+        imagined: &crate::queries::objectives::Imagined<'_>,
+    ) -> Vec<crate::queries::objectives::CardProgress> {
+        ti4_model::count::bump("Observed::revealed_objective_progress_imagining");
+        self.objective_view().map(|view| view.revealed_progress(player, imagined)).unwrap_or_default()
     }
 
-    /// [`Self::revealed_objective_progress_imagining`] on the string state: the oracle of the dual
-    /// run.
+    /// [`Self::revealed_objective_progress_imagining`]: the legacy name of its string-state oracle (the dual run); there is one engine here.
     #[doc(hidden)]
     #[must_use]
     pub fn revealed_objective_progress_text(
         &self,
         player: &PlayerId,
-        imagined: &ti4_engine_legacy::objectives::Imagined<'_>,
-    ) -> Vec<ti4_engine_legacy::objectives::CardProgress> {
-        self.legacy().revealed_objective_progress_text(player, imagined)
+        imagined: &crate::queries::objectives::Imagined<'_>,
+    ) -> Vec<crate::queries::objectives::CardProgress> {
+        ti4_model::count::bump("Observed::revealed_objective_progress_text");
+        self.revealed_objective_progress_imagining(player, imagined)
     }
 }
 
@@ -906,20 +968,21 @@ impl<'a> SeatObservation<'a> {
             .collect()
     }
 
-    // ---- delegated to the legacy modules until the native queries land (lane B; see the module docs) -------------------------------
+    // ---- hidden cards (native: `crate::queries::cards`, over the core kernel) -----------------------------------------------------
 
     /// The hands shown to the bound seat (Mahact's Edict, Keleres' Tribunii, Nekro's Valefar ...), and the facedown promissory notes of the
-    /// owners whose hand a standing permission lets it read. (Delegate: `factions::hooks_cards`.)
+    /// owners whose hand a standing permission lets it read.
     #[must_use]
-    pub fn revealed_cards(&self) -> Vec<ti4_engine_legacy::factions::hooks_cards::Revealed> {
+    pub fn revealed_cards(&self) -> Vec<crate::queries::cards::Revealed> {
         ti4_model::count::bump("SeatObservation::revealed_cards");
-        use ti4_engine_legacy::factions::hooks_cards::{Revealed, RevealKind, may_view_hand, revealed_to};
+        use crate::queries::cards::{Revealed, RevealKind, may_view_hand, revealed_to};
         let state = self.observed.state;
+        let view = self.observed.objective_view();
         let mut revealed = revealed_to(state, &self.acting_seat);
         // Standing hand permissions are read from the current board and current leader state. They are deliberately not persisted in
         // faction_marks, which would go stale on movement or a change to the owner's hand.
         for owner in &state.seating_order {
-            if may_view_hand(state, self.observed.content, self.observed.sources, self.observed.galaxy, &self.acting_seat, owner, RevealKind::PromissoryNotes) {
+            if may_view_hand(view.as_deref(), &self.acting_seat, owner, RevealKind::PromissoryNotes) {
                 let ids: Vec<String> = state
                     .promissory_notes
                     .iter()
@@ -942,12 +1005,12 @@ impl<'a> SeatObservation<'a> {
         revealed
     }
 
-    /// The first and last card of the agenda deck, for a Naalu seat whose M'aban commander is unlocked. (Delegate: `promissory`.)
+    /// The first and last card of the agenda deck, for a Naalu seat whose M'aban commander is unlocked.
     #[must_use]
     pub fn agenda_deck_ends(&self) -> Option<(String, String)> {
         ti4_model::count::bump("SeatObservation::agenda_deck_ends");
         let state = self.observed.state;
-        if !ti4_engine_legacy::promissory::has_commander_ability(state, &self.acting_seat, "naalucommander") {
+        if !crate::queries::cards::has_commander_ability(self.observed.objective_view().as_deref(), &self.acting_seat, "naalucommander") {
             return None;
         }
         Some((state.agenda_deck.first()?.clone(), state.agenda_deck.last()?.clone()))
@@ -957,7 +1020,7 @@ impl<'a> SeatObservation<'a> {
     #[must_use]
     pub fn revealed_action_cards(&self) -> Vec<(PlayerId, Vec<ti4_model::id::ActionCardId>)> {
         ti4_model::count::bump("SeatObservation::revealed_action_cards");
-        self.revealed_of(ti4_engine_legacy::factions::hooks_cards::RevealKind::ActionCards)
+        self.revealed_of(crate::queries::cards::RevealKind::ActionCards)
             .into_iter()
             .map(|(owner, ids)| (owner, ids.into_iter().map(ti4_model::id::ActionCardId::new).collect()))
             .collect()
@@ -967,35 +1030,35 @@ impl<'a> SeatObservation<'a> {
     #[must_use]
     pub fn revealed_promissory_notes(&self) -> Vec<(PlayerId, Vec<String>)> {
         ti4_model::count::bump("SeatObservation::revealed_promissory_notes");
-        self.revealed_of(ti4_engine_legacy::factions::hooks_cards::RevealKind::PromissoryNotes)
+        self.revealed_of(crate::queries::cards::RevealKind::PromissoryNotes)
     }
 
     /// The secret objectives other seats showed the bound seat, by owner.
     #[must_use]
     pub fn revealed_secret_objectives(&self) -> Vec<(PlayerId, Vec<SecretObjectiveId>)> {
         ti4_model::count::bump("SeatObservation::revealed_secret_objectives");
-        self.revealed_of(ti4_engine_legacy::factions::hooks_cards::RevealKind::SecretObjectives)
+        self.revealed_of(crate::queries::cards::RevealKind::SecretObjectives)
             .into_iter()
             .map(|(owner, ids)| (owner, ids.into_iter().map(SecretObjectiveId::new).collect()))
             .collect()
     }
 
-    fn revealed_of(&self, kind: ti4_engine_legacy::factions::hooks_cards::RevealKind) -> Vec<(PlayerId, Vec<String>)> {
+    fn revealed_of(&self, kind: crate::queries::cards::RevealKind) -> Vec<(PlayerId, Vec<String>)> {
         self.revealed_cards().into_iter().filter(|shown| shown.kind == kind).map(|shown| (shown.owner, shown.ids)).collect()
     }
 
-    /// Progress toward the bound seat's held secret objectives. (Delegate: `secrets`/`objectives`.)
+    /// Progress toward the bound seat's held secret objectives.
     #[must_use]
-    pub fn held_secret_progress(&self) -> Vec<ti4_engine_legacy::objectives::CardProgress> {
+    pub fn held_secret_progress(&self) -> Vec<crate::queries::objectives::CardProgress> {
         ti4_model::count::bump("SeatObservation::held_secret_progress");
-        held_secret_progress(self.observed.state, self.observed.content, self.observed.sources, self.observed.galaxy, &self.acting_seat)
+        self.held_secret_progress_imagining(&crate::queries::objectives::Imagined::NONE)
     }
 
     /// [`Self::held_secret_progress`] as it would stand if `imagined` happened first.
     #[must_use]
-    pub fn held_secret_progress_imagining(&self, imagined: &ti4_engine_legacy::objectives::Imagined<'_>) -> Vec<ti4_engine_legacy::objectives::CardProgress> {
+    pub fn held_secret_progress_imagining(&self, imagined: &crate::queries::objectives::Imagined<'_>) -> Vec<crate::queries::objectives::CardProgress> {
         ti4_model::count::bump("SeatObservation::held_secret_progress_imagining");
-        held_secret_progress_imagining(self.observed.state, self.observed.content, self.observed.sources, self.observed.galaxy, &self.acting_seat, imagined)
+        self.observed.objective_view().map(|view| view.held_secrets(&self.acting_seat, imagined)).unwrap_or_default()
     }
 }
 
@@ -1008,13 +1071,13 @@ impl<'a> std::ops::Deref for SeatObservation<'a> {
 }
 
 /// Held-secret progress for `viewer`, computed from the complete game state. For offline analysis and training contexts, which hold the
-/// full state by design. (Delegate: the legacy free function.)
+/// full state by design.
 #[must_use]
-pub fn held_secret_progress(state: &GameState, content: &ContentStore, sources: SourceSet, galaxy: Option<&Galaxy>, viewer: &PlayerId) -> Vec<ti4_engine_legacy::objectives::CardProgress> {
-    ti4_engine_legacy::choice::held_secret_progress(state, content, sources, galaxy, viewer)
+pub fn held_secret_progress(state: &GameState, content: &ContentStore, sources: SourceSet, galaxy: Option<&Galaxy>, viewer: &PlayerId) -> Vec<crate::queries::objectives::CardProgress> {
+    crate::queries::objectives::held_secrets_of(state, content, sources, galaxy, viewer, &crate::queries::objectives::Imagined::NONE)
 }
 
-/// [`held_secret_progress`] as it would stand if `imagined` happened first. (Delegate: the legacy free function.)
+/// [`held_secret_progress`] as it would stand if `imagined` happened first.
 #[must_use]
 pub fn held_secret_progress_imagining(
     state: &GameState,
@@ -1022,9 +1085,9 @@ pub fn held_secret_progress_imagining(
     sources: SourceSet,
     galaxy: Option<&Galaxy>,
     viewer: &PlayerId,
-    imagined: &ti4_engine_legacy::objectives::Imagined<'_>,
-) -> Vec<ti4_engine_legacy::objectives::CardProgress> {
-    ti4_engine_legacy::choice::held_secret_progress_imagining(state, content, sources, galaxy, viewer, imagined)
+    imagined: &crate::queries::objectives::Imagined<'_>,
+) -> Vec<crate::queries::objectives::CardProgress> {
+    crate::queries::objectives::held_secrets_of(state, content, sources, galaxy, viewer, imagined)
 }
 
 /// The whole state with every other seat's hand replaced by markers. For offline contexts; live play binds a [`SeatObservation`].
@@ -1380,45 +1443,27 @@ mod tests {
 
     #[test]
     fn public_spend_capacity_counts_only_ready_planets_and_faceup_goods() {
-        let mut state = watched();
-        let (system, planet) = ti4_engine_legacy::fixtures::a_placed_planet();
-        state
-            .system_mut(&system)
-            .set_control(planet.clone(), pid("a"));
+        // A seated opening on a real map (the native query answers for what the core holds, and the `watched()` fixture seats no faction).
+        let content = ContentStore::embedded();
+        let ids = [pid("a"), pid("b"), pid("c")];
+        let (mut state, _) = ti4_host::map::create_game_with_template(content, &ids, 3, None).expect("a map");
         state.player_mut(&pid("a")).unwrap().trade_goods = 2;
-        let resources = crate::production::planet_value(
-            ContentStore::embedded(),
-            POK,
-            &planet,
-            crate::production::Spend::Resources,
-        );
-        let influence = crate::production::planet_value(
-            ContentStore::embedded(),
-            POK,
-            &planet,
-            crate::production::Spend::Influence,
-        );
+        let planets: Vec<_> = state.controlled_planets(&pid("a")).into_iter().map(|(_, planet)| planet.clone()).collect();
+        assert!(!planets.is_empty(), "a seat controls its home planets at the opening");
+        let worth = |spend| -> i64 { planets.iter().map(|planet| crate::production::planet_value(content, POK, planet, spend)).sum() };
+        let resources = worth(ti4_engine_legacy::production::Spend::Resources);
+        let influence = worth(ti4_engine_legacy::production::Spend::Influence);
 
-        let seen = Observed::new(&state, ContentStore::embedded(), POK, None);
-        assert_eq!(
-            seen.available_spend(&pid("a"), crate::production::Spend::Resources),
-            resources + 2
-        );
-        assert_eq!(
-            seen.available_spend(&pid("a"), crate::production::Spend::Influence),
-            influence + 2
-        );
+        let seen = Observed::new(&state, content, POK, None);
+        assert_eq!(seen.available_spend(&pid("a"), crate::queries::production::Spend::Resources), resources + 2);
+        assert_eq!(seen.available_spend(&pid("a"), crate::queries::production::Spend::Influence), influence + 2);
 
-        state.exhaust_planet(planet);
-        let seen = Observed::new(&state, ContentStore::embedded(), POK, None);
-        assert_eq!(
-            seen.available_spend(&pid("a"), crate::production::Spend::Resources),
-            2
-        );
-        assert_eq!(
-            seen.available_spend(&pid("a"), crate::production::Spend::Influence),
-            2
-        );
+        for planet in planets {
+            state.exhaust_planet(planet);
+        }
+        let seen = Observed::new(&state, content, POK, None);
+        assert_eq!(seen.available_spend(&pid("a"), crate::queries::production::Spend::Resources), 2);
+        assert_eq!(seen.available_spend(&pid("a"), crate::queries::production::Spend::Influence), 2);
     }
 
     #[test]
@@ -1484,16 +1529,16 @@ mod tests {
         // arbitrary seat (the former `held_secret_progress(player)` / `_for_choice(choice)`
         // signatures are gone; `Choice` is freely constructible, so binding to it authenticated
         // nothing).
+        // A seated opening on a real map (the native queries answer for what the core holds, and the `fixtures::game` seats no faction).
         let content = ContentStore::embedded();
-        let mut state = ti4_engine_legacy::fixtures::game(&["a", "b"]);
+        let (mut state, galaxy) = ti4_host::map::create_game_with_template(content, &[pid("a"), pid("b")], 3, None).expect("a map");
         state.revealed_objectives = vec![ObjectiveId::new("outer_rim")];
         state.player_mut(&pid("a")).unwrap().secret_objectives =
             vec![ti4_model::id::SecretObjectiveId::new("otf")];
         state.player_mut(&pid("b")).unwrap().secret_objectives =
             vec![ti4_model::id::SecretObjectiveId::new("mlp")];
 
-        let hub = ti4_engine_legacy::fixtures::hub_with_centre(crate::seating::MECATOL);
-        let seen = Observed::new(&state, content, POK, Some(&hub.galaxy));
+        let seen = Observed::new(&state, content, POK, Some(&galaxy));
 
         // Publics: the public view still answers for any seat — revealed cards are public.
         for seat in [&pid("a"), &pid("b")] {
@@ -1580,7 +1625,7 @@ mod tests {
         }
 
         let content = ContentStore::embedded();
-        let mut state = ti4_engine_legacy::fixtures::game(&["a", "b"]);
+        let (mut state, _) = ti4_host::map::create_game_with_template(content, &[pid("a"), pid("b")], 3, None).expect("a map");
         state.player_mut(&pid("a")).unwrap().secret_objectives =
             vec![ti4_model::id::SecretObjectiveId::new("otf")];
         state.player_mut(&pid("b")).unwrap().secret_objectives =
@@ -1860,48 +1905,37 @@ mod obs004_actor_owned_inventory {
 
     #[test]
     fn naalu_commander_reads_neighbor_hands_and_agenda_ends_live() {
-        use ti4_engine_legacy::fixtures::{hub_with_centre, put};
+        // A seated Naalu, Hacan and Sol table on a real map (the standing permission is the core kernel's, which holds real ids only).
+        use ti4_engine_legacy::fixtures::put;
         use ti4_model::id::SystemId;
 
         let content = ContentStore::embedded();
-        let hub = hub_with_centre(crate::seating::MECATOL);
-        let mut state = ti4_engine_legacy::fixtures::game(&["a", "b", "c"]);
-        state.player_mut(&pid("a")).unwrap().faction = ti4_model::id::FactionId::new("naalu");
-        state
-            .player_mut(&pid("a"))
-            .unwrap()
-            .leaders
-            .insert(LeaderId::new("naalucommander"), LeaderStatus::Unlocked);
-        put(
-            &mut state,
-            &SystemId::new(hub.outer[0].clone()),
-            "infantry",
-            &pid("a"),
-            1,
-        );
-        put(
-            &mut state,
-            &SystemId::new(crate::seating::MECATOL),
-            "cruiser",
-            &pid("b"),
-            1,
-        );
-        let far = hub.across(&hub.outer[0]);
-        put(&mut state, &SystemId::new(far), "cruiser", &pid("c"), 1);
-        state.promissory_notes.insert("b:note".to_owned(), pid("b"));
-        state.promissory_notes.insert("c:note".to_owned(), pid("c"));
-        state.agenda_deck = vec![
-            "agenda_top".to_owned(),
-            "middle".to_owned(),
-            "agenda_bottom".to_owned(),
-        ];
+        let assignments: std::collections::BTreeMap<PlayerId, ti4_model::id::FactionId> =
+            [("a", "naalu"), ("b", "hacan"), ("c", "sol")].into_iter().map(|(p, f)| (pid(p), ti4_model::id::FactionId::new(f))).collect();
+        let ids = [pid("a"), pid("b"), pid("c")];
+        // A map where `c` is far from `a` and a system beside `a`'s home exists for `b`'s cruiser.
+        let (mut state, galaxy, beside) = (0..40_u64)
+            .find_map(|seed| {
+                let (mut state, galaxy) = ti4_host::map::create_game_with_template_seated(content, &ids, seed, None, &assignments, None).ok()?;
+                let home = state.board.iter().find(|(_, system)| system.units.iter().any(|u| u.owner == pid("a"))).map(|(id, _)| id.clone())?;
+                let beside = galaxy.adjacent(home.as_str()).into_iter().map(SystemId::new).find(|id| state.board.get(id).is_none_or(|s| s.units.is_empty()))?;
+                put(&mut state, &beside, "cruiser", &pid("b"), 1);
+                let near = ti4_engine_legacy::transactions::neighbours(&state, &galaxy, &pid("a"));
+                (near == vec![pid("b")]).then_some((state, galaxy, beside))
+            })
+            .expect("a map where only b is a neighbour of a");
+        let _ = beside;
+        state.player_mut(&pid("a")).unwrap().leaders.insert(LeaderId::new("naalucommander"), LeaderStatus::Unlocked);
+        let held_by = |state: &ti4_model::state::GameState, who: &str| -> Vec<String> {
+            state.promissory_notes.iter().filter(|(note, holder)| **holder == pid(who) && !state.promissory_faceup.contains(*note)).map(|(note, _)| note.clone()).collect()
+        };
+        let b_notes = held_by(&state, "b");
+        assert!(b_notes.len() > 1, "a seat holds its notes at the opening");
+        let (top, bottom) = (state.agenda_deck.first().cloned().expect("a deck"), state.agenda_deck.last().cloned().expect("a deck"));
 
-        let seen = Observed::new(&state, content, POK, Some(&hub.galaxy));
+        let seen = Observed::new(&state, content, POK, Some(&galaxy));
         let a = SeatObservation::bind(&seen, pid("a"));
-        assert_eq!(
-            a.revealed_promissory_notes(),
-            vec![(pid("b"), vec!["b:note".to_owned()])]
-        );
+        assert_eq!(a.revealed_promissory_notes(), vec![(pid("b"), b_notes.clone())]);
         assert!(a.revealed_action_cards().is_empty());
         assert!(a.revealed_secret_objectives().is_empty());
         assert!(
@@ -1911,10 +1945,7 @@ mod obs004_actor_owned_inventory {
                 .all(|key| !key.starts_with("cards:reveal:")),
             "M'aban's live permission creates no stored reveal"
         );
-        assert_eq!(
-            a.agenda_deck_ends(),
-            Some(("agenda_top".to_owned(), "agenda_bottom".to_owned()))
-        );
+        assert_eq!(a.agenda_deck_ends(), Some((top.clone(), bottom.clone())));
         assert!(
             SeatObservation::bind(&seen, pid("b"))
                 .revealed_promissory_notes()
@@ -1928,24 +1959,23 @@ mod obs004_actor_owned_inventory {
         let without_map = Observed::new(&state, content, POK, None);
         let a_without_map = SeatObservation::bind(&without_map, pid("a"));
         assert!(a_without_map.revealed_promissory_notes().is_empty());
-        assert_eq!(
-            a_without_map.agenda_deck_ends(),
-            Some(("agenda_top".to_owned(), "agenda_bottom".to_owned()))
-        );
+        assert_eq!(a_without_map.agenda_deck_ends(), Some((top, bottom)));
 
-        // Hand changes, faceup play, and commander lock state are all observed immediately.
-        state.promissory_notes.insert("b:new".to_owned(), pid("b"));
-        state.promissory_faceup.insert("b:note".to_owned());
-        state.agenda_deck = vec!["new_top".to_owned(), "new_bottom".to_owned()];
-        let seen = Observed::new(&state, content, POK, Some(&hub.galaxy));
+        // Hand changes, faceup play, and commander lock state are all observed immediately: one of b's notes is played faceup, one of c's
+        // notes comes to b's hand, and the top agenda card goes.
+        let played = b_notes[0].clone();
+        let moved = held_by(&state, "c")[0].clone();
+        state.promissory_faceup.insert(played.clone());
+        state.promissory_notes.insert(moved.clone(), pid("b"));
+        let removed = state.agenda_deck.remove(0);
+        let expected = held_by(&state, "b");
+        assert!(expected.contains(&moved) && !expected.contains(&played) && !removed.is_empty());
+        let seen = Observed::new(&state, content, POK, Some(&galaxy));
         let a = SeatObservation::bind(&seen, pid("a"));
-        assert_eq!(
-            a.revealed_promissory_notes(),
-            vec![(pid("b"), vec!["b:new".to_owned()])]
-        );
+        assert_eq!(a.revealed_promissory_notes(), vec![(pid("b"), held_by(&state, "b"))]);
         assert_eq!(
             a.agenda_deck_ends(),
-            Some(("new_top".to_owned(), "new_bottom".to_owned()))
+            Some((state.agenda_deck.first().cloned().unwrap(), state.agenda_deck.last().cloned().unwrap()))
         );
 
         state
@@ -1953,7 +1983,7 @@ mod obs004_actor_owned_inventory {
             .unwrap()
             .leaders
             .insert(LeaderId::new("naalucommander"), LeaderStatus::Locked);
-        let seen = Observed::new(&state, content, POK, Some(&hub.galaxy));
+        let seen = Observed::new(&state, content, POK, Some(&galaxy));
         let a = SeatObservation::bind(&seen, pid("a"));
         assert!(a.revealed_promissory_notes().is_empty());
         assert_eq!(a.agenda_deck_ends(), None);

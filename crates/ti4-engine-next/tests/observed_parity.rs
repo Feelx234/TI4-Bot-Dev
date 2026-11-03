@@ -5,27 +5,14 @@
 use ti4_engine as thin;
 use ti4_engine_legacy as old;
 use ti4_model::content_types::POK;
-use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
+mod surface_common;
+
+/// Positions of seated games on real maps (lane B: the native queries answer for what the core can hold, and a table with no faction
+/// seated is not a game; the unseated positions of lane A answered through the string fallback of the legacy view), then the real-faction fixture.
 fn positions() -> Vec<GameState> {
-    let content = ti4_content::ContentStore::embedded();
-    let ids: Vec<PlayerId> = ["a", "b", "c", "d"].iter().map(|n| PlayerId::new(*n)).collect();
-    let mut out = Vec::new();
-    for (seed, steps) in [(3_u64, 0_usize), (3, 40), (3, 160), (9, 300), (9, 700)] {
-        let state = old::setup::start_game_seeded(content, &ids, POK, None, seed).expect("setup");
-        let mut table = old::choice::Table::new();
-        for (i, id) in ids.iter().enumerate() {
-            table.seat(id.clone(), Box::new(old::choice::SeededRandom::new(seed * 10 + i as u64)));
-        }
-        let mut game = old::game::Game::with_table(state, content, table);
-        for _ in 0..steps {
-            if game.step().finished {
-                break;
-            }
-        }
-        out.push(game.state.clone());
-    }
+    let mut out: Vec<GameState> = surface_common::positions().into_iter().map(|p| p.state).collect();
     out.push(old::fixtures::real_game(&["a", "b", "c"]));
     out
 }
@@ -82,10 +69,10 @@ fn every_accessor_answers_as_the_legacy_one_does() {
             same!(o.fleet_value_permille(player), t.fleet_value_permille(player), who("fleet_value_permille"));
             same!(o.production_system_count(player), t.production_system_count(player), who("production_system_count"));
             same!(o.agenda_prediction_of(player), t.agenda_prediction_of(player), who("agenda_prediction_of"));
-            same!(o.available_spend(player, old::production::Spend::Resources), t.available_spend(player, old::production::Spend::Resources), who("available_spend"));
-            same!(o.fleet_supply_limit(player), t.fleet_supply_limit(player), who("fleet_supply_limit (delegate)"));
-            same!(o.scoreable_public(player), t.scoreable_public(player), who("scoreable_public (delegate)"));
-            same!(o.scoreable_secret(player), t.scoreable_secret(player), who("scoreable_secret (delegate)"));
+            same!(o.available_spend(player, old::production::Spend::Resources), t.available_spend(player, thin::queries::production::Spend::Resources), who("available_spend"));
+            same!(o.fleet_supply_limit(player), t.fleet_supply_limit(player), who("fleet_supply_limit"));
+            same!(o.scoreable_public(player), t.scoreable_public(player), who("scoreable_public"));
+            same!(o.scoreable_secret(player), t.scoreable_secret(player), who("scoreable_secret"));
             for other in state.players.iter().map(|p| &p.id) {
                 same!(format!("{:?}", o.opponent_relationship(player, other)), format!("{:?}", t.opponent_relationship(player, other)), who("opponent_relationship"));
                 same!(o.recent_diplomacy_attack(player, other), t.recent_diplomacy_attack(player, other), who("recent_diplomacy_attack"));

@@ -1,10 +1,11 @@
 //! From `draft.rs` of the legacy crate (copies).
 
+/// The constants live in `crate::kinds` (lane B); this module re-exports them.
+pub use crate::kinds::draft::{STRATEGY_CARD_KIND};
+
 use ti4_content::ContentStore;
 use ti4_model::content_types::ContentType;
 
-/// The stable option kind for a strategy-card selection.
-pub const STRATEGY_CARD_KIND: &str = "strategy_card";
 
 pub fn strategy_card_label(content: &ContentStore, card_id: &str) -> String {
     let Some(card) = content.get(ContentType::StrategyCards, card_id) else {

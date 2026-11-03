@@ -1,4 +1,5 @@
 //! From `starting_tech.rs` of the legacy crate (copies).
 
-/// The kind of its options.
-pub const KIND: &str = "starting_technology";
+/// The constants live in `crate::kinds` (lane B); this module re-exports them.
+pub use crate::kinds::starting_tech::{KIND};
+
