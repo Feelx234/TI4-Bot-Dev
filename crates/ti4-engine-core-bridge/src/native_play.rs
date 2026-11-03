@@ -499,10 +499,15 @@ impl NativeGame {
         let handed_off = arm == Arm::Tactical && self.core.pending().window(ti4_engine_core::state::WindowKind::Aftermath).is_some();
         // (Not past a scoring pause: the string's step ends at the pause, and the scoring step after it announces what was staged first.)
         let parked_for_scoring = self.core.pending().window(ti4_engine_core::state::WindowKind::EventScoring).is_some();
-        // (And past a question of the aftermath that the string's step does not stop at: the removals over the capacity after a retreat are native steps of their
-        // own, the string's step goes on through them; what the retreat staged is announced by the step after the whole action, not by the next removal.)
-        let mid_aftermath = arm == Arm::Aftermath && !out.finished && !asked.is_empty();
-        self.after_glue = !parked_for_scoring && (mid_aftermath || (out.finished && (glued(arm) || arm == Arm::Aftermath || handed_off || (self.after_glue && arm == Arm::Tactical && asked.is_empty()))));
+        // (And up to a removal over the capacity after a retreat: those are native steps of their own, the string's step goes on through them; what the
+        // retreat staged is announced by the step after the whole action, not by the first removal.)
+        let removal_next = !out.finished
+            && arm == Arm::Aftermath
+            && ti4_engine_core::driver::windows::chain::ask_aftermath(&self.core, &env)
+                .ok()
+                .flatten()
+                .is_some_and(|asking| matches!(asking.choice.ask, ti4_engine_core::choice::Ask::Tactical(ti4_engine_core::choice::tactical::Ask::Remove { .. })));
+        self.after_glue = !parked_for_scoring && (removal_next || (out.finished && (glued(arm) || arm == Arm::Aftermath || handed_off || (self.after_glue && arm == Arm::Tactical && asked.is_empty()))));
         Step::Played(Played { arm, source, asked, events, finished: out.finished })
     }
 
