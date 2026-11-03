@@ -499,7 +499,10 @@ impl NativeGame {
         let handed_off = arm == Arm::Tactical && self.core.pending().window(ti4_engine_core::state::WindowKind::Aftermath).is_some();
         // (Not past a scoring pause: the string's step ends at the pause, and the scoring step after it announces what was staged first.)
         let parked_for_scoring = self.core.pending().window(ti4_engine_core::state::WindowKind::EventScoring).is_some();
-        self.after_glue = out.finished && !parked_for_scoring && (glued(arm) || arm == Arm::Aftermath || handed_off || (self.after_glue && arm == Arm::Tactical && asked.is_empty()));
+        // (And past a question of the aftermath that the string's step does not stop at: the removals over the capacity after a retreat are native steps of their
+        // own, the string's step goes on through them; what the retreat staged is announced by the step after the whole action, not by the next removal.)
+        let mid_aftermath = arm == Arm::Aftermath && !out.finished && !asked.is_empty();
+        self.after_glue = !parked_for_scoring && (mid_aftermath || (out.finished && (glued(arm) || arm == Arm::Aftermath || handed_off || (self.after_glue && arm == Arm::Tactical && asked.is_empty()))));
         Step::Played(Played { arm, source, asked, events, finished: out.finished })
     }
 
@@ -1886,6 +1889,16 @@ mod tests {
         for (faction, seed, steps) in [("xxcha", 6, 388), ("arborec", 5, 968)] {
             let shadowed = shadow_play(&lobby_spec(faction, 6, seed), steps, 50).expect("builds");
             assert!(shadowed.first_difference.is_none(), "{faction} seed {seed}: {:?}", shadowed.first_difference);
+        }
+    }
+
+    /// Lane S: the removals over the capacity after a retreat are native steps of their own, the string's step goes on through them: the command token the retreat staged
+    /// is announced by the step after the whole action, not at the start of the next removal (Yin 5 players seed 7 step 850, Yin 4 players seed 6 step 750, Sardakk 4 players seed 8 step 816).
+    #[test]
+    fn the_removals_after_a_retreat_do_not_announce_what_the_retreat_staged() {
+        for (faction, players, seed, steps) in [("yin", 5, 7, 856), ("yin", 4, 6, 756), ("sardakk", 4, 8, 822)] {
+            let shadowed = shadow_play(&lobby_spec(faction, players, seed), steps, 50).expect("builds");
+            assert!(shadowed.first_difference.is_none(), "{faction} {players}p seed {seed}: {:?}", shadowed.first_difference);
         }
     }
 

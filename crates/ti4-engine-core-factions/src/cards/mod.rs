@@ -149,7 +149,8 @@ fn open_destinations(host: &RulesHost<'_>, who: Seat, system: System) -> Vec<Sys
     if k.hooks.direct.mahact_units_ship_movement_barred(core) {
         return Vec::new();
     }
-    let (Some(reach), Some(base)) = (reach::SeatReach::new(core, k, who, false), core.map().adjacency()) else { return Vec::new() };
+    // (The string's reach is built without the movement effects of the cards in play, `effects: false`; no position the test can build holds an effect that changes the neighbours.)
+    let (Some(reach), Some(base)) = (reach::SeatReach::new(core, k, who, false), core.map().adjacency()) else { return Vec::new() }; // mutants:skip: `effects: false` is the string's, see above
     let rd = Rd::new(core, k).with_blanked(reach::blanked(core));
     combat::open_retreat_destinations(rd, who, system, base, &|dest| reach.rules_for(core, k, dest), false)
 }

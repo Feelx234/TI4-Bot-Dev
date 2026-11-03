@@ -268,8 +268,8 @@ impl CoreGalaxy {
     }
 
     /// Whether the wormholes the tokens give the systems are exactly `want` (`(system, kinds)` pairs, a system may be named twice).
-    // mutants:skip (it only saves cloning the galaxy when nothing changed: replacing the masks by the same ones leaves the same position)
     #[must_use]
+    // mutants:skip (it only saves cloning the galaxy when nothing changed: replacing the masks by the same ones leaves the same position)
     pub fn token_wormholes_are(&self, want: &[(SystemIx, u8)]) -> bool {
         self.token_wormholes == Self::token_masks(want)
     }
