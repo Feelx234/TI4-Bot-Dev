@@ -24,14 +24,19 @@ with the lowest initiative or the others' clockwise order is not their initiativ
   meets the wrong question in the string ("script wanted `leader:l1z1x:...` but a was offered `leader:saar:...`"). The Nomad/Saar agent differences of
   `docs/KM4_RESUME.md` section 2 are the same class.
 * Lane R (2026-11-01): the same list is used by EVERY window outside the strategy and agenda phases, not only the action phase's. In the status phase nobody is
-  active, so the string's list is the plain seating order of `Game::new` (`player_order`: `first` is `None`, `sequence.clone()`), where the core offers the
-  initiative order of the moment (LRR 1.19: every phase but strategy and agenda orders by initiative). The cases found: a card played in the status phase
-  (`when STRATEGY_CARDS_WOULD_RETURN` -> `ACTION_CARD_PLAYED:when`: mahact 6p seed 1) and a card played by the active seat inside its own window
-  (`ACTION_CARD_PLAYED:when` after `reaction:mahact:SYSTEM_ACTIVATED:after`: mahact 4p seed 1, the id of the offer being `technology:xxcha:it:...`). **Open
-  question for the user:** the ruling of 2026-11-01 covers the active player; for a window with no active player (the status phase) the core takes the
-  initiative order, the string the seating order. The core's reading follows LRR 1.19; nothing in the rules says "from the first seat".
+  active, so the string's list is the plain seating order of `Game::new` (`player_order`: `first` is `None`, `sequence.clone()`). The cases found: a card played in
+  the status phase (`when STRATEGY_CARDS_WOULD_RETURN` -> `ACTION_CARD_PLAYED:when`: mahact 6p seed 1) and a card played by the active seat inside its own window
+  (`ACTION_CARD_PLAYED:when` after `reaction:mahact:SYSTEM_ACTIVATED:after`: mahact 4p seed 1, the id of the offer being `technology:xxcha:it:...`).
+* **User ruling (2026-11-03) for a window with NO active player in the status phase: clockwise from the seat AFTER the speaker, the speaker LAST** (the speaker gets the
+  biggest advantage). This replaces the initiative order the core took there before (LRR 1.19 reading dropped). Implemented in `Resolver::player_order` (integration 18):
+  `phase == Status && active_player == None` -> the seating order starting after the speaker, the speaker last; test
+  `resolver_basics::a_status_phase_window_without_an_active_player_goes_clockwise_after_the_speaker_and_the_speaker_last` (fails on the old code: the initiative order).
+  The strategy and agenda phases (speaker first) and the action phase (active player first, then initiative order) are unchanged. **The string still differs**: its
+  list for such a window is the seating order from the FIRST seat of `Game::new`, whoever the speaker is, so the two agree only when the speaker is the last seat
+  clockwise. It stays a known string bug (S1); the dual adapters (`reactions_core::resolver_of`, `kernel_sync::shim::replay`) hand the core the string's list as the
+  seating order with its last seat as speaker, which is the string's order, so the lockstep still compares the rest of the window.
 * The shadow harness (`native_play --shadow`) recognises it: a difference at a reaction question (same prompt asked of another seat, the same options in
-  another order, or the script's reaction meeting another seat's reaction) while the string's order differs from the ruling's is reported as
+  another order, or the script's reaction meeting another seat's reaction) while the string's order differs from the ruling's (in the status phase without an active seat: the ruling of 2026-11-03) is reported as
   `KNOWN STRING BUG ... (known string bug S1)`, counted on its own and left out of the exit code (the game cannot go on past it).
 * Why the core does not copy it: the string's order is not a function of the position. It is the initiative order at the moment the `Game` object was
   BUILT. A game replayed from its first decision (the server) has the seating order; a `Game` built around a position that already holds the cards (every

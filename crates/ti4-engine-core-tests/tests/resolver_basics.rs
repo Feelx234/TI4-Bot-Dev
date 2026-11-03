@@ -124,3 +124,36 @@ fn an_action_phase_window_offers_the_active_player_first_and_the_others_in_initi
     r.set_active_player(Some(Seat(1)));
     assert_eq!(r.player_order().as_slice(), &[Seat(1), Seat(3), Seat(0), Seat(2)]);
 }
+
+/// User ruling 2026-11-03: a window with NO active player in the status phase (a card played at `STRATEGY_CARDS_WOULD_RETURN`) is offered clockwise from the
+/// seat AFTER the speaker, the speaker LAST. Before the ruling the core offered it in the initiative order of the moment (LRR 1.19).
+#[test]
+fn a_status_phase_window_without_an_active_player_goes_clockwise_after_the_speaker_and_the_speaker_last() {
+    let mut r = Resolver::new(&[Seat(3), Seat(0), Seat(2), Seat(1)], None);
+    r.set_seating_order(&[Seat(0), Seat(1), Seat(2), Seat(3)]);
+    r.set_phase(Phase::Status);
+    r.set_speaker(Some(Seat(1)));
+    assert_eq!(r.player_order().as_slice(), &[Seat(2), Seat(3), Seat(0), Seat(1)], "initiative order would be 3, 0, 2, 1");
+    r.set_speaker(Some(Seat(3)));
+    assert_eq!(r.player_order().as_slice(), &[Seat(0), Seat(1), Seat(2), Seat(3)], "the speaker is the last seat clockwise: the seating order");
+    r.set_speaker(Some(Seat(0)));
+    assert_eq!(r.player_order().as_slice(), &[Seat(1), Seat(2), Seat(3), Seat(0)]);
+    // A speaker who is not seated is last; the others keep the sequence.
+    r.set_speaker(Some(Seat(7)));
+    assert_eq!(r.player_order().as_slice(), &[Seat(0), Seat(1), Seat(2), Seat(3), Seat(7)]);
+    // Without a seating order the sequence is the initiative order.
+    let mut bare = Resolver::new(&[Seat(3), Seat(0), Seat(2)], None);
+    bare.set_phase(Phase::Status);
+    bare.set_speaker(Some(Seat(0)));
+    assert_eq!(bare.player_order().as_slice(), &[Seat(2), Seat(3), Seat(0)]);
+    // Somebody active (a window inside a turn of the status phase): the action rule, the active seat first and the others by initiative.
+    r.set_speaker(Some(Seat(1)));
+    r.set_active_player(Some(Seat(2)));
+    assert_eq!(r.player_order().as_slice(), &[Seat(2), Seat(3), Seat(0), Seat(1)]);
+    // The other phases keep their rules: the strategy phase from the speaker, the action phase the active seat then initiative.
+    r.set_phase(Phase::Strategy);
+    assert_eq!(r.player_order().as_slice(), &[Seat(1), Seat(2), Seat(3), Seat(0)]);
+    r.set_phase(Phase::Action);
+    r.set_active_player(None);
+    assert_eq!(r.player_order().as_slice(), &[Seat(3), Seat(0), Seat(2), Seat(1)], "nobody active in the action phase: the initiative list as it is");
+}

@@ -813,12 +813,28 @@ impl Resolver {
         Ok(eligible.into_iter().find(|a| a.id == id))
     }
 
-    /// The seats in the order a window offers them: from the speaker, clockwise (the seating order), in strategy and agenda windows; otherwise the
-    /// ACTIVE player first and then the other players in INITIATIVE order (user ruling, `docs/STRING_ENGINE_BUGS.md` S1). The string rotates its
-    /// initiative list to start at the active seat instead (and that list is fixed at `Game::new`); the two agree only when the active seat is the
-    /// first of the others' order or the order is the seating order.
+    /// The seats in the order a window offers them: from the speaker, clockwise (the seating order), in strategy and agenda windows; in a window with
+    /// NO active player in the status phase (a card played at `STRATEGY_CARDS_WOULD_RETURN`) clockwise from the seat AFTER the speaker, the speaker
+    /// LAST (user ruling 2026-11-03: the speaker gets the biggest advantage); otherwise the ACTIVE player first and then the other players in
+    /// INITIATIVE order (user ruling 2026-11-01, `docs/STRING_ENGINE_BUGS.md` S1). The string rotates its initiative list (fixed at `Game::new`, the
+    /// seating order from the first seat) to start at the active seat, or leaves it as it is when nobody is active; the two agree only when the active seat
+    /// is the first of the others' order or the order is the seating order (and, in the status phase, when the speaker is the last seat clockwise).
     #[must_use]
     pub fn player_order(&self) -> SmallList<Seat, 8> {
+        if self.phase == Phase::Status
+            && self.active_player.is_none()
+            && let Some(speaker) = self.speaker
+        {
+            let sequence = if self.seating_order.is_empty() { &self.initiative_order } else { &self.seating_order };
+            let seq = sequence.as_slice();
+            let mut order = SmallList::new();
+            let at = seq.iter().position(|p| *p == speaker).map_or(0, |i| i + 1);
+            for p in seq[at..].iter().chain(&seq[..at]).filter(|p| **p != speaker) {
+                order.push(*p);
+            }
+            order.push(speaker);
+            return order;
+        }
         let (sequence, first, rotate) = if self.phase.uses_speaker_order() {
             let sequence = if self.seating_order.is_empty() { &self.initiative_order } else { &self.seating_order };
             (sequence, self.speaker, true)

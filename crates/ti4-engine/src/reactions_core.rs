@@ -707,6 +707,16 @@ pub fn resolver_of(r: &Render, cfg: &ResolverCfg) -> Option<Resolver> {
     }
     core.set_seating_order(&seats(&cfg.seating)?);
     core.set_speaker(cfg.speaker.as_deref().and_then(|s| r.seat(s)));
+    // The status phase without an active seat (user ruling 2026-11-03: the core offers it clockwise from the seat after the speaker, the speaker last):
+    // the string offers its fixed list as it is (the seating order from the first seat). The core is handed that list as the seating order with its last
+    // seat as the speaker, which is the same order: this adapter compares the two, it does not copy the difference into the core.
+    if phase_of(cfg.phase) == ti4_engine_core::state::Phase::Status
+        && cfg.active.is_none()
+        && let Some(last) = state.initiative.as_slice().last().copied()
+    {
+        core.set_seating_order(state.initiative.as_slice());
+        core.set_speaker(Some(last));
+    }
     core.set_counters(cfg.round, cfg.turn);
     core.set_maximum_depth(cfg.max_depth);
     Some(core)

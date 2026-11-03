@@ -760,11 +760,19 @@ fn s1_orders_differ(state: &ti4_model::state::GameState) -> bool {
     if state.phase.uses_speaker_order() {
         return false;
     }
-    // Every other window (the action phase, and the status phase, where nobody is active: LRR 1.19, initiative order): the string's list is the seating order
-    // of `Game::new`, rotated to start at the active seat when there is one; the ruling is the active seat first, then the initiative order of the moment.
+    // Every other window: the string's list is the seating order of `Game::new`, rotated to start at the active seat when there is one; the ruling is the
+    // active seat first, then the initiative order of the moment (2026-11-01); with nobody active (the status phase) it is clockwise from the seat AFTER the
+    // speaker, the speaker last (2026-11-03).
     let (string, rule): (Vec<_>, Vec<_>) = match &state.active {
         Some(active) => (state.clockwise_from(active), std::iter::once(active.clone()).chain(state.initiative_order().into_iter().filter(|p| p != active)).collect()),
-        None => (state.seating_order.clone(), state.initiative_order()),
+        None if state.phase != ti4_model::state::Phase::Status => (state.seating_order.clone(), state.initiative_order()),
+        None => {
+            let mut after_the_speaker = state.clockwise_from(&state.speaker);
+            if !after_the_speaker.is_empty() {
+                after_the_speaker.rotate_left(1);
+            }
+            (state.seating_order.clone(), after_the_speaker)
+        }
     };
     string != rule
 }
@@ -1921,15 +1929,20 @@ mod tests {
         let wanted_technology = "legacy step failed: script wanted \"technology:a:it:ACTION_CARD_PLAYED:when\" but a was offered [\"reaction:c:ACTION_CARD_PLAYED:when\", \"decline\"]";
         state.active = Some(ids[1].clone());
         assert!(s1_in_error(&state, wanted_technology));
-        // The status phase has no active seat: the string's list is the seating order of `Game::new`, the ruling's the initiative order of the moment (LRR 1.19).
+        // The status phase has no active seat: the string's list is the seating order of `Game::new`, the ruling's (2026-11-03) clockwise from the seat after the
+        // speaker, the speaker last. Initiative does not matter any more (a card held by the last seat changes nothing).
         state.phase = ti4_model::state::Phase::Status;
         state.active = None;
+        state.speaker = ids[1].clone();
         let last = state.players.last().expect("a player").id.clone();
         let card = ti4_model::id::StrategyCardId::new("pok1leadership");
         state.card_initiative.insert(card.clone(), 1);
         state.player_mut(&last).expect("seated").strategy_cards = vec![card];
-        assert!(s1_orders_differ(&state), "the seat with the first card is first by initiative and last by seating");
+        assert!(s1_orders_differ(&state), "the speaker is the second seat: the ruling starts at the third");
         assert!(s1_in_error(&state, wanted_reaction));
+        state.speaker = ids[ids.len() - 1].clone();
+        assert!(!s1_orders_differ(&state), "the speaker is the last seat: the same order as the string's, whatever the cards say");
+        state.speaker = ids[1].clone();
         state.phase = ti4_model::state::Phase::Strategy;
         assert!(!s1_orders_differ(&state), "the strategy phase orders from the speaker in both engines");
         state.phase = ti4_model::state::Phase::Action;

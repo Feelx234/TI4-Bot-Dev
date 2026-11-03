@@ -166,6 +166,15 @@ fn replay(before: &View, items: &[Item]) -> Summary {
     core.set_phase(core_phase(before.phase));
     core.set_seating_order(&seats(&before.seating));
     core.set_speaker(before.speaker.as_deref().map(seat));
+    // The status phase without an active seat (user ruling 2026-11-03: the core offers it clockwise from the seat after the speaker, the speaker last):
+    // the string offers its fixed list as it is. Handed that list as the seating order with its last seat as the speaker, the core's order is the string's.
+    if core_phase(before.phase) == ti4_engine_core::state::Phase::Status
+        && before.active.is_none()
+        && let Some(last) = order.last().copied()
+    {
+        core.set_seating_order(&order);
+        core.set_speaker(Some(last));
+    }
     core.set_counters(before.round, before.turn);
     core.set_maximum_depth(before.max_depth);
     core.register(before.abilities.iter().enumerate().map(|(i, a)| {
