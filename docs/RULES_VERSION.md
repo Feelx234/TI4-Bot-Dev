@@ -15,6 +15,26 @@ playable.
 - `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`, `RULES_ACTION_CARD_TARGETS = 10`, `RULES_RETREAT_HAZARDS = 11`, `RULES_COMMAND_TOKEN_POOL = 12`, `RULES_SELF_ASSEMBLY = 13`, `RULES_AGENDA_GRANT_REVEAL = 14`, `RULES_TECH_EFFECTS = 15`): the first version with one gated change.
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
+## Versions below the newest are refused (2026-11-03)
+
+Owner decision: **only the newest version is played.** `ti4_model::state::MIN_SUPPORTED_RULES_VERSION`
+is `RULES_VERSION` (35). A game with a lower `rules_version` (and every game made before the field
+existed, version 0, which are all 14 stored alpha games) is **refused**, not converted, not opened,
+not deleted: `ti4_host::disabled::check_playable` answers `Disabled::OlderVersion { found, min }` at
+
+* creation (`ti4_host::setup::create`, so the server lobby and the wasm shell),
+* load and recovery (`ti4-server` `storage.rs::recover_from_init`; the registry reports it in
+  `RecoveryReport.failed` with `RecoveryFailure::is_refusal()`, the files stay as they are),
+* replay (`ti4_host::replay`, every entry; the server's `GET /api/games/{id}/replay` answers 422),
+* the wasm resume (`host_api::prepare`: the status text says "saved with an older version of the
+  rules (version N)" before anything is built).
+
+There is no list of refused games, no viewer and no deletion screen. A deploy's pre-flight
+(`deploy/public/recovery-check.sh`) counts them apart (`refused`) and requires their reason in the
+log; see `docs/D28E_RESUME.md`. The `RULES_<CHANGE>` constants and the branches below the newest are
+now dead code that the engine may delete (work item 21 of `docs/BAIL_MAP.md`); the string engine
+keeps them until it goes. Raise `MIN_SUPPORTED_RULES_VERSION` only together with such a deletion.
+
 ## How it is stored (the checksum rule)
 
 `#[serde(default, skip_serializing_if = "is_zero_u32")]`: it is **not written while zero**. A legacy

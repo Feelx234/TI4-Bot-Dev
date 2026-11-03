@@ -104,9 +104,15 @@ deploy/public/check-headers.sh --bin <server>              # CSP / wasm / cache 
 
 * The pre-flight (`recovery-check.sh preflight`) copies the live data dir (without `feedback/`),
   starts the NEW server binary on a free loopback port against the copy and reads
-  `Durable storage: recovered N game(s); F failed`. N plus F must equal the number of `game_*`
-  directories in the live dir and every failed id must be named with `--allow-failed`; otherwise the
-  deploy stops before anything is installed or restarted. Lesson: a checksum change once made all 22
+  `Durable storage: recovered N game(s); F failed; R refused`. N plus F plus R must equal the number
+  of `game_*` directories in the live dir and every failed id must be named with `--allow-failed`;
+  otherwise the deploy stops before anything is installed or restarted. A **refused** save (a rules
+  version below the newest, Thunder's Edge content, a dropped faction or feature: the server logs
+  `refused 'ID'` with the reason, `docs/D28E_RESUME.md`) is not a failure and needs no
+  `--allow-failed`; the pre-flight prints `REFUSED_IDS` and requires every refusal to name its reason.
+  All stored alpha games are version 0 and are refused this way, so the pre-flight no longer proves
+  that old saves load: the recovery proof comes from the rules-version-35 tests of the server
+  (`ti4-server/tests/it/refusals.rs`, the session recovery tests) and `test-recovery-check.sh`. Lesson: a checksum change once made all 22
   saved games unrecoverable and it was noticed only after the restart. (Failed games keep their
   files on disk; the server never deletes them.)
 * After the restart the script reads the live service's own recovery line from the journal. Any

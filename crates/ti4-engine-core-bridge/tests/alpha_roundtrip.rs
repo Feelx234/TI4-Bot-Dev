@@ -102,6 +102,29 @@ fn a_game_with_a_switched_off_feature_is_skipped_not_checked() {
     }
 }
 
+/// The stored alpha games are all rules version 0 (docs/D28E_RESUME.md): the product refuses them, so the tool lists them as refused
+/// (with the version) instead of reporting differences, whatever else they hold.
+#[test]
+fn a_game_of_an_older_rules_version_or_with_thunders_edge_content_is_listed_as_refused() {
+    for (tag, older, thunders_edge) in [("v0", Some(0), false), ("v34", Some(ti4_model::state::MIN_SUPPORTED_RULES_VERSION - 1), false), ("te", None, true)] {
+        let dir = scratch(tag);
+        let storage = store_game(&dir, 1);
+        let mut init = storage.load_init(GAME).unwrap();
+        if let Some(version) = older {
+            init.initial_state.rules_version = version;
+        }
+        init.initial_state.thunders_edge = thunders_edge;
+        storage.save_init(&init).unwrap();
+        let mut checker = Checker::new();
+        let out = check_game(&storage, GAME, 1, &mut checker).expect("a refusal is not a failure");
+        let why = out.skipped.unwrap_or_default();
+        assert!(why.starts_with("refused: "), "{tag}: {why}");
+        assert!(why.contains(if thunders_edge { "Thunder's Edge" } else { "older version" }), "{tag}: {why}");
+        assert_eq!(checker.stats.positions, 0, "{tag}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 #[test]
 fn the_live_directory_is_refused_and_a_copy_is_not() {
     let err = refuse_live_dir(std::path::Path::new("/var/lib/ti4-public"));

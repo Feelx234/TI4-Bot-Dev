@@ -245,7 +245,7 @@ export async function playOfflineGame(
     players: options.players,
     policy: options.policy,
     viewport: options.viewport,
-    thundersEdge: options.thundersEdge === true,
+    thundersEdge: false,
     expedition: emptyExpeditionReport(),
     humanSeat: null,
     humanFaction: null,

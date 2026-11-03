@@ -203,3 +203,21 @@ is the typed field) and remove the guards:
 The dev paths that enable these (`ti4-training`, `ti4-mlp` examples, `ti4-review`, `wide_roster`
 with FULL sources) are string-only today; when the core panics land, keep them off the core (they
 run on the string engine) or drop the `--diplomacy` / `--roster wide` options that reach them.
+
+
+## 6. Extension of 2026-11-03 (lane E of D2-8, `docs/D28E_RESUME.md`)
+
+The owner extended the refusals to the other dropped factions and to Thunder's Edge content:
+
+* **Dropped factions**: besides Last Bastion and the Crimson Rebellion, the Council Keleres (all three
+  forms), the Deepwrought Scholarate, the Firmament, the Obsidian and the Ral Nel Consortium are refused at game
+  creation and at load. `ti4_host::disabled` no longer has a list of its own: it asks the typed core's list
+  (`ti4_engine::core_sync::unsupported::find`, the `Disabled` enum of `ti4-engine-core`); `DISABLED_FACTIONS` is
+  only the ids of the tests, kept equal to it by a test over every faction of the content.
+* **Thunder's Edge content** (`GameState::thunders_edge`, the expedition, breakthroughs, the `expedition` preset) is
+  refused at creation (HTTP 400 with the reason, the wasm start, `TableSetup::check`) and at load (recovery, replay, resume).
+  The strategy card set `te` is not content and stays allowed. The lobby and the offline setup lose their switch.
+* **Older rules versions** are refused (`docs/RULES_VERSION.md`).
+* `ti4_engine::product_init()` turns the strict policy (product assertions, strict codecs,
+  `Policy::Panic` for the dropped features) on in the server binary and the wasm module; the library defaults stay off.
+  A *known* refusal is an `Err` before the engine sees the game, so the panic is only for positions that cannot arise.
