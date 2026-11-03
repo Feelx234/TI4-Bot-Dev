@@ -3238,6 +3238,10 @@ impl GameRegistry {
         let content = ContentStore::embedded();
         // The setup of `ti4-host` starts the table, as it does for the table of a page.
         let setup = super::table::setup_of(lobby);
+        // A lobby saved with the switch for Thunder's Edge content (or its preset) is refused here,
+        // as a request the host can answer by changing it, not as a failure of the server.
+        ti4_host::disabled::check_table_options(setup.thunders_edge, setup.start_preset())
+            .map_err(|error| LobbyError::InvalidSetting(error.to_string()))?;
         // A scenario is the game of its own seed; every other table plays the seed of the lobby.
         let seed = setup.game_seed();
         // The players sit in the order of the slots, as the lobby shows them (decision 7 of the
