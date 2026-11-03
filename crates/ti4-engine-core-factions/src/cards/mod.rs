@@ -141,12 +141,32 @@ fn retreat_unported(host: &RulesHost<'_>, _who: Seat, _system: System, _destinat
     false
 }
 
+/// Where Skilled Retreat may send the fleet of `who` from `system` when the position holds the map (`core_combat::open_retreat_destinations`):
+/// none under the Mahact hero's bar, else the adjacent systems of the plain map the movement rules let the fleet enter and that hold no other
+/// player's ship.
+fn open_destinations(host: &RulesHost<'_>, who: Seat, system: System) -> Vec<System> {
+    let (core, k) = (&*host.state, host.kernel);
+    if k.hooks.direct.mahact_units_ship_movement_barred(core) {
+        return Vec::new();
+    }
+    let (Some(reach), Some(base)) = (reach::SeatReach::new(core, k, who, false), core.map().adjacency()) else { return Vec::new() };
+    let rd = Rd::new(core, k).with_blanked(reach::blanked(core));
+    combat::open_retreat_destinations(rd, who, system, base, &|dest| reach.rules_for(core, k, dest), false)
+}
+
 /// `action_cards::skilled_retreat`: "move all of your ships from the active system into an adjacent system that does not
 /// contain another player's ships. The space combat ends in a draw. Then place a command token in that system." The
 /// destinations are the map's (the adapter noted them: the core is lent no galaxy); the move is the retreat window's.
 fn skilled_retreat(host: &mut RulesHost<'_>, resolver: &mut Resolver, who: Seat, card: ActionCard) -> Result<(), TimingError> {
     let Some(system) = host.state.meta().active_system else { return Ok(()) };
-    let Some(listed) = host.table.facts.withdraw(who, system, host.state.meta().combat_round_seq).map(<[System]>::to_vec) else { return Ok(()) };
+    let round = host.state.meta().combat_round_seq;
+    let listed = match host.table.facts.withdraw(who, system, round) {
+        Some(noted) => noted.to_vec(),
+        // A live game (the table has a play provider) holds the galaxy itself: the destinations are the position's own map, as the string
+        // finds them (`combat::skilled_retreat_destinations`). Without a note and without a live game there is no map to read.
+        None if host.table.facts.plays_provider.is_some() => open_destinations(host, who, system),
+        None => return Ok(()),
+    };
     let Some(&first) = listed.first() else { return Ok(()) };
     let rd = Rd::new(&*host.state, host.kernel).with_blanked(reach::blanked(&*host.state));
     let there = |d: System| u16::try_from(combat::ships_of(rd, who, d).len()).unwrap_or(u16::MAX);
@@ -726,6 +746,43 @@ mod tests {
         assert_eq!((unknown, asked.is_none()), (None, true), "one destination is not a question");
         let mine = |s: &CoreState, sys: System| s.board().sys(sys).units.iter().filter(|p| p.owner() == Seat(0)).count();
         assert_eq!((mine(&s, a), mine(&s, b)), (3, 0), "the fleet went to the destination of round 3");
+    }
+
+    /// A live game holds the galaxy: with no note of the adapter (the table has a play provider and the position a map) the card's destinations are the
+    /// adjacent systems of the plain map the movement rules let the fleet enter and that hold none of another player's ships. Before, the card did
+    /// nothing in a live game: the string withdrew the fleet.
+    #[test]
+    fn skilled_retreat_in_a_live_game_finds_its_destinations_on_the_position_map() {
+        use ti4_engine_core::galaxy::CoreGalaxy;
+        use ti4_engine_core::hex::Hex;
+        static NO_LANES: [Option<&[(u8, u8)]>; System::COUNT] = [None; System::COUNT];
+        let plain: Vec<System> = System::ALL.iter().copied().filter(|x| !x.data().planets.is_empty() && !x.data().hyperlane && !x.data().home_system).take(3).collect();
+        let (to, blocked) = (plain[0], plain[1]);
+        let build = |provider: bool| {
+            let (mut s, mut t, system) = retreat_fight(&[]);
+            t.facts = Default::default();
+            if provider {
+                t.facts.plays_provider = Some(ti4_engine_core::kernel::ability::PlaysProvider(std::sync::Arc::new(|_, _| None)));
+            }
+            let mut galaxy = CoreGalaxy::new(&NO_LANES);
+            galaxy.place(system, Hex::new(0, 0)).unwrap();
+            galaxy.place(to, Hex::new(1, 0)).unwrap();
+            galaxy.place(blocked, Hex::new(-1, 0)).unwrap();
+            galaxy.refresh_lane_links();
+            s.map_mut().set_galaxy(galaxy);
+            s.board_mut().sys_mut(blocked).units.push(Piece::new(Unit::CruiserI, Seat(1)));
+            (s, t, system)
+        };
+        let mine = |s: &CoreState, sys: System| s.board().sys(sys).units.iter().filter(|p| p.owner() == Seat(0)).count();
+        let (mut s, t, system) = build(true);
+        let (unknown, asked) = play(&mut s, &t, ActionCard::SkilledRetreat2);
+        assert_eq!((unknown, asked.is_none()), (None, true), "one destination is not a question: the system with the other player's ship is none");
+        assert_eq!((mine(&s, system), mine(&s, to), mine(&s, blocked)), (0, 3, 0), "the fleet left for the free neighbour");
+        assert!(s.meta().combat_draw_round.is(3), "the combat is declared a draw");
+        // The adapter of the string notes the destinations itself (or none, when the string found no map): a table without a live game's provider reads no map.
+        let (mut s, t, system) = build(false);
+        let (unknown, asked) = play(&mut s, &t, ActionCard::SkilledRetreat2);
+        assert_eq!((unknown, asked.is_none(), mine(&s, system), mine(&s, to)), (None, true, 3, 0), "no note and no live game: the card does nothing");
     }
 
     #[test]

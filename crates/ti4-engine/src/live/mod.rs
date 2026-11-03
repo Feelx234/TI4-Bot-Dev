@@ -493,4 +493,34 @@ mod tests {
         })
         .unwrap();
     }
+
+    /// Lane S: a Skilled Retreat destination is the option of the question whole -- with the ships already there -- not what the id alone gives back (a
+    /// pick with `there: 0` is no option of a question that lists three ships there, and the live step refused it: winnu, 4 players, seed 4, step 416).
+    #[test]
+    fn the_answer_to_a_withdraw_question_is_the_option_the_question_lists() {
+        use ti4_engine_core::choice::combat::{Ask as CAsk, Opt as COpt, Subtype as CSub};
+        use ti4_engine_core::choice::{Ask, Ctx, Opt, Origin, Pick, Subtype, Target};
+        let r = Render::default();
+        let [home, near, far] = [ti4_engine_core::generated::System::ALL[1], ti4_engine_core::generated::System::ALL[2], ti4_engine_core::generated::System::ALL[3]];
+        let opts = [COpt::Withdraw { system: near, there: 3 }, COpt::Withdraw { system: far, there: 0 }];
+        let choice = CoreChoice {
+            actor: ti4_engine_core::Seat(0),
+            ask: Ask::Combat(CAsk::Withdraw { system: home, fleet: 2 }),
+            ctx: Ctx {
+                origin: Origin::ActionCard(ti4_engine_core::generated::ActionCard::SkilledRetreat2),
+                subtype: Subtype::Combat(CSub::Withdraw),
+                optional: false,
+                target: Some(Target::System(home)),
+                outstanding: SmallList::new(),
+                space_battle: false,
+                invasion_seq: None,
+            },
+            opts: opts.iter().map(|o| Opt::Combat(*o)).collect(),
+        };
+        for o in opts {
+            let id = render::option(&r, &choice.ask, &Opt::Combat(o)).id;
+            assert_eq!(pick_of(&r, &choice, &id), Some(Pick::Opt(Opt::Combat(o))), "{id}");
+        }
+        assert_eq!(pick_of(&r, &choice, "no_such_system"), None);
+    }
 }

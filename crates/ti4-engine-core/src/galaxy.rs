@@ -267,6 +267,29 @@ impl CoreGalaxy {
         out
     }
 
+    /// Whether the wormholes the tokens give the systems are exactly `want` (`(system, kinds)` pairs, a system may be named twice).
+    #[must_use]
+    pub fn token_wormholes_are(&self, want: &[(SystemIx, u8)]) -> bool {
+        self.token_wormholes == Self::token_masks(want)
+    }
+
+    /// Replace the wormholes the tokens give (`Galaxy::token_wormholes`, which the string rebuilds from scratch every step: a token can move,
+    /// and the ion storm turns over) by `want`. `false`: they were the same.
+    pub fn replace_token_wormholes(&mut self, want: &[(SystemIx, u8)]) -> bool {
+        let next = Self::token_masks(want);
+        let changed = next != self.token_wormholes;
+        self.token_wormholes = next;
+        changed
+    }
+
+    fn token_masks(want: &[(SystemIx, u8)]) -> Vec<u8> {
+        let mut masks = vec![0; SYSTEM_COUNT];
+        for (system, kinds) in want {
+            masks[system.index()] |= *kinds;
+        }
+        masks
+    }
+
     /// Add wormhole kinds to a system (the modules' pieces carry them; `apply_extra_wormholes`).
     pub fn add_token_wormholes(&mut self, system: SystemIx, kinds: u8) {
         self.token_wormholes[system.index()] |= kinds;

@@ -252,7 +252,8 @@ impl Family for Fam {
                 _ => None,
             },
             Ask::RetreatTo { .. } => None,
-            Ask::Withdraw { .. } => <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(id).map(|system| Opt::Withdraw { system, there: 0 }),
+            // (Like a retreat destination, an option carries the ships already there: the id alone cannot give it back, the question's own option is the answer.)
+            Ask::Withdraw { .. } => None,
             Ask::RaidDamage { .. } => Some(Opt::RaidDamage { unit: <Unit as crate::generated::IdStr>::from_id(id)? }),
             Ask::Ambush => {
                 let unit = |t: &str| <Unit as crate::generated::IdStr>::from_id(t);

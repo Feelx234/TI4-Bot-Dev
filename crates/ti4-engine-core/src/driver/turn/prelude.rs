@@ -20,6 +20,7 @@ use crate::kernel::stage::Sx;
 use crate::kernel::turn_codes::TurnGap;
 use crate::keys::{Atom, MarkKey, MarkVal, Word};
 use crate::query::board;
+use crate::tables::{wormhole_bit, WH_ALPHA_BETA};
 use crate::state::{CoreState, EventKind, Key, MetaFlags, Payload, PlainArg, PlainKind, PlainRec, RngDomain, RollPurpose, RollRec, Val};
 
 /// What a Spec Ops II survival roll needs (`faction_techs::SPEC_OPS_SURVIVES_ON`) and the sides of the die.
@@ -140,6 +141,33 @@ fn nexus_latch(core: &mut CoreState) {
     }
 }
 
+/// `laws::apply_to_galaxy`'s token wormholes: the wormholes that came from tokens rather than from the map (the gamma tokens of Gamma Wormhole,
+/// Gamma Relay and Nexus Sovereignty, the Creuss tokens), the open Wormhole Nexus (alpha and beta on its locked face) and the face of the ion storm,
+/// rebuilt from the position as the string rebuilds them at the start of every step. Without it the core's map keeps the wormholes it was loaded
+/// with: a token placed during the game joined nothing (Signal Jamming's reach, the routes of a move).
+pub fn sync_wormhole_tokens(core: &mut CoreState, k: &crate::kernel::Kernel) {
+    if !core.loaded.has(crate::state::Slice::Map) {
+        return;
+    }
+    let at = |system: System| crate::ids::system_at(system as usize);
+    // (The wormholes the pieces carry, the Creuss flagship's delta, are part of the string's rebuilt map too: `apply_extra_wormholes`.)
+    let mut want: Vec<(crate::ids::SystemIx, u8)> = k.hooks.movement.extra_wormhole_set(core).iter().map(|(system, kind)| (*system, wormhole_bit(*kind))).collect();
+    want.extend(core.explore().wormhole_tokens.iter().map(|(kind, system)| (at(*system), wormhole_bit(*kind))));
+    if core.meta().flags.has(MetaFlags::NEXUS_UNLOCKED) {
+        want.push((at(System::MalliceLockedNexus), WH_ALPHA_BETA));
+    }
+    if let Some((system, face)) = core.meta().ion_storm {
+        want.push((at(system), wormhole_bit(face)));
+    }
+    let Some(galaxy) = core.galaxy() else { return };
+    if galaxy.token_wormholes_are(&want) {
+        return;
+    }
+    let mut next = (**galaxy).clone();
+    next.replace_token_wormholes(&want);
+    core.map_mut().set_galaxy(next);
+}
+
 /// `faction_techs::roll_spec_ops`: every Spec Ops II destroyed since the last step rolls to survive (5 or more).
 fn spec_ops(sx: &mut Sx<'_>) {
     let owed: Vec<(Seat, u32)> = sx.state.players().iter().filter(|p| p.misc.spec_ops_destroyed > 0).map(|p| (p.seat, p.misc.spec_ops_destroyed)).collect();
@@ -187,6 +215,7 @@ pub fn run_reconcile(sx: &mut Sx<'_>) -> Flow {
         gap(sx, TurnGap::MapEdits);
         return Flow::Halt;
     }
+    sync_wormhole_tokens(sx.state, sx.kernel);
     spec_ops(sx);
     if halted(sx) { Flow::Halt } else { Flow::Done }
 }

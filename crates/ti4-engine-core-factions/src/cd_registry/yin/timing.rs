@@ -77,7 +77,17 @@ fn printing_in_scope(scope: Scope, unit: Unit) -> Option<Unit> {
     while let Some(newer) = Unit::ALL.into_iter().find(|candidate| candidate.data().replaces == Some(current) && scope.unit(*candidate).is_some()) {
         current = newer;
     }
-    scope.unit(current).map(|_| current)
+    if scope.unit(current).is_some() {
+        return Some(current);
+    }
+    // A faction sheet may name a printing the box does not hold (the Naalu sheet lists the Thunder's Edge mech; in a game without that source the
+    // string names the unit by the id of the faction record, `naalu_mech`): the oldest printing of the same faction and base type that is in scope
+    // (the content lists them oldest first).
+    let data = unit.data();
+    Unit::ALL.into_iter().find(|candidate| {
+        let other = candidate.data();
+        other.faction == data.faction && other.base_type == data.base_type && other.faction.is_some() && scope.unit(*candidate).is_some()
+    })
 }
 
 /// `placed_unit_id` of a seat for a base type: the upgrade it owns, else its faction's own unit, else the plain one.
@@ -375,6 +385,20 @@ mod tests {
                 assert_ne!(a, b, "two yin abilities share the slot {a:?}");
             }
         }
+    }
+
+    /// The faction sheets of the generated data name the newest printing (the Naalu mech is the Thunder's Edge one); a game without that source plays
+    /// the one the box holds, by the id the string names it (`naalu_mech`): the Stillness of Stars offered the plain `mech` (lane S, cabal 6 players, seed 4).
+    #[test]
+    fn a_sheet_that_names_a_printing_the_box_does_not_hold_gives_the_oldest_one_that_it_holds() {
+        use ti4_engine_core::generated::Source;
+        use ti4_engine_core::tables::source_bit;
+        let scope = |sources: &[Source]| Scope(sources.iter().fold(0, |m, s| m | source_bit(*s)));
+        assert_eq!(printing_in_scope(scope(&[Source::Base, Source::Pok]), Unit::IconoclastTE), Some(Unit::Iconoclast));
+        assert_eq!(printing_in_scope(scope(&[Source::Base, Source::Pok, Source::Codex3]), Unit::IconoclastTE), Some(Unit::Iconoclast), "the string names the unit by the id of the faction record");
+        assert_eq!(printing_in_scope(scope(&[Source::Base, Source::Pok, Source::ThundersEdge]), Unit::IconoclastTE), Some(Unit::IconoclastTE), "the printing of the sheet is in the box");
+        assert_eq!(printing_in_scope(scope(&[Source::Base]), Unit::IconoclastTE), None, "no printing of a Prophecy of Kings unit in a base game");
+        assert_eq!(printing_in_scope(scope(&[Source::Base, Source::Pok]), Unit::CruiserI), Some(Unit::CruiserI), "a unit with no other printing is itself");
     }
 
     #[test]

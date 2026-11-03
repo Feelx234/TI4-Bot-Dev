@@ -332,6 +332,47 @@ fn the_nexus_latch_is_set_by_a_unit_in_the_locked_nexus_or_a_controlled_mallice_
     assert!(s.meta().flags.has(MetaFlags::NEXUS_UNLOCKED), "a unit in the nexus opens it");
 }
 
+/// Lane S: the wormholes that came from tokens (a gamma token of Gamma Wormhole, the Creuss tokens, the open Nexus, the ion storm's face) join the core's
+/// map at the reconcile every step starts with, and leave it with the token, as the string rebuilds `Galaxy::token_wormholes` each step. Before, the map kept
+/// what it was loaded with: Signal Jamming's reach and the routes of a move never saw a token the game placed (sol, 5 players, seed 1: `82a` missing).
+#[test]
+fn the_wormholes_the_tokens_give_join_the_map_at_the_reconcile_and_leave_with_the_token() {
+    use ti4_engine_core::hex::Hex;
+    use ti4_engine_core::ids::system_at;
+    let plain = ti4_engine_core_tests::scenario::plain_systems();
+    let (a, b, nexus) = (plain[0], plain[1], System::MalliceLockedNexus);
+    let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).map_hexes(&[(a, Hex::new(0, 0)), (b, Hex::new(4, 0)), (nexus, Hex::new(-4, 0))]).build();
+    let next_to = |s: &CoreState, x: System, y: System| {
+        s.galaxy().unwrap().adjacent(system_at(x as usize)).contains(y as usize) && s.map().adjacency().unwrap().of(system_at(x as usize)).contains(y as usize)
+    };
+    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    assert!(!next_to(&s, a, nexus) && !next_to(&s, b, nexus), "far apart, and the locked nexus holds only its gamma wormhole");
+    // A gamma token joins the system to the nexus (a gamma wormhole), in both directions, in the map and in the adjacency the rules read.
+    s.explore_mut().wormhole_tokens.insert(Wormhole::Gamma, a);
+    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    assert!(next_to(&s, a, nexus) && next_to(&s, nexus, a), "the gamma token joined the gamma wormhole of the nexus");
+    assert!(!next_to(&s, b, nexus));
+    // The token leaves (a tile replaced by Nova Seed): so does the link.
+    s.explore_mut().wormhole_tokens.remove(&Wormhole::Gamma);
+    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    assert!(!next_to(&s, a, nexus), "a token that is gone links nothing");
+    // The open nexus has an alpha and a beta wormhole: an alpha token joins it, a gamma one no longer matters.
+    s.explore_mut().wormhole_tokens.insert(Wormhole::Alpha, b);
+    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    assert!(!next_to(&s, b, nexus), "the nexus is still locked");
+    s.board_mut().planet_mut(Planet::Mallice).control = Some(Seat(1));
+    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    assert!(next_to(&s, b, nexus), "the open nexus holds an alpha wormhole");
+    // The ion storm's face is a wormhole too, and it turns over.
+    s.explore_mut().wormhole_tokens.clear();
+    s.meta_mut().ion_storm = Some((a, Wormhole::Beta));
+    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    assert!(next_to(&s, a, nexus) && !next_to(&s, b, nexus), "the storm shows a beta wormhole, which the open nexus holds");
+    s.meta_mut().ion_storm = None;
+    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    assert!(!next_to(&s, a, nexus), "no storm, no wormhole");
+}
+
 #[test]
 fn spec_ops_destroyed_roll_a_die_each_and_the_survivors_wait_on_the_card() {
     let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).build();
