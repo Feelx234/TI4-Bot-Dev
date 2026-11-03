@@ -826,6 +826,33 @@ fn the_hits_a_reflective_shielding_staged_are_absorbed_inside_the_answer_to_the_
     }
 }
 
+/// Lane S: the live machine (the native loop) drains the hits a Reflective Shielding staged when the answer to the sustain is taken, as the string does
+/// after every use of SUSTAIN DAMAGE: the producer of the cancelled hit chooses its losses (a question of the tape) and nothing stays staged. Before, only
+/// the machine that applies a single answer (`Machine::awaiting`, the dual's) drained them, and a live game left the hits on the position (sardakk, 4 players,
+/// seed 1, step 919: the staged hits were still there at the end of the turn).
+#[test]
+fn the_live_machine_absorbs_the_hits_a_reflective_shielding_staged_when_the_sustain_is_answered() {
+    covers!("rules::combat::machine::Machine");
+    use ti4_engine_core::state::CombatPend;
+    let sc = arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 2).unit(sys(), None, Unit::DreadnoughtI, 1, 1).unit(sys(), None, Unit::DestroyerI, 1, 1);
+    let (mut state, kernel) = sc.build();
+    state.transient_mut().combat.pending_reflective_hits = Some((sys(), Seat(0), 2));
+    let mut fields = fields(&state);
+    fields.step = Step::Queue { assigning: false, round: 1, queue: vec![CombatPend { player: Seat(1), hits: 3, producer: Seat(0), non_fighters_only: false, producer_assigns: false }] };
+    let mut rig = Rig::from_parts(state, kernel, Machine::new(env(), fields).live()).seeded(1);
+    rig.run();
+    let sustain = rig.asked().clone();
+    assert_eq!(sustain.actor, Seat(1), "the dreadnought's owner is asked to sustain");
+    assert!(matches!(sustain.ask, Ask::Combat(CAsk::CancelHit { .. })));
+    rig.pick(0);
+    assert_eq!(rig.asked().actor, Seat(0), "the producer absorbs the reflected hits: the question is the tape's");
+    assert!(matches!(rig.asked().ask, Ask::Combat(CAsk::AssignHit)));
+    rig.pick(0);
+    assert!(rig.state.transient().combat.pending_reflective_hits.is_none(), "nothing stays staged");
+    let left = rig.state.board().sys(sys()).units.iter().filter(|p| p.owner() == Seat(0)).count();
+    assert_eq!(left, 0, "two hits, two cruisers");
+}
+
 /// W11: the machine continues a settle from a queue whose front is the neutral side's: `hits` hits are answered by the rules (one
 /// sustain/loss each), then the round is announced over.
 fn neutral_queue(assigning: bool, hits: u32, producer_assigns: bool) -> (Fight, Machine) {

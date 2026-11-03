@@ -1225,6 +1225,16 @@ impl Machine {
                 }
             }
             let _ = emit_used(sx, &sus.offer, sus.unit);
+            // The hits a Reflective Shielding staged while the use was announced land on the producer of the cancelled hit, as in the awaiting
+            // path (`step_awaiting`) and in the string's `emit_sustain_used`, which drains them after EVERY use: the producer's losses are
+            // nested questions of the tape.
+            if let Some(mut absorb) = reflective_hits(sx, &sus.offer) {
+                while let Next::Continue(_) = absorb.step(sx) {
+                    let choice = absorb.ask_of(sx.state, sx.kernel).ok_or(Illegal)?;
+                    let Some(p) = Self::ask_tape(sx, &choice) else { return Ok(()) };
+                    absorb.answer(sx, p)?;
+                }
+            }
             let cancels = Self::cancels(sx.state, Self::rd(sx.state, sx.kernel), sus.offer.player);
             let mut queue = sus.queue;
             if let Some(front) = queue.first_mut() {
