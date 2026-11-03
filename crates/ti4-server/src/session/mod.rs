@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, Weak, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use ti4_engine::choice::DecisionRecord;
+use ti4_engine::choice::{ChoiceOption, DecisionRecord};
 use ti4_engine::fingerprint::CanonicalHash;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
@@ -643,23 +643,73 @@ impl GameSession {
     /// under one lock so the two belong to the same moment. The copy is only a hint: a batch
     /// check uses it when `StepSnapshot::is_valid_for` accepts it and replays in full otherwise.
     ///
-    /// The second part is the answers the table has recorded but not published yet (see
-    /// `SessionShared::held_back`): the question on the table was asked after them, so a check
-    /// that replays only the published log meets an older question than the one the player saw.
+    /// The log ends with the held decisions (`SessionShared::held_decisions`): the engine has
+    /// them, so a replay without them meets their questions again. The middle value is the
+    /// option each held decision chose, one per held record at the end of the log.
     #[must_use]
     pub fn batch_basis(
         &self,
     ) -> (
         Vec<DecisionRecord>,
-        Vec<(DecisionRecord, Option<ti4_engine::choice::ChoiceOption>)>,
+        Vec<Option<ChoiceOption>>,
         Option<Arc<step_snapshot::StepSnapshot>>,
     ) {
         let lock = self.shared.lock().expect("shared lock");
-        (
-            lock.decision_log.clone(),
-            lock.held_back.clone(),
-            lock.step_snapshot.clone(),
-        )
+        let mut log = lock.decision_log.clone();
+        log.extend(lock.held_decisions.iter().map(|(record, _)| record.clone()));
+        let held = lock
+            .held_decisions
+            .iter()
+            .map(|(_, option)| option.clone())
+            .collect();
+        (log, held, lock.step_snapshot.clone())
+    }
+
+    /// Takes the replies owed to the held decisions' submissions, each with its acceptance at
+    /// `version`. A committed batch makes those decisions part of the timeline, so their seats
+    /// are told they were accepted instead of losing the reply when the worker stops.
+    pub(crate) fn take_held_replies(
+        &self,
+        version: u64,
+    ) -> Vec<(
+        std::sync::mpsc::Sender<
+            Result<
+                ti4_host::protocol::server::ActionAcceptedMsg,
+                ti4_host::protocol::status::RejectionReason,
+            >,
+        >,
+        ti4_host::protocol::server::ActionAcceptedMsg,
+    )> {
+        let mut lock = self.shared.lock().expect("shared lock");
+        let held: Vec<_> = lock
+            .held_decisions
+            .iter()
+            .map(|(record, _)| (record.player.clone(), record.chosen.clone()))
+            .collect();
+        let game_id = lock.game_id.clone();
+        let mut replies = Vec::new();
+        for (seat, chosen) in held {
+            let Some(index) = lock.in_flight_submissions.iter().position(|pending| {
+                pending.seat == seat && pending.submitted_option_id.as_deref() == Some(&chosen)
+            }) else {
+                continue;
+            };
+            let Some(mut pending) = lock.in_flight_submissions.remove(index) else {
+                continue;
+            };
+            if let Some(reply) = pending.reply_tx.take() {
+                replies.push((
+                    reply,
+                    ti4_host::protocol::server::ActionAcceptedMsg {
+                        protocol_version: ti4_host::protocol::PROTOCOL_VERSION,
+                        game_id: game_id.clone(),
+                        game_version: version,
+                        option_id: chosen,
+                    },
+                ));
+            }
+        }
+        replies
     }
 
     /// How many of the game's dice the worker has published (the next one's history index).

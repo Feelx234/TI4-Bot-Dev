@@ -40,6 +40,8 @@ export interface ReactionStatusBarProps {
   reactionModes?: ReactionModes;
   /** Sets one card's mode on the server; absent when the viewer cannot (a spectator). */
   onSetReactionMode?: (card: string, mode: ReactionModeSetting) => void;
+  /** The client is sending a decline of this question (a switched-off ability): no clicks meanwhile. */
+  autoDeclining?: boolean;
 }
 
 const CardBlock: React.FC<{
@@ -116,11 +118,13 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
   onShowSystem,
   reactionModes,
   onSetReactionMode,
+  autoDeclining = false,
 }) => {
   const display = usePlayerIdentity();
   const prefs = useCardTextPrefs();
   const isActor = Boolean(choice && viewerSeat && choice.actor === viewerSeat);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitting, setIsSubmitting] = useState(false);
+  const isSubmitting = submitting || autoDeclining;
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(
     autoPassTimeoutSeconds ?? null,
   );

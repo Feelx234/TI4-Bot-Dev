@@ -14,7 +14,7 @@ const SEED: u64 = 4_503_599_627_370_000;
 fn table() -> Value {
     json!({ "table": {
         "setup": { "player_count": 3, "seed": SEED, "strategy_cards": "pok", "speaker_order": "seat",
-                   "starting_tech": true, "thunders_edge": true },
+                   "starting_tech": true },
         "seats": [
             { "kind": "human", "name": "Ada", "faction": "sol" },
             { "kind": "smart", "name": "Rule Bot", "faction": "hacan" },
@@ -91,7 +91,7 @@ fn a_save_lists_the_seats_and_replays_to_the_same_hash_after_a_hostile_trip() {
     let setup = &save["game"]["table"]["setup"];
     assert_eq!(setup["strategy_cards"], "pok");
     assert_eq!(setup["speaker_order"], "seat");
-    assert_eq!(setup["thunders_edge"], true);
+    assert!(setup.get("thunders_edge").is_none(), "switched off: {setup}");
     assert_eq!(setup["seed"], SEED);
     assert_eq!(
         save["rules_version"].as_u64().unwrap_or(0) as u32,
@@ -124,4 +124,58 @@ fn a_save_made_before_the_seats_were_listed_still_loads_and_a_string_seed_is_rea
     old["game"]["table"]["setup"]["seed"] = json!(SEED.to_string());
     let back = replayed(&old);
     assert_eq!(back["decisions_hash"], save["decisions_hash"]);
+}
+
+/// What `ti4_host_start` answers when it refuses `request`.
+fn refusal(request: &Value) -> String {
+    let len = host_api::put_input(&request.to_string());
+    let status = ti4_wasm::ti4_host_start(u32::try_from(len).unwrap());
+    let out = host_api::out_text();
+    assert!(status < 0, "the start was not refused: {out}");
+    out
+}
+
+/// A save whose table carries Thunder's Edge content (written by a build that still had the
+/// switch) is refused with the reason, and the save with it removed resumes: the refusal is the
+/// switch, not the file.
+#[test]
+fn a_save_that_carries_thunders_edge_content_is_refused() {
+    let _serial = serial();
+    let save = played(4);
+    let mut with_switch = save.clone();
+    with_switch["game"]["table"]["setup"]["thunders_edge"] = serde_json::json!(true);
+    let text = refusal(&serde_json::json!({ "resume": with_switch }));
+    assert!(
+        text.contains("Thunder's Edge content") && text.contains("switched off"),
+        "{text}"
+    );
+    let page = Arc::new(Mutex::new(Page::default()));
+    page.lock().unwrap().script.push_back(Act::Leave);
+    install(&page, SEED, "a");
+    resume(&save);
+}
+
+/// A save of an older rules version is refused whatever else it holds: the version first.
+#[test]
+fn a_save_of_an_older_rules_version_is_refused_with_both_numbers() {
+    let _serial = serial();
+    let save = played(4);
+    assert_eq!(
+        save["rules_version"].as_u64().unwrap_or(0) as u32,
+        ti4_model::state::RULES_VERSION
+    );
+    for older in [Some(0_u32), Some(1), Some(ti4_model::state::MIN_SUPPORTED_RULES_VERSION - 1), None] {
+        let mut old = save.clone();
+        match older {
+            Some(0) | None => {
+                old.as_object_mut().unwrap().remove("rules_version");
+            }
+            Some(version) => old["rules_version"] = serde_json::json!(version),
+        }
+        old["game"]["table"]["setup"]["thunders_edge"] = serde_json::json!(true);
+        let text = refusal(&serde_json::json!({ "resume": old }));
+        assert!(text.contains("older version"), "{older:?}: {text}");
+        let shown = older.map_or(0, |version| version);
+        assert!(text.contains(&format!("(version {shown})")), "{older:?}: {text}");
+    }
 }

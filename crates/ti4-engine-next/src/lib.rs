@@ -22,6 +22,12 @@ pub use setup::{
     start_game_seeded_with_card_set, strategy_card_setup, strategy_card_setup_for_set,
 };
 
+
+// ---- lane E (product edges, docs/D28E_RESUME.md) ----
+mod product_init;
+pub use product_init::product_init;
+
+// ---- the facade ----
 pub use ti4_engine_legacy::*;
 
 // ---- lane A (foundation, 8b1-8b3): generated tables, wire types, glue, Observed ----

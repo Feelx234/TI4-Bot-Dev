@@ -115,60 +115,36 @@ fn a_game_without_the_switch_never_offers_the_expedition() {
     assert!(seen.flag.is_null(), "legacy states do not write the flag");
 }
 
-/// The switch brings the expedition into the closing menu of a turn (the end of the turn, after
-/// the action), never into the action menu, and a slice claimed there uses no action.
+/// What `ti4_host_start` answers to `request`: the error text of a refusal.
+fn refused(request: &Value) -> String {
+    let len = host_api::put_input(&request.to_string());
+    let status = ti4_wasm::ti4_host_start(u32::try_from(len).unwrap());
+    let out = host_api::out_text();
+    assert!(status < 0, "the start was not refused: {out}");
+    out
+}
+
+/// Thunder's Edge content is switched off (owner decision 2026-11-03): the table switch and the
+/// `expedition` preset are refused with the reason, before any game is built. The strategy card
+/// set `te` is not content and still plays.
 #[test]
-fn the_expedition_is_offered_at_the_end_of_the_turn_and_plays_through_to_the_planet() {
+fn thunders_edge_content_is_refused_at_the_start_with_its_reason() {
     let _serial = serial();
     let mut table = setup(13, 3);
     table["thunders_edge"] = json!(true);
+    let text = refused(&json!({ "setup": table }));
+    assert!(
+        text.contains("Thunder's Edge content") && text.contains("switched off"),
+        "{text}"
+    );
+    let mut table = setup(13, 3);
     table["preset"] = json!("expedition");
-    let seen = play(&table, 6, 4000);
-    assert_eq!(seen.flag, json!(true));
-    assert!(
-        seen.expedition_menus.iter().all(|menu| menu.len() <= 2),
-        "only the two slices the seat can pay are offered: {:?}",
-        seen.expedition_menus
-    );
-    assert_eq!(seen.claimed_total, 6, "slices: {}", seen.slices);
-    assert_eq!(
-        seen.mine, 2,
-        "the first seat claimed the last two: {}",
-        seen.slices
-    );
-    assert!(
-        seen.placed
-            .as_object()
-            .is_some_and(|placed| placed.contains_key("thundersedge")),
-        "the planet was placed: {} (follow-ups {:?})",
-        seen.placed,
-        seen.follow_ups
-    );
-    // The completion asks the finisher where to place it and which tied seat places the infantry.
-    assert!(
-        seen.follow_ups
-            .iter()
-            .any(|f| f.ends_with("expedition_place_system")),
-        "{:?}",
-        seen.follow_ups
-    );
-    assert!(
-        seen.follow_ups
-            .iter()
-            .any(|f| f.ends_with("expedition_placement_tiebreak")),
-        "{:?}",
-        seen.follow_ups
-    );
-}
-
-#[test]
-fn slow_thunders_edge_games_play_to_the_end() {
-    let _serial = serial();
-    for (players, seed) in [(3, 21), (4, 22), (5, 23), (6, 24), (4, 25), (3, 26)] {
-        let mut table = setup(seed, players);
-        table["thunders_edge"] = json!(true);
-        let seen = play(&table, 99, 40000);
-        assert!(seen.steps < 40000, "{players}p seed {seed} did not end");
-        assert_eq!(seen.flag, json!(true));
-    }
+    let text = refused(&json!({ "setup": table }));
+    assert!(text.contains("Thunder's Edge content"), "{text}");
+    // The same table without the switch starts, with the `te` strategy cards.
+    let mut table = setup(13, 3);
+    table["card_set"] = json!("te");
+    let seen = play(&table, 1, 20);
+    assert!(seen.steps > 0, "the game asked nothing");
+    assert!(seen.flag.is_null());
 }

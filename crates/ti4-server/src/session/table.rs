@@ -249,6 +249,9 @@ pub fn apply_settings(
         updated.strategy_card_set = Some(set.to_owned());
     }
     if let Some(on) = settings.thunders_edge {
+        // Switched off (`ti4_host::disabled`): the host can still clear a stored flag.
+        ti4_host::disabled::check_table_options(on, None)
+            .map_err(|error| LobbyError::InvalidSetting(error.to_string()))?;
         updated.thunders_edge = on;
     }
     if let Some(delay) = settings.bot_delay_ms {

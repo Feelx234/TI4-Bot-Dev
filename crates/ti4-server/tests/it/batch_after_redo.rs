@@ -284,6 +284,7 @@ fn scenario(step_snapshots: bool) -> Outcome {
 }
 
 #[test]
+#[ignore = "turn redo is switched off (docs/DISABLE_XF123.md): the route answers 403 and a redone history is not recovered"]
 fn slow_a_batch_confirmed_after_a_turn_redo_matches_the_full_replay_in_game_marks_and_recovery() {
     let with_copies = scenario(true);
     let without = scenario(false);

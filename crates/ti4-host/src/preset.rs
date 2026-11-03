@@ -2661,9 +2661,20 @@ mod tests {
                         let template =
                             crate::maps::default_template_for(content(), &loader, n, POK);
                         let name = format!("{base}{suffix}");
-                        if let Err(e) =
+                        // The product refuses the preset that plays Thunder's Edge content; its
+                        // builder is checked unrestricted.
+                        let built = if *base == EXPEDITION {
+                            crate::setup::preset_game_unrestricted(
+                                content(),
+                                &list,
+                                seed,
+                                template.as_deref(),
+                                &name,
+                            )
+                        } else {
                             preset_game(content(), &list, seed, template.as_deref(), &name)
-                        {
+                        };
+                        if let Err(e) = built {
                             failures.push(format!("{name} {n}p seed {seed}: {e}"));
                         }
                     }
@@ -2700,7 +2711,8 @@ mod tests {
     #[test]
     fn the_expedition_preset_leaves_two_slices_the_first_seat_can_pay() {
         let list = players(3);
-        let (state, _) = preset_game(content(), &list, 12, None, "expedition").unwrap();
+        let (state, _) =
+            crate::setup::preset_game_unrestricted(content(), &list, 12, None, "expedition").unwrap();
         assert!(state.thunders_edge);
         assert_eq!(state.expedition_slices.len(), 4);
         assert_eq!(state.expedition_slices.get("resources"), Some(&list[1]));

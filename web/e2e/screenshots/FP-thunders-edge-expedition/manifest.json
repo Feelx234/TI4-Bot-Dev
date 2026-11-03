@@ -2,6 +2,7 @@
   "title": "Thunder's Edge expedition in the turn bar",
   "description": "Why a tester never saw the Thunder's Edge options, and what a table with the content switched on now offers. Every game shot is a real offline game: the rules engine in a Web Worker, rule bots, seed 12, 3 players, and (where the caption says so) the dev start preset `expedition`, which has the bots hold four of the six slices so the human can finish the expedition in round 1. The expedition is committed at the end of a player's turn (the closing menu), uses no action, and one slice can be claimed per turn.",
   "tag": "web/e2e/screenshots/FP-thunders-edge-expedition",
+  "retired": "2026-11-03: Thunder's Edge content is refused at game creation and load (docs/D28E_RESUME.md) and the lobby and offline setup have no switch, so these captures cannot be taken any more. The folder stays as the record of the expedition UI for the day the content comes back; HK-thunders-edge-off shows the forms without the switch.",
   "shots": [
     { "file": "out/1-offline-setup-off-desktop.png", "heading": "Offline setup: the switch, off (desktop)", "caption": "New row 'Thunder's Edge content', off by default. Off plays the Prophecy of Kings content, which is what every game played before the switch." },
     { "file": "out/2-offline-setup-on-desktop.png", "heading": "Offline setup: the switch, on (desktop)", "caption": "Ticked: the game is played with every source, which brings in the expedition and the faction breakthroughs it grants." },

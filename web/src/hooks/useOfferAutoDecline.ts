@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { HistoryStatus, PendingChoiceDto } from "../protocol/types.ts";
 import { isDryNonce } from "../presentation/dryChoice.ts";
 
@@ -44,6 +44,8 @@ export function useOfferAutoDecline(
   noticeRef.current = onNotice;
   const busyRef = useRef(busy);
   busyRef.current = busy;
+  // The question whose decline is being sent: its offer must not take a click meanwhile.
+  const [declining, setDeclining] = useState<string | null>(null);
 
   useEffect(() => {
     if (!history) return;
@@ -71,11 +73,15 @@ export function useOfferAutoDecline(
       const prefix = typeof spec.noticePrefix === "function" ? spec.noticePrefix(choice) : spec.noticePrefix;
       const text = typeof spec.noticeText === "function" ? spec.noticeText(choice) : spec.noticeText;
       noticeRef.current?.({ id: `${prefix}-${nonce}`, text });
+      setDeclining(nonce);
       submitRef.current(declineId, nonce).catch(() => {
         // The decision stays open for a click.
+        setDeclining((current) => (current === nonce ? null : current));
       });
     }, spec.delayMs ?? OFFER_DECLINE_DELAY_MS);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nonce, declineId]);
+
+  return { decliningNonce: declining };
 }

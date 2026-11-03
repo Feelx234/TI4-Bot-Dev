@@ -50,9 +50,16 @@ has `UI observations` and `Fix requests` sections.
 the runs and Prophecy of Kings (`pok`) in the rest (`NIGHTLY_POK_PROBABILITY`). `meta.json` has
 `card_set`; the repro carries `TI4_SMOKE_CARD_SET=pok` only when it is not the default.
 
+**Thunder's Edge content: SWITCHED OFF (2026-11-03).** The product refuses the table switch
+`thunders_edge`, the `expedition` preset and any save that carries them (`ti4_host::disabled`,
+`docs/D28E_RESUME.md`), and the lobby and the offline setup form have no such switch any more. The
+defaults `NIGHTLY_TE_PROBABILITY` and `NIGHTLY_OFFLINE_TE_PERCENT` are therefore **0**; raising them
+makes the games meet the refusal, not the expedition. The `te` strategy card set below is a different
+thing and stays in play. What follows describes the harness for the day the content comes back.
+
 **Thunder's Edge content** (the table switch `thunders_edge`, default off in the game; not the `te`
-strategy card set above, which is a different thing). `run_game.sh` turns it on for 40% of the runs
-(`NIGHTLY_TE_PROBABILITY`): the expedition at the end of a turn, the Thunder's Edge planet and cards, the TE
+strategy card set above, which is a different thing). `run_game.sh` turns it on for a share of the runs
+(`NIGHTLY_TE_PROBABILITY`, was 40%): the expedition at the end of a turn, the Thunder's Edge planet and cards, the TE
 prompts. Of those, 30% (`NIGHTLY_TE_EXPEDITION_PRESET_PERCENT`) start from the `expedition` preset (four
 slices claimed by the other seats, two left for the first seat to pay: the system pick, the placement tie-break
 and the planet arriving come in the first rounds); the other TE runs roll their preset as usual. `meta.json`
@@ -347,12 +354,12 @@ be a layout problem or a gesture the harness does not do (it clicks, never swipe
 | `NIGHTLY_PROCTOR_MODEL`, `NIGHTLY_SUMMARY_MODEL` | Sonnet 5.5, Opus 5.5 | |
 | `NIGHTLY_PRESET_PROBABILITY` | `70` | percent of runs that start from a prepared state |
 | `NIGHTLY_PRESET` | `combat combat cards agenda relics invasion techs leaders siege bombard capture explore notes world world` | one preset name or a list to pick from per run (see `crates/ti4-server/src/preset.rs`; `endgame` is left out of the mix). `siege`, `bombard`, `capture`: see the combat-preset notes above. `explore`: landings on unclaimed trait planets, frontier ships with Dark Energy Tap, fragments, stacked exploration decks. `notes`: promissory notes in foreign hands. `world`: roster factions beyond the original six with their techs, leaders, flagship, notes |
-| `NIGHTLY_TE_PROBABILITY` / `NIGHTLY_TE_EXPEDITION_PRESET_PERCENT` | `40` / `30` | percent of runs played with Thunder's Edge content on (`TI4_SMOKE_TE=1`, `thunders_edge` in `meta.json`), and the percent of those that start from the `expedition` preset. `0` switches TE runs off |
-| `NIGHTLY_OFFLINE_TE_PERCENT` | `40` | percent of offline games set up with the Thunder's Edge switch (`TI4_OFFLINE_TE=1`; `OFFLINE_FORCE_TE=1\|0` forces it for one game). The human seat's driver claims expeditions as in server runs; the rule bots take slices too (their random fallback: self-play shows all six slices claimed in every game), and the entry has the same `Thunder's Edge:` line |
+| `NIGHTLY_TE_PROBABILITY` / `NIGHTLY_TE_EXPEDITION_PRESET_PERCENT` | `0` / `30` | percent of runs played with Thunder's Edge content on (`TI4_SMOKE_TE=1`, `thunders_edge` in `meta.json`), and the percent of those that start from the `expedition` preset. `0` switches TE runs off |
+| `NIGHTLY_OFFLINE_TE_PERCENT` | `0` | percent of offline games set up with the Thunder's Edge switch (`TI4_OFFLINE_TE=1`; `OFFLINE_FORCE_TE=1\|0` forces it for one game). The human seat's driver claims expeditions as in server runs; the rule bots take slices too (their random fallback: self-play shows all six slices claimed in every game), and the entry has the same `Thunder's Edge:` line |
 | `NIGHTLY_POK_PROBABILITY` | `25` | percent of runs that play the PoK strategy cards instead of the TE default |
 | `NIGHTLY_UI_TOUR_PROBABILITY` | `17` | percent of runs with `TI4_SMOKE_UI_TOUR=1`: open the Faction card and one unit card, check them |
 | `NIGHTLY_RECAP_PROBABILITY` | `20` | percent of runs with `TI4_SMOKE_RECAP=1`: one random non-host seat turns the Recap toggle on; recap toasts are counted |
-| `NIGHTLY_REDO_PROBABILITY` | `5` | percent of runs with `TI4_SMOKE_REDO=1`: one guarded turn redo round trip (see below) |
+| `NIGHTLY_REDO_PROBABILITY` | `0` | percent of runs with `TI4_SMOKE_REDO=1`: one guarded turn redo round trip (see below). Off by default: the server's turn redo is switched off (`docs/DISABLE_XF123.md`) and the redo bar is not shown |
 | `NIGHTLY_PREP_PROBABILITY` | `0.5` | fraction (0..1) of secondary opportunities a waiting follower plans (`TI4_SMOKE_PREP_PROBABILITY`); `0` switches the exercise off (`TI4_SMOKE_PREP=0`) |
 | `NIGHTLY_PREP_AUTO_PROBABILITY` | `0.9` | fraction of plans that use the Auto mode, the rest Review (`TI4_SMOKE_PREP_AUTO_PROBABILITY`) |
 | `NIGHTLY_SHOT_CAP` | `20` | cap on screenshots per run (`TI4_SMOKE_SHOT_CAP`; a number or `all` = 20); exercise shots count inside it |

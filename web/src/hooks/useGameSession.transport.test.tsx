@@ -55,10 +55,11 @@ function fakeTransport(capabilities = { ...SERVER_CAPABILITIES, multiplayer: fal
 const options = { gameId: "g", viewer: { role: "spectator" } as const };
 
 describe("useGameSession with a GameTransport", () => {
-  it("GameSessionClient satisfies the interface and offers every capability", () => {
+  it("GameSessionClient satisfies the interface and offers every capability but the switched-off turn redo", () => {
     const client: GameTransport = new GameSessionClient({ gameId: "g", viewer: { role: "spectator" } });
     expect(client.capabilities).toEqual(SERVER_CAPABILITIES);
-    expect(Object.values(client.capabilities).every(Boolean)).toBe(true);
+    // Turn redo is switched off on the server (docs/DISABLE_XF123.md); everything else is on.
+    expect(client.capabilities).toEqual({ splicePreview: true, turnRedo: false, multiplayer: true, feedback: true });
   });
 
   it("starts the injected transport, exposes its capabilities and stops it on unmount", () => {

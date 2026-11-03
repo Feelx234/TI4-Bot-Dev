@@ -99,14 +99,14 @@ fn a_batch_replays_the_answers_the_log_has_not_published_yet() {
             }
         }
         assert!(reached, "seed {seed}: the seat was asked for a token pool");
-        let (published, held, snapshot) = session.batch_basis();
+        let published = session.decision_log();
+        let (prior, held, snapshot) = session.batch_basis();
         eprintln!(
             "seed {seed}: {} published, {} held back",
             published.len(),
             held.len()
         );
-        let mut prior = published.clone();
-        prior.extend(held.iter().map(|(record, _)| record.clone()));
+        assert_eq!(prior.len(), published.len() + held.len());
         let plan = MovementPlan {
             kind: BatchKind::Tokens,
             destination: String::new(),
@@ -124,7 +124,7 @@ fn a_batch_replays_the_answers_the_log_has_not_published_yet() {
         assert_eq!(full.selected.len(), 2);
         if !held.is_empty() {
             assert!(
-                held.iter().all(|(_, selected)| selected.is_some()),
+                held.iter().all(Option::is_some),
                 "every held answer keeps the option it selected"
             );
             let short = simulate(&restart, &published, &a, &plan, None);

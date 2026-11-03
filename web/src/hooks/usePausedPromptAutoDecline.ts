@@ -26,7 +26,7 @@ export function usePausedPromptAutoDecline(input: PausedPromptAutoDeclineInput) 
     const turn: TurnContext = { viewerSeat: input.viewerSeat, ...turnRef.current };
     return isPausedNow(id, turn);
   };
-  useOfferAutoDecline(input, {
+  return useOfferAutoDecline(input, {
     declineOption: (choice, viewerSeat) => pausedDecline(choice, viewerSeat, isPaused)?.optionId ?? null,
     readAsk: (choice) => pausedDecline(choice, input.viewerSeat, isPaused) === null,
     noticePrefix: (choice) => pausedDecline(choice, input.viewerSeat, isPaused)?.prompts[0]?.id ?? "prompt",

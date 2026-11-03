@@ -23,6 +23,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.get(1).map(String::as_str) == Some("feedback-save") {
         return feedback_save(&args[2..]);
     }
+    // The strict product policy (docs/todo/D2-8-wrapper.md 5.1): a refusable game is an `Err` at the
+    // edges, the rest of the switched-off features are panics.
+    ti4_engine::product_init();
     let mut data_dir = std::env::var("TI4_DATA_DIR").unwrap_or_else(|_| "./data/games".to_owned());
     for i in 0..args.len() {
         if args[i] == "--data-dir" && i + 1 < args.len() {
@@ -82,16 +85,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for gid in &recovery.recovered {
         info!("Durable storage: recovered '{gid}' from disk");
     }
-    for failure in &recovery.failed {
+    // A save the product does not play (an older rules version, a dropped feature) is refused
+    // cleanly: named as such, counted apart from the failures, its files left as they are.
+    let (refused, failed): (Vec<_>, Vec<_>) = recovery
+        .failed
+        .iter()
+        .partition(|failure| failure.is_refusal());
+    for failure in &failed {
         eprintln!(
             "Durable storage: could not recover '{}' ({}): {}",
             failure.game_id, failure.stage, failure.error
         );
     }
+    for failure in &refused {
+        eprintln!(
+            "Durable storage: refused '{}' ({}): {}",
+            failure.game_id, failure.stage, failure.error
+        );
+    }
     println!(
-        "Durable storage: recovered {} game(s); {} failed (saved files retained)",
+        "Durable storage: recovered {} game(s); {} failed; {} refused (saved files retained)",
         recovery.recovered.len(),
-        recovery.failed.len()
+        failed.len(),
+        refused.len()
     );
 
     let app = create_app(registry);

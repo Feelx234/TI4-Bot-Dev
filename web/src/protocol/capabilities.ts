@@ -16,7 +16,11 @@ export interface TransportCapabilities {
 
 export const SERVER_CAPABILITIES: TransportCapabilities = {
   splicePreview: true,
-  turnRedo: true,
+  // Switched off (docs/DISABLE_XF123.md): the server refuses /turn-redo (403) because the deck
+  // reserve of a redone timeline is not carried by the core. The offline transport replays
+  // answers instead and keeps its own flag. Only the screenshot runner sets the variable, so the
+  // folders that show the bar (Q, AW, CF) can still be rebuilt against their mocked server.
+  turnRedo: import.meta.env.VITE_TI4_SERVER_TURN_REDO === "1",
   multiplayer: true,
   feedback: true,
 };

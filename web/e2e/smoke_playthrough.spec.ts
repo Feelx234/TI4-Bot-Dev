@@ -1,6 +1,13 @@
 import { test } from "@playwright/test";
 import { randomUiPlaythrough } from "./smokePlaythrough";
-import { cardSetFromEnv, mapTemplateFromEnv, parseExpect, presetFromEnv, thundersEdgeFromEnv } from "./smokePreset";
+import {
+  THUNDERS_EDGE_SWITCHED_OFF,
+  cardSetFromEnv,
+  mapTemplateFromEnv,
+  parseExpect,
+  presetFromEnv,
+  thundersEdgeFromEnv,
+} from "./smokePreset";
 
 const envInt = (name: string, fallback: number) => {
   const value = process.env[name];
@@ -11,6 +18,7 @@ const envInt = (name: string, fallback: number) => {
 test.skip(!process.env.TI4_SMOKE, "set TI4_SMOKE=1 to run the random UI playthrough");
 
 test("random UI playthrough keeps the game advancing", async ({ browser, request }, testInfo) => {
+  if (thundersEdgeFromEnv(process.env.TI4_SMOKE_TE)) throw new Error(THUNDERS_EDGE_SWITCHED_OFF);
   const options = {
     playerCount: envInt("TI4_SMOKE_PLAYERS", 3),
     gameSeed: envInt("TI4_SMOKE_GAME_SEED", 42),

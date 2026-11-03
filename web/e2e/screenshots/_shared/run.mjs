@@ -3,7 +3,7 @@
 // Runs every capture-*.ts in the artifact folder(s) with Playwright (which starts and stops the
 // vite dev server itself), then builds each folder's index.html from its manifest.json.
 import { spawnSync } from "node:child_process";
-import { readdirSync, existsSync } from "node:fs";
+import { readdirSync, existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,10 +21,22 @@ if (!folders.length) {
 let failed = false;
 for (const name of folders) {
   console.log(`\n== ${name}`);
+  // A folder can set environment variables for its run in manifest.json ("env": {"NAME": "value"}).
+  let env = process.env;
+  if (existsSync(join(root, name, "manifest.json"))) {
+    const manifest = JSON.parse(readFileSync(join(root, name, "manifest.json"), "utf8"));
+    // A folder whose feature is gone says so ("retired": the reason) and is not run.
+    if (manifest.retired) {
+      console.log(`retired, not run: ${manifest.retired}`);
+      continue;
+    }
+    const extra = manifest.env;
+    if (extra) env = { ...process.env, ...extra };
+  }
   const run = spawnSync(
     "npx",
     ["playwright", "test", "-c", "e2e/screenshots/playwright.config.ts", `e2e/screenshots/${name}/`, "--reporter=list"],
-    { cwd: web, stdio: "inherit" },
+    { cwd: web, stdio: "inherit", env },
   );
   if (run.status !== 0) {
     failed = true;

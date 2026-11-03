@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { THUNDERS_EDGE_SWITCHED_OFF } from "./smokePreset";
 import type { BrowserContext, Page } from "@playwright/test";
 import type { BoardView } from "../src/protocol/types";
 import {
@@ -232,6 +233,7 @@ export async function playOfflineGame(
   page: Page,
   options: OfflineSweepOptions,
 ): Promise<OfflineSweepReport> {
+  if (options.thundersEdge) throw new Error(THUNDERS_EDGE_SWITCHED_OFF);
   const log = options.log;
   const started = Date.now();
   const rng = mulberry32(options.clickSeed);
@@ -243,7 +245,7 @@ export async function playOfflineGame(
     players: options.players,
     policy: options.policy,
     viewport: options.viewport,
-    thundersEdge: options.thundersEdge === true,
+    thundersEdge: false,
     expedition: emptyExpeditionReport(),
     humanSeat: null,
     humanFaction: null,
@@ -283,6 +285,7 @@ export async function playOfflineGame(
   let ended: { stamp: number; end: unknown; players?: { id: string; faction: string; vp: number }[] } | null = null;
   let crashed: string | null = null;
   let players: { id: string; faction: string; vp: number }[] = [];
+  let askSeq = 0;
   await page.exposeBinding("__sweepEvent", (_source, name: string, payload: any) => {
     lastMessageAt = Date.now();
     if (payload?.players?.length) players = payload.players;
@@ -293,7 +296,10 @@ export async function playOfflineGame(
         // a final state without a question: the end message follows
       }
       for (const event of payload.events ?? []) appendFileSync(join(options.traceDir, "events.jsonl"), `${JSON.stringify(event)}\n`);
-      if (payload.kind === "ask") ask = payload as AskSummary;
+      // Numbered here, not in the page: a reload starts the page's count again at 1, and a question the old page
+      // sent while the reload began kept its high number, so no question of the reloaded page counted as an
+      // answer to it for two rounds (o3-45-0050: "80 clicks did not answer" while the game played on).
+      if (payload.kind === "ask") ask = { ...payload, seq: ++askSeq } as AskSummary;
     } else if (name === "crash" || name === "fatal") {
       crashed = `${name}: ${payload.message}`;
       report.panics.push(crashed);
@@ -399,7 +405,7 @@ export async function playOfflineGame(
       report.humanFaction = wanted;
       await page.getByTestId(`offline-faction-option-${wanted}`).click();
     }
-    if (options.thundersEdge) await page.getByTestId("offline-thunders-edge").locator("input").check();
+    // Thunder's Edge content has no switch any more (the product refuses it); `runOfflineSweep` stops before.
     await page.getByTestId("offline-start").click();
     await page.waitForSelector('[data-testid="offline-game"]', { timeout: 90_000 });
   } catch (error) {

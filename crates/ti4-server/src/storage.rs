@@ -60,6 +60,9 @@ pub enum StorageError {
     SnapshotMismatch(String),
     #[error("Invalid player persistence record: {0}")]
     InvalidPlayerRecord(&'static str),
+    /// The save uses a switched-off feature (`ti4_host::disabled`); its files are kept.
+    #[error("Game cannot be loaded: {0}")]
+    Disabled(#[from] ti4_host::disabled::Disabled),
 }
 
 const PERSISTENCE_FORMAT_VERSION: u16 = 1;
@@ -1093,6 +1096,13 @@ impl FileGameStore {
         bot_delay_ms: Option<u64>,
     ) -> Result<GameSession, StorageError> {
         let history = self.load_history(game_id)?;
+        // A game of an older rules version, with Thunder's Edge content, with structured
+        // diplomacy, a turn-redo deck reserve or a dropped faction is refused, not opened and
+        // not deleted (`ti4_host::disabled`).
+        ti4_host::disabled::check_playable(&init_record.initial_state)?;
+        if let Some(history) = &history {
+            ti4_host::disabled::check_marks(&history.rng_marks)?;
+        }
         let decisions = if let Some(h) = &history {
             h.decisions.clone()
         } else {

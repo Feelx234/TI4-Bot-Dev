@@ -169,13 +169,14 @@ pub struct TableSetup {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[cfg_attr(feature = "ts", ts(optional = nullable, as = "Option<bool>"))]
     pub starting_tech: bool,
-    /// Thunder's Edge content is on ([`GameState::thunders_edge`]): the game is played with every
-    /// source, which brings in the expedition (a component action), the breakthroughs it grants,
-    /// the planet it places and the Thunder's Edge printings. Left out (every table made before the
-    /// switch, and so every save and recorded game of one) it is off: those games replay as they
-    /// were played. A new game is made with [`DEFAULT_THUNDERS_EDGE`].
+    /// Thunder's Edge content is on ([`GameState::thunders_edge`]). **Switched off** (owner
+    /// decision 2026-11-03): [`TableSetup::check`] and [`create`] refuse a table with it on
+    /// ([`crate::disabled::Disabled::ThundersEdge`]). The field stays so that an older save or
+    /// client is read and told why; it is not part of the wire types of the page (`ts(skip)`),
+    /// which have no such switch. Left out it is off; a new game is made with
+    /// [`DEFAULT_THUNDERS_EDGE`].
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    #[cfg_attr(feature = "ts", ts(optional = nullable, as = "Option<bool>"))]
+    #[cfg_attr(feature = "ts", ts(skip))]
     pub thunders_edge: bool,
     /// The seed of the table. It tells the factions that nobody chose, so a host
     /// with several people keeps it to itself. Read from a number or a decimal string (an export
@@ -268,6 +269,10 @@ impl TableSetup {
             ));
         }
         card_set::validate(&self.strategy_cards).map_err(|error| error.to_string())?;
+        // Thunder's Edge content is switched off, by the table switch or by the preset that turns
+        // it on (`crate::disabled`). The strategy card set `te` is not content and stays.
+        crate::disabled::check_table_options(self.thunders_edge, self.start_preset())
+            .map_err(|error| error.to_string())?;
         if let Some(name) = self.start_preset()
             && !preset::is_known(name)
         {
@@ -507,6 +512,23 @@ pub fn create(
     players: &[PlayerId],
     drawn: &Drawn,
 ) -> Result<(GameState, Galaxy), String> {
+    create_with(content, setup, players, drawn, false)
+}
+
+/// [`create`]; `thunders_edge_allowed` (tests only) builds a table with Thunder's Edge content,
+/// which the product refuses, so that the builders of that content stay tested.
+fn create_with(
+    content: &ContentStore,
+    setup: &TableSetup,
+    players: &[PlayerId],
+    drawn: &Drawn,
+    thunders_edge_allowed: bool,
+) -> Result<(GameState, Galaxy), String> {
+    // Thunder's Edge content is switched off (`crate::disabled`): refused before anything is built,
+    // so the message is the one a player reads whatever else is wrong with the table.
+    if setup.thunders_edge && !thunders_edge_allowed {
+        return Err(crate::disabled::Disabled::ThundersEdge.to_string());
+    }
     // What the typed core cannot hold is refused when the game is created (`core_sync::guard`, package D2-1).
     ti4_engine::core_sync::guard::ids_supported(players)?;
     if players.len() != setup.player_count {
@@ -516,10 +538,21 @@ pub fn create(
         ti4_engine::core_sync::guard::factions_known(drawn.factions.iter().map(FactionId::as_str))?;
     }
     if let Some(scenario) = setup.scenario()? {
-        return scenario::start(content, scenario.id, players, setup.game_seed());
+        let (state, galaxy) = scenario::start(content, scenario.id, players, setup.game_seed())?;
+        crate::disabled::check_playable(&state).map_err(|e| e.to_string())?;
+        return Ok((state, galaxy));
     }
     if drawn.factions.len() != players.len() {
         return Err("one faction per seat is required".to_owned());
+    }
+    // The dropped factions are switched off (`crate::disabled`): no pool seats them, this refuses
+    // a draw that somehow does, before a map is built for it.
+    if let Some(faction) = drawn
+        .factions
+        .iter()
+        .find(|faction| crate::disabled::is_disabled_faction(faction.as_str()))
+    {
+        return Err(crate::disabled::Disabled::Faction(faction.as_str().to_owned()).to_string());
     }
     let seed = setup.game_seed();
     let assignments: BTreeMap<PlayerId, FactionId> = players
@@ -552,6 +585,14 @@ pub fn create(
         // A preset (a test table) sets its own cases on the opening state and keeps the fixed start.
         ti4_engine::starting_tech::open(&mut state, content, ti4_model::content_types::POK);
     }
+    // The one rule of what the product plays, on the finished table (a preset can switch content on).
+    if thunders_edge_allowed && state.thunders_edge {
+        let mut without = state.clone();
+        without.thunders_edge = false;
+        crate::disabled::check_playable(&without).map_err(|e| e.to_string())?;
+    } else {
+        crate::disabled::check_playable(&state).map_err(|e| e.to_string())?;
+    }
     Ok((state, galaxy))
 }
 
@@ -565,6 +606,31 @@ pub(crate) fn preset_game(
     template: Option<&str>,
     preset: &str,
 ) -> Result<(GameState, Galaxy), String> {
+    preset_game_with(content, players, seed, template, preset, false)
+}
+
+/// [`preset_game`] for the presets that play Thunder's Edge content (`expedition`), which the
+/// product refuses: the builders of that content stay tested, the product cannot reach them.
+#[cfg(test)]
+pub(crate) fn preset_game_unrestricted(
+    content: &ContentStore,
+    players: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+    preset: &str,
+) -> Result<(GameState, Galaxy), String> {
+    preset_game_with(content, players, seed, template, preset, true)
+}
+
+#[cfg(test)]
+fn preset_game_with(
+    content: &ContentStore,
+    players: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+    preset: &str,
+    allow_thunders_edge: bool,
+) -> Result<(GameState, Galaxy), String> {
     let setup = TableSetup {
         map: MapChoice::from_stored(template),
         strategy_cards: card_set::POK.to_owned(),
@@ -573,7 +639,7 @@ pub(crate) fn preset_game(
         ..TableSetup::new(players.len(), seed)
     };
     let drawn = draw(&setup, &vec![None; players.len()])?;
-    create(content, &setup, players, &drawn)
+    create_with(content, &setup, players, &drawn, allow_thunders_edge)
 }
 
 #[cfg(test)]
@@ -586,6 +652,48 @@ mod tests {
             .collect()
     }
 
+    #[test]
+    fn a_table_that_seats_a_dropped_faction_is_refused() {
+        // Last Bastion, the Crimson Rebellion, the Council Keleres, the Deepwrought Scholarate, the
+        // Firmament, the Obsidian and the Ral Nel Consortium (`docs/DISABLE_XF123.md`).
+        for disabled in crate::disabled::DISABLED_FACTIONS {
+            let setup = TableSetup::new(3, 7);
+            let drawn = Drawn {
+                factions: ["sol", "hacan", disabled].map(FactionId::new).to_vec(),
+            };
+            let error = create(ContentStore::embedded(), &setup, &ids(3), &drawn)
+                .expect_err("the faction is switched off");
+            assert!(
+                error.contains(disabled) && error.contains("switched off"),
+                "{disabled}: {error}"
+            );
+        }
+        // The lobby's own draw refuses to name them as a choice as well.
+        for disabled in crate::disabled::DISABLED_FACTIONS {
+            let setup = TableSetup::new(3, 7);
+            let chosen = [Some(disabled.to_owned()), None, None];
+            assert!(draw(&setup, &chosen).is_err(), "{disabled}");
+        }
+    }
+
+    #[test]
+    fn the_disabled_list_is_what_the_engine_refuses() {
+        // The ids above are a fixture; the engine decides. Every faction of the content is either
+        // in the list and refused, or out of it and playable.
+        let content = ContentStore::embedded();
+        for record in content.records(ti4_model::content_types::ContentType::Factions) {
+            let Some(id) = record.id() else { continue };
+            assert_eq!(
+                crate::disabled::is_disabled_faction(id),
+                crate::disabled::DISABLED_FACTIONS.contains(&id),
+                "{id}"
+            );
+        }
+        for id in crate::disabled::DISABLED_FACTIONS {
+            assert!(crate::disabled::is_disabled_faction(id), "{id}");
+        }
+    }
+
     fn started(setup: &TableSetup, chosen: &[Option<String>]) -> (Drawn, GameState) {
         let drawn = draw(setup, chosen).expect("the table is drawn");
         let players = ids(setup.player_count);
@@ -595,7 +703,7 @@ mod tests {
     }
 
     #[test]
-    fn thunders_edge_content_is_a_switch_of_the_table_and_brings_its_cards_into_the_decks() {
+    fn thunders_edge_content_is_refused_and_a_table_without_it_has_no_thunders_edge_cards() {
         use ti4_model::content_types::{ContentType, Source};
         let content = ContentStore::embedded();
         let te_cards: std::collections::BTreeSet<String> = content
@@ -605,28 +713,37 @@ mod tests {
             .filter_map(|record| record.id().map(str::to_owned))
             .collect();
         assert!(!te_cards.is_empty());
-        let holds_te = |state: &GameState| {
-            state
-                .action_card_deck
-                .iter()
-                .chain(
-                    state
-                        .players
-                        .iter()
-                        .flat_map(|seat| seat.action_cards.iter()),
-                )
-                .any(|card| te_cards.contains(card.as_str()))
-        };
-        for switched in [false, true] {
-            let setup = TableSetup::new(4, 5).with_thunders_edge(switched);
-            let (_, state) = started(&setup, &vec![None; 4]);
-            assert_eq!(state.thunders_edge, switched);
-            assert_eq!(holds_te(&state), switched, "the action card deck");
-            // A table made before the switch (the field left out) is a table without it, and the
-            // state does not write the flag then.
-            let json = serde_json::to_value(&state).unwrap();
-            assert_eq!(json.get("thunders_edge").is_some(), switched);
+        // The table switch is refused at creation, with the message a player reads, whatever the
+        // table is otherwise (card set, preset, map).
+        for cards in [card_set::POK, "te", "base_game_codex1"] {
+            let setup = TableSetup {
+                strategy_cards: cards.to_owned(),
+                ..TableSetup::new(4, 5).with_thunders_edge(true)
+            };
+            let drawn = draw(&setup, &vec![None; 4]).expect("the table is drawn");
+            let error = create(content, &setup, &ids(4), &drawn)
+                .expect_err("Thunder's Edge content is switched off");
+            assert!(
+                error.contains("Thunder's Edge content") && error.contains("switched off"),
+                "{error}"
+            );
         }
+        // The `expedition` preset switches the content on itself: refused as well.
+        let error = preset_game(content, &ids(3), 12, None, "expedition")
+            .expect_err("the preset plays Thunder's Edge content");
+        assert!(error.contains("Thunder's Edge content"), "{error}");
+        // A table without it (the field left out) has none of its cards in the decks, and the
+        // state does not write the flag.
+        let setup = TableSetup::new(4, 5);
+        let (_, state) = started(&setup, &vec![None; 4]);
+        assert!(!state.thunders_edge);
+        let holds_te = state
+            .action_card_deck
+            .iter()
+            .chain(state.players.iter().flat_map(|seat| seat.action_cards.iter()))
+            .any(|card| te_cards.contains(card.as_str()));
+        assert!(!holds_te, "the action card deck");
+        assert!(serde_json::to_value(&state).unwrap().get("thunders_edge").is_none());
         let old: TableSetup =
             serde_json::from_str(r#"{"player_count":4,"seed":5}"#).expect("a table without it");
         assert!(!old.thunders_edge);

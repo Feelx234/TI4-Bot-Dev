@@ -6,7 +6,9 @@
 //! refuses the live one. Per game it takes the stored initial state, rebuilds the galaxy as server recovery does
 //! (`storage.rs::recover_from_init`), then replays the recorded decisions with `ti4_host::replay::replay_session`
 //! and checks the state after every `every`-th decision, the initial state and the state of `snapshot.json`.
-//! Games of a turn-redo timeline (non-empty `rng_marks`) and of a switched-off feature are listed as skipped.
+//! Games of a turn-redo timeline (non-empty `rng_marks`) and the games the product refuses (a rules version below the newest,
+//! Thunder's Edge content, a switched-off feature) are listed as skipped: the stored alpha games are all version 0, so the check of
+//! stored games needs a data directory of the newest version (docs/D28E_RESUME.md).
 
 use std::path::Path;
 
@@ -74,16 +76,11 @@ fn galaxy_of(init: &Init) -> Result<Galaxy, String> {
     ti4_host::map::rebuild_galaxy(content, &init.player_ids, seed, init.map_template.as_deref(), &init.initial_state)
 }
 
-/// Why a stored game is outside the checked set, if it is.
+/// Why a stored game is outside the checked set, if it is: the product refuses it
+/// (`ti4_host::disabled::check_playable`: a rules version below the newest, which is every alpha game of
+/// 2026-10-12, Thunder's Edge content, a dropped faction or feature). Reported as refused, not as a difference.
 fn skip_reason(state: &GameState) -> Option<String> {
-    if state.diplomacy.enabled {
-        return Some("structured diplomacy (switched off)".to_owned());
-    }
-    state
-        .players
-        .iter()
-        .find(|p| matches!(p.faction.as_str(), "bastion" | "crimson"))
-        .map(|p| format!("faction {} (switched off)", p.faction.as_str()))
+    ti4_host::disabled::check_playable(state).err().map(|why| format!("refused: {why}"))
 }
 
 /// Refuse the live data directory: the tool reads a copy.

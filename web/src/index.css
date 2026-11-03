@@ -474,7 +474,8 @@ html,
 
 .paused-plan {
   position: absolute;
-  top: 8px;
+  /* Below the game header, which sits above the overlay layer (it hid the whole banner). */
+  top: 56px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;

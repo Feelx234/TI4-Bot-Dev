@@ -43,3 +43,32 @@ describe("action_card_reaction answers carry the question nonce", () => {
     rerender(view(choice("51")));
   });
 });
+
+// Nightly 2026-10-25 (o1-29-0036, o2-133-0508, o3-34-0053, o3-57-0202, o4-26-0034, o4-135-0519,
+// o1-78-0243): an ability set to "Don't ask" or "Only in my turn" is declined by the client, but its
+// offer stayed clickable while that decline was being sent; a "Use" click then failed with
+// "Another choice submission is still pending".
+describe("a reaction window the client is declining", () => {
+  it("keeps its buttons off while the decline is being sent", () => {
+    const onSubmit = vi.fn(async () => undefined);
+    const view = (autoDeclineNonce: string | null) => (
+      <ChoiceRendererDispatcher
+        choice={choice("50")}
+        viewerSeat="seat_1"
+        onSubmit={onSubmit}
+        isMinimized={false}
+        onMinimizedChange={vi.fn()}
+        autoDeclineNonce={autoDeclineNonce}
+      />
+    );
+    const { rerender } = render(view("50"));
+    const play = screen.getByTestId("play-reaction-btn-ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after");
+    expect(play).toBeDisabled();
+    expect(screen.getByTestId("pass-reaction-btn")).toBeDisabled();
+    fireEvent.click(play);
+    expect(onSubmit).not.toHaveBeenCalled();
+    // A decline of an older question leaves this one to the player.
+    rerender(view("49"));
+    expect(screen.getByTestId("play-reaction-btn-ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after")).toBeEnabled();
+  });
+});
