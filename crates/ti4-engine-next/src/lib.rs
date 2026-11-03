@@ -194,5 +194,8 @@ pub mod transit {
 // ---- lane C (setup, 8c): setup, seating, deck, opening, starting_tech, map_feasibility, fixtures ----
 
 // ---- lane D (wrapper, 8e/8f): game ----
+/// The native `Game` (the typed core owns the loop). Reached as `ti4_engine::native::Game` until the swap commit makes it `ti4_engine::game`.
+#[path = "game/mod.rs"]
+pub mod native;
 
 // ---- lane E (product edges) and lane F (gates) add no module here ----

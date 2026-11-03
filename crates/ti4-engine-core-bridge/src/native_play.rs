@@ -1560,7 +1560,7 @@ mod tests {
             choice.player = ti4_model::id::PlayerId::new(&seats[place]);
             for index in 0..6 {
                 let mut bot = Bot { seed: 9, seats: &seats, index, asked: Vec::new() };
-                let id = bot.ask(&Question { asking: &asking, rendered: choice.clone() }).unwrap();
+                let id = bot.ask(&Question { asking: &asking, rendered: choice.clone(), core: &g.core }).unwrap();
                 let legacy: ti4_engine_legacy::choice::Choice = serde_json::from_value(serde_json::to_value(&choice).unwrap()).unwrap();
                 let (picked, _, _) = ti4_rule_bot::choose_explained(&legacy, None, 9, place, index);
                 assert_eq!(id, choice.options[picked].id, "place {place}, index {index}");
@@ -1572,7 +1572,7 @@ mod tests {
         let mut empty = rendered.clone();
         empty.options.clear();
         let mut bot = Bot { seed: 9, seats: &seats, index: 0, asked: Vec::new() };
-        assert_eq!(bot.ask(&Question { asking: &asking, rendered: empty }), Err(Stop::Blocked), "a question without options is not answered");
+        assert_eq!(bot.ask(&Question { asking: &asking, rendered: empty, core: &g.core }), Err(Stop::Blocked), "a question without options is not answered");
     }
 
     /// Fleet Logistics' second action is a free option of the closing menu: since lane F the core assembles it (`driver::menu::closing_menu`), so the
