@@ -12,7 +12,6 @@ use ti4_engine_core::driver::windows::tactical::{advance_tactical, ask_tactical,
 use ti4_engine_core::hex::Hex;
 use ti4_engine_core::kernel::ability::TacticalCodes;
 use ti4_engine_core::kernel::stage::{AbilityTable, Held};
-use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::state::{AStage, Code, Emit, EventKind, PlainKind, THeadStep, TStage, Window as OpenWindow, WindowKind};
 use ti4_engine_core_tests::prelude::*;
 use ti4_engine_core_tests::rig::KitSeeds;
@@ -26,8 +25,16 @@ fn codes() -> TacticalCodes {
 fn env(k: &Kernel, seed: u64) -> Env<'_> {
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
+    // The activation marks of the Sardakk agent and of the Winnu are abilities of the activation window (`leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after`,
+    // `ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after`), registered for both seats of these positions.
+    ti4_engine_core_factions::silent::winnu::register_activation(&mut table);
+    ti4_engine_core_factions::silent::g3::tro_marks::register_activation(&mut table);
     table.codes.tactical = codes();
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(KitSeeds(seed)) }
+    let mut resolver = ti4_engine_core::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
+    for seat in [Seat(0), Seat(1)] {
+        resolver.register(table.specs().iter().map(|spec| spec.def(ti4_engine_core::choice::reaction::AbilityId { kind: spec.kind, key: Code(spec.slot.0) }, seat)).collect::<Vec<_>>());
+    }
+    Env { kernel: k, registry: Cow::new(resolver.registry().clone()), table, seeds: Rc::new(KitSeeds(seed)) }
 }
 
 fn t(o: TOpt) -> Opt {
@@ -421,6 +428,24 @@ fn a_free_tactical_action_leaves_the_marks_of_the_activation_the_string_leaves()
     }
     assert_eq!(marks_of(&core, MarkKey::PrivateSeat(Seat(0), Word::WinnuTactical)), Some(MarkVal::Atom(Atom::Num(1))), "Warfare: the Winnu mark");
     assert_eq!(marks_of(&core, MarkKey::SardakkAgentTactical(Seat(0))), Some(MarkVal::Atom(Atom::System(tiles[3]))), "Warfare: the Sardakk mark");
+}
+
+/// Found by the whole-game shadow (muaat 3p, mentak 5p): the string announces the events an effect staged (a trade good a prelude question gave) at the start of its
+/// NEXT step (`announce_staged_ground_events`); `Live::emit_typed` announces none. The activation of a tactical action emitted them before its own events.
+#[test]
+fn an_event_staged_before_the_activation_waits_for_the_next_step_and_is_not_announced_by_the_activation() {
+    covers!("driver::windows::tactical::TacticalAction");
+    let (sc, tiles) = row();
+    let (mut core, k) = sc.build();
+    ti4_engine_core::kernel::fx::stage(&mut core, ti4_engine_core::kernel::fx::trade_goods_gained(Seat(0), 1, Code(5)));
+    let env = env(&k, 1);
+    open_tactical(&mut core, Seat(0));
+    let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!("the activation is asked") };
+    advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3]))))).unwrap();
+    let staged: Vec<EventKind> = core.pending().staged.iter().map(|e| e.kind).collect();
+    assert_eq!(staged, vec![EventKind::TradeGoodsGained], "still staged: the next step announces it");
+    let announced = core.ledger.events.iter().filter(|e| matches!(e, Emit::Typed(t) if t.kind == EventKind::TradeGoodsGained)).count();
+    assert_eq!(announced, 0, "the activation announced nothing of it");
 }
 
 #[test]

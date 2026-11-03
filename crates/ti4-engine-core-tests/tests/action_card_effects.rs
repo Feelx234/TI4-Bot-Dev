@@ -582,6 +582,52 @@ fn harness_energy_replenishes_our_commodities_to_the_faction_value() {
     assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities, i16::from(want), "back to the printed value");
 }
 
+/// Found by the whole-game shadow (hacan 4p seed 4, yssaril 4p, empyrean 4p ...): the string replenishes through `strategy_cards::replenish`-style code that ends in the
+/// Trade Agreement hook (`harness_energy`: `promissory::trade_agreement_on_replenish`): the owner's commodities become the holder's trade goods, the note goes
+/// home, and the holder's `TRADE_GOODS_GAINED` waits for the next step. The core's Harness Energy only wrote the commodities.
+#[test]
+fn harness_energy_pays_a_held_trade_agreement_and_stages_the_holders_trade_goods() {
+    covers_card!(ActionCard::HarnessEnergy);
+    use ti4_engine_core::generated::PromissoryNote;
+    use ti4_engine_core::kernel::ability::ExploreCodes;
+    use ti4_engine_core::state::{EventKind, Key, NoteKey};
+    let mut st = four().map_ring(4).active(Some(0)).active_system(sys_of(1)).commodities(0, 0).state();
+    let faction = st.players().by_seat(Seat(0)).unwrap().faction;
+    let limit = i16::from(faction.data().commodities);
+    // Seat 1 holds seat 0's Trade Agreement.
+    st.cards_mut().promissory.edit().insert(NoteKey { note: PromissoryNote::TradeAgreement, faction }, Seat(1));
+    let before = goods(&st, 1);
+    let mut table = linked();
+    table.codes.explore = ExploreCodes { filled: true, trade_agreement: Code(77), ..ExploreCodes::default() };
+    let play = Play::of(&st, ActionCard::HarnessEnergy, Seat(0), env_units()).expect("a play");
+    let mut rig = Rig::from_parts(st, ti4_engine_core_tests::kernel_all(), play).with_table(table).seeded(1);
+    rig.run();
+    assert!(rig.is_done());
+    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.commodities, 0, "the replenished commodities went to the holder");
+    assert_eq!(goods(&rig.state, 1), before + limit, "as trade goods");
+    assert_ne!(rig.state.cards().promissory.get(&NoteKey { note: PromissoryNote::TradeAgreement, faction }), Some(&Seat(1)), "the note went home");
+    let staged: Vec<_> = rig.state.pending().staged.iter().map(|e| (e.kind, e.payload.seat(Key::Player), e.payload.int(Key::Amount), e.payload.code(Key::Source))).collect();
+    assert_eq!(staged, vec![(EventKind::TradeGoodsGained, Some(Seat(1)), Some(i64::from(limit)), Some(Code(77)))], "announced by the next step, not by this one");
+    assert!(!rig.driver.window.unsupported(), "the core plays the card");
+    // A faction played by two seats: the Trade Agreement is the string's there, the run is declined and nothing is written.
+    let mut twin = four().map_ring(4).active(Some(0)).active_system(sys_of(1)).commodities(0, 0).state();
+    twin.players_mut().by_seat_mut(Seat(1)).unwrap().faction = Faction::TheArborec;
+    let mut table = linked();
+    table.codes.explore = ExploreCodes { filled: true, trade_agreement: Code(77), ..ExploreCodes::default() };
+    let play = Play::of(&twin, ActionCard::HarnessEnergy, Seat(0), env_units()).expect("a play");
+    let mut declined = Rig::from_parts(twin, ti4_engine_core_tests::kernel_all(), play).with_table(table).seeded(1);
+    declined.run();
+    assert!(declined.driver.window.unsupported(), "two seats of one faction: the string's");
+    assert_eq!(declined.state.players().by_seat(Seat(0)).unwrap().econ.commodities, 0, "nothing was written");
+    // A table that interns no exploration text announces nothing: the plain write.
+    let plain = four().map_ring(4).active(Some(0)).active_system(sys_of(1)).commodities(0, 0).state();
+    let play = Play::of(&plain, ActionCard::HarnessEnergy, Seat(0), env_units()).expect("a play");
+    let mut quiet = Rig::from_parts(plain, ti4_engine_core_tests::kernel_all(), play).with_table(linked()).seeded(1);
+    quiet.run();
+    assert_eq!(quiet.state.players().by_seat(Seat(0)).unwrap().econ.commodities, limit, "replenished");
+    assert!(quiet.state.pending().staged.is_empty() && !quiet.driver.window.unsupported());
+}
+
 #[test]
 fn infiltrate_swaps_the_pds_and_space_dock_of_a_planet_we_just_took_for_ours() {
     covers_card!(ActionCard::Infiltrate);

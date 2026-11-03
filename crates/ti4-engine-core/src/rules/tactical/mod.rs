@@ -208,10 +208,7 @@ impl Machine {
         if !self.live {
             return sx.emit(rec);
         }
-        // `Game::emit_typed` announces what effects staged without a resolver (E-Res Siphons' trade goods) before the event.
-        for staged in crate::kernel::fx::drain_staged(sx.state) {
-            let _ = sx.emit_mirrored(staged);
-        }
+        // `Live::emit_typed` announces no staged event (a staged trade good waits for the start of the string's next step, `announce_staged_ground_events`).
         sx.emit_mirrored(rec)
     }
 

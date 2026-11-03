@@ -18,15 +18,15 @@ use crate::choice::tactical::{Ask as TAsk, Hook, Opt as TOpt, Subtype as TSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
 use crate::driver::turn::inline::{halted, run as run_window, Flow};
-use crate::generated::{Agenda, Faction, Leader, System, Technology, Unit};
+use crate::generated::{Agenda, System, Technology, Unit};
 use crate::ids::Seat;
 use crate::kernel::stage::Sx;
 use crate::kernel::{fx, fx_move, fx_strategy};
-use crate::keys::{Atom, MarkKey, MarkVal, Word};
+use crate::keys::{Atom, MarkKey, MarkVal};
 use crate::query::{board, laws, reach};
 use crate::rules::agenda::offer_discard::OfferDiscard;
 use crate::rules::explore_windows::{DominusOrb, Exploring};
-use crate::state::{EDeck, ETarget, EventKind, EventRec, ExploreRun, Key, LeaderStatus, PlainArg, PlainKind, PlainRec, Val};
+use crate::state::{EDeck, ETarget, EventKind, EventRec, ExploreRun, Key, PlainArg, PlainKind, PlainRec, Val};
 
 /// What the chain decided.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,7 +43,6 @@ pub(super) enum After {
 
 /// Run the chain for `seat`'s activation of `system`. `returns`: the system held the seat's own token before the activation.
 pub(super) fn run(sx: &mut Sx<'_>, seat: Seat, system: System, returns: bool) -> After {
-    marks(sx, seat, system);
     if returns {
         // "If you do, return both command tokens to your reinforcements and end your turn": the board holds one token per seat per system.
         sx.state.board_mut().sys_mut(system).cmd.remove(seat);
@@ -107,25 +106,6 @@ fn use_or_decline() -> Opts {
 /// `technology::technology_text_ready`: the card that carries the technology's text is the seat's and is not exhausted.
 fn ready(core: &crate::state::CoreState, who: Seat, tech: Technology) -> bool {
     fx_strategy::text_carrier(core, who, tech).is_some_and(|card| core.players().by_seat(who).is_some_and(|p| !p.tech.exhausted.contains(card)))
-}
-
-/// The "after you activate" marks of the Sardakk agent and of the Winnu. A free tactical action writes them too: the string's abilities answer
-/// the typed `SYSTEM_ACTIVATED` of `begin_free_tactical_text` like the ordinary activation's.
-pub(super) fn marks(sx: &mut Sx<'_>, seat: Seat, system: System) {
-    let sardakk: Vec<Seat> = sx
-        .state
-        .players()
-        .iter()
-        .filter(|p| p.faction == Faction::SardakkNorr)
-        .filter(|p| matches!(p.leaders.status.get(&Leader::Tro), Some(LeaderStatus::Readied | LeaderStatus::Exhausted)))
-        .map(|p| p.seat)
-        .collect();
-    if !sardakk.is_empty() {
-        sx.state.marks_mut().tail.edit().insert(MarkKey::SardakkAgentTactical(seat), MarkVal::Atom(Atom::System(system)));
-    }
-    if sx.state.players().by_seat(seat).is_some_and(|p| p.faction == Faction::TheWinnu) {
-        sx.state.marks_mut().tail.edit().insert(MarkKey::PrivateSeat(seat, Word::WinnuTactical), MarkVal::Atom(Atom::Num(1)));
-    }
 }
 
 /// The other seats with a ship in `system`, in seat order (`faction_techs::others_with_ships`).

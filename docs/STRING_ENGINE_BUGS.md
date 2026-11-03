@@ -23,6 +23,13 @@ with the lowest initiative or the others' clockwise order is not their initiativ
   react. The string asks `e` first (seating order from `c`: c, d, e, f, a, b); the core asks `a` first (card initiative). The script of the core's answers then
   meets the wrong question in the string ("script wanted `leader:l1z1x:...` but a was offered `leader:saar:...`"). The Nomad/Saar agent differences of
   `docs/KM4_RESUME.md` section 2 are the same class.
+* Lane R (2026-11-01): the same list is used by EVERY window outside the strategy and agenda phases, not only the action phase's. In the status phase nobody is
+  active, so the string's list is the plain seating order of `Game::new` (`player_order`: `first` is `None`, `sequence.clone()`), where the core offers the
+  initiative order of the moment (LRR 1.19: every phase but strategy and agenda orders by initiative). The cases found: a card played in the status phase
+  (`when STRATEGY_CARDS_WOULD_RETURN` -> `ACTION_CARD_PLAYED:when`: mahact 6p seed 1) and a card played by the active seat inside its own window
+  (`ACTION_CARD_PLAYED:when` after `reaction:mahact:SYSTEM_ACTIVATED:after`: mahact 4p seed 1, the id of the offer being `technology:xxcha:it:...`). **Open
+  question for the user:** the ruling of 2026-11-01 covers the active player; for a window with no active player (the status phase) the core takes the
+  initiative order, the string the seating order. The core's reading follows LRR 1.19; nothing in the rules says "from the first seat".
 * The shadow harness (`native_play --shadow`) recognises it: a difference at a reaction question (same prompt asked of another seat, the same options in
   another order, or the script's reaction meeting another seat's reaction) while the string's order differs from the ruling's is reported as
   `KNOWN STRING BUG ... (known string bug S1)`, counted on its own and left out of the exit code (the game cannot go on past it).
@@ -31,6 +38,21 @@ with the lowest initiative or the others' clockwise order is not their initiativ
   lockstep test, a snapshot) has the card order, and the string and the core agree there. The core cannot know which one the string had.
 * What a fix of the string would need (not done, user rule): `Resolver::set_initiative_order` from `sync_timing_context` and the ruling's order in
   `player_order`; this changes the question order of recorded games, so behind a `RULES_VERSION`.
+
+## S2. The windows of the flip into a strategy phase (round 2 and later) are offered in the order of the phase BEFORE, not from the speaker
+
+Found by lane R in the 288-game set (about 8 games: letnev 6p seed 4, l1z1x 6p, yin 6p, yssaril 6p, titans 6p, arborec 5p, muaat 6p, xxcha 5p): the first
+difference sits in the `phase` step, at `STRATEGY_PHASE_BEGAN:after` or at an `ACTION_CARD_PLAYED:when` window opened by a card played in it.
+
+* What the string does: `Game::step` (the round flip, `game.rs` near `self.emit_typed("STRATEGY_PHASE_BEGAN", ..)` of the later rounds) emits the typed event
+  without `sync_timing_context` first (the first round's branch does call it). The resolver's phase is still the phase before (status), its active player
+  is nobody, so `player_order` returns the initiative list of `Game::new` as it is: the seating order from the first seat.
+* What the core does: `Resolver::player_order` for the strategy phase: the speaker, clockwise (LRR 1.20: the strategy phase orders by the speaker).
+* Who is right: the core. The two agree only when the speaker sits first.
+* The shadow harness recognises it in a `phase` group (`s2_orders_differ`: the seating list against the order from the speaker) and reports
+  `KNOWN STRING BUG ... (known string bug S2)`.
+* What a fix of the string would need (not done, user rule): `sync_timing_context` before the emission of `STRATEGY_PHASE_BEGAN` at the round flip; it changes
+  the question order of recorded games, so behind a `RULES_VERSION`.
 
 ## Harness limits found on the way (the shadow's, not the engines')
 

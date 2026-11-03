@@ -323,9 +323,14 @@ pub(crate) mod tests {
         let seen = Rc::new(RefCell::new(Vec::new()));
         let mut asker = Shared { queue: queue.clone(), seen: seen.clone() };
         let mut bail = None;
-        for _ in 0..script.len() + 4 {
+        for round in 0..script.len() + 4 {
             if queue.borrow().is_empty() {
                 break;
+            }
+            // Every step of the game starts with the reconcile hooks, and the string announces what the step before staged there (a trade good E-Res Siphons
+            // gave); the window itself announces nothing of what it staged.
+            if round > 0 && let Err(e) = crate::live::live_reconcile(&mut core, &live, &mut asker) {
+                panic!("the reconcile before the native step: {e:?}");
             }
             match live_step(&mut core, Arm::Tactical, &live, &mut asker) {
                 Ok(step) if step.finished => {

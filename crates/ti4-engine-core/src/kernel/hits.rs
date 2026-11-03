@@ -57,10 +57,18 @@ pub fn open_window(sx: &mut Sx<'_>, kind: EventKind, payload: Payload, victim: S
     hits - spend(sx.state, victim, gained.min(hits))
 }
 
-/// Announce every staged event through the window's resolver in the order staged (the string `flush_events`:
-/// cancels and errors are ignored, the changes they report have happened).
+/// Announce the staged HIT events (a ground force sustained or destroyed) through the window's resolver in the order staged (the string
+/// `flush_events`: cancels and errors are ignored, the changes they report have happened).
+///
+/// The string keeps those in a log of the hit batch's own; every other event a step staged (a retreat's command token, a trade good, a
+/// strategy token) waits in the state's staged list for the string's next step (`announce_staged_ground_events`). The core has one list, so
+/// the hit kinds are taken out of it and the rest stays where it was, in order; an event a reaction to a hit stages is staged behind them (and waits too).
 pub fn flush_staged(sx: &mut Sx<'_>) {
-    for rec in fx::drain_staged(sx.state) {
+    use crate::state::EventKind;
+    let all = fx::drain_staged(sx.state);
+    let (hits, rest): (Vec<_>, Vec<_>) = all.into_iter().partition(|e| matches!(e.kind, EventKind::GroundForceSustained | EventKind::GroundForceDestroyed));
+    sx.state.pending_mut().staged = rest;
+    for rec in hits {
         let _ = sx.emit(rec);
     }
 }

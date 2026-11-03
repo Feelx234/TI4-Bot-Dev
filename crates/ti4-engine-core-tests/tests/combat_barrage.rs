@@ -48,6 +48,49 @@ fn a_destroyer_barrages_with_the_printed_number_and_dice_and_other_ships_do_not(
     assert_eq!(barrage_plan(Rd::new(&state, &kernel), Seat(1), sys()), vec![], "nobody else has a ship here");
 }
 
+/// Found by the whole-game shadow (muaat 3p, ghost 4p): the Letnev agent's extra die (a Ssruu round-agent mark) is a COMBAT die. The string reads it at the space
+/// combat roll and the ground combat roll only; the core's dice seam added it to every kind of roll, so a destroyer the agent named barraged with a third die.
+#[test]
+fn the_extra_die_of_a_round_agent_is_not_a_barrage_die() {
+    covers!("rules::combat::barrage_plan");
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::keys::{Atom, DecimalTextOrd, MarkKey, MarkVal};
+    let (mut state, mut kernel) = arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::DestroyerI, 0, 1).build();
+    // The live kernel's hook for the round agents' marks (`ti4_engine::live::kernel`); the test kernel has none of the faction hooks.
+    kernel.hooks.direct.borrowed_round_agents_extra_die_for.push(ti4_engine_core_factions::cc_ground::borrowed::query::extra_die_for);
+    let plain = barrage_plan(Rd::new(&state, &kernel), Seat(0), sys());
+    assert_eq!(plain, vec![BarrageRoll { unit: Some(Unit::DestroyerI), hits_on: 9, dice: 2 }]);
+    // The Letnev agent was used by seat 1 on seat 0's destroyer (ordinal 0 of its ships here) in combat round 3.
+    let mark = MarkVal::Rec(vec![
+        MarkVal::Atom(Atom::Seat(Seat(1))),
+        MarkVal::Atom(Atom::Seat(Seat(1))),
+        MarkVal::Atom(Atom::Leader(Leader::ViscountUnlenn)),
+        MarkVal::Atom(Atom::System(sys())),
+        MarkVal::Atom(Atom::Absent),
+        MarkVal::Atom(Atom::Absent),
+        MarkVal::Atom(Atom::Seat(Seat(0))),
+        MarkVal::Atom(Atom::Unit(Unit::DestroyerI)),
+        MarkVal::Atom(Atom::Num(0)),
+        MarkVal::Atom(Atom::Num(0)),
+        MarkVal::Atom(Atom::Num(0)),
+        MarkVal::Atom(Atom::Num(3)),
+    ]);
+    state.meta_mut().combat_round_seq = 3;
+    state.marks_mut().tail.edit().insert(MarkKey::YssarilSsruuRoundAgent(Seat(1), Leader::ViscountUnlenn, DecimalTextOrd(3)), mark);
+    assert_eq!(barrage_plan(Rd::new(&state, &kernel), Seat(0), sys()), plain, "the extra die is rolled with the combat dice, not with the barrage");
+    // The dice seam: the combat roll of that destroyer has the extra die, no other kind of roll has it.
+    use ti4_engine_core::kernel::seam::{Clamp, RollKind};
+    use ti4_engine_core::rules::combat::roll_site;
+    let rd = Rd::new(&state, &kernel);
+    let mut site = roll_site(rd, Seat(0), Unit::DestroyerI, Some(sys()), 0);
+    let dice = |site: &ti4_engine_core::kernel::seam::RollSite| rd.k.hooks.seam.dice.eval(rd.q(), site, 1, Clamp::None).value;
+    assert_eq!(dice(&site), 2, "a space combat roll of the unit the agent named has the extra die");
+    for kind in [RollKind::Barrage, RollKind::SpaceCannon, RollKind::Bombardment] {
+        site.kind = kind;
+        assert_eq!(dice(&site), 1, "{kind:?}");
+    }
+}
+
 #[test]
 fn iconoclast_omega_forbids_the_barrage_against_its_owner_from_rules_version_17() {
     covers!("rules::combat::barrage_plan");

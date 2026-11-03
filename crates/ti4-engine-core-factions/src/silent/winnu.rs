@@ -39,6 +39,8 @@ pub const RECLAIMER: Slot = Slot(43_004);
 pub const HTP: Slot = Slot(43_005);
 /// `leader:*:winnuagent:PRODUCTION_USED:after`.
 pub const AGENT: Slot = Slot(43_006);
+/// `ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after`.
+pub const RECLAMATION_TACTICAL: Slot = Slot(43_008);
 /// Ssruu copying Berekar Berekon (`leader:{lender faction}:{lender}:yssarilagent:winnuagent:PRODUCTION_USED:after`).
 pub const AGENT_COPY: Slot = Slot(43_007);
 
@@ -79,6 +81,18 @@ fn gained_marked(s: &CoreState, who: Seat) -> bool {
 fn mark_when(c: &CondCx<'_>) -> bool {
     let me = c.def.owner;
     is_winnu(c.state, me) && c.event.payload.seat(Key::Player) == Some(me) && c.state.meta().active == Some(me) && tactical_marked(c.state, me)
+}
+
+/// `tactical_mark`: the Winnu's own activation notes that a tactical action began, so that control gained counts for Reclamation and the Reclaimer. Mandatory (see
+/// `g3::tro_marks::MARK`): an ability like the others of the window, skipped when the Winnu passes over it in a window that offers it with another.
+fn tactical_when(c: &CondCx<'_>) -> bool {
+    is_winnu(c.state, c.def.owner) && c.event.payload.seat(Key::Player) == Some(c.def.owner)
+}
+
+fn tactical_note(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
+    let me = eff.owner();
+    eff.state().marks_mut().tail.edit().insert(MarkKey::PrivateSeat(me, Word::WinnuTactical), MarkVal::Atom(Atom::Num(1)));
+    Ok(())
 }
 
 fn mark_gained(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
@@ -319,6 +333,11 @@ fn copy(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         s.transient_mut().production.discount_remaining += 2;
     }
     Ok(())
+}
+
+/// The note of the activation, registered with the other abilities of the `SYSTEM_ACTIVATED / after` bucket in the string's module order (`activation::register`).
+pub fn register_activation(t: &mut AbilityTable) {
+    t.add(Spec::new(RECLAMATION_TACTICAL, AbilityKind::Ability, EventKind::SystemActivated, Relation::After, tactical_note).when(tactical_when));
 }
 
 /// Registered in the string order of the Winnu module: the marks, Reclamation, the Reclaimer, Hegemonic Trade Policy, the agent, then the copies.

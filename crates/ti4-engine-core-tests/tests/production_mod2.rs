@@ -443,6 +443,32 @@ fn a_planet_pays_in_the_currency_of_the_bill_and_the_alternate_face_only_with_th
     assert_eq!(spend_of(&free, &kf, a, Spend::Resources), vec![(Spend::Resources, ar)]);
 }
 
+/// Integration 18 (lane Q's `payable` x lane R's follower gate): the gate of a research is the string's `payment::affordable`, which reads ONE face of a
+/// planet. A seat whose Freelancers / Archon's Gift let a planet pay by its larger face, or whose Xxekir Grom combines both faces, can PAY with them in a
+/// production bill (`available`), but the string does not offer it the Technology secondary on them. (Mellon: no resources, 2 influence; Zohbat: 3 and 1.)
+#[test]
+fn the_research_gate_reads_one_face_of_a_planet_not_the_larger_one() {
+    let scenario = || {
+        Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).map_from(&[System::MellonZohbat, System::Wellon]).control(Planet::Mellon, 0).control(Planet::Zohbat, 0).goods(0, 1)
+    };
+    let ex = Extras::default();
+    let (s, k) = scenario().build();
+    assert_eq!(prod::available(&cx(&s, &k), Seat(0), Spend::Resources, &ex), 3 + 1);
+    assert_eq!(prod::payable(&cx(&s, &k), Seat(0), Spend::Resources, &ex), 3 + 1);
+    let (mut free, kf) = scenario().build();
+    free.meta_mut().influence_pays_for_units.insert(Seat(0));
+    assert_eq!(prod::available(&cx(&free, &kf), Seat(0), Spend::Resources, &ex), 2 + 3 + 1, "Freelancers: Mellon pays by its influence in a production bill");
+    assert_eq!(prod::payable(&cx(&free, &kf), Seat(0), Spend::Resources, &ex), 3 + 1, "one face: the printed resources");
+    let (mut gift, kg) = scenario().build();
+    gift.players_mut().by_seat_mut(Seat(0)).unwrap().cards.breakthrough = Some(Breakthrough::ArchonsGift);
+    assert_eq!(prod::available(&cx(&gift, &kg), Seat(0), Spend::Resources, &ex), 2 + 3 + 1);
+    assert_eq!(prod::payable(&cx(&gift, &kg), Seat(0), Spend::Resources, &ex), 3 + 1);
+    let (mut grom, kgr) = scenario().build();
+    grom.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::XxekirGrom, LeaderStatus::Unlocked);
+    assert_eq!(prod::available(&cx(&grom, &kgr), Seat(0), Spend::Resources, &ex), 2 + 4 + 1, "Xxekir Grom: both faces at once");
+    assert_eq!(prod::payable(&cx(&grom, &kgr), Seat(0), Spend::Resources, &ex), 3 + 1, "the string's gate does not combine them");
+}
+
 #[test]
 fn what_is_available_adds_the_planets_the_trade_goods_the_commodities_the_triad_and_war_machine() {
     let (a, b) = two();

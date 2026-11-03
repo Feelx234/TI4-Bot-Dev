@@ -14,6 +14,7 @@ mod tests {
         /// Out of the agreed content, by decision.
         Dropped(&'static str),
         /// Done another way (a hook, a mark the native windows read).
+        #[allow(dead_code, reason = "lane R turned the last two (the activation marks of the Sardakk agent and the Winnu) into rules of the table; a rule carried by a hook lists it here again")]
         Carried(&'static str),
         /// A rule on another lane's branch, not merged here yet: delete the line when that branch merges (the test fails when it does).
         #[allow(dead_code, reason = "no lane is unmerged at the moment (integration 12 merged M6c and M1); a branch that carries a rule not yet merged lists it here")]
@@ -65,7 +66,6 @@ mod tests {
         ("ability:*:plot_seethe:STATUS_PHASE_BEGAN:after", Status::Dropped("a dropped faction")),
         ("ability:*:plot_siphon:COMMODITIES_GAINED:after", Status::Dropped("a dropped faction")),
         ("ability:*:plots_revealed:FACTION_FLIPPED:after", Status::Dropped("a dropped faction")),
-        ("ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the Winnu mark Reclamation reads)")),
         ("ability:*:sundered:MOVEMENT_FINISHED:after", Status::Dropped("a dropped faction")),
         ("ability:*:survivalinstinct:SYSTEM_ACTIVATED:after", Status::Dropped("a dropped faction")),
         ("breakthrough:*:arborecbt_ready:STATUS_PHASE_ENDED:after", Status::Dropped("Thunder's Edge breakthrough")),
@@ -122,7 +122,6 @@ mod tests {
         ("leader:*:obsidianagent:SHIP_DESTROYED:when", Status::Dropped("a dropped faction")),
         ("leader:*:ralnelcommander:RETREAT_DECLARED:when", Status::Dropped("a dropped faction")),
         ("leader:*:ralnelhero:PLAYER_PASSED:after", Status::Dropped("a dropped faction")),
-        ("leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after", Status::Carried("hooks::marks (the T'ro mark of the end of the action)")),
         ("note:*:keleres_rider:AGENDA_REVEALED:after", Status::Dropped("a dropped faction")),
         ("promissory:*:blackops:TRANSACTION_RESOLVED:after", Status::Dropped("a dropped faction")),
         ("promissory:*:malevolency:STATUS_PHASE_ENDED:after", Status::Dropped("a dropped faction")),

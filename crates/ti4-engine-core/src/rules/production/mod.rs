@@ -415,14 +415,18 @@ pub fn available(cx: &Cx<'_>, who: Seat, kind: Spend, ex: &Extras<'_>) -> i64 {
     from_planets + triad_value(cx, who) + goods + war_machine
 }
 
-/// What `payment::affordable` (the string's research and Inheritance Systems gate) counts: [`available`] without the faces of a
-/// bill the payment window does not offer to pay with -- the Triad, and War Machine's five (they belong to a production step, and the
-/// mark outlives the tactical action that played it until the next activation: a seat with nothing to spend but a stale War Machine mark
-/// is not able to pay a research, and [`pay_opts`] has no option for it; integration 15, lane Q).
+/// What `payment::affordable` (the string's research, Technology-follower and Inheritance Systems gate) counts: the value of each spendable planet
+/// by the face of the bill (`payment::plans` reads `planet_value_now`, one face; not the alternate face Freelancers / Archon's Gift offer, not Xxekir
+/// Grom's combined face), and the trade goods at their worth. NOT [`available`], which adds what a production step may spend: the Triad, War
+/// Machine's five (the mark outlives the tactical action that played it until the next activation: a seat with nothing to spend but a stale
+/// War Machine mark is not able to pay a research) and the larger face of a planet. ONE gate for the research window, the follower's eligibility and
+/// Inheritance Systems (integration 15 lane Q; the single face is lane R's finding, integration 18).
 #[must_use]
 pub fn payable(cx: &Cx<'_>, who: Seat, kind: Spend, ex: &Extras<'_>) -> i64 {
-    let war_machine = if kind == Spend::Resources { war_machine_bonus(cx.core(), who) } else { 0 };
-    available(cx, who, kind, ex) - triad_value(cx, who) - war_machine
+    let from_planets: i64 = spendable_planets(cx, who, ex).as_slice().iter().map(|p| planet_value(cx, who, *p, kind)).sum();
+    let worth = trade_good_worth(cx, who);
+    let goods = cx.core().players().by_seat(who).map_or(0, |p| i64::from(p.econ.trade_goods)) * worth + ex.commodities * worth; // mutants:skip (a seat that is not seated has no goods: the default is unreachable)
+    from_planets + goods
 }
 
 /// `production::payment_options` as typed options: the planets (each face that would not strand the rest of the

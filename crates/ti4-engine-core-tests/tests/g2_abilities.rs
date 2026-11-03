@@ -19,6 +19,8 @@ fn table() -> AbilityTable {
     ti4_engine_core_factions::silent::register_before_movement(&mut t);
     ti4_engine_core_factions::silent::register_before_muaat(&mut t);
     ti4_engine_core_factions::silent::register_abilities(&mut t);
+    // The note of the activation is an ability of the activation window (`activation::register` registers it in the string's module order).
+    ti4_engine_core_factions::silent::winnu::register_activation(&mut t);
     t
 }
 
@@ -61,6 +63,40 @@ fn gained(seat: u8, system: System, planet: Planet) -> ti4_engine_core::state::E
 
 fn tactical_mark(s: &mut CoreState, seat: u8) {
     s.marks_mut().tail.edit().insert(MarkKey::PrivateSeat(Seat(seat), Word::WinnuTactical), MarkVal::Atom(Atom::Num(1)));
+}
+
+fn activated_by(seat: u8) -> ti4_engine_core::state::EventRec {
+    fx::event(EventKind::SystemActivated, Payload::new().with(Key::Player, Val::Seat(Seat(seat))).with(Key::System, Val::System(System::MecatolRex18)))
+}
+
+/// The string registers the note that a tactical action began as an ability of the Winnu (`ability:*:reclamation_tactical:SYSTEM_ACTIVATED:after`), not as a
+/// step of the activation: it answers the Winnu's own activation only, and it is a window ability like any other (a mixed window offers it and a pass skips it).
+#[test]
+fn the_winnu_note_that_a_tactical_action_began_as_an_ability_of_their_own_activation() {
+    covers!("silent::winnu::RECLAMATION_TACTICAL");
+    let key = MarkKey::PrivateSeat(Seat(0), Word::WinnuTactical);
+    let r = rig(Scenario::new(&WINNU), |_| {}, activated_by(0));
+    assert!(r.is_done(), "alone in its window the note is not asked: {}", r.transcript());
+    assert_eq!(mark_of(&r, key), Some(MarkVal::Atom(Atom::Num(1))));
+    let other = rig(Scenario::new(&WINNU), |_| {}, activated_by(1));
+    assert_eq!(mark_of(&other, key), None, "another seat's activation is no tactical action of the Winnu");
+    // With another ability of the Winnu in the window the note is one of the offers, and declining skips it.
+    use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
+    use ti4_engine_core::kernel::ability::{no_effect, Slot, Spec};
+    let mut t = table();
+    t.add(Spec::new(Slot(60_000), AbilityKind::Other, EventKind::SystemActivated, Relation::After, no_effect).optional());
+    let (state, kernel) = Scenario::new(&WINNU).build();
+    let mut r = Rig::from_parts(state, kernel, EmitEvent::new(activated_by(0))).with_abilities(t);
+    r.run();
+    while !r.is_done() && r.asked().actor != Seat(0) {
+        r.decline();
+    }
+    assert_eq!(r.opts().len(), 3, "the stand-in, the note and decline: {}", r.transcript());
+    r.decline();
+    while !r.is_done() {
+        r.decline();
+    }
+    assert_eq!(mark_of(&r, key), None, "a pass over the window skips the note, as in the string");
 }
 
 #[test]

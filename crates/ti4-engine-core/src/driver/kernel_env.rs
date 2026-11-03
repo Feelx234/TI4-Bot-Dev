@@ -113,6 +113,9 @@ impl strategy::Env for KernelEnv<'_> {
     fn has_specialty_research_planet(&self, _: Seat) -> bool {
         false
     }
+    /// `payment::affordable(TECHNOLOGY_SECONDARY_COST, Resources)`: the printed resources of the planets the seat can spend and its trade goods. NOT
+    /// `production::available`, which adds what a production step may spend: War Machine's +5, the Triad and the larger face of a planet. Found by the shadow
+    /// (sol 4p, arborec 4p, cabal 4p): a seat that had played War Machine in the activation was asked to follow the Technology card and could not pay.
     fn technology_secondary_affordable(&self, who: Seat) -> bool {
         // (The string asks `payment::affordable`: planets and trade goods. War Machine's bonus and the Triad are production terms, no way to
         // pay a research: `production::payable`, the one source the research window and Inheritance Systems share.)
