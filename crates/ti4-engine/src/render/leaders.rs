@@ -160,6 +160,7 @@ impl Family for Fam {
             Ask::MahactMove => "Airo Shir Aur: which fleet moves where".to_owned(),
             Ask::YinCommit { n, stock } => format!("Quantum Dissemination: commit infantry {} of {stock}", u32::from(*n) + 1),
             Ask::ZeuSystem => "Z'eu: perform a tactical action without placing a command token".to_owned(),
+            Ask::SardakkSkip => "Sh'val: skip directly to the Commit Ground Forces step".to_owned(),
         }
     }
 
@@ -194,12 +195,14 @@ impl Family for Fam {
             Subtype::MahactMove => "mahact_hero_move".to_owned(),
             Subtype::YinCommit => "yin_hero_commit".to_owned(),
             Subtype::ZeuSystem => "zeu_activate_system".to_owned(),
+            Subtype::SardakkSkip => "sardakk_hero_skip".to_owned(),
         }
     }
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match o {
             Opt::GainTradeGood => ChoiceOption::labelled(GAIN_ID, KIND, "Gain 1 trade good"),
+            Opt::SardakkSkip => ChoiceOption::labelled("skip", "leader", "skip to commit"),
             Opt::Planet(p, system) => {
                 let id = p.as_str();
                 ChoiceOption::labelled(id, "planet", id).with_planet(id, system.system.map(|s| s.as_str()))
@@ -314,6 +317,7 @@ impl Family for Fam {
     fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
             Ask::SustainCommander => (id == GAIN_ID).then_some(Opt::GainTradeGood),
+            Ask::SardakkSkip => (id == "skip").then_some(Opt::SardakkSkip),
             Ask::XxchaPlanet => Planet::from_id(id).map(|p| Opt::Planet(p, Shown::default())),
             Ask::XxchaInfantry => match id {
                 "remove" => Some(Opt::Remove),
