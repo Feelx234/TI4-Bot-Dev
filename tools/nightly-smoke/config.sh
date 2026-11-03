@@ -95,7 +95,10 @@ POK_PROBABILITY="${NIGHTLY_POK_PROBABILITY:-25}"
 # `expedition` preset (four slices claimed, two left for the first seat to pay: the system pick, the
 # placement tie-break and the planet arriving come early). 0 switches Thunder's Edge runs off. The
 # choice is recorded as "thunders_edge" in meta.json and shown in the digest.
-TE_PROBABILITY="${NIGHTLY_TE_PROBABILITY:-40}"
+# SWITCHED OFF (2026-11-03): the product refuses Thunder's Edge content at game creation and load
+# (`ti4_host::disabled`), so the default is 0 and a run with it on would only meet the refusal.
+# The `te` strategy card set stays in play (see POK_PROBABILITY above).
+TE_PROBABILITY="${NIGHTLY_TE_PROBABILITY:-0}"
 TE_EXPEDITION_PRESET_PERCENT="${NIGHTLY_TE_EXPEDITION_PRESET_PERCENT:-30}"
 # Optional UI exercises, each switched on for a share of runs (percent) through an env switch of the
 # harness (web/e2e/smokeExercises.ts): the "ui tour" opens one unit card and the Faction card
@@ -182,7 +185,8 @@ OFFLINE_PHONE_PERCENT="${NIGHTLY_OFFLINE_PHONE_PERCENT:-15}"
 OFFLINE_SHOT_CAP="${NIGHTLY_OFFLINE_SHOT_CAP:-30}"
 # Percent of runs (0..100) played with Thunder's Edge content on (the setup form's switch); the
 # rule bots then see the expedition too. Recorded as "thunders_edge" in meta.json.
-OFFLINE_TE_PERCENT="${NIGHTLY_OFFLINE_TE_PERCENT:-40}"
+# SWITCHED OFF (2026-11-03): the setup form has no such switch any more; the default is 0.
+OFFLINE_TE_PERCENT="${NIGHTLY_OFFLINE_TE_PERCENT:-0}"
 # Percent of runs that reload the page once at a random question (between decision 8 and 160) and check that the
 # saved game comes back with the same question: the resume path, at every kind of position.
 OFFLINE_RESUME_PERCENT="${NIGHTLY_OFFLINE_RESUME_PERCENT:-25}"

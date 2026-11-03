@@ -247,7 +247,7 @@ fn a_saved_decision_that_the_game_does_not_offer_ends_the_run_and_says_where() {
     let _serial = serial();
     let request = json!({
         "local": { "seed": 3, "players": 8, "humans": 1 },
-        "resume": { "decisions": ["no-such"] },
+        "resume": { "decisions": ["no-such"], "rules_version": ti4_model::state::RULES_VERSION },
     });
     let (seen, end) = play(&request, Box::new(|_, _| None));
     assert!(seen.is_empty(), "the page is not asked: {seen:?}");

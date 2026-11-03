@@ -214,10 +214,11 @@ fn a_save_names_its_game_and_every_decision_and_plays_again_with_no_seat_decidin
     assert_eq!(again["decisions_hash"], save["decisions_hash"]);
 }
 
-/// A new game records the rules version it plays; a format 2 save made before the field existed
-/// has none and resumes as version 0 (the legacy rules), and saves again without it.
+/// A new game records the rules version it plays and resumes as that game. A save of an older
+/// version (also one made before the field existed, version 0) is refused with its reason: only
+/// the newest rules are played (owner decision 2026-11-03), nothing converts or opens it.
 #[test]
-fn a_save_without_a_rules_version_resumes_as_a_legacy_game() {
+fn a_save_of_an_older_rules_version_is_refused_and_a_current_one_resumes() {
     let _serial = crate::common::serial();
     // Seed 12: the first 27 decisions of seed 11 use Saar's agent, whose boost mark is written
     // differently from rules version 2 on, so a save of it is no longer a legacy game.
@@ -257,24 +258,27 @@ fn a_save_without_a_rules_version_resumes_as_a_legacy_game() {
         ti4_model::state::RULES_VERSION
     );
 
-    // The same save as an older build wrote it: no field.
-    save.as_object_mut().unwrap().remove("rules_version");
-    let legacy = page(vec![Act::Leave]);
-    install(&legacy, seed, "a");
-    let end = crate::common::resume(&save);
-    assert_eq!(end["end"]["left"], true, "{end}");
-    let again = send(&json!({ "type": "save_state" }))["save"].clone();
-    assert!(again.get("rules_version").is_none(), "{again}");
-    let legacy = legacy.lock().unwrap();
-    assert!(
-        legacy.messages[0]["state"].get("rules_version").is_none(),
-        "a legacy game's state is written without the field"
-    );
-    assert_eq!(
-        legacy.asks[0]["resume_check"]["ok"], true,
-        "{}",
-        legacy.asks[0]["resume_check"]
-    );
+    // The same save as an older build wrote it: no field (version 0), and every version below
+    // the newest. Refused before a game is built, with both numbers in the text.
+    for older in [None, Some(1), Some(ti4_model::state::MIN_SUPPORTED_RULES_VERSION - 1)] {
+        let mut old = save.clone();
+        match older {
+            None => {
+                old.as_object_mut().unwrap().remove("rules_version");
+            }
+            Some(version) => old["rules_version"] = json!(version),
+        }
+        let request = json!({ "resume": old });
+        let len = host_api::put_input(&request.to_string());
+        let status = ti4_wasm::ti4_host_start(u32::try_from(len).unwrap());
+        let text = host_api::out_text();
+        assert!(status < 0, "{older:?} was not refused: {text}");
+        let found = older.unwrap_or(0);
+        assert!(
+            text.contains("older version") && text.contains(&format!("version {found}")),
+            "{older:?}: {text}"
+        );
+    }
 }
 
 #[test]

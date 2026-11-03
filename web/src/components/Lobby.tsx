@@ -19,7 +19,6 @@ import {
   strategyCardSetLabel,
   strategyCardSetName,
 } from "../presentation/strategyCardSet.ts";
-import { THUNDERS_EDGE_HINT, THUNDERS_EDGE_LABEL } from "../presentation/thundersEdge.ts";
 import { ApiError, createTable } from "@ti4/shared/net/api.ts";
 import { decodeCreateGameResponse } from "../protocol/decode.ts";
 import { preferredNickname, rememberNickname, validNickname } from "../protocol/nickname.ts";
@@ -60,7 +59,6 @@ export const CreateLobby: React.FC<{
   };
   const [count, setCount] = useState(4);
   const [cardSet, setCardSet] = useState<StrategyCardSetId>(DEFAULT_STRATEGY_CARD_SET);
-  const [thundersEdge, setThundersEdge] = useState(false);
   // The seed lets whoever knows it predict dice and deck order, so players never see the field;
   // it exists only in dev builds (the API field itself is unchanged).
   const showSeed = import.meta.env.DEV;
@@ -87,7 +85,6 @@ export const CreateLobby: React.FC<{
         made = await createTable({ playerCount: count, seed: parsedSeed,
           nickname,
           cards: cardSet,
-          thundersEdge,
         });
       } catch (refused) {
         if (!(refused instanceof ApiError)) throw refused;
@@ -163,18 +160,6 @@ export const CreateLobby: React.FC<{
           <p className="text-faint" data-testid="strategy-card-set-description">
             {STRATEGY_CARD_SETS.find((set) => set.id === cardSet)?.description}
           </p>
-          <label className="field-check" data-testid="thunders-edge-toggle">
-            <input
-              type="checkbox"
-              disabled={creating}
-              checked={thundersEdge}
-              onChange={(event) => setThundersEdge(event.target.checked)}
-            />
-            <span>
-              {THUNDERS_EDGE_LABEL}
-              <span className="text-faint field-check__hint">{THUNDERS_EDGE_HINT}</span>
-            </span>
-          </label>
           <label className="field-label">
             Nickname
             <input
@@ -457,11 +442,6 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
         {lobby.strategy_card_set !== undefined && (
           <p className="text-muted" data-testid="lobby-card-set-row">
             Strategy cards: <strong>{strategyCardSetName(lobby.strategy_card_set)}</strong>
-          </p>
-        )}
-        {lobby.thunders_edge && (
-          <p className="text-muted" data-testid="lobby-thunders-edge-row">
-            Thunder's Edge content: <strong>on</strong> (expedition, breakthroughs)
           </p>
         )}
         {mapNotice && (

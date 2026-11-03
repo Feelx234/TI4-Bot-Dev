@@ -51,6 +51,10 @@ export function thundersEdgeFromEnv(value: string | undefined): boolean {
   return text === "1" || text === "true";
 }
 
+/** What a harness says when Thunder's Edge content is asked for: the product refuses it (2026-11-03). */
+export const THUNDERS_EDGE_SWITCHED_OFF =
+  "Thunder's Edge content is switched off in this version (the server answers 400, the lobby and the offline setup have no switch); unset TI4_SMOKE_TE / TI4_OFFLINE_TE and set NIGHTLY_TE_PROBABILITY=0.";
+
 /** The POST /api/games body; `start_preset` is only sent when a preset was asked for. */
 export function createGameBody(
   playerCount: number,

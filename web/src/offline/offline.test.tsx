@@ -351,15 +351,17 @@ describe("saves, import and the engine", () => {
   });
 });
 
-describe("Thunder's Edge switch and the dev preset", () => {
-  it("leaves both out of the setup unless asked for", () => {
+describe("the dev preset (Thunder's Edge content is switched off: no such switch)", () => {
+  it("leaves the preset out of the setup unless asked for, and the setup has no Thunder's Edge field", () => {
     const plain = buildSetup(draft, true, MOCK_FACTIONS);
     expect(plain.ok && plain.setup).not.toHaveProperty("thundersEdge");
     expect(plain.ok && plain.setup).not.toHaveProperty("preset");
-    const on = buildSetup({ ...draft, thundersEdge: true, preset: " expedition " }, true, MOCK_FACTIONS);
-    expect(on.ok && on.setup).toMatchObject({ thundersEdge: true, preset: "expedition" });
+    expect(draft).not.toHaveProperty("thundersEdge");
+    const on = buildSetup({ ...draft, preset: " combat " }, true, MOCK_FACTIONS);
+    expect(on.ok && on.setup).toMatchObject({ preset: "combat" });
+    expect(on.ok && on.setup).not.toHaveProperty("thundersEdge");
     // The preset field exists in dev builds only.
-    const prod = buildSetup({ ...draft, thundersEdge: true, preset: "expedition" }, false, MOCK_FACTIONS);
+    const prod = buildSetup({ ...draft, preset: "combat" }, false, MOCK_FACTIONS);
     expect(prod.ok && prod.setup).not.toHaveProperty("preset");
   });
 });

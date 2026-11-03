@@ -129,8 +129,6 @@ export interface TableRequest {
   waitMs?: number;
   /** A set of strategy cards, by its id. Without it: the server's. */
   cards?: string;
-  /** Thunder's Edge content (expedition, breakthroughs, ...). Without it: off. */
-  thundersEdge?: boolean;
 }
 
 /** The body of `POST /api/games`. */
@@ -141,7 +139,6 @@ export const tableBody = (request: TableRequest): Record<string, unknown> => ({
   ...(request.seed === undefined ? {} : { seed: request.seed }),
   ...(request.waitMs === undefined ? {} : { bot_delay_ms: request.waitMs }),
   ...(request.cards === undefined ? {} : { strategy_card_set: request.cards }),
-  ...(request.thundersEdge ? { thunders_edge: true } : {}),
   ...(request.map === undefined
     ? {}
     : request.map === "random"

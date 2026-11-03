@@ -169,13 +169,14 @@ pub struct TableSetup {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[cfg_attr(feature = "ts", ts(optional = nullable, as = "Option<bool>"))]
     pub starting_tech: bool,
-    /// Thunder's Edge content is on ([`GameState::thunders_edge`]): the game is played with every
-    /// source, which brings in the expedition (a component action), the breakthroughs it grants,
-    /// the planet it places and the Thunder's Edge printings. Left out (every table made before the
-    /// switch, and so every save and recorded game of one) it is off: those games replay as they
-    /// were played. A new game is made with [`DEFAULT_THUNDERS_EDGE`].
+    /// Thunder's Edge content is on ([`GameState::thunders_edge`]). **Switched off** (owner
+    /// decision 2026-11-03): [`TableSetup::check`] and [`create`] refuse a table with it on
+    /// ([`crate::disabled::Disabled::ThundersEdge`]). The field stays so that an older save or
+    /// client is read and told why; it is not part of the wire types of the page (`ts(skip)`),
+    /// which have no such switch. Left out it is off; a new game is made with
+    /// [`DEFAULT_THUNDERS_EDGE`].
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    #[cfg_attr(feature = "ts", ts(optional = nullable, as = "Option<bool>"))]
+    #[cfg_attr(feature = "ts", ts(skip))]
     pub thunders_edge: bool,
     /// The seed of the table. It tells the factions that nobody chose, so a host
     /// with several people keeps it to itself. Read from a number or a decimal string (an export

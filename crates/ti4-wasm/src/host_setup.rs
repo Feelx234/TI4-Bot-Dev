@@ -92,9 +92,11 @@ pub struct Setup {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub starting_tech: Option<bool>,
     /// Whether Thunder's Edge content is on ([`ti4_host::setup::TableSetup::thunders_edge`]).
-    /// Left out: off, so a save made before the switch resumes as it was played. Not written
-    /// while off.
+    /// **Switched off** (2026-11-03): a start with it on is refused with the reason, and the page
+    /// has no such switch (`ts(skip)`). Kept so that a save that carries it is read and refused.
+    /// Not written while off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(skip))]
     pub thunders_edge: Option<bool>,
 }
 

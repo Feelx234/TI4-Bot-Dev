@@ -48,15 +48,13 @@ impl Server {
         format!("http://{}{path}", self.addr)
     }
 
-    /// A lobby of `players` seats; `thunders_edge` makes the game one with the Thunder's Edge
-    /// content, the only setting under which these two factions could even be built.
-    async fn lobby(&self, players: usize, thunders_edge: bool) -> (String, String) {
+    /// A lobby of `players` seats.
+    async fn lobby(&self, players: usize) -> (String, String) {
         let created: Value = self
             .client
             .post(self.url("/api/games"))
             .json(&json!({
                 "player_count": players, "seed": 5, "nickname": "Host",
-                "thunders_edge": thunders_edge,
             }))
             .send()
             .await
@@ -89,10 +87,10 @@ impl Server {
 }
 
 #[tokio::test]
-async fn last_bastion_and_crimson_cannot_be_chosen_for_any_seat() {
+async fn every_dropped_faction_cannot_be_chosen_for_any_seat() {
     let server = serve(Arc::new(GameRegistry::new())).await;
-    for thunders_edge in [false, true] {
-        let (game, host) = server.lobby(4, thunders_edge).await;
+    {
+        let (game, host) = server.lobby(4).await;
         for faction in DISABLED_FACTIONS {
             // A bot seat added with the faction.
             let (status, body) = server
@@ -147,7 +145,7 @@ async fn no_random_table_seats_them_either() {
 /// A started 3-seat game on a store: the host, two bots, and the game running.
 async fn started_game(store: &Arc<FileGameStore>) -> (Server, String, String) {
     let server = serve(Arc::new(GameRegistry::new().with_store(store.clone()))).await;
-    let (game, host) = server.lobby(3, false).await;
+    let (game, host) = server.lobby(3).await;
     for _ in 0..2 {
         let (status, body) = server
             .post(&game, "lobby/bots", &host, json!({"kind": "smart"}))

@@ -24,7 +24,13 @@ for (const name of folders) {
   // A folder can set environment variables for its run in manifest.json ("env": {"NAME": "value"}).
   let env = process.env;
   if (existsSync(join(root, name, "manifest.json"))) {
-    const extra = JSON.parse(readFileSync(join(root, name, "manifest.json"), "utf8")).env;
+    const manifest = JSON.parse(readFileSync(join(root, name, "manifest.json"), "utf8"));
+    // A folder whose feature is gone says so ("retired": the reason) and is not run.
+    if (manifest.retired) {
+      console.log(`retired, not run: ${manifest.retired}`);
+      continue;
+    }
+    const extra = manifest.env;
     if (extra) env = { ...process.env, ...extra };
   }
   const run = spawnSync(

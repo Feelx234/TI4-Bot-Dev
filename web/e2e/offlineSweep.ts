@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { THUNDERS_EDGE_SWITCHED_OFF } from "./smokePreset";
 import type { BrowserContext, Page } from "@playwright/test";
 import type { BoardView } from "../src/protocol/types";
 import {
@@ -232,6 +233,7 @@ export async function playOfflineGame(
   page: Page,
   options: OfflineSweepOptions,
 ): Promise<OfflineSweepReport> {
+  if (options.thundersEdge) throw new Error(THUNDERS_EDGE_SWITCHED_OFF);
   const log = options.log;
   const started = Date.now();
   const rng = mulberry32(options.clickSeed);
@@ -403,7 +405,7 @@ export async function playOfflineGame(
       report.humanFaction = wanted;
       await page.getByTestId(`offline-faction-option-${wanted}`).click();
     }
-    if (options.thundersEdge) await page.getByTestId("offline-thunders-edge").locator("input").check();
+    // Thunder's Edge content has no switch any more (the product refuses it); `runOfflineSweep` stops before.
     await page.getByTestId("offline-start").click();
     await page.waitForSelector('[data-testid="offline-game"]', { timeout: 90_000 });
   } catch (error) {

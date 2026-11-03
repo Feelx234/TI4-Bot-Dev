@@ -3,13 +3,19 @@
 #
 #   recovery-check.sh preflight --bin SERVER --web-dir DIST --data-dir LIVE_DIR [--allow-failed ID]...
 #       Copies LIVE_DIR (without feedback/) to a temp dir, starts SERVER on a free loopback port
-#       against the copy, waits for the "Durable storage: recovered N game(s); F failed" line, stops
-#       it and compares with the number of game_* directories in LIVE_DIR. Exit 0 only when every
-#       game recovered, except the ids named with --allow-failed. Prints the failed ids, one per
-#       line, as "FAILED_IDS <ids>" for the caller.
+#       against the copy, waits for the "Durable storage: recovered N game(s); F failed; R refused"
+#       line, stops it and compares with the number of game_* directories in LIVE_DIR. Exit 0 only
+#       when every game recovered or was REFUSED CLEANLY, except the ids named with --allow-failed.
+#       A refusal is a save the product does not play on purpose (a rules version below the newest,
+#       Thunder's Edge content, a dropped faction or feature: the server logs "refused 'ID'" with
+#       the reason and keeps the files); the check requires that every refusal names its reason,
+#       and counts it apart from a failure. Prints the failed ids, one per line, as
+#       "FAILED_IDS <ids>" and the refused ones as "REFUSED_IDS <ids>" for the caller.
 #   recovery-check.sh parse [FILE]
-#       Reads a server log (FILE or stdin), prints "recovered=N failed=F ids=<id,id>" for the
-#       LAST recovery summary in it. Exit 1 when there is none.
+#       Reads a server log (FILE or stdin), prints
+#       "recovered=N failed=F refused=R refused_ids=<id,id> ids=<id,id>" for the LAST recovery
+#       summary in it (`ids` = the failed ones, last). A summary of an older server has no refused
+#       count: refused=0. Exit 1 when there is none.
 #   recovery-check.sh compare "<ids of the expected failures>" "<ids that failed>"
 #       Exit 1 and print the unexpected ones when the second list is not a subset of the first.
 #
@@ -17,17 +23,24 @@
 # restart. The server keeps the files of games it cannot load, so the check is safe either way.
 set -euo pipefail
 
-parse_log() { # stdin: log; prints "recovered=N failed=F ids=a,b"
+parse_log() { # stdin: log; prints "recovered=N failed=F refused=R refused_ids=a,b ids=c,d"
   awk '
     /Durable storage: could not recover/ {
       if (match($0, /could not recover \047[^\047]+\047/)) {
         id = substr($0, RSTART + 19, RLENGTH - 20); cur = cur (cur == "" ? "" : ",") id
       }
     }
+    /Durable storage: refused/ {
+      if (match($0, /refused \047[^\047]+\047/)) {
+        id = substr($0, RSTART + 9, RLENGTH - 10); ref = ref (ref == "" ? "" : ",") id
+      }
+    }
     /Durable storage: recovered [0-9]+ game\(s\); [0-9]+ failed/ {
+      n = 0
       for (i = 1; i <= NF; i++) if ($i == "recovered") r = $(i + 1)
-      for (i = 1; i <= NF; i++) if ($i == "failed" && i > 1 && $(i - 1) ~ /^[0-9]+$/) f = $(i - 1)
-      out = "recovered=" r " failed=" f " ids=" cur; found = 1; cur = ""
+      for (i = 1; i <= NF; i++) if ($i ~ /^failed;?$/ && i > 1 && $(i - 1) ~ /^[0-9]+$/) f = $(i - 1)
+      for (i = 2; i <= NF; i++) if ($i == "refused" && $(i - 1) ~ /^[0-9]+$/) n = $(i - 1)
+      out = "recovered=" r " failed=" f " refused=" n " refused_ids=" ref " ids=" cur; found = 1; cur = ""; ref = ""
     }
     END { if (found) print out; else exit 1 }
   '
@@ -97,17 +110,29 @@ case "$cmd" in
     kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; pid=""
     echo "preflight: $summary"
     rec="${summary#recovered=}"; rec="${rec%% *}"
-    rest="${summary#* failed=}"; fail="${rest%% *}"; ids="${summary##* ids=}"
+    rest="${summary#* failed=}"; fail="${rest%% *}"
+    rest="${summary#* refused=}"; refused="${rest%% *}"
+    rest="${summary#* refused_ids=}"; refused_ids="${rest%% ids=*}"; refused_ids="${refused_ids%% *}"
+    ids="${summary##* ids=}"
     echo "FAILED_IDS ${ids//,/ }"
-    if (( rec + fail != expected )); then
-      echo "preflight FAILED: recovered $rec + failed $fail != $expected game directories" >&2; exit 1
+    echo "REFUSED_IDS ${refused_ids//,/ }"
+    if (( rec + fail + refused != expected )); then
+      echo "preflight FAILED: recovered $rec + failed $fail + refused $refused != $expected game directories" >&2; exit 1
+    fi
+    # Every refusal must be a clean one: named, with its reason, from the "refused" lines.
+    if (( refused > 0 )); then
+      unclear="$(grep 'Durable storage: refused' "$work/server.log" | grep -v -E 'older version|switched off' || true)"
+      if [[ -n "$unclear" ]]; then
+        echo "preflight FAILED: a refusal without a reason:" >&2; echo "$unclear" >&2; exit 1
+      fi
+      echo "preflight: $refused game(s) refused cleanly (files kept), not counted as failures"
     fi
     if ! subset_check "$allow" "$ids"; then
       echo "preflight FAILED: $fail game(s) cannot be recovered by this build" >&2
       grep "could not recover" "$work/server.log" >&2 || true
       exit 1
     fi
-    echo "preflight OK: $rec recovered, $fail allowed failure(s)"
+    echo "preflight OK: $rec recovered, $refused refused cleanly, $fail allowed failure(s)"
     ;;
   *) sed -n '2,20p' "$0" >&2; exit 2 ;;
 esac
