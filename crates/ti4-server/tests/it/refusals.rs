@@ -270,3 +270,48 @@ async fn the_replay_endpoint_does_not_export_a_game_of_an_older_version() {
     let text = response.text().await.unwrap();
     assert!(text.contains("older version"), "{text}");
 }
+
+/// A lobby saved by a build that still had the switch (`thunders_edge` true in its record) recovers
+/// as a lobby, but starting it is refused with the reason: no game of Thunder's Edge content exists.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_saved_lobby_with_the_old_switch_cannot_be_started() {
+    let dir = std::env::temp_dir().join(format!("ti4_refusals_lobby_{:016x}", rand::random::<u64>()));
+    let store = Arc::new(FileGameStore::new(&dir).unwrap());
+    let registry = Arc::new(GameRegistry::new().with_store(store.clone()));
+    let base = spawn(registry).await;
+    let (status, created) = create(&base, json!({"player_count": 3, "nickname": "Ada"})).await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let game = created["game_id"].as_str().unwrap().to_owned();
+    let token = created["player_session"].as_str().unwrap().to_owned();
+    // The record as an older build wrote it with the switch on.
+    let mut record = store.load_player_lobby(&game).unwrap().expect("a lobby record");
+    assert!(!record.thunders_edge);
+    record.thunders_edge = true;
+    store.save_player_lobby(&record).unwrap();
+    let recovered = Arc::new(GameRegistry::new().with_store(store.clone()));
+    let report = recovered.recover_all_games_report().expect("a report");
+    assert!(report.failed.is_empty(), "{:?}", report.failed);
+    let base = spawn(recovered).await;
+    let client = reqwest::Client::new();
+    for _ in 0..2 {
+        let response = client
+            .post(format!("{base}/api/games/{game}/lobby/bots"))
+            .header("x-ti4-player-session", &token)
+            .json(&json!({"kind": "smart"}))
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+    }
+    let response = client
+        .post(format!("{base}/api/games/{game}/lobby/start"))
+        .header("x-ti4-player-session", &token)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_client_error(), "{}", response.status());
+    let text = response.text().await.unwrap();
+    assert!(text.contains("Thunder's Edge content") && text.contains("switched off"), "{text}");
+    let _ = std::fs::remove_dir_all(dir);
+}
