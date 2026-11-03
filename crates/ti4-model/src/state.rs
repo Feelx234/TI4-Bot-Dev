@@ -1231,6 +1231,12 @@ pub const RULES_BASE_DIPLOMACY: u32 = 35;
 
 pub const RULES_VERSION: u32 = 35;
 
+/// The oldest rules version the product plays (owner decision 2026-11-03: only the newest). A game
+/// of an older version is refused at creation, load, recovery, replay and resume, with its files
+/// left alone; nothing converts or opens it. Raise it together with [`RULES_VERSION`] only when
+/// the engine drops the code of the versions below.
+pub const MIN_SUPPORTED_RULES_VERSION: u32 = RULES_VERSION;
+
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
 /// destroyed after the control-gain window closes; the card replaces the rival's structures.

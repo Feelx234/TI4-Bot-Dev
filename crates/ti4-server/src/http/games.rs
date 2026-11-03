@@ -92,9 +92,10 @@ pub struct CreateGameRequest {
     /// The wait before each answer of a seat that the server plays, in milliseconds (0 to
     /// 30 000). Without it the table waits as the process says, until the host sets a value.
     pub bot_delay_ms: Option<u64>,
-    /// Thunder's Edge content (the expedition, breakthroughs, ...): `true` plays the game with
-    /// every source, `false` or absent keeps the Prophecy of Kings scope. See
-    /// [`ti4_host::setup::TableSetup::thunders_edge`].
+    /// Thunder's Edge content (the expedition, breakthroughs, ...) is switched off in this
+    /// version: `true` is a 400 with the reason; `false` or absent is the only table there is.
+    /// Kept on the wire so that an older client is told why. See
+    /// [`ti4_host::disabled::Disabled::ThundersEdge`].
     pub thunders_edge: Option<bool>,
 }
 
@@ -335,9 +336,13 @@ pub async fn create_game(
         None => ti4_host::setup::SpeakerOrder::default(),
     };
 
+    // Thunder's Edge content (the switch, or the preset that turns it on) is switched off: the
+    // field stays on the wire so that an old client gets this message and not a parse error.
     let thunders_edge = payload
         .thunders_edge
         .unwrap_or(ti4_host::setup::DEFAULT_THUNDERS_EDGE);
+    ti4_host::disabled::check_table_options(thunders_edge, payload.start_preset.as_deref())
+        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
     let bot_delay_ms = payload.bot_delay_ms;
     if bot_delay_ms.is_some_and(|delay| delay > crate::session::table::MAX_BOT_DELAY_MS) {
         return Err((
@@ -827,6 +832,9 @@ pub async fn get_replay(
             .map_err(lobby_error)?;
         let (history, seed, player_ids) = session.replay_export();
         let (initial_state, seats, nicknames, galaxy_layout) = session.export_basis();
+        // The endpoint leaks nothing new, but it does not export what the product refuses to load.
+        ti4_host::disabled::check_playable(&initial_state)
+            .map_err(|error| (StatusCode::UNPROCESSABLE_ENTITY, error.to_string()))?;
         let map_template = registry
             .store()
             .and_then(|store| store.load_player_init(&game_id).ok())

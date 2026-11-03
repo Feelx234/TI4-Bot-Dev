@@ -917,6 +917,16 @@ pub struct RecoveryFailure {
     pub error: StorageError,
 }
 
+impl RecoveryFailure {
+    /// Whether the save was refused on purpose (an older rules version, Thunder's Edge content, a
+    /// dropped faction or feature: [`StorageError::Disabled`]) and not found damaged. Its files
+    /// are kept either way.
+    #[must_use]
+    pub fn is_refusal(&self) -> bool {
+        matches!(self.error, StorageError::Disabled(_))
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct RecoveryReport {
     pub recovered: Vec<String>,
@@ -3099,6 +3109,9 @@ impl GameRegistry {
                 "unknown start_preset {name:?}"
             )));
         }
+        // The preset `expedition` plays Thunder's Edge content, which is switched off.
+        ti4_host::disabled::check_table_options(false, start_preset)
+            .map_err(|error| LobbyError::InvalidMap(error.to_string()))?;
         let mut state = self.state.lock().expect("registry lock");
         let lobby = state
             .player_lobbies

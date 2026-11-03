@@ -384,6 +384,14 @@ pub struct Prepared {
 
 /// Read the request of `ti4_host_start` and make the session and the game.
 pub fn prepare(len: usize) -> Result<Prepared, String> {
+    // The strict product policy, once per module (there is no `#[wasm_bindgen(start)]`): every
+    // refusable game below is an `Err` the page shows, since a panic ends the page. Only in the
+    // browser module: the native tests of this crate share one process and keep the library defaults.
+    #[cfg(target_arch = "wasm32")]
+    {
+        static PRODUCT_INIT: std::sync::Once = std::sync::Once::new();
+        PRODUCT_INIT.call_once(ti4_engine::product_init);
+    }
     let text = input(len)?;
     let start: serde_json::Value =
         serde_json::from_str(&text).map_err(|error| format!("start: {error}"))?;
@@ -398,6 +406,18 @@ pub fn prepare(len: usize) -> Result<Prepared, String> {
     }
     let mut start: Start =
         serde_json::from_value(start).map_err(|error| format!("start: {error}"))?;
+    // Only games of the newest rules version are played: an older save (or restart) is refused
+    // with its reason, before anything is built. Nothing is converted and nothing is deleted.
+    if let Some(resume) = &start.resume {
+        let found = resume.rules_version.unwrap_or(0);
+        if found < ti4_model::state::MIN_SUPPORTED_RULES_VERSION {
+            return Err(ti4_host::disabled::Disabled::OlderVersion {
+                found,
+                min: ti4_model::state::MIN_SUPPORTED_RULES_VERSION,
+            }
+            .to_string());
+        }
+    }
     let bot_version = start.settle_bot_version()?;
     let mut built = start.build()?;
     // A new game plays the current rules; a resumed save (or a restart of this host) plays the
@@ -407,6 +427,9 @@ pub fn prepare(len: usize) -> Result<Prepared, String> {
         None => ti4_model::state::RULES_VERSION,
     };
     built.game.state.rules_version = rules_version;
+    // A save of a table the product no longer plays (Thunder's Edge content, a dropped faction or
+    // feature) is refused as a new game of it would be.
+    ti4_host::disabled::check_playable(&built.game.state).map_err(|error| error.to_string())?;
     // The rule seats of this game play the bot version it was made with (one game per host).
     ti4_rule_bot::tuning::set(ti4_rule_bot::tuning::for_version(bot_version));
     let mut resume: SavedGame = start.resume.unwrap_or_default();

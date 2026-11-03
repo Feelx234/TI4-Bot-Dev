@@ -1096,9 +1096,10 @@ impl FileGameStore {
         bot_delay_ms: Option<u64>,
     ) -> Result<GameSession, StorageError> {
         let history = self.load_history(game_id)?;
-        // Last Bastion, the Crimson Rebellion, structured diplomacy and the turn-redo deck
-        // reserve are switched off: such a save is refused, not opened and not deleted.
-        ti4_host::disabled::check_state(&init_record.initial_state)?;
+        // A game of an older rules version, with Thunder's Edge content, with structured
+        // diplomacy, a turn-redo deck reserve or a dropped faction is refused, not opened and
+        // not deleted (`ti4_host::disabled`).
+        ti4_host::disabled::check_playable(&init_record.initial_state)?;
         if let Some(history) = &history {
             ti4_host::disabled::check_marks(&history.rng_marks)?;
         }

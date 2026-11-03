@@ -15,6 +15,10 @@ use crate::step_snapshot::StepSnapshot;
 pub enum ReplayError {
     #[error("Engine error during replay: {0}")]
     EngineError(String),
+    /// The game is not one the product plays (an older rules version, Thunder's Edge content, a
+    /// dropped faction or feature): refused before the engine sees it, as at the load.
+    #[error("Game cannot be replayed: {0}")]
+    Refused(#[from] crate::disabled::Disabled),
     #[error("Replay script diverged at decision {step}: expected {expected}, offered {offered:?}")]
     Diverged {
         step: usize,
@@ -167,6 +171,7 @@ fn replay(
     copy_generation: Option<u64>,
     run_on: bool,
 ) -> Result<(ReplayReport, Option<StepSnapshot>), ReplayError> {
+    crate::disabled::check_playable(initial_state)?;
     let original_hashes: Vec<CanonicalHash> = records
         .iter()
         .map(|r| decision_hash(CanonicalHashVersion::V1, r))
