@@ -85,6 +85,15 @@ macro_rules! hook_group {
                 0 $(+ self.$name.len())*
             }
 
+            /// The names of the slots no function is registered in (the census of `silent_census.rs`: an empty slot is
+            /// indistinguishable from "not ported" at a call site).
+            #[must_use]
+            pub fn empty_slots(&self) -> Vec<&'static str> {
+                let mut empty = Vec::new();
+                $( if self.$name.is_empty() { empty.push(stringify!($name)); } )*
+                empty
+            }
+
             /// Reorder the functions of every *commutative* slot (a pure `sum`, `any`, `all` or
             /// `concat_sorted`); the order audit of docs/ENGINE_DISENTANGLE.md 5.3. Slots whose order
             /// is part of the result (`fold`, `first`, `concat`, anything that mutates) are left alone.
@@ -314,6 +323,22 @@ impl HookTable {
             + self.strategy.registered()
             + self.direct.registered()
             + self.seam.registered()
+    }
+
+    /// The slots no function is registered in, as `group.slot`.
+    #[must_use]
+    pub fn empty_slots(&self) -> Vec<String> {
+        let groups: [(&str, Vec<&'static str>); 8] = [
+            ("general", self.general.empty_slots()),
+            ("combat", self.combat.empty_slots()),
+            ("ground", self.ground.empty_slots()),
+            ("economy", self.economy.empty_slots()),
+            ("movement", self.movement.empty_slots()),
+            ("cards", self.cards.empty_slots()),
+            ("strategy", self.strategy.empty_slots()),
+            ("direct", self.direct.empty_slots()),
+        ];
+        groups.into_iter().flat_map(|(group, names)| names.into_iter().map(move |name| format!("{group}.{name}"))).collect()
     }
 
     /// A copy with the commutative slots (and seams) registered in another order: reverse, or a seeded shuffle.

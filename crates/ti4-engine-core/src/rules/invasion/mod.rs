@@ -396,6 +396,9 @@ pub fn can_sustain_here(rd: Rd<'_>, unit: Piece, system: System, planet: Planet)
         && is_ground_force(rd, unit.kind())
         && rd.data(unit.kind()).is_some_and(|d| d.sustain_damage)
         && rd.k.hooks.ground.may_sustain(rd.s, rd.k, combat_unit(unit.owner(), system, planet, unit.kind()))
+        // The seam is where a faction module registers its rule (Mentak's Moll Terminus: "other players' ground forces on this planet cannot use SUSTAIN
+        // DAMAGE"); the slot above is the dual's. Reading the slot alone left the mech's rule out of a native game.
+        && rd.k.hooks.seam.may_sustain.decide(rd.q(), &combat_unit(unit.owner(), system, planet, unit.kind()), true)
 }
 
 /// `invasion::ground_hit_eligible`: a hit of a unit ability skips the units immune to those.
