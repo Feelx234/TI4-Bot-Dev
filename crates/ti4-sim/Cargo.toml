@@ -22,5 +22,9 @@ anyhow.workspace = true
 itertools.workspace = true
 chrono.workspace = true
 
+[dev-dependencies]
+# The string objective flow the example measures (oracle only; never in the production tree).
+ti4-engine-legacy.workspace = true
+
 [lints]
 workspace = true

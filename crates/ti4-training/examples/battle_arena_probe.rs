@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use rayon::prelude::*;
 
 use ti4_content::ContentStore;
-use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, Table};
+use ti4_engine_legacy::choice::{Choice, ChoiceOption, Decider, IllegalChoice, Table};
 use ti4_model::content_types::FULL;
 use ti4_model::id::{PlayerId, SystemId};
 use ti4_model::state::GameState;
@@ -117,7 +117,7 @@ impl Decider for DeclaredCombatPolicy {
         let sustain = choice
             .options
             .iter()
-            .filter(|option| option.kind == ti4_engine::combat::SUSTAIN_KIND)
+            .filter(|option| option.kind == ti4_engine_legacy::combat::SUSTAIN_KIND)
             .min_by_key(|option| {
                 (
                     Self::hull_rank(&Self::unit_of(option)),
@@ -130,7 +130,7 @@ impl Decider for DeclaredCombatPolicy {
         let casualty = choice
             .options
             .iter()
-            .filter(|option| option.kind == ti4_engine::combat::CASUALTY_KIND)
+            .filter(|option| option.kind == ti4_engine_legacy::combat::CASUALTY_KIND)
             .min_by_key(|option| {
                 let damaged = Self::damaged(option);
                 // The only difference between the two policies, so a comparison isolates it.
@@ -458,8 +458,8 @@ struct Base {
 impl Base {
     fn new() -> Self {
         Self {
-            state: ti4_engine::fixtures::game(&["a", "b"]),
-            system: SystemId::new(ti4_engine::fixtures::plain_systems(1)[0].clone()),
+            state: ti4_engine_legacy::fixtures::game(&["a", "b"]),
+            system: SystemId::new(ti4_engine_legacy::fixtures::plain_systems(1)[0].clone()),
             attacker: PlayerId::new("a"),
             defender: PlayerId::new("b"),
         }
@@ -628,10 +628,10 @@ fn fight(
         seat.faction = ti4_model::id::FactionId::new(resolved.defender_faction);
     }
     for (kind, count) in &resolved.attacker {
-        ti4_engine::fixtures::put(&mut state, &system, kind, &attacker, *count);
+        ti4_engine_legacy::fixtures::put(&mut state, &system, kind, &attacker, *count);
     }
     for (kind, count) in &resolved.defender {
-        ti4_engine::fixtures::put(&mut state, &system, kind, &defender, *count);
+        ti4_engine_legacy::fixtures::put(&mut state, &system, kind, &defender, *count);
     }
     // LRR 13: the active seat is the attacker. Without this the roles fall back to seating order.
     state.active = Some(attacker.clone());
@@ -659,10 +659,10 @@ fn fight(
     answers.seat(attacker.clone(), Box::new(attacker_policy));
     answers.seat(defender.clone(), Box::new(defender_policy));
 
-    let mut dice = ti4_engine::dice::Dice::new();
+    let mut dice = ti4_engine_legacy::dice::Dice::new();
     // Only the dice stream varies between repetitions of one scenario.
-    let mut rng = ti4_engine::rng::GameRng::new(dice_seed);
-    let resolved = ti4_engine::combat::resolve(
+    let mut rng = ti4_engine_legacy::rng::GameRng::new(dice_seed);
+    let resolved = ti4_engine_legacy::combat::resolve(
         &mut state,
         content,
         FULL,

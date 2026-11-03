@@ -504,7 +504,7 @@ pub fn run_draft(
             observed,
         })
     };
-    *game.timing.table_mut() = Table::with_default(decider(false));
+    // (One table: the string kept a second one in its timing resolver.)
     game.table = Table::with_default(decider(true));
     let seen = run.clone();
     game.table.on_observed_offer(move |_, state| {

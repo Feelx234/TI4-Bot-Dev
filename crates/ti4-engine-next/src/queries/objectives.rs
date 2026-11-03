@@ -361,7 +361,7 @@ const fn cost_family(f: q::CostFamily) -> CostFamily {
     }
 }
 
-fn cost_progress_of(p: q::CostProgress) -> CostProgress {
+pub fn cost_progress_of(p: q::CostProgress) -> CostProgress {
     CostProgress { family: cost_family(p.family), have: p.have, target: p.target }
 }
 

@@ -96,9 +96,9 @@ fn play_with(
         .with_galaxy(galaxy.clone());
     let mut first_roll = None;
     while game.table.log.records.len() < max {
-        let (logged, rolls) = (game.table.log.records.len(), game.dice().count());
+        let (logged, rolls) = (game.table.log.records.len(), game.rolls().len());
         let result = game.step();
-        if first_roll.is_none() && game.dice().count() > rolls {
+        if first_roll.is_none() && game.rolls().len() > rolls {
             first_roll = Some(logged);
         }
         if result.error.is_some() || result.finished {

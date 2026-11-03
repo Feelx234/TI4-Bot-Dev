@@ -53,18 +53,18 @@ fn asked_with_never(
     let wrapper =
         ti4_host::view::reaction_modes::NeverOffer::new(Box::new(Recorder(asked.clone())), set)
             .on_skip(move |_, cards| sink.lock().unwrap().push(cards.to_vec()));
-    let mut table = ti4_engine::choice::Table::with_default(Box::new(Recorder(asked.clone())));
-    table.seat(PlayerId::new(reactor), Box::new(wrapper));
+    let mut table = ti4_engine_legacy::choice::Table::with_default(Box::new(ti4_engine::oracle_adapter::ThinDecider::new(Box::new(Recorder(asked.clone())))));
+    table.seat(PlayerId::new(reactor), Box::new(ti4_engine::oracle_adapter::ThinDecider::new(Box::new(wrapper))));
     let seats: Vec<PlayerId> = state.players.iter().map(|seat| seat.id.clone()).collect();
     let mut resolver = ti4_engine::timing::Resolver::new(
         seats.clone(),
         seats.first().cloned(),
-        ti4_engine::choice::Table::default(),
+        ti4_engine_legacy::choice::Table::default(),
     );
     ti4_engine::reactions::arm(&mut resolver, &state);
-    let mut dice = ti4_engine::dice::Dice::new();
-    let mut rng = ti4_engine::rng::GameRng::new(0);
-    let mut event_sequence = ti4_engine::event::EventSequence::new();
+    let mut dice = ti4_engine_legacy::dice::Dice::new();
+    let mut rng = ti4_engine_legacy::rng::GameRng::new(0);
+    let mut event_sequence = ti4_engine_legacy::event::EventSequence::new();
     let mut context = ti4_engine::timing::TimingContext {
         state: &mut state,
         content: ContentStore::embedded(),

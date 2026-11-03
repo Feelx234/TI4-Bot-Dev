@@ -153,10 +153,10 @@ impl MaskChoice for CoreMask {
 /// Answers from a queue of option ids (the follower).
 struct Follower(Rc<RefCell<VecDeque<String>>>);
 
-impl Decider for Follower {
-    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+impl ti4_engine_legacy::choice::Decider for Follower {
+    fn choose(&mut self, choice: &ti4_engine_legacy::choice::Choice) -> Result<ti4_engine_legacy::choice::ChoiceOption, ti4_engine_legacy::choice::IllegalChoice> {
         let wanted = self.0.borrow_mut().pop_front().unwrap_or_default();
-        choice.answer_for(&wanted).ok_or_else(|| IllegalChoice::ScriptDiverged {
+        choice.answer_for(&wanted).ok_or_else(|| ti4_engine_legacy::choice::IllegalChoice::ScriptDiverged {
             player: choice.player.clone(),
             wanted,
             offered: choice.ids().into_iter().map(str::to_owned).collect(),
@@ -181,7 +181,7 @@ impl<M: MaskChoice> MaskSubject<M> {
     }
 
     /// The decisions settled since the last [`Subject::decisions_since`], not consumed.
-    pub(crate) fn peek_records(&self) -> &[DecisionRecord] {
+    pub(crate) fn peek_records(&self) -> &[ti4_engine_legacy::choice::DecisionRecord] {
         self.game.table.log.records.get(self.records_seen..).unwrap_or_default()
     }
 
@@ -199,10 +199,10 @@ impl<M: MaskChoice> MaskSubject<M> {
 impl<M: MaskChoice> Subject for MaskSubject<M> {
     fn new(spec: &GameSpec, pilot: Pilot) -> Result<Self, String> {
         let mask = M::mask();
-        let mut game = dual::with_mask(mask, || spec.build())?;
+        let mut game = dual::with_mask(mask, || crate::legacy_game::legacy_game(spec))?;
         let script = Rc::new(RefCell::new(VecDeque::new()));
         match pilot {
-            Pilot::Bot => game.table.set_default(crate::workload::golden_decider(spec.seed)),
+            Pilot::Bot => game.table.set_default(Box::new(crate::legacy_adapter::ThinDecider::new(crate::workload::golden_decider(spec.seed)))),
             Pilot::Script => game.table.set_default(Box::new(Follower(Rc::clone(&script)))),
         }
         let (events_seen, records_seen) = (game.events.len(), game.table.log.records.len());
@@ -210,7 +210,7 @@ impl<M: MaskChoice> Subject for MaskSubject<M> {
     }
 
     fn options(&self) -> Option<Choice> {
-        dual::with_mask(self.mask, || self.game.legal_options())
+        dual::with_mask(self.mask, || self.game.legal_options()).map(|c| crate::legacy_adapter::convert(&c))
     }
 
     fn in_transaction(&self) -> bool {
@@ -243,7 +243,7 @@ impl<M: MaskChoice> Subject for MaskSubject<M> {
     }
 
     fn decisions_since(&mut self) -> Vec<DecisionRecord> {
-        let new = self.game.table.log.records.get(self.records_seen..).unwrap_or_default().to_vec();
+        let new = self.game.table.log.records.get(self.records_seen..).unwrap_or_default().iter().map(crate::legacy_adapter::convert).collect();
         self.records_seen = self.game.table.log.records.len();
         new
     }
@@ -269,7 +269,7 @@ impl<M: MaskChoice> Subject for MaskSubject<M> {
     }
 
     fn decisions_hash(&self) -> String {
-        ti4_wasm::host_session::decisions_hash(&self.game.table.log.records)
+        ti4_wasm::host_session::decisions_hash(&crate::legacy_adapter::thin_records(&self.game.table.log.records))
     }
 }
 

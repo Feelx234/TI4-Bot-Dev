@@ -241,14 +241,14 @@ pub fn replay_rolls(
     while game.table.log.records.len() < decisions.len() || at_from.is_none() {
         let result = game.step();
         if at_from.is_none() && game.table.log.records.len() >= from_len {
-            at_from = Some(game.dice().count());
+            at_from = Some(game.rolls().len());
         }
         if result.error.is_some() || result.finished {
             break;
         }
     }
-    let from = at_from.unwrap_or_else(|| game.dice().count());
-    game.dice().history()[from..].to_vec()
+    let from = at_from.unwrap_or_else(|| game.rolls().len());
+    game.rolls()[from..].to_vec()
 }
 
 /// One redo, computed without a server.

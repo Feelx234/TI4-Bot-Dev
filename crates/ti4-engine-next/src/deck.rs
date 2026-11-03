@@ -406,11 +406,7 @@ mod tests {
                 .into_iter()
                 .map(ActionCardId::new)
                 .collect();
-            let mut table =
-                crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(Vec::<
-                    String,
-                >::new(
-                ))));
+            let mut table = ti4_engine_legacy::choice::Table::with_default(Box::new(ti4_engine_legacy::choice::Scripted::new(Vec::<String>::new())));
             let drawn =
                 crate::action_cards::draw(&mut state, content(), &mut table, &a, 2).expect("drawn");
             let drawn: Vec<&str> = drawn.iter().map(ActionCardId::as_str).collect();

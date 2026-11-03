@@ -1358,7 +1358,7 @@ fn finish_game_with(
         })
         .collect();
 
-    let digest = digest.then(|| GameDigest::of(&game.state, game.timing.log()));
+    let digest = digest.then(|| GameDigest::of(&game.state, &game.events));
     (Rollout { seed, seats, error }, digest)
 }
 

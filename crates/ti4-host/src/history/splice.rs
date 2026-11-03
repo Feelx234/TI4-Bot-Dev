@@ -250,7 +250,7 @@ pub(crate) fn deck_lengths(s: &GameState) -> BTreeMap<String, i64> {
 fn counters(game: &Game) -> RngCounters {
     let decks = deck_lengths(&game.state);
     let len = |n: usize| i64::try_from(n).unwrap_or(i64::MAX);
-    let history = game.dice().history();
+    let history = game.rolls();
     let faces: usize = history
         .iter()
         .map(|r| {

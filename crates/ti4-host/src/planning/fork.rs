@@ -23,9 +23,7 @@ pub fn guard_fork(game: &mut Game<'_>, planner: &PlayerId) -> ExecutionObservati
     let observation = ExecutionObservation::default();
     game.bind_observation(observation.clone());
     let seat = planner.clone();
-    game.timing.set_participation(Arc::new(move |ability| {
-        ability.owner == seat || !ability.optional
-    }));
+    game.set_participation(move |ability| ability.owner == seat || !ability.optional);
     let aftermath = observation.clone();
     game.on_aftermath(move |state, _content, _sources| {
         let (Some(system), Some(player)) = (&state.active_system, &state.active) else {

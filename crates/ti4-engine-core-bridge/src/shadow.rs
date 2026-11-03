@@ -270,7 +270,7 @@ impl Shadow {
     fn check_view(&mut self, seen: &SeatObservation<'_>, subtype: &str, decision: usize) {
         let p = &mut self.report.parity;
         p.positions += 1;
-        match ti4_engine_legacy::seen_load::SeenOwned::of(seen.observed()) {
+        match ti4_engine::seen_load::SeenOwned::of(seen.observed()) {
             Err(e) => *p.unmapped.entry(format!("{:?}: {} [{subtype} #{decision}]", e.slice, e.what)).or_default() += 1,
             Ok(owned) => {
                 let found = crate::seen_parity::check(seen, &owned);
@@ -367,7 +367,7 @@ pub fn run(
         }
     }
     for (index, spec) in games {
-        let mut game = spec.build()?;
+        let mut game = crate::legacy_game::legacy_game(spec)?;
         let shadow = Rc::new(RefCell::new(Shadow {
             seed: spec.seed,
             decided: 0,
@@ -382,7 +382,7 @@ pub fn run(
             parity_stride: cfg.seen_stride,
             calls: 0,
         }));
-        game.table.set_default(Box::new(Handle(Rc::clone(&shadow))));
+        game.table.set_default(Box::new(crate::legacy_adapter::ThinDecider::new(Box::new(Handle(Rc::clone(&shadow))))));
         let mut steps = 0usize;
         while !game.state.finished && game.state.round <= matrix.limits.max_rounds && steps < max_steps {
             let result = game.step();
@@ -391,7 +391,7 @@ pub fn run(
                 return Err(format!("game {index} (seed {}): {error}", spec.seed));
             }
         }
-        let decisions_hash = ti4_wasm::host_session::decisions_hash(&game.table.log.records);
+        let decisions_hash = ti4_wasm::host_session::decisions_hash(&crate::legacy_adapter::thin_records(&game.table.log.records));
         drop(game);
         let mut shadow = Rc::try_unwrap(shadow).map_err(|_| "the shadow decider is still shared".to_owned())?.into_inner();
         let choices_hash = hex_of(&std::mem::take(&mut shadow.choices).finalize());

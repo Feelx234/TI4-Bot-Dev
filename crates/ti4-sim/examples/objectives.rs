@@ -25,7 +25,7 @@ use std::collections::BTreeMap;
 use ti4_content::ContentStore;
 use ti4_engine::choice::{SeededRandom, Table};
 use ti4_engine::game::Game;
-use ti4_engine::objectives::{Position, controls_home_system, requirement_for};
+use ti4_engine_legacy::objectives::{Position, controls_home_system, requirement_for};
 use ti4_engine::setup::start_game_seeded;
 use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;

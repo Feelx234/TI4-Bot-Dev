@@ -1516,17 +1516,17 @@ mod tests {
         let full = ti4_model::content_types::FULL;
         for (kind, sum) in [
             (
-                ti4_engine::production::Spend::Resources,
+                ti4_engine_legacy::production::Spend::Resources,
                 listed.iter().map(|b| i64::from(b.resources)).sum::<i64>(),
             ),
             (
-                ti4_engine::production::Spend::Influence,
+                ti4_engine_legacy::production::Spend::Influence,
                 listed.iter().map(|b| i64::from(b.influence)).sum::<i64>(),
             ),
         ] {
-            let printed = ti4_engine::production::planet_value(content, full, &planet, kind);
+            let printed = ti4_engine_legacy::production::planet_value(content, full, &planet, kind);
             let now =
-                ti4_engine::production::planet_value_now(&state, content, full, &planet, kind);
+                ti4_engine_legacy::production::planet_value_now(&state, content, full, &planet, kind);
             assert_eq!(now - printed, sum);
         }
         assert_eq!(listed[1].resources, 2);

@@ -1166,7 +1166,7 @@ mod tests {
     use super::*;
     use ti4_engine::choice::ChoiceOption;
     use ti4_engine::decision_context::{DecisionContext, DecisionSource};
-    use ti4_engine::tactical::activation_options_with;
+    use ti4_engine_legacy::tactical::activation_options_with;
     use ti4_model::content_types::POK;
     use ti4_model::id::UnitTypeId;
     use ti4_model::state::Phase;
@@ -1256,7 +1256,7 @@ mod tests {
         let (mut state, galaxy) = game();
         let content = ContentStore::embedded();
         let choice =
-            activation_options_with(&state, content, POK, &galaxy, &seat()).expect("offered");
+            ti4_engine::from_legacy_wire::<_, Choice>(&activation_options_with(&state, content, POK, &galaxy, &seat()).expect("offered"));
         let Some(TacticalFacts::Activation(facts)) =
             project_tactical_facts(&state, content, POK, &galaxy, &choice)
         else {
@@ -1281,7 +1281,7 @@ mod tests {
     fn reach(state: &GameState, galaxy: &Galaxy, system: &str) -> ReachFact {
         let content = ContentStore::embedded();
         let choice =
-            activation_options_with(state, content, POK, galaxy, &seat()).expect("offered");
+            ti4_engine::from_legacy_wire::<_, Choice>(&activation_options_with(state, content, POK, galaxy, &seat()).expect("offered"));
         let Some(TacticalFacts::Activation(facts)) =
             project_tactical_facts(state, content, POK, galaxy, &choice)
         else {

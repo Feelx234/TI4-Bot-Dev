@@ -29,6 +29,8 @@ futures-util = "0.3"
 sha2 = { workspace = true }
 
 [dev-dependencies]
+# Tests and examples that drive the string windows (oracle only; never in the production tree).
+ti4-engine-legacy.workspace = true
 # Only the survey test (tests/it/smart_bot_survey.rs) reads ti4-policy; the server does not use it.
 ti4-policy = { workspace = true }
 # The wasm host as a native library, for the test that both hosts play the same game.

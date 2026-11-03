@@ -51,16 +51,8 @@ fn assert_same_end(original: &Game<'static>, fork: &Game<'static>, context: &str
         "{context}: states"
     );
     assert_eq!(original.events, fork.events, "{context}: events");
-    assert_eq!(
-        original.timing.log(),
-        fork.timing.log(),
-        "{context}: timing log"
-    );
-    assert_eq!(
-        original.timing.applied_events(),
-        fork.timing.applied_events(),
-        "{context}: applied events"
-    );
+    // (The string resolver's trace and applied-event list have no twin: the core's ledger is what `state`, `events` and `rolls` read.)
+    assert_eq!(original.open_windows(), fork.open_windows(), "{context}: open windows");
     assert_eq!(original.rolls(), fork.rolls(), "{context}: dice");
     assert_eq!(
         original.rng_positions(),

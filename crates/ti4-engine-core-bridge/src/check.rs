@@ -324,7 +324,7 @@ pub fn check_observed(position: &Position, report: &mut Report) {
     use ti4_engine_legacy::core_adapter::SeatReach;
     let content = ContentStore::embedded();
     let (state, galaxy, sources) = (&position.state, &position.galaxy, position.sources);
-    let observed = ti4_engine::choice::Observed::new(state, content, sources, Some(galaxy));
+    let observed = ti4_engine_legacy::choice::Observed::new(state, content, sources, Some(galaxy));
     let Some(pos) = adapter::Position::new(state, sources, galaxy) else {
         report.unmapped += 1;
         return;

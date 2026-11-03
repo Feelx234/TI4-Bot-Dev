@@ -885,10 +885,11 @@ mod tests {
         Blocked, CombatFact, INVASION_SUBTYPE, MOVEMENT_SUBTYPE, MovementFacts, ProductionFacts,
         ShipFact, TacticalFacts, Unavailable, project_tactical_facts,
     };
-    use ti4_engine::choice::Window;
+    use ti4_engine_legacy::choice::Window;
     use ti4_engine::choice::{Choice, ChoiceOption};
     use ti4_engine::decision_context::{DecisionContext, DecisionSource};
-    use ti4_engine::production::{PRODUCE_KIND, ProductionWindow};
+    use ti4_engine::production::PRODUCE_KIND;
+    use ti4_engine_legacy::production::ProductionWindow;
     use ti4_model::content_types::POK;
 
     fn seat() -> PlayerId {
@@ -1514,11 +1515,11 @@ mod tests {
         state.active_system = Some(system.clone());
         // Sarween Tools, as the game sets it when the units use PRODUCTION.
         state.production_discount_remaining = 1;
-        let mut window = ProductionWindow::new(&state, content, POK, &seat(), &system);
+        let mut window = ti4_engine_legacy::production::ProductionWindow::new(&state, content, POK, &seat(), &system);
         window.refresh(&state, content, POK);
-        let choice = window
+        let choice: Choice = ti4_engine::from_legacy_wire(&window
             .pending_choice(&state, content, POK)
-            .expect("the seat can produce");
+            .expect("the seat can produce"));
         match project_tactical_facts(&state, content, POK, galaxy, &choice) {
             Some(TacticalFacts::Production(facts)) => (choice, facts),
             other => panic!("no production facts: {other:?}"),

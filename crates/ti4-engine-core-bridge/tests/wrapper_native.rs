@@ -17,8 +17,7 @@ struct BotDecider {
 impl Decider for BotDecider {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
         let place = self.seats.iter().position(|s| s == choice.player.as_str()).unwrap_or(0);
-        let legacy: ti4_engine_legacy::choice::Choice = serde_json::from_value(serde_json::to_value(choice).unwrap()).unwrap();
-        let (picked, _, _) = ti4_rule_bot::choose_explained(&legacy, None, self.seed, place, self.index.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+        let (picked, _, _) = ti4_rule_bot::choose_explained(choice, None, self.seed, place, self.index.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
         Ok(choice.options[picked.min(choice.options.len() - 1)].clone())
     }
 }

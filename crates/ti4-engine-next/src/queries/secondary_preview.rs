@@ -106,3 +106,28 @@ pub fn follow_up_subtypes(card: StrategyCardKind) -> &'static [&'static str] {
         StrategyCardKind::Politics | StrategyCardKind::Trade | StrategyCardKind::Imperial => &[],
     }
 }
+
+/// What `follower` would be asked for `card` (played by `primary`) if the window opened in `state`, after the `answers` given so far.
+///
+/// **JOIN (docs/D28D_RESUME.md, "remaining")**: this still runs the string flow on a throwaway copy of the position (the legacy
+/// `secondary_preview::preview_secondary`) and reads the result through JSON (the two types have one serde shape, `tests/wire_parity.rs`). It is
+/// a pure read of a position nobody plays on, never the game's own loop; the twin on the core (`Game::prepare_hypothetical_secondary` + a
+/// scripted table, both exist) replaces it and the differential tests of `ti4-server` (`secondary_preview_differential`) are its contract.
+#[must_use]
+#[allow(clippy::too_many_arguments, reason = "the position plus the question's identity")]
+pub fn preview_secondary(
+    state: &ti4_model::state::GameState,
+    content: &ti4_content::ContentStore,
+    sources: ti4_model::content_types::SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    card: &ti4_model::id::StrategyCardId,
+    primary: &ti4_model::id::PlayerId,
+    follower: &ti4_model::id::PlayerId,
+    answers: &[String],
+) -> SecondaryPreview {
+    let legacy = ti4_engine_legacy::secondary_preview::preview_secondary(state, content, sources, galaxy, card, primary, follower, answers);
+    serde_json::to_value(&legacy)
+        .ok()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_else(|| SecondaryPreview::Unavailable { detail: "the preview could not be read".to_owned() })
+}

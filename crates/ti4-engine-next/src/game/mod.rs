@@ -202,6 +202,31 @@ pub struct Game<'a> {
     strategic_observer: Option<StrategicObserver>,
     /// Steps played (for tests and for the host's counters).
     steps: usize,
+    /// The strategic action whose secondaries are still to be offered, as the host reads it ([`Game::open_secondary`]); refreshed by each step.
+    secondary: Option<SecondaryView>,
+    /// Which optional reactions a disposable copy offers ([`Game::set_participation`]).
+    participation: Option<Participation>,
+    /// Turn redo's side channel (switched off in the product, docs/DISABLE_XF123.md): kept so a caller can attach it, never driven.
+    rng_sync: Option<Arc<crate::wire::rng::RngSync>>,
+    /// Experiment only (`ti4-training`): trade goods per round. The native loop does not play it; see [`Game::with_round_income`].
+    round_income: (i32, Option<PlayerId>),
+}
+
+/// An ability as the participation filter of a planning copy sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Participant {
+    pub owner: PlayerId,
+    pub optional: bool,
+}
+
+type Participation = Arc<dyn Fn(&Participant) -> bool + Send + Sync>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SecondaryView {
+    primary: PlayerId,
+    card: StrategyCardId,
+    unresolved: Vec<PlayerId>,
+    resolved: Vec<(PlayerId, crate::queries::strategy::SecondaryResolution)>,
 }
 
 /// A copy of everything a [`Game`] needs to continue identically, taken at a step boundary. Plain data: a session worker can publish one
@@ -223,6 +248,9 @@ pub struct GameSnapshot<'a> {
     rolls: Vec<Roll>,
     blocked: Option<GameError>,
     steps: usize,
+    secondary: Option<SecondaryView>,
+    participation: Option<Participation>,
+    round_income: (i32, Option<PlayerId>),
 }
 
 #[derive(Clone)]
@@ -259,7 +287,7 @@ impl<'a> GameSnapshot<'a> {
     /// The same, consuming the snapshot (no copy of the position).
     #[must_use]
     pub fn into_game(self) -> Game<'a> {
-        let Self { state, table, events, content, sources, galaxy, rng, seed, native, rolls, blocked, steps } = self;
+        let Self { state, table, events, content, sources, galaxy, rng, seed, native, rolls, blocked, steps, secondary, participation, round_income } = self;
         let mut game_rng = GameRng::new(seed);
         game_rng.set_positions(&rng);
         Game {
@@ -277,6 +305,10 @@ impl<'a> GameSnapshot<'a> {
             aftermath_observer: None,
             strategic_observer: None,
             steps,
+            secondary,
+            participation,
+            rng_sync: None,
+            round_income,
         }
     }
 
@@ -333,6 +365,10 @@ impl<'a> Game<'a> {
             aftermath_observer: None,
             strategic_observer: None,
             steps: 0,
+            secondary: None,
+            participation: None,
+            rng_sync: None,
+            round_income: (0, None),
         }
     }
 
@@ -393,10 +429,88 @@ impl<'a> Game<'a> {
         if self.native.is_some() {
             return Ok(());
         }
+        if self.round_income.0 != 0 {
+            let error = GameError::Disabled("round income (an experiment of ti4-training the native loop does not play)".to_owned());
+            self.blocked = Some(error.clone());
+            return Err(error);
+        }
         if let Some(error) = &self.blocked {
             return Err(error.clone());
         }
         let loaded = Native::load(&self.state, self.galaxy.as_ref(), &self.rng.positions(), self.sources).inspect_err(|e| self.blocked = Some(e.clone()))?;
+        self.secondary = secondary_view(&loaded.core, &loaded.cx);
+        self.native = Some(loaded);
+        Ok(())
+    }
+
+    /// Prepare a disposable copy ([`Game::fork`]) to play `player`'s turn as if it were theirs now: the continuation (every open window) is
+    /// discarded and the position kept, as `Game::prepare_hypothetical_turn` of the string did. The core is loaded again from the position.
+    ///
+    /// # Errors
+    /// [`GameError::InvalidHypotheticalTurn`] for an unknown seat, a seat that has passed, a game outside the strategy and action phases;
+    /// the copy is unchanged.
+    pub fn prepare_hypothetical_turn(&mut self, player: &PlayerId) -> Result<(), GameError> {
+        let Some(seat) = self.state.player(player) else { return Err(GameError::InvalidHypotheticalTurn("unknown player")) };
+        if seat.passed {
+            return Err(GameError::InvalidHypotheticalTurn("the player has already passed"));
+        }
+        self.reset_for_hypothetical(player)
+    }
+
+    /// Offer `follower` the secondary of `card`, played by `primary`, on a disposable fork: the continuation is discarded, the position kept,
+    /// and a one-follower window is opened, so the next ordinary [`Game::step`] asks that seat the usual secondary question. `primary`
+    /// stays the active player; a follower who has passed may still follow (LRR 82.1).
+    ///
+    /// # Errors
+    /// As [`Game::prepare_hypothetical_turn`] (a passed follower aside), an unknown seat, a follower who is the primary player.
+    pub fn prepare_hypothetical_secondary(&mut self, follower: &PlayerId, primary: &PlayerId, card: &StrategyCardId) -> Result<(), GameError> {
+        if self.state.player(follower).is_none() || self.state.player(primary).is_none() {
+            return Err(GameError::InvalidHypotheticalTurn("unknown player"));
+        }
+        if follower == primary {
+            return Err(GameError::InvalidHypotheticalTurn("the primary player does not follow their own card"));
+        }
+        let (Some(card_kind), Some(native)) = (<ti4_engine_core::generated::StrategyCard as crate::generated::IdStr>::from_id(card.as_str()), self.native.as_ref()) else {
+            return Err(GameError::InvalidHypotheticalTurn("unknown strategy card"));
+        };
+        let (Some(primary_seat), Some(follower_seat)) = (native.cx.owners.seat(primary.as_str()), native.cx.owners.seat(follower.as_str())) else {
+            return Err(GameError::InvalidHypotheticalTurn("unknown player"));
+        };
+        self.reset_for_hypothetical(primary)?;
+        let Some(native) = self.native.as_mut() else { return Err(GameError::Blocked("the core is not loaded".to_owned())) };
+        native.core.pending_mut().open(ti4_engine_core::state::Window::StrategySecondary(ti4_engine_core::state::Secondary {
+            primary: primary_seat,
+            card: card_kind,
+            followers: ti4_engine_core::containers::SmallList::from_slice(&[follower_seat]),
+            next: 0,
+            resolved: ti4_engine_core::containers::SmallList::new(),
+            exhausts_card: false,
+            preview: true,
+        }));
+        self.secondary = secondary_view(&native.core, &native.cx);
+        Ok(())
+    }
+
+    fn reset_for_hypothetical(&mut self, player: &PlayerId) -> Result<(), GameError> {
+        if self.state.finished || !matches!(self.state.phase, Phase::Strategy | Phase::Action) {
+            return Err(GameError::InvalidHypotheticalTurn("the game must be in an unfinished strategy or action phase"));
+        }
+        if let Some(error) = &self.blocked {
+            return Err(error.clone());
+        }
+        for (scope, sequence) in [("turn", self.state.turn_seq), ("activation", self.state.activation_seq), ("combat round", self.state.combat_round_seq), ("production", self.state.production_seq)] {
+            if sequence.checked_add(1).is_none() {
+                let _ = scope;
+                return Err(GameError::InvalidHypotheticalTurn("a scope counter is exhausted"));
+            }
+        }
+        // The streams stand where the core left them; the window state lives in the position, which is reset below and loaded again.
+        let positions = self.rng_positions();
+        let mut state = self.state.clone();
+        hypothetical_position(&mut state, player);
+        let loaded = Native::load(&state, self.galaxy.as_ref(), &positions, self.sources)?;
+        self.state = state;
+        self.secondary = secondary_view(&loaded.core, &loaded.cx);
         self.native = Some(loaded);
         Ok(())
     }
@@ -484,6 +598,55 @@ impl<'a> Game<'a> {
         &self.rolls
     }
 
+    /// Which optional reactions this copy offers: a planning fork asks no optional reaction of the other seats (docs/todo/D2-8-wrapper.md 1.3,
+    /// `Game::timing.set_participation`). **Not enforced by the native loop yet**: the core's resolver has no such filter, so the copy offers
+    /// them and the publication gate of the plan preview stops at the first question it did not audit (a refusal, not a wrong preview).
+    pub fn set_participation(&mut self, filter: impl Fn(&Participant) -> bool + Send + Sync + 'static) {
+        self.participation = Some(Arc::new(filter));
+    }
+
+    /// Turn redo's rng side channel (switched off in the product). Kept for the caller; the native loop never forces a position.
+    pub fn set_rng_sync(&mut self, sync: Option<Arc<crate::wire::rng::RngSync>>) {
+        self.rng_sync = sync;
+    }
+
+    /// Always `false`: a native game defers no stream restore (turn redo is refused at creation, docs/DISABLE_XF123.md).
+    #[must_use]
+    pub const fn rng_sync_pending(&self) -> bool {
+        false
+    }
+
+    /// Nothing to flush (see [`Game::rng_sync_pending`]).
+    pub fn flush_rng_sync(&mut self) {}
+
+    /// Experiment only (`ti4-training`), not a rule: every seat gains `trade_goods` as each round after the first begins. The native loop
+    /// does not play it: a game with a nonzero income stops at its first step with [`GameError::Disabled`], never plays it silently without.
+    #[must_use]
+    pub fn with_round_income(mut self, trade_goods: i32) -> Self {
+        self.round_income.0 = trade_goods;
+        self
+    }
+
+    /// Experiment only: restrict [`Game::with_round_income`] to one seat.
+    #[must_use]
+    pub fn with_round_income_seat(mut self, seat: Option<PlayerId>) -> Self {
+        self.round_income.1 = seat;
+        self
+    }
+
+    /// The strategic action whose secondaries are still to be offered: who played which card, and the followers not yet recorded, in
+    /// resolution order. Covers a window deferred behind a free tactical action too.
+    #[must_use]
+    pub fn open_secondary(&self) -> Option<(&PlayerId, &StrategyCardId, &[PlayerId])> {
+        self.secondary.as_ref().map(|s| (&s.primary, &s.card, s.unresolved.as_slice()))
+    }
+
+    /// What the followers of [`Game::open_secondary`] that are recorded did, in resolution order.
+    #[must_use]
+    pub fn secondary_resolutions(&self) -> &[(PlayerId, crate::queries::strategy::SecondaryResolution)] {
+        self.secondary.as_ref().map_or(&[], |s| s.resolved.as_slice())
+    }
+
     /// Steps played.
     #[must_use]
     pub const fn steps(&self) -> usize {
@@ -524,7 +687,7 @@ impl<'a> Game<'a> {
     }
 
     fn snapshot_with(&self, table: TableState) -> GameSnapshot<'a> {
-        let Self { state, table: _, events, content, sources, galaxy, rng: _, native, rolls, blocked, observation: _, aftermath_observer: _, strategic_observer: _, steps } = self;
+        let Self { state, table: _, events, content, sources, galaxy, rng: _, native, rolls, blocked, observation: _, aftermath_observer: _, strategic_observer: _, steps, secondary, participation, rng_sync: _, round_income } = self;
         GameSnapshot {
             state: state.clone(),
             table,
@@ -538,6 +701,9 @@ impl<'a> Game<'a> {
             rolls: rolls.clone(),
             blocked: blocked.clone(),
             steps: *steps,
+            secondary: secondary.clone(),
+            participation: participation.clone(),
+            round_income: round_income.clone(),
         }
     }
 
@@ -651,7 +817,7 @@ impl<'a> Game<'a> {
 
     /// One step of the native loop. On an error the core, the code table and the decision log are what they were before the call.
     fn step_native(&mut self) -> Result<Done, GameError> {
-        let Self { state, table, events, content, sources, galaxy, native, rolls, blocked, aftermath_observer, strategic_observer, steps, .. } = self;
+        let Self { state, table, events, content, sources, galaxy, native, rolls, blocked, aftermath_observer, strategic_observer, steps, secondary, .. } = self;
         let Some(native) = native.as_mut() else { return Err(GameError::Blocked("the core is not loaded".to_owned())) };
         let before = native.core.clone();
         let (codes, factions) = (native.render.codes_snapshot(), native.render.factions.clone());
@@ -674,6 +840,7 @@ impl<'a> Game<'a> {
                 let mirror = native.materialized()?;
                 *state = mirror;
                 *rolls = rolls::rendered(&native.core, &native.cx, &native.render, rolls.len());
+                *secondary = secondary_view(&native.core, &native.cx);
                 if let Some(galaxy) = galaxy.as_mut() {
                     crate::laws::apply_to_galaxy(state, galaxy);
                 }
@@ -797,4 +964,61 @@ fn asks_of(core: &CoreState) -> bool {
         AskArm::StartingTech | AskArm::LeaderFollowers | AskArm::EventScoring | AskArm::Scoring | AskArm::Tokens | AskArm::Voting | AskArm::Diplomacy | AskArm::Aftermath | AskArm::AgendaTalks | AskArm::Tactical => true,
         AskArm::Secondary | AskArm::Closing | AskArm::Trade | AskArm::ActionMenu => core.meta().active.is_some() && !ti4_engine_core::driver::turn_flow::all_passed(core),
     }
+}
+
+/// The fields of a position that belong to the turn in progress, cleared; the player's turn begun (`Game::reset_for_hypothetical` of the string).
+fn hypothetical_position(state: &mut GameState, player: &PlayerId) {
+    state.active_system = None;
+    state.pending = None;
+    state.transient_flags = ti4_model::state::TransientFlags::default();
+    state.active_space_combat = None;
+    state.active_invasion = None;
+    state.combat_round_hits.clear();
+    state.combat_round_dice.clear();
+    state.combat_presentation = ti4_model::state::CombatPresentation::default();
+    state.reroll_staging.clear();
+    state.last_reroll_player = None;
+    state.pending_destructions.clear();
+    state.pending_reflective_hits = None;
+    state.gravleash_move_values.clear();
+    state.influence_pays_for_units.clear();
+    state.fighters_produced_this_use = 0;
+    state.nonfighter_ships_produced_this_use = 0;
+    state.units_produced_this_use = 0;
+    state.production_discount_remaining = 0;
+    state.production_value_swapped_planet = None;
+    crate::transactions::clear_turn_transactions(state);
+    crate::diplomacy::relations::clear_turn_initiations(state);
+    crate::transactions::clear_action_negotiations(state);
+    state.activation_seq += 1;
+    state.combat_round_seq += 1;
+    state.production_seq += 1;
+    // A draft of the turn that the player is taking is that turn again: its number (LRR 3) stays. Any other draft is of the next turn.
+    let same_turn = state.phase == Phase::Action && state.active.as_ref() == Some(player) && state.action_turn > 0;
+    let action_turn = state.action_turn;
+    // From the strategy phase the copy only changes its phase: the end of that phase is not resolved.
+    state.phase = Phase::Action;
+    crate::builders::phase::begin_action_turn(state, player);
+    if same_turn {
+        state.action_turn = action_turn;
+    }
+}
+
+/// The follower window of the core as the host reads it.
+fn secondary_view(core: &CoreState, cx: &Ctx) -> Option<SecondaryView> {
+    use ti4_engine_core::state::Window;
+    let window = core.pending().window(WindowKind::StrategySecondary).or_else(|| core.pending().window(WindowKind::StrategySecondaryAfterTactical))?;
+    let (Window::StrategySecondary(s) | Window::StrategySecondaryAfterTactical(s)) = window else { return None };
+    let id = |seat: ti4_engine_core::Seat| cx.owners.id(seat).map(PlayerId::new);
+    let how = |h: ti4_engine_core::state::SecondaryHow| match h {
+        ti4_engine_core::state::SecondaryHow::Ineligible => crate::queries::strategy::SecondaryResolution::Ineligible,
+        ti4_engine_core::state::SecondaryHow::Declined => crate::queries::strategy::SecondaryResolution::Declined,
+        ti4_engine_core::state::SecondaryHow::Followed => crate::queries::strategy::SecondaryResolution::Followed,
+    };
+    Some(SecondaryView {
+        primary: id(s.primary)?,
+        card: StrategyCardId::new(crate::generated::IdStr::as_str(s.card)),
+        unresolved: s.followers.as_slice().iter().skip(usize::from(s.next)).filter_map(|f| id(*f)).collect(),
+        resolved: s.resolved.as_slice().iter().filter_map(|(seat, h)| Some((id(*seat)?, how(*h)))).collect(),
+    })
 }

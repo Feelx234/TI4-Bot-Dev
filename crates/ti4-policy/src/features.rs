@@ -6855,9 +6855,9 @@ mod tests {
             .unwrap()
             .to_owned();
         state.active_system = Some(SystemId::new(&destination));
-        let move_choice = ti4_engine::tactical::movement_options(
+        let move_choice: Choice = ti4_engine::from_legacy_wire(&ti4_engine_legacy::tactical::movement_options(
             &player,
-            &[ti4_engine::tactical::Movable {
+            &[ti4_engine_legacy::tactical::Movable {
                 origin: origin.clone(),
                 index: 0,
                 unit: ti4_model::units::Unit::new(
@@ -6868,7 +6868,7 @@ mod tests {
                 gravity_drive: false,
                 ionian: false,
             }],
-        );
+        ));
         let move_option = move_choice
             .options
             .iter()
