@@ -32,6 +32,23 @@ pub fn game(players: &[&str]) -> GameState {
     start_game(ContentStore::embedded(), &seats, POK, None).expect("setup succeeds")
 }
 
+/// [`game`] with a real, distinct lobby faction per player and the promissory notes dealt for them, but NOT deployed: the board stays
+/// empty, as on [`game`], and the typed core can hold the position (no `generic`). For tests that place their own pieces and read a native
+/// answer (`docs/D28D_RESUME.md`).
+///
+/// # Panics
+/// More than 8 players, or if setup refuses them.
+#[must_use]
+pub fn loadable_game(players: &[&str]) -> GameState {
+    assert!(players.len() <= 8, "a table has at most 8 seats");
+    let mut state = game(players);
+    for (seat, faction) in state.players.iter_mut().zip(crate::seating::LOBBY_FACTIONS) {
+        seat.faction = ti4_model::id::FactionId::new(faction);
+    }
+    redeal_notes(&mut state, POK);
+    state
+}
+
 /// Ordinary systems — no anomaly, no hyperlane — taken from the corpus in a stable order.
 #[must_use]
 pub fn plain_systems(count: usize) -> Vec<String> {

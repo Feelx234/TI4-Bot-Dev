@@ -227,7 +227,7 @@ mod tests {
     use super::*;
     use ti4_content::ContentStore;
     use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice};
-    use ti4_engine::fixtures::{a_system_where, game, hub_with_centre, put};
+    use ti4_engine::fixtures::{a_system_where, loadable_game as game, hub_with_centre, put};
     use ti4_model::POK;
     use ti4_model::state::Phase;
 

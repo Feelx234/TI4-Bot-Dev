@@ -823,7 +823,7 @@ mod tests {
     use rand::SeedableRng;
     use ti4_content::ContentStore;
     use ti4_engine::decision_context::{DecisionContext, DecisionSource, TriggerKind};
-    use ti4_engine::fixtures::{Hub, game, hub_from, plain_systems, put};
+    use ti4_engine::fixtures::{Hub, loadable_game as game, hub_from, plain_systems, put};
     use ti4_model::POK;
     use ti4_model::state::{GameState, Phase};
 

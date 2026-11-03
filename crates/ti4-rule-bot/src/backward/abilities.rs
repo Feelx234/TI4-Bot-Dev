@@ -237,7 +237,7 @@ mod tests {
         );
     }
 
-    use ti4_engine::fixtures::{game, hub_with_centre, plain_systems, put};
+    use ti4_engine::fixtures::{loadable_game as game, hub_with_centre, plain_systems, put};
     use ti4_model::id::SecretObjectiveId;
     use ti4_model::state::Phase;
 

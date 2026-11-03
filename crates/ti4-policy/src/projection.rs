@@ -1893,7 +1893,7 @@ mod tests {
         let content = ti4_content::ContentStore::embedded();
         let hub = ti4_engine::fixtures::plain_hub();
         let player = ti4_model::id::PlayerId::new("p1");
-        let mut state = ti4_engine::fixtures::game(&["p1"]);
+        let mut state = ti4_engine::fixtures::loadable_game(&["p1"]);
 
         // One carrier on the ring. From there the centre is reachable and the far side is not,
         // so the fact has something to be right or wrong about.
@@ -2327,6 +2327,13 @@ mod tests {
     fn the_public_surface_carries_timing_economy_strategy_and_board_state() {
         let content = ti4_content::ContentStore::embedded();
         let (mut state, player) = position();
+        // A table the typed core can hold (the scoreable-secret fact is a native read).
+        let loadable = ti4_engine::fixtures::loadable_game(&["a", "b"]);
+        for (seat, real) in state.players.iter_mut().zip(&loadable.players) {
+            seat.faction = real.faction.clone();
+        }
+        state.promissory_notes = loadable.promissory_notes.clone();
+        state.promissory_faceup = loadable.promissory_faceup.clone();
         let opponent = PlayerId::new("b");
         let system = ti4_model::id::SystemId::new("18");
         let mecatol = ti4_model::id::PlanetId::new("mecatol_rex");

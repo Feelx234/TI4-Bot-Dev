@@ -255,7 +255,7 @@ mod tests {
 
     use ti4_content::ContentStore;
     use ti4_engine::choice::{Decider, IllegalChoice};
-    use ti4_engine::fixtures::game;
+    use ti4_engine::fixtures::loadable_game as game;
     use ti4_model::POK;
     use ti4_model::id::{ActionCardId, SecretObjectiveId};
 
@@ -292,7 +292,7 @@ mod tests {
                 let seat = state.player_mut(&PlayerId::new("a")).expect("seat");
                 seat.secret_objectives = vec![SecretObjectiveId::new("fsn")];
                 seat.action_cards = (0..cards)
-                    .map(|i| ActionCardId::new(format!("c{i}")))
+                    .map(|i| ActionCardId::new(["abs", "assassin", "bribery", "bunker", "confusing", "const_rider", "courageous", "cripple"][i % 8]))
                     .collect();
             }
             let mut knobs = crate::tuning::Tuning::default();

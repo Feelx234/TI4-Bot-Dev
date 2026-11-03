@@ -3582,7 +3582,7 @@ mod tests {
     use ti4_content::ContentStore;
     use ti4_engine::choice::{Decider, IllegalChoice};
     use ti4_engine::fixtures::{
-        Hub, game, hub_from, hub_with_centre, plain_systems, put, put_on_planet,
+        Hub, loadable_game as game, hub_from, hub_with_centre, plain_systems, put, put_on_planet,
     };
     use ti4_model::POK;
     use ti4_model::state::GameState;
@@ -3709,7 +3709,7 @@ mod tests {
 
     #[test]
     fn mecatol_rex_is_invaded_only_when_the_custodians_can_be_paid_for() {
-        let mut state = game(&["a"]);
+        let mut state = game(&["a", "b"]);
         let hub = hub_from(&["18".to_owned()]);
         let mr = SystemId::new("18");
         state.player_mut(&me()).expect("seat").trade_goods = 0;

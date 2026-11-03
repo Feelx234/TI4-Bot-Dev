@@ -912,7 +912,7 @@ mod tests {
     use super::*;
     use ti4_content::ContentStore;
     use ti4_engine::choice::ChoiceOption;
-    use ti4_engine::fixtures::{Hub, game, hub_from, plain_systems, put};
+    use ti4_engine::fixtures::{Hub, loadable_game as game, hub_from, plain_systems, put};
     use ti4_model::POK;
     use ti4_model::content_types::{ContentType, DEFAULT};
     use ti4_model::id::{FactionId, SystemId};

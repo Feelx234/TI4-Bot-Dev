@@ -1186,7 +1186,7 @@ mod tests {
     fn watched_hub() -> (ti4_model::state::GameState, ti4_engine::fixtures::Hub) {
         let target = public_target();
         let hub = ti4_engine::fixtures::hub_with_centre(&target);
-        (ti4_engine::fixtures::game(&["a", "b"]), hub)
+        (ti4_engine::fixtures::loadable_game(&["a", "b"]), hub)
     }
 
     fn secure_system(
@@ -2424,6 +2424,8 @@ mod tests {
             ti4_engine::seating::deploy(&mut state, content, player, faction, POK)
                 .map_err(|error| error.to_string())?;
         }
+        // The notes setup dealt name the placeholder faction: deal them again for the factions just set.
+        ti4_engine::fixtures::redeal_notes(&mut state, POK);
 
         let mut table = Table::new();
         for (index, player) in players.iter().enumerate() {

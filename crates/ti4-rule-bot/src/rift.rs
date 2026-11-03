@@ -226,7 +226,7 @@ mod tests {
     use super::*;
     use crate::tuning::{self, Tuning};
     use ti4_content::ContentStore;
-    use ti4_engine::fixtures::{Hub, a_system_where, game, hub_from, plain_systems, put};
+    use ti4_engine::fixtures::{Hub, a_system_where, loadable_game as game, hub_from, plain_systems, put};
     use ti4_model::POK;
     use ti4_model::state::GameState;
 
