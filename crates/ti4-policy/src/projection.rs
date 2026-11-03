@@ -2345,7 +2345,7 @@ mod tests {
         state.custodians_removed = true;
         state
             .card_initiative
-            .insert(ti4_model::id::StrategyCardId::new("imperial"), 8);
+            .insert(ti4_model::id::StrategyCardId::new("pok8imperial"), 8);
         state
             .system_mut(&system)
             .set_control(mecatol.clone(), player.clone());
@@ -2356,7 +2356,7 @@ mod tests {
             let seat = state.player_mut(&player).unwrap();
             seat.victory_points = 4;
             seat.action_cards = vec![ti4_model::id::ActionCardId::new("summit")];
-            let imperial = ti4_model::id::StrategyCardId::new("imperial");
+            let imperial = ti4_model::id::StrategyCardId::new("pok8imperial");
             seat.strategy_cards = vec![imperial.clone()];
             seat.exhausted_strategy_cards.insert(imperial);
         }
@@ -2372,8 +2372,16 @@ mod tests {
         ti4_engine::fixtures::put(&mut state, &opponent_system, "infantry", &opponent, 1);
         // The actor's held secret is met on the board, in a system that is not the active one:
         // four of their PDS sit on a private fixture planet, so the scoreable count must move.
-        let secret_system = ti4_model::id::SystemId::new("99");
-        let secret_planet = ti4_model::id::PlanetId::new("eap_fixture");
+        // (A planet of the corpus: the typed core holds no planet it does not know.)
+        let (secret_system, secret_planet) = ti4_content::galaxy::all_systems(content, ti4_model::content_types::POK)
+            .iter()
+            .filter(|(id, _)| id.to_string() != opponent_system.to_string() && id.to_string() != "18")
+            .find_map(|(id, _)| {
+                let planets = ti4_content::galaxy::planets_in(content, id, ti4_model::content_types::POK);
+                let planet = planets.iter().find(|p| p.homeworld_of().is_none())?;
+                Some((ti4_model::id::SystemId::new(*id), ti4_model::id::PlanetId::new(planet.id())))
+            })
+            .expect("a second placed planet");
         state
             .system_mut(&secret_system)
             .set_control(secret_planet.clone(), player.clone());
@@ -2404,8 +2412,8 @@ mod tests {
             ("victory-points", 4.0),
             ("action-cards-held", 1.0),
             ("exhausted-planets", 1.0),
-            ("own-strategy-card:imperial:used", 1.0),
-            ("table-strategy-card:imperial:used", 1.0),
+            ("own-strategy-card:pok8imperial:used", 1.0),
+            ("table-strategy-card:pok8imperial:used", 1.0),
             ("passed-players", 1.0),
             ("active-players", 1.0),
             ("opponent-trade-goods-total", 3.0),
