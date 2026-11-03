@@ -684,8 +684,12 @@ impl Play {
                 held.as_slice().iter().map(|s| Opt::System(*s)).collect()
             }
             Fx::WarEffort => {
-                let mut held: SmallList<System, 16> =
-                    board::systems_with_units_of(core, who).iter().filter_map(|i| System::ALL.get(i).copied()).collect();
+                // "A system that contains 1 or more of your ships": a structure in the space area (the Saar's Floating Factory) is no ship, whatever it can do.
+                let mut held: SmallList<System, 16> = board::systems_with_units_of(core, who)
+                    .iter()
+                    .filter_map(|i| System::ALL.get(i).copied())
+                    .filter(|s| board::space_units(core, *s).iter().any(|p| p.owner() == who && self.env.scope.unit(p.kind()).is_some_and(|d| d.ship)))
+                    .collect();
                 held.as_mut_slice().sort_unstable();
                 held.as_slice().iter().map(|s| Opt::System(*s)).collect()
             }

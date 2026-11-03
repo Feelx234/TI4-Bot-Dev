@@ -65,6 +65,37 @@ difference sits in the `phase` step, at `STRATEGY_PHASE_BEGAN:after` or at an `A
 * What a fix of the string would need (not done, user rule): `sync_timing_context` before the emission of `STRATEGY_PHASE_BEGAN` at the round flip; it changes
   the question order of recorded games, so behind a `RULES_VERSION`.
 
+## S3. A free tactical action takes its "notes at the start of the tactical action" AFTER the activation returned a Support for the Throne
+
+Found by integration 19 (empyrean 6 players seed 5, step 1063; the `--seeds 8` Z-gate command). Betray a Friend (secret objective): "Win a combat against a player whose
+promissory note you had in your play area at the start of your tactical action."
+
+* What the string does: a tactical action from the menu snapshots `note_holdings` when `TACTICAL_ACTION_BEGAN` is announced, i.e. BEFORE the activation (and before
+  `spend_support_on_activation` returns a Support for the Throne). A FREE tactical action (`begin_free`, game.rs near `SUPPORT_FOR_THE_THRONE_RETURNED`) spends the Support
+  first and snapshots afterwards. In the same turn the same objective is scored or not depending on how the action began.
+* What the core does: the snapshot is taken when the action opens, before the activation, for both kinds (`open_tactical`, `open_free`, `begin_free`). The action starts
+  with the activation; the Support is returned BY the activation, so the seat held the note at the start of its action: the feat is earned.
+* Who is right: the core (the card says "at the start of your tactical action"; a free tactical action is a tactical action; one reading for both).
+* The harness recognises it (`s3_feat_differs`: a state difference at `players[N].event_feats[..]` where only the core holds `won_against_a_note_holder`) and reports
+  `KNOWN STRING BUG ... (known string bug S3)`.
+* What a fix of the string would need (not done, user rule): snapshot before `spend_support_on_activation` in the free path; it changes a recorded game's scoring, so behind a
+  `RULES_VERSION`.
+
+## S4. The Yin hero's list of planets leaves out the Wormhole Nexus' planet
+
+Found by integration 19 (yin 4 players seed 8, step 927). Dannel of the Tenth (Quantum Dissemination): "Commit up to 3 infantry from your reinforcements to any non-home
+planets and resolve ground combats on those planets."
+
+* What the string does: `yin::hero_spots` walks `Galaxy::system_ids()`, the systems on the hex grid. The Wormhole Nexus (`82a`, planet `lockedmallice`, or `82b` /
+  `mallice` once open) sits beside the board: it is in play but has no hex, so its planet is never offered.
+* What the core does: every planet of the systems in play that is not a home system (`driver/turn/hero.rs::yin_spots`, `galaxy.in_play()`), the Nexus' planet included.
+* Who is right: the core by the card text (Mallice is a planet, not a home planet, and it can be controlled and invaded like any other: the same game shows the Yin seat using
+  `lockedmallice`'s legendary ability). **A reading the user may overrule** (if the Nexus is not meant to be a target while off the board, the core's list needs the
+  same exclusion): listed as question Q1 in `docs/INTEGRATION19.md`.
+* The harness recognises it (`s4_nexus_in_error`: the script wants `82a|..` and the string's offer has no `82a|..` entry) and reports `(known string bug S4)`.
+* What a fix of the string would need (not done): `hero_spots` over `system_ids()` plus `off_map_system_ids()`; it changes the offered options of recorded games, so behind a
+  `RULES_VERSION`.
+
 ## Harness limits found on the way (the shadow's, not the engines')
 
 * H1. A game the string has not stepped yet carries its galaxy with `hyperlane_lanes` off (`laws::apply_to_galaxy` runs at the start of every step). The core

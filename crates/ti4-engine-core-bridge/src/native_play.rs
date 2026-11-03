@@ -224,6 +224,8 @@ pub struct Played {
     pub asked: Vec<Asked>,
     /// The plain events the step pushed, in order.
     pub events: Vec<String>,
+    /// How many of the first `events` the step's reconcile announced (what the step before staged), before the arm began.
+    pub announced: usize,
     /// The arm's window ended.
     pub finished: bool,
 }
@@ -442,6 +444,7 @@ impl NativeGame {
                 Err(stop) => return stop_to_step("reconcile", stop),
             }
         }
+        let announced = ti4_engine::render::events::pushed_since(&self.render, &self.cx, &self.core, from).map_or(0, |lines| lines.len());
         // 2. The arm.
         let facts = Facts::of_core(&self.core, false);
         let asks = self.asks();
@@ -499,7 +502,7 @@ impl NativeGame {
         // The string's step goes on past a finished aftermath into the tail of the tactical action (and the end of the action) up to its next question.
         // (And past the hand-off of a tactical action to its aftermath, when no movement question stands between them: a Ceasefire denies the movement and the
         // string's step runs from the activation through the aftermath to the closing menu; the events the activation staged wait for the step after.)
-        let handed_off = arm == Arm::Tactical && self.core.pending().window(ti4_engine_core::state::WindowKind::Aftermath).is_some();
+        let handed_off = arm == Arm::Tactical && asked.is_empty() && self.core.pending().window(ti4_engine_core::state::WindowKind::Aftermath).is_some();
         // (Not past a scoring pause: the string's step ends at the pause, and the scoring step after it announces what was staged first.)
         let parked_for_scoring = self.core.pending().window(ti4_engine_core::state::WindowKind::EventScoring).is_some();
         // (And up to a removal over the capacity after a retreat: those are native steps of their own, the string's step goes on through them; what the
@@ -511,7 +514,7 @@ impl NativeGame {
                 .flatten()
                 .is_some_and(|asking| matches!(asking.choice.ask, ti4_engine_core::choice::Ask::Tactical(ti4_engine_core::choice::tactical::Ask::Remove { .. })));
         self.after_glue = !parked_for_scoring && (removal_next || (out.finished && (glued(arm) || arm == Arm::Aftermath || handed_off || (self.after_glue && arm == Arm::Tactical && asked.is_empty()))));
-        Step::Played(Played { arm, source, asked, events, finished: out.finished })
+        Step::Played(Played { arm, source, asked, events, announced, finished: out.finished })
     }
 
     /// The final scores `(faction, victory points)` in seat order.
@@ -763,6 +766,26 @@ pub const KNOWN_S1: &str = "known string bug S1";
 /// The label of a difference that is the string's S2 (the windows of the flip into a strategy phase are ordered by the stale context).
 pub const KNOWN_S2: &str = "known string bug S2";
 
+/// The label of a difference that is the string's S3 (a free tactical action takes its note snapshot after the activation returned a Support for the Throne).
+pub const KNOWN_S3: &str = "known string bug S3";
+
+/// The label of a difference that is the string's S4 (the Yin hero's planets leave out the Wormhole Nexus' planet, which is off the hex grid).
+pub const KNOWN_S4: &str = "known string bug S4";
+
+/// S3 (`docs/STRING_ENGINE_BUGS.md`): the core records the feat `won_against_a_note_holder` where the string does not -- the note holder's Support for the Throne was
+/// returned by the activation of the free tactical action, which the string's snapshot of "the notes at the start of the tactical action" already leaves out.
+fn s3_feat_differs(d: &Difference) -> bool {
+    d.what == "state" && d.path.contains(".event_feats[") && d.native.contains("won_against_a_note_holder") && d.legacy == "<absent>"
+}
+
+/// S4: the string's list of planets for the Yin hero (Dannel of the Tenth: "any non-home planets") walks the hex grid, and the Wormhole Nexus sits beside it; the
+/// core's list holds `82a|lockedmallice` (or `82a|mallice`), the script wants it and the string does not offer it.
+fn s4_nexus_in_error(error: &str) -> bool {
+    let Some(wanted) = error.split("script wanted \"").nth(1).and_then(|r| r.split('"').next()) else { return false };
+    let Some(offered) = error.split(" was offered ").nth(1) else { return false };
+    (wanted.starts_with("82a|") || wanted.starts_with("82b|")) && !offered.contains("\"82a|") && !offered.contains("\"82b|") && offered.contains("|")
+}
+
 /// S1 (`docs/STRING_ENGINE_BUGS.md`): the order the string offers an action-phase reaction window in (its seating order, rotated from the active seat,
 /// fixed at `Game::new`) against the order of the ruling (the active seat first, then the others in the initiative order of the moment).
 fn s1_orders_differ(state: &ti4_model::state::GameState) -> bool {
@@ -806,7 +829,8 @@ fn s1_in_error(state: &ti4_model::state::GameState, error: &str) -> bool {
 fn order_in_error(differ: bool, error: &str) -> bool {
     let Some(wanted) = error.split("script wanted \"").nth(1).and_then(|r| r.split('"').next()) else { return false };
     let Some(offered) = error.split(" was offered ").nth(1) else { return false };
-    differ && is_reaction_id(wanted) && offered.trim_start_matches('[').trim_start_matches('"').split('"').next().is_some_and(is_reaction_id)
+    // (The wanted answer is a reaction id, or the answer of the ability's own prompt: Suffi An's `exhaust`, when the core asked that seat first.)
+    differ && (is_reaction_id(wanted) || wanted == "exhaust") && offered.trim_start_matches('[').trim_start_matches('"').split('"').next().is_some_and(is_reaction_id)
 }
 
 /// S1 shows in a question of the same prompt asked of another seat, or with the same options in another order.
@@ -1047,6 +1071,21 @@ fn steps_idle(run: &LegacyRun, group: &[Played]) -> bool {
     run.events.is_empty() && group.iter().any(|p| !p.events.is_empty())
 }
 
+/// The native step announces what the step before staged FIRST (its reconcile), then begins its arm; the string's step before ended with the arm's first events
+/// (`INVASION_BEGAN`, the commit question behind it) and announces what it staged at the start of the NEXT step, i.e. AFTER them. A product session splits at the
+/// question and meets the string's order; the shadow's native step holds the question and its answer, so the reconcile cannot run between them. The events of the
+/// head that the string already pushed (`owed`) are moved in front of the `announced` ones (naalu 4p seed 8, ghost 4p seed 6: Foresight's strategy token).
+fn announced_behind_owed(mut events: Vec<String>, announced: usize, owed_legacy: &[String]) -> Vec<String> {
+    if announced == 0 || owed_legacy.is_empty() || events.len() < announced {
+        return events;
+    }
+    let same = events[announced..].iter().zip(owed_legacy).take_while(|(n, l)| n == l).count();
+    if same > 0 {
+        events[..announced + same].rotate_left(announced);
+    }
+    events
+}
+
 /// The events one side has pushed that the other has not, yet (a native step and a legacy step end in different places inside one arm's close).
 #[derive(Debug, Default)]
 struct Owed {
@@ -1186,6 +1225,8 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
         let mut d = diff("legacy", "step.error".to_owned(), "no error".to_owned(), error.clone());
         d.known = if s1_in_error(&legacy.game().state, error) {
             Some(KNOWN_S1)
+        } else if s4_nexus_in_error(error) {
+            Some(KNOWN_S4)
         } else {
             (flips_a_phase(&d.arms) && order_in_error(s2_orders_differ(&legacy.game().state), error)).then_some(KNOWN_S2)
         };
@@ -1228,7 +1269,11 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
     // The events are two streams: what one side pushed beyond the other's end of step is matched by the other's next step. A step that ends an
     // arm the string's close goes on after (non-strict) may leave either side ahead; a strict step must end level, unless the group was cut in two
     // (`ahead`): the string's events beyond the head are the later half's (a reaction asked inside the step, the question after it in the same native step).
-    let native_stream: Vec<String> = owed.native.drain(..).chain(group.iter().flat_map(|p| p.events.iter().cloned())).collect();
+    let mut group_events: Vec<String> = group.iter().flat_map(|p| p.events.iter().cloned()).collect();
+    if owed.native.is_empty() && let Some(first) = group.first() {
+        group_events = announced_behind_owed(group_events, first.announced, &owed.legacy);
+    }
+    let native_stream: Vec<String> = owed.native.drain(..).chain(group_events).collect();
     let legacy_stream: Vec<String> = owed.legacy.drain(..).chain(events.iter().cloned()).collect();
     let common = native_stream.len().min(legacy_stream.len());
     let at = (0..common).find(|i| native_stream[*i] != legacy_stream[*i]).or_else(|| (strict && !ahead && native_stream.len() != legacy_stream.len()).then_some(common));
@@ -1253,7 +1298,11 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
                     let _ = std::fs::write(std::path::Path::new(&dir).join(format!("native-{}.json", native.steps)), after.to_string());
                 }
                 if let Some(d) = crate::native_subject::first_leaf(&legacy_state, &crate::native_subject::without_staged_marks(after)) {
-                    return Some(diff("state", d.path, d.right, d.left));
+                    let mut found = diff("state", d.path, d.right, d.left);
+                    if s3_feat_differs(&found) {
+                        found.known = Some(KNOWN_S3);
+                    }
+                    return Some(found);
                 }
             }
             Err(why) => return Some(diff("state", "materialize".to_owned(), why, "a position".to_owned())),
@@ -1922,6 +1971,62 @@ mod tests {
         for (faction, seed, steps) in [("l1z1x", 5, 818), ("sol", 8, 500)] {
             let shadowed = shadow_play(&lobby_spec(faction, 6, seed), steps, 50).expect("builds");
             assert!(shadowed.first_difference.is_none(), "{faction} seed {seed}: {:?}", shadowed.first_difference);
+        }
+    }
+
+    /// Integration 19: Foresight (Naalu) spends a strategy token in the movement window; the string's step ends with `INVASION_BEGAN` and the commit question and announces
+    /// the token at the start of the NEXT step. The shadow's native step holds the question and its answer, so its reconcile announced the token before `INVASION_BEGAN`
+    /// (naalu 4 players seed 8 step 671, ghost 4 players seed 6 step 901): the harness moves the events the string already pushed in front of the announced ones.
+    #[test]
+    fn a_token_the_movement_window_staged_is_announced_behind_the_invasion_the_string_began() {
+        for (faction, seed, steps) in [("naalu", 8, 700), ("ghost", 6, 920)] {
+            let shadowed = shadow_play(&lobby_spec(faction, 4, seed), steps, 50).expect("builds");
+            assert!(shadowed.first_difference.is_none(), "{faction} seed {seed}: {:?}", shadowed.first_difference);
+        }
+        let e = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert_eq!(announced_behind_owed(e(&["TOKEN", "BEGAN", "DONE"]), 1, &e(&["BEGAN"])), e(&["BEGAN", "TOKEN", "DONE"]));
+        assert_eq!(announced_behind_owed(e(&["TOKEN", "OTHER", "DONE"]), 1, &e(&["BEGAN"])), e(&["TOKEN", "OTHER", "DONE"]), "events the string did not push stay where they are");
+        assert_eq!(announced_behind_owed(e(&["BEGAN", "DONE"]), 0, &e(&["BEGAN"])), e(&["BEGAN", "DONE"]), "nothing announced, nothing moves");
+        assert_eq!(announced_behind_owed(e(&["A", "B", "BEGAN", "DONE"]), 2, &e(&["BEGAN"])), e(&["BEGAN", "A", "B", "DONE"]));
+    }
+
+    /// Integration 19, found by the Z-gate command (`--seeds 8`): a fight whose seats also hold ground forces and structures on the planets named more than ten unit
+    /// kinds, which names none, and the machine stood at its first roller (`CombatUnported`: hacan 6 players seed 8, arborec 6 players seed 8, arborec 4 players seed 7).
+    #[test]
+    fn a_fight_with_ground_forces_and_structures_on_the_planets_names_its_ships() {
+        for (faction, players, seed, steps) in [("hacan", 6, 8, 1210), ("arborec", 6, 8, 370), ("arborec", 4, 7, 1100)] {
+            let shadowed = shadow_play(&lobby_spec(faction, players, seed), steps, 50).expect("builds");
+            assert!(shadowed.first_difference.is_none(), "{faction} {players}p seed {seed}: {:?}", shadowed.first_difference);
+            assert!(!matches!(shadowed.played.end, End::Gap(_) | End::Defect(_)), "{faction} {players}p seed {seed}: {:?}", shadowed.played.end);
+        }
+    }
+
+    /// Integration 19, the three string bugs it adds to `docs/STRING_ENGINE_BUGS.md` and the harness' own S1 case: (S1) the Mentak seat's Suffi An question is the ability's
+    /// own prompt, whose answer `exhaust` is no reaction id (yssaril 3 players seed 5); (S3) the free tactical action's note snapshot (empyrean 6 players seed 5); (S4) the Yin
+    /// hero's planets without the Nexus (yin 4 players seed 8).
+    #[test]
+    fn the_string_bugs_of_integration_19_are_recognised_and_nothing_else_is() {
+        for (faction, players, seed, steps, known) in [("yssaril", 3, 5, 720, KNOWN_S1), ("empyrean", 6, 5, 1070, KNOWN_S3), ("yin", 4, 8, 935, KNOWN_S4)] {
+            let shadowed = shadow_play(&lobby_spec(faction, players, seed), steps, 50).expect("builds");
+            let difference = shadowed.first_difference.unwrap_or_else(|| panic!("{faction} {players}p seed {seed}: the string differs here"));
+            assert_eq!(difference.known, Some(known), "{faction} {players}p seed {seed}: {difference}");
+        }
+        let d = |what, path: &str, native: &str, legacy: &str| Difference { step: 1, arms: vec![], what, path: path.to_owned(), native: native.to_owned(), legacy: legacy.to_owned(), known: None };
+        assert!(s3_feat_differs(&d("state", "players[4].event_feats[1]", "[\"won_against_a_note_holder\",26]", "<absent>")));
+        assert!(!s3_feat_differs(&d("state", "players[4].event_feats[1]", "[\"won_in_an_anomaly\",26]", "<absent>")), "another feat is a difference of the core");
+        assert!(!s3_feat_differs(&d("state", "players[4].event_feats[1]", "[\"won_against_a_note_holder\",26]", "[\"won_against_a_note_holder\",25]")), "a feat the string has too is not S3");
+        assert!(s4_nexus_in_error("script wanted \"82a|lockedmallice\" but a was offered [\"19|wellon\", \"decline\"]"));
+        assert!(!s4_nexus_in_error("script wanted \"82a|lockedmallice\" but a was offered [\"82a|lockedmallice\", \"decline\"]"), "offered: no difference");
+        assert!(!s4_nexus_in_error("script wanted \"19|wellon\" but a was offered [\"59|archonvail\", \"decline\"]"), "another planet is a difference of the core");
+    }
+
+    /// Integration 19: a Nomad mech in the space area is offered as a sustainer (nomad 3 players seed 5, step 832: the string offered `sustain|1` and `sustain|2`); the
+    /// War Effort question lists the systems with a SHIP of the seat, not the system of its Floating Factory (nomad 6 players seed 6, step 824).
+    #[test]
+    fn the_nomad_mech_sustains_in_space_and_war_effort_lists_systems_with_ships() {
+        for (faction, players, seed, steps) in [("nomad", 3, 5, 840), ("nomad", 6, 6, 830)] {
+            let shadowed = shadow_play(&lobby_spec(faction, players, seed), steps, 50).expect("builds");
+            assert!(shadowed.first_difference.is_none(), "{faction} {players}p seed {seed}: {:?}", shadowed.first_difference);
         }
     }
 

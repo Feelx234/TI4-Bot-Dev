@@ -220,6 +220,6 @@ fn main() {
     for line in matrix.render(o.top) {
         println!("{line}");
     }
-    println!("native_play: {} games | {} finished with zero gaps | {} gaps | {} stopped at a known string bug (S1, S2; not a difference of the core, excluded from the exit code) | {}", specs.len(), finished, matrix.total_gaps(), known, if bad { "FAILED (a whole game must play natively without a gap)" } else { "ZERO GAP" });
+    println!("native_play: {} games | {} finished with zero gaps | {} gaps | {} stopped at a known string bug (S1 to S4; not a difference of the core, excluded from the exit code) | {}", specs.len(), finished, matrix.total_gaps(), known, if bad { "FAILED (a whole game must play natively without a gap)" } else { "ZERO GAP" });
     std::process::exit(i32::from(bad));
 }

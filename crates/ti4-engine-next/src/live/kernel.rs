@@ -25,9 +25,29 @@ pub fn kernel_for(sources: SourceSet) -> &'static Kernel {
         ti4_engine_core::kernel::seam::adapters::bridge_legacy(&mut hooks.seam);
         ti4_engine_core_factions::register_all(&mut hooks);
         ti4_engine_core::kernel::seam::providers::register_ground_abilities(&mut hooks);
+        // The Nomad's Quantum Manipulator ("while this unit is in a space area during combat, you may use its SUSTAIN DAMAGE ability") and The Cavalry: the
+        // question of a hit reads the legacy slot, which the combat kernel of the string bridge fills with `register_naaz_nomad` (the Naaz half is registered by the
+        // faction module itself): without it a Nomad mech in the space area was never offered as a sustainer (nomad 3 players seed 5, step 832).
+        hooks.combat.grants_sustain.push(ti4_engine_core::rules::combat::nomad_grants_sustain);
         // The die a round agent gave one unit (a mark of the round): the slot the bridge reads, no module registers it.
         hooks.direct.borrowed_round_agents_extra_die_for.push(ti4_engine_core_factions::cc_ground::borrowed::query::extra_die_for);
         let base = crate::ties::core_adapter::kernel_for(sources);
         Kernel { hooks, sources: base.sources }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use ti4_engine_core::hooks::{CombatCtx, CombatUnit};
+    use ti4_engine_core::state::CoreState;
+
+    /// The live kernel answers the Nomad's mech: it may sustain against a hit in a space combat (and not against a space cannon offense hit).
+    #[test]
+    fn the_live_kernel_lets_a_nomad_mech_in_the_space_area_sustain() {
+        let kernel = super::kernel_for(ti4_model::content_types::FULL);
+        let state = CoreState::default();
+        let unit = |ctx| CombatUnit { owner: ti4_engine_core::Seat(0), system: None, planet: None, unit: ti4_engine_core::generated::Unit::QuantumManipulator, ctx };
+        assert!(kernel.hooks.combat.grants_sustain(&state, kernel, unit(CombatCtx::Space)));
+        assert!(!kernel.hooks.combat.grants_sustain(&state, kernel, CombatUnit { unit: ti4_engine_core::generated::Unit::CruiserI, ..unit(CombatCtx::Space) }));
+    }
 }

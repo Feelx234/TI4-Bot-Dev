@@ -199,8 +199,10 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
     let mut pieces: Vec<Unit> = if let Some((system, _, _)) = core.transient().combat.active_space_combat {
         let cell = core.board().sys(system);
         let mut pieces: Vec<Unit> = cell.units.iter().map(|p| p.kind()).collect();
+        // (The units on the planets are named only where they are ships: a ground force or a structure rolls no die in a space combat, and each kind named doubles
+        // the roll groups: a fight whose seats also hold infantry, a PDS and a dock on the planets went over `MAX_TYPES`, which names none: `CombatUnported`.)
         for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
-            pieces.extend(core.board().planet(*planet).units.iter().map(|p| p.kind()));
+            pieces.extend(core.board().planet(*planet).units.iter().map(|p| p.kind()).filter(|u| u.data().ship));
         }
         pieces
     } else {
@@ -215,7 +217,7 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
     if let Some((system, _, _)) = core.transient().combat.active_space_combat {
         let mut owned: Vec<(ti4_engine_core::ids::Seat, Unit)> = core.board().sys(system).units.iter().map(|p| (p.owner(), p.kind())).collect();
         for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
-            owned.extend(core.board().planet(*planet).units.iter().map(|p| (p.owner(), p.kind())));
+            owned.extend(core.board().planet(*planet).units.iter().map(|p| (p.owner(), p.kind())).filter(|(_, u)| u.data().ship));
         }
         let milor_in_play = milor_in_play(core);
         for (owner, unit) in owned {
@@ -868,6 +870,34 @@ mod tests {
         assert!(named.contains(&U::CruiserI) && named.contains(&U::FighterI) && named.contains(&U::DreadnoughtI), "{named:?}");
         assert!(!named.contains(&U::InfantryI), "a ground force is no ship of the fleet: {named:?}");
         assert!(!named.contains(&U::DestroyerI), "a rival's ship in the fleet's own system is not the fleet's: {named:?}");
+    }
+
+    /// Integration 19 (hacan 6p seed 8, arborec 6p seed 8, arborec 4p seed 7 of the Z-gate command: `CombatUnported` at the first roller): the units on the planets of
+    /// the system are named only where they are ships. A ground force or a structure rolls no die in a space combat, and each kind named (with its other form) doubles the
+    /// roll groups; a fight whose seats also hold infantry, a PDS and a dock on a planet went over `MAX_TYPES` unit kinds, which names none, and the machine stood at the
+    /// first roller.
+    #[test]
+    fn the_texts_of_a_fight_name_the_ships_and_not_the_ground_forces_and_structures_on_the_planets() {
+        let (hub, _origin, target, planet) = planet_hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        for ship in ["cruiser", "carrier", "dreadnought", "fighter"] {
+            crate::fixtures::put(&mut state, &target, ship, &a(), 1);
+        }
+        crate::fixtures::put(&mut state, &target, "destroyer", &b(), 1);
+        for unit in ["infantry", "pds", "spacedock"] {
+            crate::fixtures::put_on_planet(&mut state, &target, &planet, unit, &b(), 1);
+        }
+        let mut cx = Ctx::of(&state).expect("owners");
+        let mut core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&crate::rng::RngPositions::default()) }, SliceSet::ALL).expect("the position loads");
+        let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+        let (seat_a, seat_b) = (render.seat("a").expect("a"), render.seat("b").expect("b"));
+        core.transient_mut().combat.active_space_combat = Some((<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(target.as_str()).expect("a system"), seat_a, seat_b));
+        let texts = super::combat_texts(&mut core, &render);
+        let named: Vec<ti4_engine_core::generated::Unit> = texts.unit_codes.iter().map(|(u, _)| *u).collect();
+        use ti4_engine_core::generated::Unit as U;
+        assert!(named.contains(&U::CruiserI) && named.contains(&U::DestroyerI) && named.contains(&U::FighterI), "the ships of the fight are named: {named:?}");
+        assert!(!named.contains(&U::InfantryI) && !named.contains(&U::PDSI) && !named.contains(&U::SpaceDockI), "no ground force or structure is a roller: {named:?}");
+        assert_eq!(texts.groups.len(), (1 << named.len()) - 1);
     }
 
     /// Lane S: the forms a seat that can research in the middle of the fight may field are the forms of its SHIPS: the ground forces and the structures it has in the

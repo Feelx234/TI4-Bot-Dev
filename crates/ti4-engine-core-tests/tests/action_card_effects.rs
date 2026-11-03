@@ -284,6 +284,20 @@ fn war_effort_places_a_cruiser_in_a_system_with_our_ships() {
     assert_eq!(count_in(&rig.state, sys_of(3), 0, Unit::CruiserI), before + 1);
 }
 
+/// Integration 19 (nomad 6 players seed 6): "a system that contains 1 or more of your ships". The Saar's Floating Factory stands in the space area and "can move and
+/// retreat as if it were a ship", but it is a structure: the question listed its system too (the string does not).
+#[test]
+fn war_effort_does_not_list_a_system_that_holds_only_a_floating_factory() {
+    covers_card!(ActionCard::WarEffort);
+    let mut st = rich_state();
+    st.board_mut().sys_mut(sys_of(7)).units.push(ti4_engine_core::state::Piece::new(Unit::FloatingFactoryI, Seat(0)));
+    let play = Play::of(&st, ActionCard::WarEffort, Seat(0), env()).expect("a play");
+    let mut rig = Rig::from_parts(st, ti4_engine_core_tests::kernel_all(), play).with_table(linked()).seeded(1);
+    rig.run();
+    let systems: Vec<System> = rig.opts().iter().filter_map(|o| if let Opt::Cards(ti4_engine_core::choice::cards::Opt::System(s)) = o { Some(*s) } else { None }).collect();
+    assert_eq!(systems, vec![sys_of(1), sys_of(2), sys_of(3)], "the system with only a Floating Factory is not offered");
+}
+
 #[test]
 fn plague_destroys_one_infantry_for_each_die_that_shows_six_or_more() {
     covers_card!(ActionCard::Plague);
