@@ -7,6 +7,7 @@ use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
 use ti4_model::state::GameState;
 use ti4_model::units::Unit;
+pub use crate::builders::support::capacity_of;
 
 pub use crate::kinds::transit::{LOAD_KIND, RIFT_DESTROYS_ON};
 
@@ -57,8 +58,3 @@ pub fn loadable(state: &GameState, content: &ContentStore, sources: SourceSet, p
     found
 }
 
-/// The capacity of one ship.
-#[must_use]
-pub fn capacity_of(content: &ContentStore, sources: SourceSet, unit: &Unit) -> i64 {
-    catalogue(content, sources).get(unit.type_id.as_str()).map_or(0, UnitType::capacity)
-}

@@ -4,6 +4,24 @@
 //!
 //! One section per lane (section 6.2 of the plan): a lane edits only its own section.
 
+
+// ---- lane C (native setup and position builders, D2-8c; docs/D28C_RESUME.md) ----
+pub mod builders;
+pub mod deck;
+pub mod fixtures;
+pub mod map_feasibility;
+pub mod opening;
+pub mod seating;
+pub mod setup;
+pub mod starting_tech;
+
+pub use deck::{EXPLORATION_TRAITS, StartingDecks, build_starting_decks};
+pub use seating::{SeatingError, build_board, deploy, home_systems, neutral_systems};
+pub use setup::{
+    SetupError, cards_per_player, seeded_speaker, start_game, start_game_seeded,
+    start_game_seeded_with_card_set, strategy_card_setup, strategy_card_setup_for_set,
+};
+
 pub use ti4_engine_legacy::*;
 
 // ---- lane A (foundation, 8b1-8b3): generated tables, wire types, glue, Observed ----

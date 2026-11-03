@@ -3,11 +3,13 @@
 
 use ti4_content::ContentStore;
 use ti4_model::content_types::{ContentType, SourceSet};
-use ti4_model::id::{ObjectiveId, PlanetId, PlayerId};
+use ti4_model::id::{PlanetId, PlayerId};
 use ti4_model::state::GameState;
 
-/// The four exploration decks in the oracle's construction order.
-pub const EXPLORATION_TRAITS: [&str; 4] = ["CULTURAL", "HAZARDOUS", "INDUSTRIAL", "FRONTIER"];
+pub use crate::builders::objectives::points_for;
+/// The four exploration decks in the oracle's construction order: defined once, in `crate::deck` (lane C).
+pub use crate::deck::EXPLORATION_TRAITS;
+
 const FRONTIER: &str = "FRONTIER";
 
 /// Every exploration deck a planet could be explored into, in the planet's own printed trait order (35.2b).
@@ -61,17 +63,6 @@ pub fn leader(state: &GameState) -> Option<PlayerId> {
 #[must_use]
 pub fn winner(state: &GameState) -> Option<PlayerId> {
     first_in_initiative(state, state.players.iter().filter(|p| p.victory_points >= crate::kinds::objectives::VICTORY_TARGET).map(|p| p.id.clone()))
-}
-
-/// What a revealed objective is worth, or `None` if the corpus does not know it. Both decks: Classified Document Leaks moves a secret
-/// objective into the public area.
-#[must_use]
-pub fn points_for(content: &ContentStore, alias: &ObjectiveId) -> Option<i32> {
-    [ContentType::PublicObjectives, ContentType::SecretObjectives]
-        .into_iter()
-        .find_map(|category| content.get(category, alias.as_str()))
-        .and_then(|record| record.int("points"))
-        .and_then(|points| i32::try_from(points).ok())
 }
 
 /// How many of this player's scored objectives were secrets (45.4 counts them). A secret scored as a plot is not in `scored_objectives`.

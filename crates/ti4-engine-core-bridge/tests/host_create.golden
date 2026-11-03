@@ -1,0 +1,1405 @@
+plain 2p te te=false tech=false Random seed=1 => ok:7ae6c5b16dbe06bad9d844b39cae7991
+plain 2p te te=false tech=false Random seed=2 => ok:74fbaf9ab98709c108b4c806586a4b1b
+plain 2p te te=false tech=false Random seed=17 => ok:f9dfdc27088636e8d6211ca182c3bdf5
+plain 2p te te=false tech=false Seat seed=1 => ok:7ae6c5b16dbe06bad9d844b39cae7991
+plain 2p te te=false tech=false Seat seed=2 => ok:74fbaf9ab98709c108b4c806586a4b1b
+plain 2p te te=false tech=false Seat seed=17 => ok:019be6e5cc72724a6193b5f6e9de6c97
+plain 2p te te=false tech=true Random seed=1 => ok:7ae6c5b16dbe06bad9d844b39cae7991
+plain 2p te te=false tech=true Random seed=2 => ok:74fbaf9ab98709c108b4c806586a4b1b
+plain 2p te te=false tech=true Random seed=17 => ok:c50ece0a0c6b856206f14940b6832eba
+plain 2p te te=false tech=true Seat seed=1 => ok:7ae6c5b16dbe06bad9d844b39cae7991
+plain 2p te te=false tech=true Seat seed=2 => ok:74fbaf9ab98709c108b4c806586a4b1b
+plain 2p te te=false tech=true Seat seed=17 => ok:ab27bc0decc657cb9783f0b1383e8d8a
+plain 2p te te=true tech=false Random seed=1 => ok:9552f131ba354d6a4125907ba0f8c736
+plain 2p te te=true tech=false Random seed=2 => ok:8067539a0197d7c746c017c58e4f3ee5
+plain 2p te te=true tech=false Random seed=17 => ok:736ced9adb8f50b6e4b256aacb124a00
+plain 2p te te=true tech=false Seat seed=1 => ok:9552f131ba354d6a4125907ba0f8c736
+plain 2p te te=true tech=false Seat seed=2 => ok:8067539a0197d7c746c017c58e4f3ee5
+plain 2p te te=true tech=false Seat seed=17 => ok:9ebfba0e007d85e1878756ccbcac61cb
+plain 2p te te=true tech=true Random seed=1 => ok:9552f131ba354d6a4125907ba0f8c736
+plain 2p te te=true tech=true Random seed=2 => ok:8067539a0197d7c746c017c58e4f3ee5
+plain 2p te te=true tech=true Random seed=17 => ok:8a1ec5fb827ccc7e3477185ccb42572c
+plain 2p te te=true tech=true Seat seed=1 => ok:9552f131ba354d6a4125907ba0f8c736
+plain 2p te te=true tech=true Seat seed=2 => ok:8067539a0197d7c746c017c58e4f3ee5
+plain 2p te te=true tech=true Seat seed=17 => ok:24a183ff294bda34010cc50d9751ffd1
+plain 2p pok te=false tech=false Random seed=1 => ok:ba8a6fc57a0a9447d07d9f49c2df8792
+plain 2p pok te=false tech=false Random seed=2 => ok:677a2b32550ea37ea6d196d56c87c3ee
+plain 2p pok te=false tech=false Random seed=17 => ok:22da2f8ae2bd84436277a04d3e48663e
+plain 2p pok te=false tech=false Seat seed=1 => ok:ba8a6fc57a0a9447d07d9f49c2df8792
+plain 2p pok te=false tech=false Seat seed=2 => ok:677a2b32550ea37ea6d196d56c87c3ee
+plain 2p pok te=false tech=false Seat seed=17 => ok:b578230f404e2e641bb4cc30c6132843
+plain 2p pok te=false tech=true Random seed=1 => ok:ba8a6fc57a0a9447d07d9f49c2df8792
+plain 2p pok te=false tech=true Random seed=2 => ok:677a2b32550ea37ea6d196d56c87c3ee
+plain 2p pok te=false tech=true Random seed=17 => ok:11f8d6d1d4d4f7e92104f80ae52e325d
+plain 2p pok te=false tech=true Seat seed=1 => ok:ba8a6fc57a0a9447d07d9f49c2df8792
+plain 2p pok te=false tech=true Seat seed=2 => ok:677a2b32550ea37ea6d196d56c87c3ee
+plain 2p pok te=false tech=true Seat seed=17 => ok:ddb989e32065d77795167b0371ea6c42
+plain 2p pok te=true tech=false Random seed=1 => ok:fbc19d975d584acd051dae59a4be4edf
+plain 2p pok te=true tech=false Random seed=2 => ok:cf9b7db74347bf7d8300701118820c7a
+plain 2p pok te=true tech=false Random seed=17 => ok:d149ad2ba90634d48245462392f31519
+plain 2p pok te=true tech=false Seat seed=1 => ok:fbc19d975d584acd051dae59a4be4edf
+plain 2p pok te=true tech=false Seat seed=2 => ok:cf9b7db74347bf7d8300701118820c7a
+plain 2p pok te=true tech=false Seat seed=17 => ok:b132fe61b0e618f778516b5902e0f11a
+plain 2p pok te=true tech=true Random seed=1 => ok:fbc19d975d584acd051dae59a4be4edf
+plain 2p pok te=true tech=true Random seed=2 => ok:cf9b7db74347bf7d8300701118820c7a
+plain 2p pok te=true tech=true Random seed=17 => ok:c384fe6e3c2c651433d8f4dad50c9cd5
+plain 2p pok te=true tech=true Seat seed=1 => ok:fbc19d975d584acd051dae59a4be4edf
+plain 2p pok te=true tech=true Seat seed=2 => ok:cf9b7db74347bf7d8300701118820c7a
+plain 2p pok te=true tech=true Seat seed=17 => ok:2b3f5d2695a95f327499b9d17cad3c17
+plain 2p base_game_codex1 te=false tech=false Random seed=1 => ok:394217dc95a78b24bc48e342dea13096
+plain 2p base_game_codex1 te=false tech=false Random seed=2 => ok:2a9d2edbd562abbbb5369034e437b222
+plain 2p base_game_codex1 te=false tech=false Random seed=17 => ok:376512c6abd122411a4a3dd89abecd4c
+plain 2p base_game_codex1 te=false tech=false Seat seed=1 => ok:394217dc95a78b24bc48e342dea13096
+plain 2p base_game_codex1 te=false tech=false Seat seed=2 => ok:2a9d2edbd562abbbb5369034e437b222
+plain 2p base_game_codex1 te=false tech=false Seat seed=17 => ok:154d3edc0a226e4191dd7a646cda99a9
+plain 2p base_game_codex1 te=false tech=true Random seed=1 => ok:394217dc95a78b24bc48e342dea13096
+plain 2p base_game_codex1 te=false tech=true Random seed=2 => ok:2a9d2edbd562abbbb5369034e437b222
+plain 2p base_game_codex1 te=false tech=true Random seed=17 => ok:34fed18678bbf44d1fe57108d2112f71
+plain 2p base_game_codex1 te=false tech=true Seat seed=1 => ok:394217dc95a78b24bc48e342dea13096
+plain 2p base_game_codex1 te=false tech=true Seat seed=2 => ok:2a9d2edbd562abbbb5369034e437b222
+plain 2p base_game_codex1 te=false tech=true Seat seed=17 => ok:208c41687dce81f84dbdd98495e72de9
+plain 2p base_game_codex1 te=true tech=false Random seed=1 => ok:22b1185aaa382f4ca97c4a7d906ac02a
+plain 2p base_game_codex1 te=true tech=false Random seed=2 => ok:7d4585e1c42678ef219137dde1c8717f
+plain 2p base_game_codex1 te=true tech=false Random seed=17 => ok:645efef576e50ad6a713a5533a4540f0
+plain 2p base_game_codex1 te=true tech=false Seat seed=1 => ok:22b1185aaa382f4ca97c4a7d906ac02a
+plain 2p base_game_codex1 te=true tech=false Seat seed=2 => ok:7d4585e1c42678ef219137dde1c8717f
+plain 2p base_game_codex1 te=true tech=false Seat seed=17 => ok:cb38ba16c73ed3e5ffe355843c5f0184
+plain 2p base_game_codex1 te=true tech=true Random seed=1 => ok:22b1185aaa382f4ca97c4a7d906ac02a
+plain 2p base_game_codex1 te=true tech=true Random seed=2 => ok:7d4585e1c42678ef219137dde1c8717f
+plain 2p base_game_codex1 te=true tech=true Random seed=17 => ok:c38dd513857cc982a7ee8c4c0bfcfd62
+plain 2p base_game_codex1 te=true tech=true Seat seed=1 => ok:22b1185aaa382f4ca97c4a7d906ac02a
+plain 2p base_game_codex1 te=true tech=true Seat seed=2 => ok:7d4585e1c42678ef219137dde1c8717f
+plain 2p base_game_codex1 te=true tech=true Seat seed=17 => ok:9cfd00f5a500ee05085ea0cd82c1ec28
+plain 3p te te=false tech=false Random seed=1 => ok:1eab105adb4b2c3ac34ac7601c05fa3b
+plain 3p te te=false tech=false Random seed=2 => ok:14072c94f7fa2adace5e482f26cfb3d5
+plain 3p te te=false tech=false Random seed=17 => ok:7bb146f0172dcdf659bdf996dd4aebf1
+plain 3p te te=false tech=false Seat seed=1 => ok:1eab105adb4b2c3ac34ac7601c05fa3b
+plain 3p te te=false tech=false Seat seed=2 => ok:14072c94f7fa2adace5e482f26cfb3d5
+plain 3p te te=false tech=false Seat seed=17 => ok:af3f1af5e16d7f219a8233d9c1ca95cb
+plain 3p te te=false tech=true Random seed=1 => ok:1eab105adb4b2c3ac34ac7601c05fa3b
+plain 3p te te=false tech=true Random seed=2 => ok:14072c94f7fa2adace5e482f26cfb3d5
+plain 3p te te=false tech=true Random seed=17 => ok:891f7f16da17c5e97ade0fc995831ea0
+plain 3p te te=false tech=true Seat seed=1 => ok:1eab105adb4b2c3ac34ac7601c05fa3b
+plain 3p te te=false tech=true Seat seed=2 => ok:14072c94f7fa2adace5e482f26cfb3d5
+plain 3p te te=false tech=true Seat seed=17 => ok:e927ac21cc4f48d62d45c2fa90c5903d
+plain 3p te te=true tech=false Random seed=1 => ok:54fa5f59e042a466b2d7754de0cc8c3e
+plain 3p te te=true tech=false Random seed=2 => ok:a80ab0b04c54424a8f4f19cd07941c67
+plain 3p te te=true tech=false Random seed=17 => ok:d7ab80d178f56f2bf5589bed69d24a2e
+plain 3p te te=true tech=false Seat seed=1 => ok:54fa5f59e042a466b2d7754de0cc8c3e
+plain 3p te te=true tech=false Seat seed=2 => ok:a80ab0b04c54424a8f4f19cd07941c67
+plain 3p te te=true tech=false Seat seed=17 => ok:f6ccf1ecd708f057611989d3f15e7b06
+plain 3p te te=true tech=true Random seed=1 => ok:54fa5f59e042a466b2d7754de0cc8c3e
+plain 3p te te=true tech=true Random seed=2 => ok:a80ab0b04c54424a8f4f19cd07941c67
+plain 3p te te=true tech=true Random seed=17 => ok:1553a9c87a6029317f492a857227f1f4
+plain 3p te te=true tech=true Seat seed=1 => ok:54fa5f59e042a466b2d7754de0cc8c3e
+plain 3p te te=true tech=true Seat seed=2 => ok:a80ab0b04c54424a8f4f19cd07941c67
+plain 3p te te=true tech=true Seat seed=17 => ok:6c122094d2c23f5d5608325d9979b0fa
+plain 3p pok te=false tech=false Random seed=1 => ok:09c076d035fc4bc9aeaedb24dbca7405
+plain 3p pok te=false tech=false Random seed=2 => ok:3e44c21f5dfb9ae992967a2ede5293c8
+plain 3p pok te=false tech=false Random seed=17 => ok:0c6bc108f9eba9171046b8b8316ae3ca
+plain 3p pok te=false tech=false Seat seed=1 => ok:09c076d035fc4bc9aeaedb24dbca7405
+plain 3p pok te=false tech=false Seat seed=2 => ok:3e44c21f5dfb9ae992967a2ede5293c8
+plain 3p pok te=false tech=false Seat seed=17 => ok:51ed9202a2c051a60dc12ff54c4de69c
+plain 3p pok te=false tech=true Random seed=1 => ok:09c076d035fc4bc9aeaedb24dbca7405
+plain 3p pok te=false tech=true Random seed=2 => ok:3e44c21f5dfb9ae992967a2ede5293c8
+plain 3p pok te=false tech=true Random seed=17 => ok:69d1e8c017e2552a304858d1a5cfcf90
+plain 3p pok te=false tech=true Seat seed=1 => ok:09c076d035fc4bc9aeaedb24dbca7405
+plain 3p pok te=false tech=true Seat seed=2 => ok:3e44c21f5dfb9ae992967a2ede5293c8
+plain 3p pok te=false tech=true Seat seed=17 => ok:515f303e28f0403958ce6b1ac07cbfb4
+plain 3p pok te=true tech=false Random seed=1 => ok:b664bc125952aeeeef4fd7974c069eae
+plain 3p pok te=true tech=false Random seed=2 => ok:b9dcccc1d84b328fe4e933373caf0a8b
+plain 3p pok te=true tech=false Random seed=17 => ok:fb2bbffec8019fd8908195d14023782c
+plain 3p pok te=true tech=false Seat seed=1 => ok:b664bc125952aeeeef4fd7974c069eae
+plain 3p pok te=true tech=false Seat seed=2 => ok:b9dcccc1d84b328fe4e933373caf0a8b
+plain 3p pok te=true tech=false Seat seed=17 => ok:7da03659bacd04012568706ac91abdee
+plain 3p pok te=true tech=true Random seed=1 => ok:b664bc125952aeeeef4fd7974c069eae
+plain 3p pok te=true tech=true Random seed=2 => ok:b9dcccc1d84b328fe4e933373caf0a8b
+plain 3p pok te=true tech=true Random seed=17 => ok:b0898013ca119258dcea32e75ead20ec
+plain 3p pok te=true tech=true Seat seed=1 => ok:b664bc125952aeeeef4fd7974c069eae
+plain 3p pok te=true tech=true Seat seed=2 => ok:b9dcccc1d84b328fe4e933373caf0a8b
+plain 3p pok te=true tech=true Seat seed=17 => ok:6bdf676f64cbe1113542de3d2b620874
+plain 3p base_game_codex1 te=false tech=false Random seed=1 => ok:07b141cc0d86a32e4c053b63d97bd6aa
+plain 3p base_game_codex1 te=false tech=false Random seed=2 => ok:85a07e54d9829e1d4b487346e165bb92
+plain 3p base_game_codex1 te=false tech=false Random seed=17 => ok:8fc6cb0bf826d4a16316cb95c75e0ec8
+plain 3p base_game_codex1 te=false tech=false Seat seed=1 => ok:07b141cc0d86a32e4c053b63d97bd6aa
+plain 3p base_game_codex1 te=false tech=false Seat seed=2 => ok:85a07e54d9829e1d4b487346e165bb92
+plain 3p base_game_codex1 te=false tech=false Seat seed=17 => ok:a3d3a8c6a6e0e8fb9df1582b02e1a697
+plain 3p base_game_codex1 te=false tech=true Random seed=1 => ok:07b141cc0d86a32e4c053b63d97bd6aa
+plain 3p base_game_codex1 te=false tech=true Random seed=2 => ok:85a07e54d9829e1d4b487346e165bb92
+plain 3p base_game_codex1 te=false tech=true Random seed=17 => ok:d97a10dbfac644799b34beccf70bfba8
+plain 3p base_game_codex1 te=false tech=true Seat seed=1 => ok:07b141cc0d86a32e4c053b63d97bd6aa
+plain 3p base_game_codex1 te=false tech=true Seat seed=2 => ok:85a07e54d9829e1d4b487346e165bb92
+plain 3p base_game_codex1 te=false tech=true Seat seed=17 => ok:68a213ffa52bdfb1887d677b6fc0a4ee
+plain 3p base_game_codex1 te=true tech=false Random seed=1 => ok:bb1ea6d08602464d853ae03bd16a1ad9
+plain 3p base_game_codex1 te=true tech=false Random seed=2 => ok:361d5157fb159a3ed176caf7b8b20ff0
+plain 3p base_game_codex1 te=true tech=false Random seed=17 => ok:72fac63015c92d90b89d004961cc1315
+plain 3p base_game_codex1 te=true tech=false Seat seed=1 => ok:bb1ea6d08602464d853ae03bd16a1ad9
+plain 3p base_game_codex1 te=true tech=false Seat seed=2 => ok:361d5157fb159a3ed176caf7b8b20ff0
+plain 3p base_game_codex1 te=true tech=false Seat seed=17 => ok:6982588627d27dcbf567a9af4891c4c2
+plain 3p base_game_codex1 te=true tech=true Random seed=1 => ok:bb1ea6d08602464d853ae03bd16a1ad9
+plain 3p base_game_codex1 te=true tech=true Random seed=2 => ok:361d5157fb159a3ed176caf7b8b20ff0
+plain 3p base_game_codex1 te=true tech=true Random seed=17 => ok:ccaea8d142b440de302113608a4d3601
+plain 3p base_game_codex1 te=true tech=true Seat seed=1 => ok:bb1ea6d08602464d853ae03bd16a1ad9
+plain 3p base_game_codex1 te=true tech=true Seat seed=2 => ok:361d5157fb159a3ed176caf7b8b20ff0
+plain 3p base_game_codex1 te=true tech=true Seat seed=17 => ok:70bae1f15128393c29bb6d14a4780cdd
+plain 4p te te=false tech=false Random seed=1 => ok:8a6a6f6c0bcbe4dd0812a3d38a45b4a4
+plain 4p te te=false tech=false Random seed=2 => ok:d10283c1114b1c864ca40449ac88a098
+plain 4p te te=false tech=false Random seed=17 => ok:617ca6770b080799d08003ccc6bbe53b
+plain 4p te te=false tech=false Seat seed=1 => ok:8a6a6f6c0bcbe4dd0812a3d38a45b4a4
+plain 4p te te=false tech=false Seat seed=2 => ok:d10283c1114b1c864ca40449ac88a098
+plain 4p te te=false tech=false Seat seed=17 => ok:d581ba55629e072bbb26e00ceebea353
+plain 4p te te=false tech=true Random seed=1 => ok:8a6a6f6c0bcbe4dd0812a3d38a45b4a4
+plain 4p te te=false tech=true Random seed=2 => ok:d10283c1114b1c864ca40449ac88a098
+plain 4p te te=false tech=true Random seed=17 => ok:920dd94b4afe62f173410f7b55240e58
+plain 4p te te=false tech=true Seat seed=1 => ok:8a6a6f6c0bcbe4dd0812a3d38a45b4a4
+plain 4p te te=false tech=true Seat seed=2 => ok:d10283c1114b1c864ca40449ac88a098
+plain 4p te te=false tech=true Seat seed=17 => ok:d9d0c4ea799a3d9bd4f8b9f35ec348ab
+plain 4p te te=true tech=false Random seed=1 => ok:02954b3953c1f7b47c4e2d67ec0e931e
+plain 4p te te=true tech=false Random seed=2 => ok:c2a31678f81f8dc9f3484419b2c42c96
+plain 4p te te=true tech=false Random seed=17 => ok:25eea08925c77a4819a9cdac1376140e
+plain 4p te te=true tech=false Seat seed=1 => ok:02954b3953c1f7b47c4e2d67ec0e931e
+plain 4p te te=true tech=false Seat seed=2 => ok:c2a31678f81f8dc9f3484419b2c42c96
+plain 4p te te=true tech=false Seat seed=17 => ok:1fb783c0bc0259f0fa38e221bbff567e
+plain 4p te te=true tech=true Random seed=1 => ok:02954b3953c1f7b47c4e2d67ec0e931e
+plain 4p te te=true tech=true Random seed=2 => ok:c2a31678f81f8dc9f3484419b2c42c96
+plain 4p te te=true tech=true Random seed=17 => ok:df305ca3e844d80a83351c65b1b8573b
+plain 4p te te=true tech=true Seat seed=1 => ok:02954b3953c1f7b47c4e2d67ec0e931e
+plain 4p te te=true tech=true Seat seed=2 => ok:c2a31678f81f8dc9f3484419b2c42c96
+plain 4p te te=true tech=true Seat seed=17 => ok:6532fde9bcc8b32f875c7fa3059b879d
+plain 4p pok te=false tech=false Random seed=1 => ok:2a59d21ca45515499a47b67f0e11d19a
+plain 4p pok te=false tech=false Random seed=2 => ok:4f44e87cc42b8ab7bcf7f94972ede535
+plain 4p pok te=false tech=false Random seed=17 => ok:042c9537e33e46399ea48ca21f28f625
+plain 4p pok te=false tech=false Seat seed=1 => ok:2a59d21ca45515499a47b67f0e11d19a
+plain 4p pok te=false tech=false Seat seed=2 => ok:4f44e87cc42b8ab7bcf7f94972ede535
+plain 4p pok te=false tech=false Seat seed=17 => ok:334048f8c3c51f9bd298b9d8a2c5201b
+plain 4p pok te=false tech=true Random seed=1 => ok:2a59d21ca45515499a47b67f0e11d19a
+plain 4p pok te=false tech=true Random seed=2 => ok:4f44e87cc42b8ab7bcf7f94972ede535
+plain 4p pok te=false tech=true Random seed=17 => ok:44078a72ab0568de5cdff5d4a4fe091d
+plain 4p pok te=false tech=true Seat seed=1 => ok:2a59d21ca45515499a47b67f0e11d19a
+plain 4p pok te=false tech=true Seat seed=2 => ok:4f44e87cc42b8ab7bcf7f94972ede535
+plain 4p pok te=false tech=true Seat seed=17 => ok:df37c3440726a11d0f5d7f64953067ce
+plain 4p pok te=true tech=false Random seed=1 => ok:c0dfaf37c23b64b4de6040f86be110dc
+plain 4p pok te=true tech=false Random seed=2 => ok:b7e9506f97a42de92e2f7657ada752f2
+plain 4p pok te=true tech=false Random seed=17 => ok:dc1f345e639f36b98b3403112cb8b885
+plain 4p pok te=true tech=false Seat seed=1 => ok:c0dfaf37c23b64b4de6040f86be110dc
+plain 4p pok te=true tech=false Seat seed=2 => ok:b7e9506f97a42de92e2f7657ada752f2
+plain 4p pok te=true tech=false Seat seed=17 => ok:39e493ea020d47c0e5980c5645f677ee
+plain 4p pok te=true tech=true Random seed=1 => ok:c0dfaf37c23b64b4de6040f86be110dc
+plain 4p pok te=true tech=true Random seed=2 => ok:b7e9506f97a42de92e2f7657ada752f2
+plain 4p pok te=true tech=true Random seed=17 => ok:4efc4168adf67d035ade040353ca0f7d
+plain 4p pok te=true tech=true Seat seed=1 => ok:c0dfaf37c23b64b4de6040f86be110dc
+plain 4p pok te=true tech=true Seat seed=2 => ok:b7e9506f97a42de92e2f7657ada752f2
+plain 4p pok te=true tech=true Seat seed=17 => ok:283558af91da1b18b0e56f01ac94182b
+plain 4p base_game_codex1 te=false tech=false Random seed=1 => ok:dabc5504926d61f46d2c2128d7ffce0c
+plain 4p base_game_codex1 te=false tech=false Random seed=2 => ok:d0ace119d6279831f20a4a9f81a4f7e7
+plain 4p base_game_codex1 te=false tech=false Random seed=17 => ok:1945c4a3cacf71a2ae7f4eb9afdd9112
+plain 4p base_game_codex1 te=false tech=false Seat seed=1 => ok:dabc5504926d61f46d2c2128d7ffce0c
+plain 4p base_game_codex1 te=false tech=false Seat seed=2 => ok:d0ace119d6279831f20a4a9f81a4f7e7
+plain 4p base_game_codex1 te=false tech=false Seat seed=17 => ok:a12b67f2dfb78d15fdbcddc45150e899
+plain 4p base_game_codex1 te=false tech=true Random seed=1 => ok:dabc5504926d61f46d2c2128d7ffce0c
+plain 4p base_game_codex1 te=false tech=true Random seed=2 => ok:d0ace119d6279831f20a4a9f81a4f7e7
+plain 4p base_game_codex1 te=false tech=true Random seed=17 => ok:2c7bbaea8f1c447f9f2f01fccec995ff
+plain 4p base_game_codex1 te=false tech=true Seat seed=1 => ok:dabc5504926d61f46d2c2128d7ffce0c
+plain 4p base_game_codex1 te=false tech=true Seat seed=2 => ok:d0ace119d6279831f20a4a9f81a4f7e7
+plain 4p base_game_codex1 te=false tech=true Seat seed=17 => ok:d6a8731abab65488278ee1eb7779c8dc
+plain 4p base_game_codex1 te=true tech=false Random seed=1 => ok:72a932e7344225d373ad80da399ffda7
+plain 4p base_game_codex1 te=true tech=false Random seed=2 => ok:0840da6c5dff337eea45b66af8b84e4c
+plain 4p base_game_codex1 te=true tech=false Random seed=17 => ok:6d06b5864cf1a6c25b399ae7d4a11d4b
+plain 4p base_game_codex1 te=true tech=false Seat seed=1 => ok:72a932e7344225d373ad80da399ffda7
+plain 4p base_game_codex1 te=true tech=false Seat seed=2 => ok:0840da6c5dff337eea45b66af8b84e4c
+plain 4p base_game_codex1 te=true tech=false Seat seed=17 => ok:49dc5c187b06efcb852fc93cf8746b48
+plain 4p base_game_codex1 te=true tech=true Random seed=1 => ok:72a932e7344225d373ad80da399ffda7
+plain 4p base_game_codex1 te=true tech=true Random seed=2 => ok:0840da6c5dff337eea45b66af8b84e4c
+plain 4p base_game_codex1 te=true tech=true Random seed=17 => ok:a487860cc5c5716a1ba718f9e34484f7
+plain 4p base_game_codex1 te=true tech=true Seat seed=1 => ok:72a932e7344225d373ad80da399ffda7
+plain 4p base_game_codex1 te=true tech=true Seat seed=2 => ok:0840da6c5dff337eea45b66af8b84e4c
+plain 4p base_game_codex1 te=true tech=true Seat seed=17 => ok:a066cfc23160a3e627eff27798df4164
+plain 5p te te=false tech=false Random seed=1 => ok:d7e4f4335f16fd040d810a746b2df661
+plain 5p te te=false tech=false Random seed=2 => ok:5d2a0b2152b7a25bf87459e21834674a
+plain 5p te te=false tech=false Random seed=17 => ok:7230cde1f2943852a39ad53ac544e4bb
+plain 5p te te=false tech=false Seat seed=1 => ok:d7e4f4335f16fd040d810a746b2df661
+plain 5p te te=false tech=false Seat seed=2 => ok:5d2a0b2152b7a25bf87459e21834674a
+plain 5p te te=false tech=false Seat seed=17 => ok:bda97478cfa9a5dc8eb4a71b8d612f9d
+plain 5p te te=false tech=true Random seed=1 => ok:f8dedfb720270a20e3a9ff6917d1d6d0
+plain 5p te te=false tech=true Random seed=2 => ok:5d2a0b2152b7a25bf87459e21834674a
+plain 5p te te=false tech=true Random seed=17 => ok:9637a65a82ae83810dd44782bf9c91c1
+plain 5p te te=false tech=true Seat seed=1 => ok:f8dedfb720270a20e3a9ff6917d1d6d0
+plain 5p te te=false tech=true Seat seed=2 => ok:5d2a0b2152b7a25bf87459e21834674a
+plain 5p te te=false tech=true Seat seed=17 => ok:6f8a042db2c9df44e518ddc4a0563aa0
+plain 5p te te=true tech=false Random seed=1 => ok:286254b436c0d54d5cae2a2deac7fb12
+plain 5p te te=true tech=false Random seed=2 => ok:a34fd5692b34d19ec36f26285f6b4393
+plain 5p te te=true tech=false Random seed=17 => ok:b4bdc5f7b39cfb93c2ea54d202c5df96
+plain 5p te te=true tech=false Seat seed=1 => ok:286254b436c0d54d5cae2a2deac7fb12
+plain 5p te te=true tech=false Seat seed=2 => ok:a34fd5692b34d19ec36f26285f6b4393
+plain 5p te te=true tech=false Seat seed=17 => ok:a29bf1a37e10ded06acecf5f4c248b0d
+plain 5p te te=true tech=true Random seed=1 => ok:4ec864c3937aa214dbf0160b6665b450
+plain 5p te te=true tech=true Random seed=2 => ok:a34fd5692b34d19ec36f26285f6b4393
+plain 5p te te=true tech=true Random seed=17 => ok:b2c7b51e4884d965046d6265f4778ab7
+plain 5p te te=true tech=true Seat seed=1 => ok:4ec864c3937aa214dbf0160b6665b450
+plain 5p te te=true tech=true Seat seed=2 => ok:a34fd5692b34d19ec36f26285f6b4393
+plain 5p te te=true tech=true Seat seed=17 => ok:d375c645d7716a32d43bcb92cf702528
+plain 5p pok te=false tech=false Random seed=1 => ok:dca176422c76bb91c9f32e2dccebba8b
+plain 5p pok te=false tech=false Random seed=2 => ok:3f6627cee129264b77b9173b21a12199
+plain 5p pok te=false tech=false Random seed=17 => ok:2594c0a25ab7ce61dff31fde3a0111f7
+plain 5p pok te=false tech=false Seat seed=1 => ok:dca176422c76bb91c9f32e2dccebba8b
+plain 5p pok te=false tech=false Seat seed=2 => ok:3f6627cee129264b77b9173b21a12199
+plain 5p pok te=false tech=false Seat seed=17 => ok:518f91469b981e490342d044195d0ea2
+plain 5p pok te=false tech=true Random seed=1 => ok:4a2e4fc139bd86cd4e562f75e9cc179a
+plain 5p pok te=false tech=true Random seed=2 => ok:3f6627cee129264b77b9173b21a12199
+plain 5p pok te=false tech=true Random seed=17 => ok:ac86bfc0da836fa3d9b67abc516e889c
+plain 5p pok te=false tech=true Seat seed=1 => ok:4a2e4fc139bd86cd4e562f75e9cc179a
+plain 5p pok te=false tech=true Seat seed=2 => ok:3f6627cee129264b77b9173b21a12199
+plain 5p pok te=false tech=true Seat seed=17 => ok:993520649bcb8f51237cd584c39cd304
+plain 5p pok te=true tech=false Random seed=1 => ok:12d37097e5411645bc7b7899b62fc4b2
+plain 5p pok te=true tech=false Random seed=2 => ok:a0617cc80c169f98d6be2127e78d3e1b
+plain 5p pok te=true tech=false Random seed=17 => ok:df968a28f9b90f1979bc865d19a5e4dd
+plain 5p pok te=true tech=false Seat seed=1 => ok:12d37097e5411645bc7b7899b62fc4b2
+plain 5p pok te=true tech=false Seat seed=2 => ok:a0617cc80c169f98d6be2127e78d3e1b
+plain 5p pok te=true tech=false Seat seed=17 => ok:8abe9d1885347874a2ec6c6c2238dc71
+plain 5p pok te=true tech=true Random seed=1 => ok:f15c26ff3ffcee99b7d71fa957c41760
+plain 5p pok te=true tech=true Random seed=2 => ok:a0617cc80c169f98d6be2127e78d3e1b
+plain 5p pok te=true tech=true Random seed=17 => ok:a087839530162289cd8485711d1324b4
+plain 5p pok te=true tech=true Seat seed=1 => ok:f15c26ff3ffcee99b7d71fa957c41760
+plain 5p pok te=true tech=true Seat seed=2 => ok:a0617cc80c169f98d6be2127e78d3e1b
+plain 5p pok te=true tech=true Seat seed=17 => ok:c6bac52fad8a4668470e7f6cc0d674b7
+plain 5p base_game_codex1 te=false tech=false Random seed=1 => ok:717d08a0f471d2cca44131d6ef99cc48
+plain 5p base_game_codex1 te=false tech=false Random seed=2 => ok:fb09eb739af77142d533b9b792ea2d1c
+plain 5p base_game_codex1 te=false tech=false Random seed=17 => ok:28a4770ebc7bc1954f1259fc7ab90f9a
+plain 5p base_game_codex1 te=false tech=false Seat seed=1 => ok:717d08a0f471d2cca44131d6ef99cc48
+plain 5p base_game_codex1 te=false tech=false Seat seed=2 => ok:fb09eb739af77142d533b9b792ea2d1c
+plain 5p base_game_codex1 te=false tech=false Seat seed=17 => ok:83c8841d213781abd3267ba8d7c94518
+plain 5p base_game_codex1 te=false tech=true Random seed=1 => ok:373d9c342b6a7299db11db5209d69421
+plain 5p base_game_codex1 te=false tech=true Random seed=2 => ok:fb09eb739af77142d533b9b792ea2d1c
+plain 5p base_game_codex1 te=false tech=true Random seed=17 => ok:17f6a4ecabd636d1245ff903c2763658
+plain 5p base_game_codex1 te=false tech=true Seat seed=1 => ok:373d9c342b6a7299db11db5209d69421
+plain 5p base_game_codex1 te=false tech=true Seat seed=2 => ok:fb09eb739af77142d533b9b792ea2d1c
+plain 5p base_game_codex1 te=false tech=true Seat seed=17 => ok:b2c00f3049e2b45920d976fc1ea62bc9
+plain 5p base_game_codex1 te=true tech=false Random seed=1 => ok:7d0a15ff5b076fd347c306406e33ee96
+plain 5p base_game_codex1 te=true tech=false Random seed=2 => ok:43d47e948423152b86218739572fbc28
+plain 5p base_game_codex1 te=true tech=false Random seed=17 => ok:61ca6ffbf3dec84f04679988ddf315e9
+plain 5p base_game_codex1 te=true tech=false Seat seed=1 => ok:7d0a15ff5b076fd347c306406e33ee96
+plain 5p base_game_codex1 te=true tech=false Seat seed=2 => ok:43d47e948423152b86218739572fbc28
+plain 5p base_game_codex1 te=true tech=false Seat seed=17 => ok:4bd0ca2c2ba7e99c2d43490de10b99a8
+plain 5p base_game_codex1 te=true tech=true Random seed=1 => ok:932f245e2355e848d0ae541f0a0356da
+plain 5p base_game_codex1 te=true tech=true Random seed=2 => ok:43d47e948423152b86218739572fbc28
+plain 5p base_game_codex1 te=true tech=true Random seed=17 => ok:f5ed49f4e17817c554723316b1b81737
+plain 5p base_game_codex1 te=true tech=true Seat seed=1 => ok:932f245e2355e848d0ae541f0a0356da
+plain 5p base_game_codex1 te=true tech=true Seat seed=2 => ok:43d47e948423152b86218739572fbc28
+plain 5p base_game_codex1 te=true tech=true Seat seed=17 => ok:971ac29f400b8bc2b58733dce3ea90be
+plain 6p te te=false tech=false Random seed=1 => ok:3b6b84ec43420d32ce509ef14fbfa266
+plain 6p te te=false tech=false Random seed=2 => ok:0db2dc9642be39f991b79496f821711f
+plain 6p te te=false tech=false Random seed=17 => ok:92e29ae3dfc17705f7a8b4ce9eeff537
+plain 6p te te=false tech=false Seat seed=1 => ok:b58ae0126b57b464d1230fcac4871a7a
+plain 6p te te=false tech=false Seat seed=2 => ok:0db2dc9642be39f991b79496f821711f
+plain 6p te te=false tech=false Seat seed=17 => ok:cdead0bb6520d7e92a1fdd47ae77baea
+plain 6p te te=false tech=true Random seed=1 => ok:05446eab278abc2299b40c7fb5f15aa5
+plain 6p te te=false tech=true Random seed=2 => ok:0db2dc9642be39f991b79496f821711f
+plain 6p te te=false tech=true Random seed=17 => ok:8180fc24adf3ccb4b5be30f772f195a7
+plain 6p te te=false tech=true Seat seed=1 => ok:f6a100b0aa48de441861d4a22f849ac2
+plain 6p te te=false tech=true Seat seed=2 => ok:0db2dc9642be39f991b79496f821711f
+plain 6p te te=false tech=true Seat seed=17 => ok:dbfbdc5945cea8a1d748acf1a81807a0
+plain 6p te te=true tech=false Random seed=1 => ok:a05f815bad6160850371451eb45b51e8
+plain 6p te te=true tech=false Random seed=2 => ok:adda5cad9f78b750cb5d9156e1657577
+plain 6p te te=true tech=false Random seed=17 => ok:84d8acfbec1f8d4c17b5bf47295c17ea
+plain 6p te te=true tech=false Seat seed=1 => ok:3ddc3ef78d571e95115ae9376476a860
+plain 6p te te=true tech=false Seat seed=2 => ok:adda5cad9f78b750cb5d9156e1657577
+plain 6p te te=true tech=false Seat seed=17 => ok:b6e68797a9e6372f8ed2e9d3270b51f8
+plain 6p te te=true tech=true Random seed=1 => ok:34a4e5d26d8f5bc0808507a0383991ba
+plain 6p te te=true tech=true Random seed=2 => ok:adda5cad9f78b750cb5d9156e1657577
+plain 6p te te=true tech=true Random seed=17 => ok:900c47ad01beb2584dbd96834e94012e
+plain 6p te te=true tech=true Seat seed=1 => ok:51ed71b441607757a27834fe0ce0d5d1
+plain 6p te te=true tech=true Seat seed=2 => ok:adda5cad9f78b750cb5d9156e1657577
+plain 6p te te=true tech=true Seat seed=17 => ok:d2f8e6b014ff349fdf067446a557b802
+plain 6p pok te=false tech=false Random seed=1 => ok:43ea77f1a1e88d56a5a0d7907fac3a1d
+plain 6p pok te=false tech=false Random seed=2 => ok:3ddb0f93dcfae13c0abbafce77d7b998
+plain 6p pok te=false tech=false Random seed=17 => ok:b24f190c7be95774dc5efb6906919244
+plain 6p pok te=false tech=false Seat seed=1 => ok:384df6ec0848710722cb54b18141e3db
+plain 6p pok te=false tech=false Seat seed=2 => ok:3ddb0f93dcfae13c0abbafce77d7b998
+plain 6p pok te=false tech=false Seat seed=17 => ok:40f401523da331a866bb32199d021131
+plain 6p pok te=false tech=true Random seed=1 => ok:5ab48fe4c682883f9b2dec47ef285c4a
+plain 6p pok te=false tech=true Random seed=2 => ok:3ddb0f93dcfae13c0abbafce77d7b998
+plain 6p pok te=false tech=true Random seed=17 => ok:3eeca4ed375a5fcad2588c6dc6e5b7de
+plain 6p pok te=false tech=true Seat seed=1 => ok:75143d734d943bccd1d1bdbb31b088f7
+plain 6p pok te=false tech=true Seat seed=2 => ok:3ddb0f93dcfae13c0abbafce77d7b998
+plain 6p pok te=false tech=true Seat seed=17 => ok:fb838d35bd23cb4ddecbf9aaacd1e84b
+plain 6p pok te=true tech=false Random seed=1 => ok:169f9e56fb9032eba71517332bfb813d
+plain 6p pok te=true tech=false Random seed=2 => ok:f2db6f14d1527d94f2faca24dba22fe6
+plain 6p pok te=true tech=false Random seed=17 => ok:c68e354e2e71cb03ff092e79830ad2dc
+plain 6p pok te=true tech=false Seat seed=1 => ok:f9ff2bbee6f0a4190285fb5bec7dfc9c
+plain 6p pok te=true tech=false Seat seed=2 => ok:f2db6f14d1527d94f2faca24dba22fe6
+plain 6p pok te=true tech=false Seat seed=17 => ok:3204465781cfa3a184b9780147373519
+plain 6p pok te=true tech=true Random seed=1 => ok:25a2a655d4efef4bab9275afeb862b95
+plain 6p pok te=true tech=true Random seed=2 => ok:f2db6f14d1527d94f2faca24dba22fe6
+plain 6p pok te=true tech=true Random seed=17 => ok:a6ea26a1a0d408cdfd7ddcbe45a5ccb7
+plain 6p pok te=true tech=true Seat seed=1 => ok:201cf061ab9227e2b7f66cc386dbfc46
+plain 6p pok te=true tech=true Seat seed=2 => ok:f2db6f14d1527d94f2faca24dba22fe6
+plain 6p pok te=true tech=true Seat seed=17 => ok:b0b6a3d00785e939741b056953d5cb4f
+plain 6p base_game_codex1 te=false tech=false Random seed=1 => ok:171d27a5e7d5075a3ed08bee7c752a15
+plain 6p base_game_codex1 te=false tech=false Random seed=2 => ok:4d2dfd9ccf3176727e0fa97e31146883
+plain 6p base_game_codex1 te=false tech=false Random seed=17 => ok:9283f86308e99392e910e8837462a510
+plain 6p base_game_codex1 te=false tech=false Seat seed=1 => ok:a0c39a5f0bb872ce911a3a73376fce42
+plain 6p base_game_codex1 te=false tech=false Seat seed=2 => ok:4d2dfd9ccf3176727e0fa97e31146883
+plain 6p base_game_codex1 te=false tech=false Seat seed=17 => ok:087715b1ccb400ee6bf5ebc4db11e1cf
+plain 6p base_game_codex1 te=false tech=true Random seed=1 => ok:0923d391dc816e80f1f59e1a61892bb2
+plain 6p base_game_codex1 te=false tech=true Random seed=2 => ok:4d2dfd9ccf3176727e0fa97e31146883
+plain 6p base_game_codex1 te=false tech=true Random seed=17 => ok:3c5232d140cb08d0f82c8adf9946c5e3
+plain 6p base_game_codex1 te=false tech=true Seat seed=1 => ok:60775b00de4e4860579e74674a56b3cb
+plain 6p base_game_codex1 te=false tech=true Seat seed=2 => ok:4d2dfd9ccf3176727e0fa97e31146883
+plain 6p base_game_codex1 te=false tech=true Seat seed=17 => ok:4c9f9c5daa1ae53e1e6b4995fbae2a1e
+plain 6p base_game_codex1 te=true tech=false Random seed=1 => ok:1e803417c9c108ea67ccf41b5367112a
+plain 6p base_game_codex1 te=true tech=false Random seed=2 => ok:172d8a7f7d1f186d2fbd71293af34bb6
+plain 6p base_game_codex1 te=true tech=false Random seed=17 => ok:ce48e6a39b565dbc4ee8a21824d750a8
+plain 6p base_game_codex1 te=true tech=false Seat seed=1 => ok:6c86ce7dbcaf3e0f2e2754def4cbf247
+plain 6p base_game_codex1 te=true tech=false Seat seed=2 => ok:172d8a7f7d1f186d2fbd71293af34bb6
+plain 6p base_game_codex1 te=true tech=false Seat seed=17 => ok:43d85bd91f950799ae8726b04464841e
+plain 6p base_game_codex1 te=true tech=true Random seed=1 => ok:8c0ac92cbf518db5bc077e17a6f5a80a
+plain 6p base_game_codex1 te=true tech=true Random seed=2 => ok:172d8a7f7d1f186d2fbd71293af34bb6
+plain 6p base_game_codex1 te=true tech=true Random seed=17 => ok:2466c14799b1cf14a6be137b7f0839d5
+plain 6p base_game_codex1 te=true tech=true Seat seed=1 => ok:15e72f084d89f24e59a30021f63853ff
+plain 6p base_game_codex1 te=true tech=true Seat seed=2 => ok:172d8a7f7d1f186d2fbd71293af34bb6
+plain 6p base_game_codex1 te=true tech=true Seat seed=17 => ok:2ee01572b00372e76652c50a292d7c50
+plain 7p te te=false tech=false Random seed=1 => ok:d5f793ec1bbbcb58eff203301d064eaf
+plain 7p te te=false tech=false Random seed=2 => ok:c5e45da76712e5f447c2491a821aa0cc
+plain 7p te te=false tech=false Random seed=17 => ok:aac5693e2a9c6a119d95004e9049a20b
+plain 7p te te=false tech=false Seat seed=1 => ok:9fadcb00178c262c823f8b7334a63a2d
+plain 7p te te=false tech=false Seat seed=2 => ok:c5e45da76712e5f447c2491a821aa0cc
+plain 7p te te=false tech=false Seat seed=17 => ok:ca4f4c66077e8e3eab422a408decb770
+plain 7p te te=false tech=true Random seed=1 => ok:ff7bd14828bcba6cddce1fb5925faf35
+plain 7p te te=false tech=true Random seed=2 => ok:c5e45da76712e5f447c2491a821aa0cc
+plain 7p te te=false tech=true Random seed=17 => ok:a298b7d325f5a7112a4913b19485b979
+plain 7p te te=false tech=true Seat seed=1 => ok:9da9cc15e53848d91f086ecc7bb9a511
+plain 7p te te=false tech=true Seat seed=2 => ok:c5e45da76712e5f447c2491a821aa0cc
+plain 7p te te=false tech=true Seat seed=17 => ok:00e845227d4e217fff12968e97f53bab
+plain 7p te te=true tech=false Random seed=1 => ok:197cf2e1a035a70ae4922645bab7132c
+plain 7p te te=true tech=false Random seed=2 => ok:7fee653dc480a3d17f348a86b7b56d6c
+plain 7p te te=true tech=false Random seed=17 => ok:1eb49efccdd10cbe686a88723453bb66
+plain 7p te te=true tech=false Seat seed=1 => ok:9bdbd3a93ff4273c204936919dd9f600
+plain 7p te te=true tech=false Seat seed=2 => ok:7fee653dc480a3d17f348a86b7b56d6c
+plain 7p te te=true tech=false Seat seed=17 => ok:82d2f6dad1032d378d43da7b5a84f0c7
+plain 7p te te=true tech=true Random seed=1 => ok:418e06561b009fa035b56d1ca8f2deed
+plain 7p te te=true tech=true Random seed=2 => ok:7fee653dc480a3d17f348a86b7b56d6c
+plain 7p te te=true tech=true Random seed=17 => ok:e5a59ca69bbd1dd699339c3009313fe7
+plain 7p te te=true tech=true Seat seed=1 => ok:80866372fe3e35777aa4a922ebc657f9
+plain 7p te te=true tech=true Seat seed=2 => ok:7fee653dc480a3d17f348a86b7b56d6c
+plain 7p te te=true tech=true Seat seed=17 => ok:00a6aab8888b2a9ae9cc11c3be95f95b
+plain 7p pok te=false tech=false Random seed=1 => ok:8e520a437fa81275b732b570be8ee9a6
+plain 7p pok te=false tech=false Random seed=2 => ok:f69fb43adb4501b1fe1cede7cdc2607a
+plain 7p pok te=false tech=false Random seed=17 => ok:bf279182b4983b5984d8a000545625a8
+plain 7p pok te=false tech=false Seat seed=1 => ok:30367a9870a95e55cd614e010e051fe4
+plain 7p pok te=false tech=false Seat seed=2 => ok:f69fb43adb4501b1fe1cede7cdc2607a
+plain 7p pok te=false tech=false Seat seed=17 => ok:562e147e93eac42dbab3c575c63c0da9
+plain 7p pok te=false tech=true Random seed=1 => ok:9c5af3a3f7e0efbf9047d8622016996a
+plain 7p pok te=false tech=true Random seed=2 => ok:f69fb43adb4501b1fe1cede7cdc2607a
+plain 7p pok te=false tech=true Random seed=17 => ok:47a47e7c8f7a0caa309c00cea17e0d04
+plain 7p pok te=false tech=true Seat seed=1 => ok:f9c0e0fc8bf7ed03e19a645d221260bf
+plain 7p pok te=false tech=true Seat seed=2 => ok:f69fb43adb4501b1fe1cede7cdc2607a
+plain 7p pok te=false tech=true Seat seed=17 => ok:03898daf624ef795249510b7a67ba51a
+plain 7p pok te=true tech=false Random seed=1 => ok:86d0e39eb33a52c60624466ddee01b89
+plain 7p pok te=true tech=false Random seed=2 => ok:3849fc2edf2a3577890b7272858d510e
+plain 7p pok te=true tech=false Random seed=17 => ok:8bc7a445bcc940625a218b5433d490ed
+plain 7p pok te=true tech=false Seat seed=1 => ok:e9676c946c476a65daf203770873d674
+plain 7p pok te=true tech=false Seat seed=2 => ok:3849fc2edf2a3577890b7272858d510e
+plain 7p pok te=true tech=false Seat seed=17 => ok:9e61570f2d773b322dd047eb95903e38
+plain 7p pok te=true tech=true Random seed=1 => ok:92757f394c8b0d3f2e32c556d97a6171
+plain 7p pok te=true tech=true Random seed=2 => ok:3849fc2edf2a3577890b7272858d510e
+plain 7p pok te=true tech=true Random seed=17 => ok:7b3c4ae27a6aa26fcafb2f38906ec46e
+plain 7p pok te=true tech=true Seat seed=1 => ok:06375a4ddd54d61157264e91a6de66d7
+plain 7p pok te=true tech=true Seat seed=2 => ok:3849fc2edf2a3577890b7272858d510e
+plain 7p pok te=true tech=true Seat seed=17 => ok:6153b48cbf0ce2b9562ffde9adfaeba8
+plain 7p base_game_codex1 te=false tech=false Random seed=1 => ok:19fcba630ab2818ac4cf35faf061bea6
+plain 7p base_game_codex1 te=false tech=false Random seed=2 => ok:44682dd24bed7ac85e81627376363c6e
+plain 7p base_game_codex1 te=false tech=false Random seed=17 => ok:59f60594b836c2d62bc540ac19542a63
+plain 7p base_game_codex1 te=false tech=false Seat seed=1 => ok:82303f1cf8a4f1ccd83b2b84e30bcde5
+plain 7p base_game_codex1 te=false tech=false Seat seed=2 => ok:44682dd24bed7ac85e81627376363c6e
+plain 7p base_game_codex1 te=false tech=false Seat seed=17 => ok:5e7dba6e605b90ba143565f2d165ef93
+plain 7p base_game_codex1 te=false tech=true Random seed=1 => ok:96c4a6898fc684246addf9244748744f
+plain 7p base_game_codex1 te=false tech=true Random seed=2 => ok:44682dd24bed7ac85e81627376363c6e
+plain 7p base_game_codex1 te=false tech=true Random seed=17 => ok:9ec9fe8eb8515a5ed0da90b04332bd30
+plain 7p base_game_codex1 te=false tech=true Seat seed=1 => ok:8f8257e776f16ff44a3b9186feb26131
+plain 7p base_game_codex1 te=false tech=true Seat seed=2 => ok:44682dd24bed7ac85e81627376363c6e
+plain 7p base_game_codex1 te=false tech=true Seat seed=17 => ok:d6749e020e3dc63c9db42aa2493e70cf
+plain 7p base_game_codex1 te=true tech=false Random seed=1 => ok:83b7c1d80fd30ccddeebeda5305917db
+plain 7p base_game_codex1 te=true tech=false Random seed=2 => ok:3cb6201c986fc0f5ca227f469ecd1876
+plain 7p base_game_codex1 te=true tech=false Random seed=17 => ok:0a460d682cffa2bb5ab4ceedc2b75547
+plain 7p base_game_codex1 te=true tech=false Seat seed=1 => ok:699f2089a936883954333cc498d0357c
+plain 7p base_game_codex1 te=true tech=false Seat seed=2 => ok:3cb6201c986fc0f5ca227f469ecd1876
+plain 7p base_game_codex1 te=true tech=false Seat seed=17 => ok:75313554b79fec11a71a8a2509dc4bcf
+plain 7p base_game_codex1 te=true tech=true Random seed=1 => ok:c3e5aad1eae010678068d667caf14524
+plain 7p base_game_codex1 te=true tech=true Random seed=2 => ok:3cb6201c986fc0f5ca227f469ecd1876
+plain 7p base_game_codex1 te=true tech=true Random seed=17 => ok:5536ca88459f54f382a12af576475237
+plain 7p base_game_codex1 te=true tech=true Seat seed=1 => ok:f93ba928d4ac982b89dc36bf9df2c42c
+plain 7p base_game_codex1 te=true tech=true Seat seed=2 => ok:3cb6201c986fc0f5ca227f469ecd1876
+plain 7p base_game_codex1 te=true tech=true Seat seed=17 => ok:62fa9517b96b6edc815fb882f91f7a93
+plain 8p te te=false tech=false Random seed=1 => ok:6be2be1a8d64dec260db627a2fbdd056
+plain 8p te te=false tech=false Random seed=2 => ok:6617a7c35584f09b6823cec82e1b2c9b
+plain 8p te te=false tech=false Random seed=17 => ok:fc2fcd44a0b88265cacc61d9b2187918
+plain 8p te te=false tech=false Seat seed=1 => ok:ddc4fdd28eb2db71e50427e29c547829
+plain 8p te te=false tech=false Seat seed=2 => ok:6617a7c35584f09b6823cec82e1b2c9b
+plain 8p te te=false tech=false Seat seed=17 => ok:145d6e8810a26be2c4c3294211469352
+plain 8p te te=false tech=true Random seed=1 => ok:43e0bb586e6c2742822557aabc9a2639
+plain 8p te te=false tech=true Random seed=2 => ok:6617a7c35584f09b6823cec82e1b2c9b
+plain 8p te te=false tech=true Random seed=17 => ok:8fe53d45f6e030e61ec118f3f1dfded2
+plain 8p te te=false tech=true Seat seed=1 => ok:20710916c06a3b0d22b63e6a99b3f1d3
+plain 8p te te=false tech=true Seat seed=2 => ok:6617a7c35584f09b6823cec82e1b2c9b
+plain 8p te te=false tech=true Seat seed=17 => ok:5c8aefd2bb46b3de65d9e7c73d6850f6
+plain 8p te te=true tech=false Random seed=1 => ok:5c297f67f758b4f205bde3456ec8fee3
+plain 8p te te=true tech=false Random seed=2 => ok:3e6966db1e971adbd42cb6430dbc00ab
+plain 8p te te=true tech=false Random seed=17 => ok:2c9f4a518dd31119a4796eb0c8db31bc
+plain 8p te te=true tech=false Seat seed=1 => ok:1f5c8e76a8380c95902fe9adaf3d42b6
+plain 8p te te=true tech=false Seat seed=2 => ok:3e6966db1e971adbd42cb6430dbc00ab
+plain 8p te te=true tech=false Seat seed=17 => ok:172d7b010829a143abb436a544e3c860
+plain 8p te te=true tech=true Random seed=1 => ok:e93d87d3ef5539ae0dca41740a0ca425
+plain 8p te te=true tech=true Random seed=2 => ok:3e6966db1e971adbd42cb6430dbc00ab
+plain 8p te te=true tech=true Random seed=17 => ok:13e60988d834c906f3608981ac530845
+plain 8p te te=true tech=true Seat seed=1 => ok:8cf94dae61f42663681fe6c67202e626
+plain 8p te te=true tech=true Seat seed=2 => ok:3e6966db1e971adbd42cb6430dbc00ab
+plain 8p te te=true tech=true Seat seed=17 => ok:274020fcef8694c1c880459684eef034
+plain 8p pok te=false tech=false Random seed=1 => ok:99f475fc18bd839d64a30d9994c1d726
+plain 8p pok te=false tech=false Random seed=2 => ok:2f2e2d29aa5694b882f7cb785ae813ad
+plain 8p pok te=false tech=false Random seed=17 => ok:f40f140f9702be8fe446c0bead155988
+plain 8p pok te=false tech=false Seat seed=1 => ok:d5b539e31c1f87810dfdf88785b5ab11
+plain 8p pok te=false tech=false Seat seed=2 => ok:2f2e2d29aa5694b882f7cb785ae813ad
+plain 8p pok te=false tech=false Seat seed=17 => ok:e6bc5f52f2140aa52f70a87a5fda879d
+plain 8p pok te=false tech=true Random seed=1 => ok:b5e8df57f976bfaa3dc49908ba110d3c
+plain 8p pok te=false tech=true Random seed=2 => ok:2f2e2d29aa5694b882f7cb785ae813ad
+plain 8p pok te=false tech=true Random seed=17 => ok:be0abfe7562e65fd5df35e2c4c401f00
+plain 8p pok te=false tech=true Seat seed=1 => ok:ac76bc7e6686ec1bd1e0b660f76ebecd
+plain 8p pok te=false tech=true Seat seed=2 => ok:2f2e2d29aa5694b882f7cb785ae813ad
+plain 8p pok te=false tech=true Seat seed=17 => ok:28b5b1fc41dd61107d28b4163fede218
+plain 8p pok te=true tech=false Random seed=1 => ok:0f9941092be62df228bc481d5a769daf
+plain 8p pok te=true tech=false Random seed=2 => ok:5e6d0074a8d82760876689e3e79fa369
+plain 8p pok te=true tech=false Random seed=17 => ok:f1488203e6000c42bc19439ff9b0d54e
+plain 8p pok te=true tech=false Seat seed=1 => ok:6a0690704aa6a8c18443297bbc50ead0
+plain 8p pok te=true tech=false Seat seed=2 => ok:5e6d0074a8d82760876689e3e79fa369
+plain 8p pok te=true tech=false Seat seed=17 => ok:b0764f0cd8a9bd3dd2a5c1f14bc1a0a7
+plain 8p pok te=true tech=true Random seed=1 => ok:87d77abb4efee2bd46f3acb4230200f3
+plain 8p pok te=true tech=true Random seed=2 => ok:5e6d0074a8d82760876689e3e79fa369
+plain 8p pok te=true tech=true Random seed=17 => ok:1352d246e631c26b8776b0f7ebaf28ca
+plain 8p pok te=true tech=true Seat seed=1 => ok:e12a6c11a9987159647c9ce069451523
+plain 8p pok te=true tech=true Seat seed=2 => ok:5e6d0074a8d82760876689e3e79fa369
+plain 8p pok te=true tech=true Seat seed=17 => ok:066a8e39d4cf92fefb83897e6e6b39c1
+plain 8p base_game_codex1 te=false tech=false Random seed=1 => ok:9bf4b4ba3b6817ca73d10c5076b18c67
+plain 8p base_game_codex1 te=false tech=false Random seed=2 => ok:d749f34a92dfe0706cf3a6799db19350
+plain 8p base_game_codex1 te=false tech=false Random seed=17 => ok:0425f107a6496c22f9b24f044d6ff110
+plain 8p base_game_codex1 te=false tech=false Seat seed=1 => ok:8e94d845ae1c931fca07d79bfae4a105
+plain 8p base_game_codex1 te=false tech=false Seat seed=2 => ok:d749f34a92dfe0706cf3a6799db19350
+plain 8p base_game_codex1 te=false tech=false Seat seed=17 => ok:6538606a728277c9d607c2cdfc800153
+plain 8p base_game_codex1 te=false tech=true Random seed=1 => ok:c9afd9f0f3d72c81383ab6ee511bf050
+plain 8p base_game_codex1 te=false tech=true Random seed=2 => ok:d749f34a92dfe0706cf3a6799db19350
+plain 8p base_game_codex1 te=false tech=true Random seed=17 => ok:0f77dda64a3513db3377b1607527547f
+plain 8p base_game_codex1 te=false tech=true Seat seed=1 => ok:39d294d063a9714e4c2ff17a6b91bf7d
+plain 8p base_game_codex1 te=false tech=true Seat seed=2 => ok:d749f34a92dfe0706cf3a6799db19350
+plain 8p base_game_codex1 te=false tech=true Seat seed=17 => ok:5ea13bb0e5929ae9b34c747d760a4b0e
+plain 8p base_game_codex1 te=true tech=false Random seed=1 => ok:c9d0501014be3663cdae32f708c64717
+plain 8p base_game_codex1 te=true tech=false Random seed=2 => ok:322af0bd0964073da5c37a5e5ed1d6bb
+plain 8p base_game_codex1 te=true tech=false Random seed=17 => ok:44926df68c3a4e177db82e1599808000
+plain 8p base_game_codex1 te=true tech=false Seat seed=1 => ok:518348e6f3a1039fbf6b27ba74a606f8
+plain 8p base_game_codex1 te=true tech=false Seat seed=2 => ok:322af0bd0964073da5c37a5e5ed1d6bb
+plain 8p base_game_codex1 te=true tech=false Seat seed=17 => ok:89f10e7c58051ecdd84c4aa11a861a0e
+plain 8p base_game_codex1 te=true tech=true Random seed=1 => ok:1be6e73e686f01e6c131eccc007ed040
+plain 8p base_game_codex1 te=true tech=true Random seed=2 => ok:322af0bd0964073da5c37a5e5ed1d6bb
+plain 8p base_game_codex1 te=true tech=true Random seed=17 => ok:ad47cc21d4564da970cbc84c1363b607
+plain 8p base_game_codex1 te=true tech=true Seat seed=1 => ok:9c0f4bbc3a0dcd591e945cc0972daa16
+plain 8p base_game_codex1 te=true tech=true Seat seed=2 => ok:322af0bd0964073da5c37a5e5ed1d6bb
+plain 8p base_game_codex1 te=true tech=true Seat seed=17 => ok:0865c5c8f12fc1a05a7b8b0975651ab0
+preset combat 2p seed=1 => ok:ca21d72be31fa472bf9f14b3384f2610
+preset combat 2p seed=5 => ok:b256ee1a57ee2a853235cd0d1b9a2a8b
+preset combat 3p seed=1 => ok:f2a6d68e7fa1d5cef6f6b4f32b04f5e9
+preset combat 3p seed=5 => ok:85680293b8aae5e502bb10b1179eaa9e
+preset combat 4p seed=1 => ok:1dbe959cfb7da0ef3556e0e68dbf8f35
+preset combat 4p seed=5 => ok:8f99df5d94e227ea8183122e603fde53
+preset combat 6p seed=1 => ok:05879cf64b6f3e8d1e2b14e10f3901b0
+preset combat 6p seed=5 => ok:da310d4617ad9267d8df2d88052f4676
+preset combat 8p seed=1 => ok:c152d1ca147a7783a9624e807d068dc4
+preset combat 8p seed=5 => ok:5e1917e24d5b7ee796c0ccdc2645d80e
+preset combat+rot 2p seed=1 => ok:b25cfa4db26e7b09be80492d612efc03
+preset combat+rot 2p seed=5 => ok:88a40b2188bc6b7f7c915f034ab219b5
+preset combat+rot 3p seed=1 => ok:adc980d021b27c8c641b10e2e9ec0e7a
+preset combat+rot 3p seed=5 => ok:8da31899100a1eeb2a46b19bb1295ee4
+preset combat+rot 4p seed=1 => ok:fc11fb4a51099f5c982efb5703d49847
+preset combat+rot 4p seed=5 => ok:c2cb0c0184a630a80a09997229e30e62
+preset combat+rot 6p seed=1 => ok:9ecd3b2f44e5055926e4abffd3ff72ec
+preset combat+rot 6p seed=5 => ok:c79d95dcc7d4b832e60f6fa030f43dcd
+preset combat+rot 8p seed=1 => ok:9eebb951b7c56d506659bbea07b6d083
+preset combat+rot 8p seed=5 => ok:a9d1b1d436264a8379682b4d188963e3
+preset combat+short 2p seed=1 => ok:9074075533e74ab183c3bd49dcd19bdb
+preset combat+short 2p seed=5 => ok:20ef4f0c44daa431f06886e61be30cd2
+preset combat+short 3p seed=1 => ok:5a99a3a2405d063fdb92e7ea7e28740d
+preset combat+short 3p seed=5 => ok:ee351712363a394023ff55a9263f7da6
+preset combat+short 4p seed=1 => ok:3da6ffc5d355ecc7de7a65bdad58a5fd
+preset combat+short 4p seed=5 => ok:1aa2687df45e1789746481f8d80823c4
+preset combat+short 6p seed=1 => ok:53d9d4f3c328df8e0e06bd8f4c4c8867
+preset combat+short 6p seed=5 => ok:f763678d77ce1595a2e3fc9172cee5be
+preset combat+short 8p seed=1 => ok:c6bfb8f3ade1ec6607eec5a9da8d80cb
+preset combat+short 8p seed=5 => ok:98e18154eb7332ac5b00d1c2e8119bc7
+preset combat+agenda 2p seed=1 => ok:d82c0c26ad6be954b15a2543c46a242c
+preset combat+agenda 2p seed=5 => ok:e06bd64e6e9ff5745264c2f0d8a7e320
+preset combat+agenda 3p seed=1 => ok:512655b9f55eb7b8cd6089b50ed49c37
+preset combat+agenda 3p seed=5 => ok:f4d616602f5f8e253a066e9ce2d8737a
+preset combat+agenda 4p seed=1 => ok:19205a6c9c398b7071c0ef5b24f5758a
+preset combat+agenda 4p seed=5 => ok:b0eb0a176693c8fc27ca65265ce06460
+preset combat+agenda 6p seed=1 => ok:c6f98ba0b41ea86e9e0ed82420cb6895
+preset combat+agenda 6p seed=5 => ok:602069ca2d2b4d6ffdd384feefae95d7
+preset combat+agenda 8p seed=1 => ok:28c68ccfef1e8736d45371614670ac33
+preset combat+agenda 8p seed=5 => ok:b436a14f9f39087993e84a29fcc1e8b0
+preset combat+fac:sol:hacan 2p seed=1 => ok:ca21d72be31fa472bf9f14b3384f2610
+preset combat+fac:sol:hacan 2p seed=5 => ok:b256ee1a57ee2a853235cd0d1b9a2a8b
+preset combat+fac:sol:hacan 3p seed=1 => ok:d0cea90ced0ca6e83561256fd07f3798
+preset combat+fac:sol:hacan 3p seed=5 => ok:34913205b1fd66c77eb1d7a7bd0e415f
+preset combat+fac:sol:hacan 4p seed=1 => ok:728f6f7259d8a6e97131af00417c5515
+preset combat+fac:sol:hacan 4p seed=5 => ok:4b32fe8b3ceaac1287a9485dfa2f66bf
+preset combat+fac:sol:hacan 6p seed=1 => ok:6b2e80a3178498ca7a7f27ce6749239d
+preset combat+fac:sol:hacan 6p seed=5 => ok:cd1431cc688465b6de2d7a72655c88f3
+preset combat+fac:sol:hacan 8p seed=1 => ok:94fdb064b9dd6bbb8f192ab67b0dd625
+preset combat+fac:sol:hacan 8p seed=5 => ok:0ebbc3167f874890460ba4abb5b752cb
+preset cards 2p seed=1 => ok:47bcca2482af97f526d53a747dd88dfe
+preset cards 2p seed=5 => ok:2ee1419f186b68deea4d03ef90e03aeb
+preset cards 3p seed=1 => ok:a4f5abdf4c644b04680f573b91e64344
+preset cards 3p seed=5 => ok:e5d23ac278d9b5b5d2dcc365cfee1460
+preset cards 4p seed=1 => ok:8969729c81c724b7e4029d0c2ffaeb18
+preset cards 4p seed=5 => ok:36956a93ee67733e93588ffa0e41a607
+preset cards 6p seed=1 => ok:90b61730acbaee1bf0f27cec373a3a74
+preset cards 6p seed=5 => ok:e824dc2d128a609769a244e936180a0d
+preset cards 8p seed=1 => ok:e7c01aeefd2afa347bf5c9a06910474e
+preset cards 8p seed=5 => ok:262f78e853fc7511149483eb25906eeb
+preset cards+rot 2p seed=1 => ok:fc02e2198195c7214ca1aa139072a6f9
+preset cards+rot 2p seed=5 => ok:10a6b06b459a147db4c0aee2c88a4771
+preset cards+rot 3p seed=1 => ok:71fea34a1a4e2a6957d6c2a81dd12b17
+preset cards+rot 3p seed=5 => ok:ffd8b496501b0e8745160155c46763c3
+preset cards+rot 4p seed=1 => ok:b24551e6188f570e4fc629b0fb5bb7cd
+preset cards+rot 4p seed=5 => ok:95df40d3fc47a9e637ef2a37879e3e6c
+preset cards+rot 6p seed=1 => ok:b37950fa1d97bf5510b4cfdbf0badeff
+preset cards+rot 6p seed=5 => ok:d4a2c4e08705ef33f6131372098d8437
+preset cards+rot 8p seed=1 => ok:4e11df719c8434261a7a929e3f9cde7d
+preset cards+rot 8p seed=5 => ok:113e1b8a2abe70e7932b744f1c7eeec5
+preset cards+short 2p seed=1 => ok:2df3335843c7c8cfb45990d071d39bd4
+preset cards+short 2p seed=5 => ok:15c5f3324a4d7957fbfb0e79851d6ee7
+preset cards+short 3p seed=1 => ok:e512876232ad80279197cdb93b3adef8
+preset cards+short 3p seed=5 => ok:c60e0df70c75afa4e87caba55cc26170
+preset cards+short 4p seed=1 => ok:a7809c88bd7ec0cff9ce09bd9350c51c
+preset cards+short 4p seed=5 => ok:18444bb804f6dd2c38d710cfdefa2a71
+preset cards+short 6p seed=1 => ok:6df4566889d9650b0f1089b96b83b7cf
+preset cards+short 6p seed=5 => ok:86037e91e9963614ea0b6cc44946897f
+preset cards+short 8p seed=1 => ok:834c4a7cf56693eb2e11f03ea0bf74dd
+preset cards+short 8p seed=5 => ok:d65d2f88cc7fe2483068ad14424975c7
+preset cards+agenda 2p seed=1 => ok:a1ec70eaf9c6b3096c98833e56ef8894
+preset cards+agenda 2p seed=5 => ok:4c590c91abfdcfec33923ea29085fd29
+preset cards+agenda 3p seed=1 => ok:0f60beb9c56b71ccc26b1d16d5626d4e
+preset cards+agenda 3p seed=5 => ok:81d9c712e0ed1137cb47ef6630fcc5dc
+preset cards+agenda 4p seed=1 => ok:713fedc2a521a1f4647974cb489da5f2
+preset cards+agenda 4p seed=5 => ok:2cf9ec19777790388b278605d69214ff
+preset cards+agenda 6p seed=1 => ok:746bea8e1662e8a58d3f0c97f805c79b
+preset cards+agenda 6p seed=5 => ok:b312184fe8b15861e136f2bb289f3234
+preset cards+agenda 8p seed=1 => ok:a363691787b384edff4e521866f3c03f
+preset cards+agenda 8p seed=5 => ok:636c1259f206c1b9a6f08b8e6dc9ef98
+preset cards+fac:sol:hacan 2p seed=1 => ok:47bcca2482af97f526d53a747dd88dfe
+preset cards+fac:sol:hacan 2p seed=5 => ok:2ee1419f186b68deea4d03ef90e03aeb
+preset cards+fac:sol:hacan 3p seed=1 => ok:92d3e00eec63c0c7237606829e240d5d
+preset cards+fac:sol:hacan 3p seed=5 => ok:580f59d5727005575a9509f1eaa2a8d0
+preset cards+fac:sol:hacan 4p seed=1 => ok:440663231598734a0c375895c094794f
+preset cards+fac:sol:hacan 4p seed=5 => ok:889a1e11876d521b36f01ce64bed7a69
+preset cards+fac:sol:hacan 6p seed=1 => ok:b2c75e3a42b4f285d0685a24b01dd84c
+preset cards+fac:sol:hacan 6p seed=5 => ok:6a04b82b5733eefe5705cb164da4d56a
+preset cards+fac:sol:hacan 8p seed=1 => ok:7a7013239384bb20543bb57cfb93eb5a
+preset cards+fac:sol:hacan 8p seed=5 => ok:0f2f73cfdd65bd526a345b2e397f7401
+preset agenda 2p seed=1 => ok:e7a2c406d9dce1a2fb59109529113c10
+preset agenda 2p seed=5 => ok:1b1bbdcb4e4f9f2abe09001a380aaf1f
+preset agenda 3p seed=1 => ok:ac900cb8db56b7d8cb84c774965c17e9
+preset agenda 3p seed=5 => ok:08c2ae914a5acd2f356d11a7e9147ca0
+preset agenda 4p seed=1 => ok:c00fb47a1c0c7dc0e60c7b99d66b0fd9
+preset agenda 4p seed=5 => ok:32cdb675a9b33d0e9aaf7c8c675b2304
+preset agenda 6p seed=1 => ok:a5dae5f1638f0ecc6c8adff90f1f53de
+preset agenda 6p seed=5 => ok:1b5871559e2e79f2e988dc0297fc642d
+preset agenda 8p seed=1 => ok:134f808efa5e7ed264e709a40d34c380
+preset agenda 8p seed=5 => ok:548c5f2983d6af3b5ccedfac6a7e8622
+preset agenda+rot 2p seed=1 => ok:3578fd65e146c2b345d52fe7c567a84c
+preset agenda+rot 2p seed=5 => ok:be0f1d8320b682bdddaeb711b2926be4
+preset agenda+rot 3p seed=1 => ok:98980945558731c73556b441e1c6d65e
+preset agenda+rot 3p seed=5 => ok:54a4539a4df8725b09c8b067bc61b9d2
+preset agenda+rot 4p seed=1 => ok:443a7a113feedc816e530333e043dde9
+preset agenda+rot 4p seed=5 => ok:ff29c7c253bd2d8703792ef079f10e60
+preset agenda+rot 6p seed=1 => ok:078cae324268e205b06e76ff53faa6bd
+preset agenda+rot 6p seed=5 => ok:439296810406b1f532edde7253eac97c
+preset agenda+rot 8p seed=1 => ok:8bd13a3989454fcbe1d9ec1064516112
+preset agenda+rot 8p seed=5 => ok:f1b47b23b083d6db8d05525894980d3f
+preset agenda+short 2p seed=1 => ok:d37b1d45309c02fb137f112e75f5bf21
+preset agenda+short 2p seed=5 => ok:0eaa9f9bc1b23752ec8ce49bef2fd68b
+preset agenda+short 3p seed=1 => ok:680cb788885471309905bc725d60512b
+preset agenda+short 3p seed=5 => ok:d806b4757ee970d49456845ffa47861e
+preset agenda+short 4p seed=1 => ok:d2f16366cd40a021b9f38cb525da9691
+preset agenda+short 4p seed=5 => ok:649171b4ba86f7b7654bff99e5908716
+preset agenda+short 6p seed=1 => ok:0b0c30131b72158e8baa2f21fdef365d
+preset agenda+short 6p seed=5 => ok:8c24fffc7e172b6ee01f9c760f16a98e
+preset agenda+short 8p seed=1 => ok:64cd61fb780fb8fa4769f30a9a286294
+preset agenda+short 8p seed=5 => ok:2d4a61938e81a30cd2048f3b66584f98
+preset agenda+agenda 2p seed=1 => ok:42503792ef9f62c024c89d4039ee5570
+preset agenda+agenda 2p seed=5 => ok:f7871b2db7e6a2d0b0d350eb0dbb4cc7
+preset agenda+agenda 3p seed=1 => ok:4284eb8644f4058a45d68dff92043466
+preset agenda+agenda 3p seed=5 => ok:6217332e7ffc5d8f270bec44d1c2851b
+preset agenda+agenda 4p seed=1 => ok:fa656e2957cfb4a3752ddabb85cc9dcb
+preset agenda+agenda 4p seed=5 => ok:ad70f4c6ca9258d3b20fe1c84942e8fd
+preset agenda+agenda 6p seed=1 => ok:843617f94422e23c128a078f692033a4
+preset agenda+agenda 6p seed=5 => ok:69adce4d1fdb0f2cb64adee67ca82c24
+preset agenda+agenda 8p seed=1 => ok:29c44faf641fdf15c49cd76ee8ada586
+preset agenda+agenda 8p seed=5 => ok:a7c5cbe90bfc32042f888ce95890ed87
+preset agenda+fac:sol:hacan 2p seed=1 => ok:e7a2c406d9dce1a2fb59109529113c10
+preset agenda+fac:sol:hacan 2p seed=5 => ok:1b1bbdcb4e4f9f2abe09001a380aaf1f
+preset agenda+fac:sol:hacan 3p seed=1 => ok:8d48f50ee48b7774891d9b8b5fb2b3f0
+preset agenda+fac:sol:hacan 3p seed=5 => ok:56b5bcd32bceb0aee8a3987a0312ff7c
+preset agenda+fac:sol:hacan 4p seed=1 => ok:3de7006218dff96f78aeb43e409558d2
+preset agenda+fac:sol:hacan 4p seed=5 => ok:2905b2f609a0a2b3980ecc988541a028
+preset agenda+fac:sol:hacan 6p seed=1 => ok:aa7bb74534af5e7083e8032d6686300f
+preset agenda+fac:sol:hacan 6p seed=5 => ok:9e14b10dc1801e653d682d829c6e5f6c
+preset agenda+fac:sol:hacan 8p seed=1 => ok:20c45928a8d812d40c8e3202a8f704f1
+preset agenda+fac:sol:hacan 8p seed=5 => ok:cd3784da01324397218c1170b611f52b
+preset relics 2p seed=1 => ok:9af00dd0a3a1b34ff6cfd9aa125f1f2f
+preset relics 2p seed=5 => ok:1460e58433df134674bbc3ee8e1ba9bf
+preset relics 3p seed=1 => ok:5957146ae5950a0cd834417a69739eac
+preset relics 3p seed=5 => ok:00d4ee61c4e51e793237a4d91d71b405
+preset relics 4p seed=1 => ok:00c1ba264ee35f1559500c1b94718e40
+preset relics 4p seed=5 => ok:4c261f6c5952c240fc594a5423b0aa38
+preset relics 6p seed=1 => ok:853eb162a513d245d2fde02929c4d184
+preset relics 6p seed=5 => ok:d928b85d815a059b3a842a364150d90c
+preset relics 8p seed=1 => ok:2df37e398165cd1fb1d3cb5be42c4892
+preset relics 8p seed=5 => ok:c1d6e0c36885c359e1469490371d04e3
+preset relics+rot 2p seed=1 => ok:67c15295a2af4650d4998b6fdb0b4f1c
+preset relics+rot 2p seed=5 => ok:c9d28c77f5e3f9f1c61d7febb7ffc9d1
+preset relics+rot 3p seed=1 => ok:8f676cccd28e4d95335d8003f4fde725
+preset relics+rot 3p seed=5 => ok:acd4f3f6ab1fbf52420f23e651cb737a
+preset relics+rot 4p seed=1 => ok:915d1b60d96eb7eae6377380e399c43b
+preset relics+rot 4p seed=5 => ok:2b045908d4d9e38ca700bb8d44c0b77a
+preset relics+rot 6p seed=1 => ok:0f1239665eabd87b065d97e85debe000
+preset relics+rot 6p seed=5 => ok:a57ad258e8697876353118f150bcba6b
+preset relics+rot 8p seed=1 => ok:d3966c2edbb1f06996b6b47aeffbe239
+preset relics+rot 8p seed=5 => ok:e150c7f74a6f759572a6b5c2b6f50b22
+preset relics+short 2p seed=1 => ok:b3b78eda4dcb13830ff9995ad0ad258a
+preset relics+short 2p seed=5 => ok:40c5a4d581c16e00849930e6a41245ff
+preset relics+short 3p seed=1 => ok:bcbf582a67a008e105b90dc1dee53994
+preset relics+short 3p seed=5 => ok:bf8b1dfbdc127653082cd6c8b4337e13
+preset relics+short 4p seed=1 => ok:46faa9fd393297836f019c394db4bdaa
+preset relics+short 4p seed=5 => ok:2109f5d56b4b8ef7538019212a9cd32c
+preset relics+short 6p seed=1 => ok:a1dde8d4475aee001da58b268c799196
+preset relics+short 6p seed=5 => ok:aaa9965f32f46020248ca97f3236d135
+preset relics+short 8p seed=1 => ok:2c9a02294a3733e5c0adf50f7205cf68
+preset relics+short 8p seed=5 => ok:b6499eef501d73729e51622fc27f5a51
+preset relics+agenda 2p seed=1 => ok:cea73f181edeac68efa53486416a0f77
+preset relics+agenda 2p seed=5 => ok:a7dde477d9f107e6876f7bcad125780b
+preset relics+agenda 3p seed=1 => ok:2f12b5a7e380e36f2371239d45419512
+preset relics+agenda 3p seed=5 => ok:b2776a0faa811f7332e03e56d2a285fc
+preset relics+agenda 4p seed=1 => ok:511ac7515e103dc554bf6874fce1ab26
+preset relics+agenda 4p seed=5 => ok:293e17d57ae62cdb4927c640197dd79d
+preset relics+agenda 6p seed=1 => ok:8e35d793e2486e8693c59d465a0ba98d
+preset relics+agenda 6p seed=5 => ok:1dc7f1491289612112a91309bbe5507d
+preset relics+agenda 8p seed=1 => ok:13010a5165c8b062502ebce2e32120f6
+preset relics+agenda 8p seed=5 => ok:cf70c5772abe67e04c119859128a2304
+preset relics+fac:sol:hacan 2p seed=1 => ok:9af00dd0a3a1b34ff6cfd9aa125f1f2f
+preset relics+fac:sol:hacan 2p seed=5 => ok:1460e58433df134674bbc3ee8e1ba9bf
+preset relics+fac:sol:hacan 3p seed=1 => ok:37a3a9861a7aa7264b67ee48c8cff9e3
+preset relics+fac:sol:hacan 3p seed=5 => ok:8cc6f1904daaff3551a1bc27fe0c41e9
+preset relics+fac:sol:hacan 4p seed=1 => ok:807dc5dc9756631c8a92d0e29ab1f73b
+preset relics+fac:sol:hacan 4p seed=5 => ok:c31dd26a142d6a4aa46cfb69148844df
+preset relics+fac:sol:hacan 6p seed=1 => ok:eb5b7f764d955e5308f8b418499945df
+preset relics+fac:sol:hacan 6p seed=5 => ok:4b2450b33b40a1478edf1d1c37d0c1c6
+preset relics+fac:sol:hacan 8p seed=1 => ok:60a3fb6d039d837cac2497a681a2fb6c
+preset relics+fac:sol:hacan 8p seed=5 => ok:1e47b625e4227892b7c581ef745fb21e
+preset invasion 2p seed=1 => ok:33d0c63686e6522e5cb885a870087bd0
+preset invasion 2p seed=5 => ok:3b3b5a7c0725d7698f2aaa882c91cea3
+preset invasion 3p seed=1 => ok:dd7263da09c465c50c772842c9d7a8eb
+preset invasion 3p seed=5 => ok:82ddd60087242e4140f72b4d730c0b44
+preset invasion 4p seed=1 => ok:a07ee5f51a234cca8f6cb241bc9e3ee3
+preset invasion 4p seed=5 => ok:cb504e14dbe608b6eba4d2a0e99d1a95
+preset invasion 6p seed=1 => ok:489de9ca7647b0132feed45876d1a3c0
+preset invasion 6p seed=5 => ok:3b64fa079acd92c91bd0eaf8bcc3109e
+preset invasion 8p seed=1 => ok:ad4bbc8ddc2ebb71d65a9d37ed4227e2
+preset invasion 8p seed=5 => ok:8c95de976f2488da8db72bce17082efc
+preset invasion+rot 2p seed=1 => ok:e918bd69402c9bdd8450cce7c8b87978
+preset invasion+rot 2p seed=5 => ok:c7529c38cb94d6ce2bacc226031d5a78
+preset invasion+rot 3p seed=1 => ok:f5446eb7498e190f6f2a724548cf42c7
+preset invasion+rot 3p seed=5 => ok:7df389ea2c5659ed314bccc343d884e9
+preset invasion+rot 4p seed=1 => ok:144dc5e6263b36ebc4c333f6f52a295e
+preset invasion+rot 4p seed=5 => ok:18e958c1cabc1d84a2e96fc746c1da06
+preset invasion+rot 6p seed=1 => ok:1b6b363be0ecf193f888cc6c333a9d2f
+preset invasion+rot 6p seed=5 => ok:9a7e9d47ce5d20102e7d409ff0d89d50
+preset invasion+rot 8p seed=1 => ok:198c95792986f6f70aca4d0715979f5a
+preset invasion+rot 8p seed=5 => ok:1fe2108077baebc60ff9cc6e39251e1b
+preset invasion+short 2p seed=1 => ok:1b2630d8239b42198a0d57a8ac63ecd1
+preset invasion+short 2p seed=5 => ok:bb252ef5d286ffd71004b2de57f9ba4e
+preset invasion+short 3p seed=1 => ok:cf204604c8febc491855fc4a409e92c8
+preset invasion+short 3p seed=5 => ok:47eb65afa5e4902eb92001423f060983
+preset invasion+short 4p seed=1 => ok:d1093bbb70657e07646bab745605c2a1
+preset invasion+short 4p seed=5 => ok:76eb6ce4c6d519df0d1a3ef2c39bdffb
+preset invasion+short 6p seed=1 => ok:8b24ffa3985525b72563bfeba0010d7a
+preset invasion+short 6p seed=5 => ok:ccd18d6510798af13fa2ee23364a370f
+preset invasion+short 8p seed=1 => ok:9473c17c9025b6b58d264c0a943b21a4
+preset invasion+short 8p seed=5 => ok:09c13dac66f090414ca8701e4d8b8c7b
+preset invasion+agenda 2p seed=1 => ok:c4462e387409d806c7c52fe7e054cce6
+preset invasion+agenda 2p seed=5 => ok:942f2b71bbe363ca552e3db317137b01
+preset invasion+agenda 3p seed=1 => ok:9674aedefabee0642b9874a227d77fd7
+preset invasion+agenda 3p seed=5 => ok:4c2f2ea02bdb063ecaa92907718006f6
+preset invasion+agenda 4p seed=1 => ok:1b71d15d2108f8422156a4a187c96e91
+preset invasion+agenda 4p seed=5 => ok:e0756f05203cf385b605bdb4228b3fdc
+preset invasion+agenda 6p seed=1 => ok:346b9ca84122d4556eb2d03c85acee93
+preset invasion+agenda 6p seed=5 => ok:a71844100479be48d0c686008bf81b10
+preset invasion+agenda 8p seed=1 => ok:b0e6ee0c7f29e04b1dc702b281b3da79
+preset invasion+agenda 8p seed=5 => ok:83871d458e2beb9d7cf10013aa1befd6
+preset invasion+fac:sol:hacan 2p seed=1 => ok:33d0c63686e6522e5cb885a870087bd0
+preset invasion+fac:sol:hacan 2p seed=5 => ok:3b3b5a7c0725d7698f2aaa882c91cea3
+preset invasion+fac:sol:hacan 3p seed=1 => ok:87b251004d4195216cb0005193d390bf
+preset invasion+fac:sol:hacan 3p seed=5 => ok:9924927eb7267245472870dbd1ca2f6c
+preset invasion+fac:sol:hacan 4p seed=1 => ok:f7c1ca37d4f16b42546b28c086a0b8aa
+preset invasion+fac:sol:hacan 4p seed=5 => ok:ec20470ff836de46943a92e9435ffd41
+preset invasion+fac:sol:hacan 6p seed=1 => ok:3dbd3afdac42692d90d15aa4033ec8a8
+preset invasion+fac:sol:hacan 6p seed=5 => ok:f342e248a8307dcc028ba84e10e48939
+preset invasion+fac:sol:hacan 8p seed=1 => ok:6096e77274a5fbe5fc4d1d2008aacc0b
+preset invasion+fac:sol:hacan 8p seed=5 => ok:98e1fc83587a332b2d7e05c377c86777
+preset techs 2p seed=1 => ok:5d74e977794f65f1918b62d8ced32f5a
+preset techs 2p seed=5 => ok:b7ee61823ed9d4baca4fb08b98a93f5c
+preset techs 3p seed=1 => ok:e53a93333e765b7e01165a35a99347e3
+preset techs 3p seed=5 => ok:7366c779c2e323cddac4cfaa94f9c311
+preset techs 4p seed=1 => ok:7f0a2401733a3a8ce2e3b8e969fa00ce
+preset techs 4p seed=5 => ok:dd29e738e5541247f67f82415e188ec5
+preset techs 6p seed=1 => ok:2f3e9c36c7d55ac4daae7608d3c7a1c8
+preset techs 6p seed=5 => ok:b4f2a23c1b082c79961b774e4c386d92
+preset techs 8p seed=1 => ok:13002b6d6ca7bd54f147cdbf464eaa78
+preset techs 8p seed=5 => ok:66ba3899a4d96a510da1fc6be01f1d3d
+preset techs+rot 2p seed=1 => ok:958eb96ce6fc6768913ffd28fcaff44a
+preset techs+rot 2p seed=5 => ok:ddaef8d6f7d0256819f48eeecacb1248
+preset techs+rot 3p seed=1 => ok:8317c2793e710a4f4b6043c1337c843a
+preset techs+rot 3p seed=5 => ok:f4a85bccfa75b7c10ae1130c9d5e9358
+preset techs+rot 4p seed=1 => ok:4c3bbd00494a350f1cc6041e26807fe6
+preset techs+rot 4p seed=5 => ok:9c66d8565d4ea06c8c69d8276271b3fb
+preset techs+rot 6p seed=1 => ok:2761a53f901e0b2dd5fadf18d17bcd0b
+preset techs+rot 6p seed=5 => ok:4ee24829752c85b3e8a2ac94087f4f70
+preset techs+rot 8p seed=1 => ok:3b9bb7b3c841bd51989f2753576111f0
+preset techs+rot 8p seed=5 => ok:cce1c676bfc7c4e3b43ac7e97c1bda95
+preset techs+short 2p seed=1 => ok:2b2b069de985b3be0a5e0cf60dca3667
+preset techs+short 2p seed=5 => ok:704feb494f1d77c08ddb353a44a8e367
+preset techs+short 3p seed=1 => ok:c0c75191a55b0a8512ff95d67d5b63f2
+preset techs+short 3p seed=5 => ok:02b73ea9b92db09e5632e69ed32d9347
+preset techs+short 4p seed=1 => ok:f20084e403be4d2572ee587e2a3b5024
+preset techs+short 4p seed=5 => ok:cc3b30ef08f132215f87795ecca03a16
+preset techs+short 6p seed=1 => ok:5e1162cc13e7ca9cc829314084a24ead
+preset techs+short 6p seed=5 => ok:9ef0f06a51eef4a97b810a9ea350fc0d
+preset techs+short 8p seed=1 => ok:5b4446e33e3b51d82c7853df8b4a1bbc
+preset techs+short 8p seed=5 => ok:03422c377d9955df785985b6d22dbad3
+preset techs+agenda 2p seed=1 => ok:82e6b00258ad7cb423f0d7369b3215bd
+preset techs+agenda 2p seed=5 => ok:37329e22008c5b04c794aaf7aa91ffc9
+preset techs+agenda 3p seed=1 => ok:f9d9f045ec3010159310134d74f60bb6
+preset techs+agenda 3p seed=5 => ok:642a5b211c0af53f4b850cbf0c3a0120
+preset techs+agenda 4p seed=1 => ok:27c2967ae8de09d993b67038589732d0
+preset techs+agenda 4p seed=5 => ok:f85043e086dcfcfb288a91f6b2c95778
+preset techs+agenda 6p seed=1 => ok:48b2e80fe4d1d3055c1c06cb0fca81a4
+preset techs+agenda 6p seed=5 => ok:f1de12f658c50fd85651c7a495fff4af
+preset techs+agenda 8p seed=1 => ok:1e09707beead517d25a58e75804534cb
+preset techs+agenda 8p seed=5 => ok:a32067075f6d6794c8ee7aa70a204948
+preset techs+fac:sol:hacan 2p seed=1 => ok:5d74e977794f65f1918b62d8ced32f5a
+preset techs+fac:sol:hacan 2p seed=5 => ok:b7ee61823ed9d4baca4fb08b98a93f5c
+preset techs+fac:sol:hacan 3p seed=1 => ok:3db6631528aaf8c21bc208360e481b28
+preset techs+fac:sol:hacan 3p seed=5 => ok:8f3944d2f62b8fc095afa75520722f79
+preset techs+fac:sol:hacan 4p seed=1 => ok:e7fdca74a6b14dfcabc777c6688b6b99
+preset techs+fac:sol:hacan 4p seed=5 => ok:b9029529cfffe8baad91f08d84a5072b
+preset techs+fac:sol:hacan 6p seed=1 => ok:006379e626291ae60e3b526e4c25ff9e
+preset techs+fac:sol:hacan 6p seed=5 => ok:e96f986de95c10181e420b851cc46ed4
+preset techs+fac:sol:hacan 8p seed=1 => ok:8c4786630a807dc2a66f0c37c73c5f48
+preset techs+fac:sol:hacan 8p seed=5 => ok:cc4d61d7b73a1acb86171bd0cad1093a
+preset leaders 2p seed=1 => ok:8db201b79dcc5330764320e42ab27def
+preset leaders 2p seed=5 => ok:14573b7fddf28ca138eb82e2d55f5228
+preset leaders 3p seed=1 => ok:1c9258fb5a24b511f483e4af8c973720
+preset leaders 3p seed=5 => ok:83ba2b0c94a0d6fe53ac21a39ade2e15
+preset leaders 4p seed=1 => ok:aafbc913dd5b0b68d0b832bb6c78d97b
+preset leaders 4p seed=5 => ok:388ba86babf2c46d49ea049c3d97c841
+preset leaders 6p seed=1 => ok:ac1624bb01240a9f58c3880b39682ebb
+preset leaders 6p seed=5 => ok:97abdd7ede6ff4b9c12bd73f07b91045
+preset leaders 8p seed=1 => ok:3c4efd8645ca84a2105db86105528a0b
+preset leaders 8p seed=5 => ok:6287e1d64f6e08b5f82309b313ac701b
+preset leaders+rot 2p seed=1 => ok:8db201b79dcc5330764320e42ab27def
+preset leaders+rot 2p seed=5 => ok:14573b7fddf28ca138eb82e2d55f5228
+preset leaders+rot 3p seed=1 => ok:1c9258fb5a24b511f483e4af8c973720
+preset leaders+rot 3p seed=5 => ok:83ba2b0c94a0d6fe53ac21a39ade2e15
+preset leaders+rot 4p seed=1 => ok:aafbc913dd5b0b68d0b832bb6c78d97b
+preset leaders+rot 4p seed=5 => ok:388ba86babf2c46d49ea049c3d97c841
+preset leaders+rot 6p seed=1 => ok:ac1624bb01240a9f58c3880b39682ebb
+preset leaders+rot 6p seed=5 => ok:97abdd7ede6ff4b9c12bd73f07b91045
+preset leaders+rot 8p seed=1 => ok:3c4efd8645ca84a2105db86105528a0b
+preset leaders+rot 8p seed=5 => ok:6287e1d64f6e08b5f82309b313ac701b
+preset leaders+short 2p seed=1 => ok:c95a8d50688fb742770554388813e008
+preset leaders+short 2p seed=5 => ok:8c5cae50e8ab093409bb3fa9219619e7
+preset leaders+short 3p seed=1 => ok:57ad1a50eaeaee43e739cef29e6dd26f
+preset leaders+short 3p seed=5 => ok:3f31eb807d0f53ba000aced1eed4dc39
+preset leaders+short 4p seed=1 => ok:93845eaf88e1e63e3c34eda5030ac04f
+preset leaders+short 4p seed=5 => ok:5b7f1982011e352428bd4ab60ea69344
+preset leaders+short 6p seed=1 => ok:831b75a59d335edca1432ef1e56a027e
+preset leaders+short 6p seed=5 => ok:7243835e569b409209ca096c07faaf94
+preset leaders+short 8p seed=1 => ok:070e6c5e0dfe396b4c6f7ad517b6e074
+preset leaders+short 8p seed=5 => ok:7aa53eb2572e0359801091106b01d16b
+preset leaders+agenda 2p seed=1 => ok:c9542883a225d312e65dc44750e45100
+preset leaders+agenda 2p seed=5 => ok:9bae579d9e97afa58370a973133c2cf4
+preset leaders+agenda 3p seed=1 => ok:816c58f774b0f809d6a567dd73ab3cd9
+preset leaders+agenda 3p seed=5 => ok:2d5dac75c759ae89fa6f33a669566962
+preset leaders+agenda 4p seed=1 => ok:1f5ad159fc190a1c6004d5dcbb5831a6
+preset leaders+agenda 4p seed=5 => ok:f8e133428924f4cb77770ece8832a544
+preset leaders+agenda 6p seed=1 => ok:d8c34557968d80aedcecd5f96d4a643b
+preset leaders+agenda 6p seed=5 => ok:64701e415c0a43680bc7a78606abfb3d
+preset leaders+agenda 8p seed=1 => ok:d8649ff76d405c51ccd5db89f64688a9
+preset leaders+agenda 8p seed=5 => ok:4fc3f59a4d95f7c9a9af8bb3b16073c9
+preset leaders+fac:sol:hacan 2p seed=1 => ok:4dd5bc02b607561bdbde30ec73e90d0e
+preset leaders+fac:sol:hacan 2p seed=5 => ok:3154fa7576b0dea33a2f9d9805f50ba8
+preset leaders+fac:sol:hacan 3p seed=1 => ok:4064f4720c77938404cde8ba8781f613
+preset leaders+fac:sol:hacan 3p seed=5 => ok:e658f28e25cf83e4640a096c67f12552
+preset leaders+fac:sol:hacan 4p seed=1 => ok:af0225617484bd344e770fd5c52ee073
+preset leaders+fac:sol:hacan 4p seed=5 => ok:138a1783ccbfeb586abdc6ed4223ca1a
+preset leaders+fac:sol:hacan 6p seed=1 => ok:222c1fbe462e5ee972b9a3c46defcedb
+preset leaders+fac:sol:hacan 6p seed=5 => ok:94bc3029f09d9ea39622d2bcda13ff7e
+preset leaders+fac:sol:hacan 8p seed=1 => ok:121ffbe7be4c2c76762d740457ae872c
+preset leaders+fac:sol:hacan 8p seed=5 => ok:1fe5f86617643b362d6fa6d0648517d7
+preset endgame 2p seed=1 => ok:a2a96f3f129b570cf16663ab1b604e1f
+preset endgame 2p seed=5 => ok:d61ba31833f77ed958c3c3486c465db4
+preset endgame 3p seed=1 => ok:94ccb19f25e9b864cfc499f2dd0c8c03
+preset endgame 3p seed=5 => ok:4931535c820e80a5dc63aa1bc89d19c3
+preset endgame 4p seed=1 => ok:65dd1089b13728de9d2ad936320a469c
+preset endgame 4p seed=5 => ok:77c3b4570c92affa211c98b3cef66596
+preset endgame 6p seed=1 => ok:9d21e296d385fe633d7daac0f50e3027
+preset endgame 6p seed=5 => ok:646a646df26bcc103a43fc07978ae571
+preset endgame 8p seed=1 => ok:32cdde2bf5c572b4268e89647825235d
+preset endgame 8p seed=5 => ok:b0ff5fc39234801db7f45e7d607e137a
+preset endgame+rot 2p seed=1 => ok:c21ae0d02035b7a4b0e90643e74211dd
+preset endgame+rot 2p seed=5 => ok:01ff098fcb909d47d5f72ba1e7d3fa23
+preset endgame+rot 3p seed=1 => ok:709675241f95a62ab924ef6c4472711d
+preset endgame+rot 3p seed=5 => ok:72aa2f913fc3ece7a728c226b1e0a70d
+preset endgame+rot 4p seed=1 => ok:482f36e03d29ede0307ab82771250b46
+preset endgame+rot 4p seed=5 => ok:a808984e144f48077fe40d328ca42486
+preset endgame+rot 6p seed=1 => ok:a77d0ea9516145f75467a8683b77793d
+preset endgame+rot 6p seed=5 => ok:5108cb5f85a6d1559f3f76c4d7d8bb7d
+preset endgame+rot 8p seed=1 => ok:60d3af132065cc05e3f878728f21ba9d
+preset endgame+rot 8p seed=5 => ok:5e28b680993d7c62afe576af8b7da44e
+preset endgame+short 2p seed=1 => ok:7e0092368243a4b8c957a63d6eed20fb
+preset endgame+short 2p seed=5 => ok:bbe3aab4b27d956e25db9c799d253da1
+preset endgame+short 3p seed=1 => ok:577fcac2e013f2d40681bddb385f3403
+preset endgame+short 3p seed=5 => ok:895c562d3f10c101379e20c41164a579
+preset endgame+short 4p seed=1 => ok:625bf995ea35c5ec24f6cae6a3e6393e
+preset endgame+short 4p seed=5 => ok:32ef650590d712164c81d88d1a076af2
+preset endgame+short 6p seed=1 => ok:b4abcb39a0e28db5d16f831441607a1b
+preset endgame+short 6p seed=5 => ok:c0140d4393d82ce88f015d41fcc78a4d
+preset endgame+short 8p seed=1 => ok:e549b252fa2c7515e2750c6502b13628
+preset endgame+short 8p seed=5 => ok:be7c35800a1624b77c9d5926b09a5ef8
+preset endgame+agenda 2p seed=1 => ok:f0cc0e57f8319b2649e42313c70efbb2
+preset endgame+agenda 2p seed=5 => ok:3a21e9db441cdec7d1044a2908793435
+preset endgame+agenda 3p seed=1 => ok:4601acc7cd2b469dc1f460b1912a6195
+preset endgame+agenda 3p seed=5 => ok:467f957b7ef01556a6fcae99003b450e
+preset endgame+agenda 4p seed=1 => ok:340cc13b19f4ffcd5a980ac9668f7c96
+preset endgame+agenda 4p seed=5 => ok:069e00528eb303040febf9bdf322fee4
+preset endgame+agenda 6p seed=1 => ok:7f07b0d55fea8370c286ce4f755b5895
+preset endgame+agenda 6p seed=5 => ok:94c33525203713860c7dc21f32e46a00
+preset endgame+agenda 8p seed=1 => ok:db6087e985cc59881807ee6132eead5f
+preset endgame+agenda 8p seed=5 => ok:68f2ac3996da2a3ba6c92f3ac4095c2e
+preset endgame+fac:sol:hacan 2p seed=1 => ok:a2a96f3f129b570cf16663ab1b604e1f
+preset endgame+fac:sol:hacan 2p seed=5 => ok:d61ba31833f77ed958c3c3486c465db4
+preset endgame+fac:sol:hacan 3p seed=1 => ok:1b4381004486fbd5224abc0afaffbffe
+preset endgame+fac:sol:hacan 3p seed=5 => ok:e249bd82e4b01ec72adcb5e9e627ebd3
+preset endgame+fac:sol:hacan 4p seed=1 => ok:ae3c03cb1111106d79a40210964b5347
+preset endgame+fac:sol:hacan 4p seed=5 => ok:96a258596c6b94a6fd74d590409b268d
+preset endgame+fac:sol:hacan 6p seed=1 => ok:d5586eb89b32e4f7343f5a7f17d2646a
+preset endgame+fac:sol:hacan 6p seed=5 => ok:f19ce47f6ec9d21d164038b84e671ee8
+preset endgame+fac:sol:hacan 8p seed=1 => ok:c93289ba8371170cf18caed8643170b5
+preset endgame+fac:sol:hacan 8p seed=5 => ok:8eac07a8b387b8e66d40d2b4706f7e55
+preset siege 2p seed=1 => ok:d01cd19d628ecbe3465159c052c1f6a4
+preset siege 2p seed=5 => ok:fc6403b05f739de048352e0202b042eb
+preset siege 3p seed=1 => ok:a0f7d50e88d940743807e3c1d7e0dbd3
+preset siege 3p seed=5 => ok:b4c2f6e6097db25b048146f403232546
+preset siege 4p seed=1 => ok:2e64fd621f7fa1e87dbca0e5ac522e23
+preset siege 4p seed=5 => ok:d768f348c89fe2146242a21f5ef78578
+preset siege 6p seed=1 => ok:1aa634e36c67acf799d5ecf84cc45f33
+preset siege 6p seed=5 => ok:d83f62da36a99a356d829ea58413b0e2
+preset siege 8p seed=1 => ok:4efc71873431846e400610276d913cdd
+preset siege 8p seed=5 => ok:12e1e026df8816cf6bbc1a80bedc88dc
+preset siege+rot 2p seed=1 => ok:cd3313153361c0f38acae5dd61c7a4ff
+preset siege+rot 2p seed=5 => ok:edd951379085a081c2d7948a82fc5017
+preset siege+rot 3p seed=1 => ok:18305ca213d58736229387c2cfd28cea
+preset siege+rot 3p seed=5 => ok:3c2eed728082c1ff175f3ed474d34fa8
+preset siege+rot 4p seed=1 => ok:47dc1b4cc03c9ab7acee099eb4cb9065
+preset siege+rot 4p seed=5 => ok:74321d2b35c237d28c42dc6bb2924507
+preset siege+rot 6p seed=1 => ok:c85d6d2df2317cc61a7dead81a147048
+preset siege+rot 6p seed=5 => ok:80f8974fa99b43185fa0ac04346b48ea
+preset siege+rot 8p seed=1 => ok:f8fbe8abeb2274713d02ccef51a62ab6
+preset siege+rot 8p seed=5 => ok:593f42262c34a3c5f010084e13f2e885
+preset siege+short 2p seed=1 => ok:ae1497d03bf9bc729f1d1db42550c839
+preset siege+short 2p seed=5 => ok:1a2c6178bf380057e73e2ba0cc4bd3b1
+preset siege+short 3p seed=1 => ok:b2c3aba827f8475891357a44ecc1fe68
+preset siege+short 3p seed=5 => ok:199c3e61959f62aa919f950c38f01020
+preset siege+short 4p seed=1 => ok:05255102b2af11280b4d172b4a30562d
+preset siege+short 4p seed=5 => ok:f0b222d5c8407a4a07ca3c84a2955a76
+preset siege+short 6p seed=1 => ok:7bb808df09fd125720ba41f9eed458cc
+preset siege+short 6p seed=5 => ok:91f82c80f5de4f3f351b3cbbbde81c24
+preset siege+short 8p seed=1 => ok:25e78452e8c24b31fb624586ef9f8740
+preset siege+short 8p seed=5 => ok:d391b46c6d7ecce77dde5e90a14e7230
+preset siege+agenda 2p seed=1 => ok:69b4f3d2eae2617a21a98357105d9889
+preset siege+agenda 2p seed=5 => ok:85437d76c5085ac66d3d58d41613983f
+preset siege+agenda 3p seed=1 => ok:3cb64259d09519b02882ebd732befe02
+preset siege+agenda 3p seed=5 => ok:1c70ac6470eeb15f000a6d1192c2c606
+preset siege+agenda 4p seed=1 => ok:811dc502e29d65e7ab5a66c8be3f7e1d
+preset siege+agenda 4p seed=5 => ok:0cd095d369c8a9fcbe0775d3d252fe67
+preset siege+agenda 6p seed=1 => ok:edfa581f1b333d89ad0a605327498c04
+preset siege+agenda 6p seed=5 => ok:8c884800c7de1f671e159d8fa70961fa
+preset siege+agenda 8p seed=1 => ok:641079384c748aad09a7efae4b8c1ddc
+preset siege+agenda 8p seed=5 => ok:982bd4f5688a79c29590d58124f98854
+preset siege+fac:sol:hacan 2p seed=1 => ok:d01cd19d628ecbe3465159c052c1f6a4
+preset siege+fac:sol:hacan 2p seed=5 => ok:fc6403b05f739de048352e0202b042eb
+preset siege+fac:sol:hacan 3p seed=1 => ok:fb98256fa6c3991fb8f9d83e0eed43a9
+preset siege+fac:sol:hacan 3p seed=5 => ok:2d900c3f8aa5534dc8a8765af97a2ed6
+preset siege+fac:sol:hacan 4p seed=1 => ok:34a1b83a060a06b20bf0657f9022f4b4
+preset siege+fac:sol:hacan 4p seed=5 => ok:c2a97476c2499eb7dfb45ee20e306b66
+preset siege+fac:sol:hacan 6p seed=1 => ok:4e33d251b759c410abda9028085ad150
+preset siege+fac:sol:hacan 6p seed=5 => ok:4f0858bdaea4953180d12edd0022e365
+preset siege+fac:sol:hacan 8p seed=1 => ok:78c6104911c15c37e331a3f681f9d7b4
+preset siege+fac:sol:hacan 8p seed=5 => ok:bf5be7ab26fd66009726aec6b7e5ed05
+preset bombard 2p seed=1 => ok:9bf1a8427f12fb2e79151225a27ca8c8
+preset bombard 2p seed=5 => ok:95ff8df9e20781fdd410096bb14429f5
+preset bombard 3p seed=1 => ok:a9b8efc70272eaf209f3fcb1d08c4485
+preset bombard 3p seed=5 => ok:b8bdb644ac2da6fdef3ee74448bbda3a
+preset bombard 4p seed=1 => ok:1402c816023bfb65ee3c99a90cf8f052
+preset bombard 4p seed=5 => ok:7722c97dc884b43a5376c093f91f6102
+preset bombard 6p seed=1 => ok:5c194ec18470d7fa9f885485843952fe
+preset bombard 6p seed=5 => ok:3da29867d3aef61738ccef0f4eba5e30
+preset bombard 8p seed=1 => ok:ad7b1a95a66bbf2e8dc9b4f924daba49
+preset bombard 8p seed=5 => ok:a17b6990e7d74e3e43b612ede0972282
+preset bombard+rot 2p seed=1 => ok:21e5822e0b39075a6065564151ef289b
+preset bombard+rot 2p seed=5 => ok:9a82c673802c2a5a0268160ff9d15da7
+preset bombard+rot 3p seed=1 => ok:11f630d35cef8d58cb4b09d0a82efa84
+preset bombard+rot 3p seed=5 => ok:834f0930b7c92408db5b7eec7ef9e0b3
+preset bombard+rot 4p seed=1 => ok:9076da75437c0472962ef6a1c2478963
+preset bombard+rot 4p seed=5 => ok:e8eebb2000a59aed2215954bda6f59ac
+preset bombard+rot 6p seed=1 => ok:5dd12d11dd40c47571369633ae56bd43
+preset bombard+rot 6p seed=5 => ok:53c23e5b747bf86c088991f1128461b8
+preset bombard+rot 8p seed=1 => ok:77070eb9f5f9900d7decf6987f6a8a60
+preset bombard+rot 8p seed=5 => ok:6a21c62ef79b77a311ccac650348414f
+preset bombard+short 2p seed=1 => ok:927aafbba9ea3e0314a2ac0f5d8e8750
+preset bombard+short 2p seed=5 => ok:0d4ba61dfc1647aea8a501b2de001ed7
+preset bombard+short 3p seed=1 => ok:25db147075ccbe81683897f6021711ed
+preset bombard+short 3p seed=5 => ok:a5fed83ced90c15d9a2f0c7426fed19b
+preset bombard+short 4p seed=1 => ok:74e81825cbda0fcb68bec2d269bf1042
+preset bombard+short 4p seed=5 => ok:2435104e146ebd75b9b56718aed314c6
+preset bombard+short 6p seed=1 => ok:fb45a7a722f7f97c53bcf46c435db4cd
+preset bombard+short 6p seed=5 => ok:dec08f75c5f6e7eb70110bca86b0dc13
+preset bombard+short 8p seed=1 => ok:e8911771877a1eceb6ee9a0bd732e371
+preset bombard+short 8p seed=5 => ok:e96934fc7cbee2b1aa78e1d9acfd1a64
+preset bombard+agenda 2p seed=1 => ok:ee990d0b17d865b1c2655cc8b49d624a
+preset bombard+agenda 2p seed=5 => ok:650270588350799561b29c3139aed672
+preset bombard+agenda 3p seed=1 => ok:d0094da70ea7e45537725e21e2ac321f
+preset bombard+agenda 3p seed=5 => ok:74c4220916474fca4c65557a326b7585
+preset bombard+agenda 4p seed=1 => ok:acbc7050a017a05409f4cbfb4852785c
+preset bombard+agenda 4p seed=5 => ok:aa563df3e0695fed1680dd710af90062
+preset bombard+agenda 6p seed=1 => ok:06bb6b6667b35462a7cc9de20ef08654
+preset bombard+agenda 6p seed=5 => ok:729340992618a08655461451c80eb498
+preset bombard+agenda 8p seed=1 => ok:3b5ac8dfbf1c13a620c37b69e70b57fd
+preset bombard+agenda 8p seed=5 => ok:253e8946d37f880167666560d2b4079a
+preset bombard+fac:sol:hacan 2p seed=1 => ok:9bf1a8427f12fb2e79151225a27ca8c8
+preset bombard+fac:sol:hacan 2p seed=5 => ok:95ff8df9e20781fdd410096bb14429f5
+preset bombard+fac:sol:hacan 3p seed=1 => ok:4285a99d9de3c5c6b872c3048b1ceb99
+preset bombard+fac:sol:hacan 3p seed=5 => ok:aa94fb1e698ca49b6aedf5cbbe6a9168
+preset bombard+fac:sol:hacan 4p seed=1 => ok:1253c8226fbd9505f9ce89c0097e34fa
+preset bombard+fac:sol:hacan 4p seed=5 => ok:bd10369a1603ab8ac4deaabcbebc16c0
+preset bombard+fac:sol:hacan 6p seed=1 => ok:0800adf45b6912a2da787011d4c451dd
+preset bombard+fac:sol:hacan 6p seed=5 => ok:e7c7289feb7347f3fa3e3e33bb611890
+preset bombard+fac:sol:hacan 8p seed=1 => ok:36479285680ce7e04732e819647773cc
+preset bombard+fac:sol:hacan 8p seed=5 => ok:7bbb3d5656caf148729165110bf74b5c
+preset capture 2p seed=1 => ok:bf8c9127ee390369172f870c41b5e97c
+preset capture 2p seed=5 => ok:3cac3d3e7883712a2b019f07aa80b9d6
+preset capture 3p seed=1 => ok:2573b7fc7976d2cd4559f5baf2663eaf
+preset capture 3p seed=5 => ok:7cdb7a592be02f7d140f697838d9f112
+preset capture 4p seed=1 => ok:6960f9b625bd3a8a9113142f7f209bd4
+preset capture 4p seed=5 => ok:4030913d931d001ddc5a5356fe11a7a1
+preset capture 6p seed=1 => ok:c65211f89d5a72169ec6f5c1d3f008e9
+preset capture 6p seed=5 => ok:bf4510be9081cfe588503de6cdbcc1bc
+preset capture 8p seed=1 => ok:ccb106d2138c7eeb962ad6b9bfb39c91
+preset capture 8p seed=5 => ok:eb869953fefd011acf5204f48e389922
+preset capture+rot 2p seed=1 => ok:b9cb24ecc9d1536855dd89b1db11d0a7
+preset capture+rot 2p seed=5 => ok:cff4de2e7222b61043bd25bd52d7caea
+preset capture+rot 3p seed=1 => ok:db013290390a4e95b12f0b5fc60e1f9e
+preset capture+rot 3p seed=5 => ok:d3cc35b60749b506bd71fa4b0976f6ad
+preset capture+rot 4p seed=1 => ok:e41390fb577c4f198914be309a95f76c
+preset capture+rot 4p seed=5 => ok:24bbc926ce7421484db62110ccd1ca3f
+preset capture+rot 6p seed=1 => ok:f0ba9d171aea60b76935ac557a55a6dd
+preset capture+rot 6p seed=5 => ok:7db5c452ce12827b40186f0c661373ec
+preset capture+rot 8p seed=1 => ok:0164b2122da72eb539ef433bf60a4815
+preset capture+rot 8p seed=5 => ok:60feb7cf9c5eabe8dfd2c8fa5f4120ed
+preset capture+short 2p seed=1 => ok:b2876434023014ec94ad17ccd8d92cc7
+preset capture+short 2p seed=5 => ok:72f98fa7b4016305e2bbe674d07d9a79
+preset capture+short 3p seed=1 => ok:82f8f984263530014548fbc1a6187f01
+preset capture+short 3p seed=5 => ok:e0d69e960ee9a02ef58efc2c39724c60
+preset capture+short 4p seed=1 => ok:497dc860853cc10424a9c707de1bc11d
+preset capture+short 4p seed=5 => ok:254fc712905ae5a4f2ec0a1bca32dabc
+preset capture+short 6p seed=1 => ok:6c23b96fc2909588f00fe6d8e0d92995
+preset capture+short 6p seed=5 => ok:a59161a5056639003951d461f2c35745
+preset capture+short 8p seed=1 => ok:25c6e58b829f7e6974428eadfa06080a
+preset capture+short 8p seed=5 => ok:b1aed0407147e9af20e892a04e7c10f3
+preset capture+agenda 2p seed=1 => ok:6fbf4e4a6a0f1e9d31b76c0d517bd75b
+preset capture+agenda 2p seed=5 => ok:b3209d2638f9707daf85e8b4686d6012
+preset capture+agenda 3p seed=1 => ok:0477e41cebb6965c35bd201b33fbc7fb
+preset capture+agenda 3p seed=5 => ok:13dda0f90a60fb9dca6165889a6b5836
+preset capture+agenda 4p seed=1 => ok:3a020312f3f2dccd38c02351de426191
+preset capture+agenda 4p seed=5 => ok:7d5849e87c3bd081c43c19413bc6fe92
+preset capture+agenda 6p seed=1 => ok:b0993b28956c5473a2d2318e2ecb75cd
+preset capture+agenda 6p seed=5 => ok:9e1851d5d591182b5263bd20e8514ca8
+preset capture+agenda 8p seed=1 => ok:af9a12347548fb215194ccdb82a5829c
+preset capture+agenda 8p seed=5 => ok:8454552707a06834f81501f064392d86
+preset capture+fac:sol:hacan 2p seed=1 => ok:bf8c9127ee390369172f870c41b5e97c
+preset capture+fac:sol:hacan 2p seed=5 => ok:3cac3d3e7883712a2b019f07aa80b9d6
+preset capture+fac:sol:hacan 3p seed=1 => ok:1309fdfda495cf5b01f3aa242d4eebc4
+preset capture+fac:sol:hacan 3p seed=5 => ok:0b186f410c1c0c4f147f89fa1d792afc
+preset capture+fac:sol:hacan 4p seed=1 => ok:6960f9b625bd3a8a9113142f7f209bd4
+preset capture+fac:sol:hacan 4p seed=5 => ok:9436b6065dfd1dda2de73c1e586e7e93
+preset capture+fac:sol:hacan 6p seed=1 => ok:0b93b3d9d2ff3e0d41473aa6236adb50
+preset capture+fac:sol:hacan 6p seed=5 => ok:d30c76df260cda4acbe7be5663114a1f
+preset capture+fac:sol:hacan 8p seed=1 => ok:d71468d71acfbed1519a171261a81d37
+preset capture+fac:sol:hacan 8p seed=5 => ok:f50954b826e6cc586aa29dc9ee84edd4
+preset explore 2p seed=1 => ok:2043c6ad15a5d1480cfebfde04acc445
+preset explore 2p seed=5 => ok:4d024e4631ab56eb136042a0353dea2e
+preset explore 3p seed=1 => ok:5ea8ff6427760735866bb57b20b3da6c
+preset explore 3p seed=5 => ok:973cc05d142385402577baf6b929b08e
+preset explore 4p seed=1 => ok:c80f42058c1a48407439dd3c631d4c6d
+preset explore 4p seed=5 => ok:cbbf76ebb19b227621b3a9ef9a10c4b0
+preset explore 6p seed=1 => ok:cf7db8dc15c1df1626e2c64b9378800a
+preset explore 6p seed=5 => ok:7b4f18b254d34f1ab147bd40879ecd82
+preset explore 8p seed=1 => ok:a1e969462ba5502252cb22c579512de8
+preset explore 8p seed=5 => ok:5016c7c93bbe1629fb37c025240ced17
+preset explore+rot 2p seed=1 => ok:08f24773a1def31f1b13b85408dc4855
+preset explore+rot 2p seed=5 => ok:51eee0890629c2ec5178be23a176b38b
+preset explore+rot 3p seed=1 => ok:e86a519690db5194f7403da5035e4faf
+preset explore+rot 3p seed=5 => ok:3ae850ccd51f390e106671b532ff5a6f
+preset explore+rot 4p seed=1 => ok:e80fc01f4e7a91af1f95a97821aee09e
+preset explore+rot 4p seed=5 => ok:6ea0bb138701292bc54e5e602fb46a58
+preset explore+rot 6p seed=1 => ok:a25107f9176820b6e1e5a27174266a7f
+preset explore+rot 6p seed=5 => ok:85484bf381c8b7fe524b9318dfa5a3e5
+preset explore+rot 8p seed=1 => ok:c72a4507f85b3dfbdd623d093dd682c4
+preset explore+rot 8p seed=5 => ok:fd6761c7ce719ce1b74ec40cfffac808
+preset explore+short 2p seed=1 => ok:b151c55a261cc8569601582fc65a08ee
+preset explore+short 2p seed=5 => ok:9a128dd7276c2d09dd15f6aa57aa51b8
+preset explore+short 3p seed=1 => ok:2953b364ae414300627e1f8a68a9e1cc
+preset explore+short 3p seed=5 => ok:b0cc094116ecfba5aab88fd4edca5bf6
+preset explore+short 4p seed=1 => ok:1a050ebf01b2269595a960c458204072
+preset explore+short 4p seed=5 => ok:0d81910ee90635e88c4dfd1ebf2582ff
+preset explore+short 6p seed=1 => ok:d57a4322e524724ec1c3954bd9b17b57
+preset explore+short 6p seed=5 => ok:fd081bdff681bf38fedbee76725948bb
+preset explore+short 8p seed=1 => ok:bebe0aeed851aaeaf2b8166822826de2
+preset explore+short 8p seed=5 => ok:6332690531c00ef82478481ce2338310
+preset explore+agenda 2p seed=1 => ok:c5bba697e040505967e876bc4706a1d3
+preset explore+agenda 2p seed=5 => ok:7256406eb8a4fb0d80a5534e39df9f73
+preset explore+agenda 3p seed=1 => ok:c8e133f7d0520421edc60f8be981b939
+preset explore+agenda 3p seed=5 => ok:b01ccc269148c625133bd57f3409092a
+preset explore+agenda 4p seed=1 => ok:f5347124ecc7a20673363ed106763305
+preset explore+agenda 4p seed=5 => ok:17610cf0c7cd3552dfa5d152cae71ce0
+preset explore+agenda 6p seed=1 => ok:74790052117998ca7fdb67d4238aeba0
+preset explore+agenda 6p seed=5 => ok:1d222292ce387a137afdb11f55dc4ad4
+preset explore+agenda 8p seed=1 => ok:b11ea4fb0657eab3f71f9b9178d2ceee
+preset explore+agenda 8p seed=5 => ok:707dedafa610f5c6fad7a55c1351696b
+preset explore+fac:sol:hacan 2p seed=1 => ok:2043c6ad15a5d1480cfebfde04acc445
+preset explore+fac:sol:hacan 2p seed=5 => ok:4d024e4631ab56eb136042a0353dea2e
+preset explore+fac:sol:hacan 3p seed=1 => ok:63b1349d45cd7329ae5a5c2caa72510b
+preset explore+fac:sol:hacan 3p seed=5 => ok:d4a6b68efea328dbc8139c276b064742
+preset explore+fac:sol:hacan 4p seed=1 => ok:0e5b9a5209433ad20cf84f158c121d0c
+preset explore+fac:sol:hacan 4p seed=5 => ok:5aa4938dd611cf444b96d47e4776bdf3
+preset explore+fac:sol:hacan 6p seed=1 => ok:fb1f6c520ccd0152ebbf439108f5656a
+preset explore+fac:sol:hacan 6p seed=5 => ok:5b0f99972c11fbba1f65536d5996fa29
+preset explore+fac:sol:hacan 8p seed=1 => ok:0977c9e52e06238db824d0ebe3d693be
+preset explore+fac:sol:hacan 8p seed=5 => ok:8cc1fd2bd2386b234e309568743537af
+preset notes 2p seed=1 => ok:290d5036e288b9b42fb5fe33e927aec1
+preset notes 2p seed=5 => ok:98e474aef223875920847f82967222df
+preset notes 3p seed=1 => ok:582c0caad9079367a8ec1f8b684c3ff0
+preset notes 3p seed=5 => ok:5ecd7b2f29828e5849b5e21ab00faa30
+preset notes 4p seed=1 => ok:0ba146a50c4be60d80a841b420452c01
+preset notes 4p seed=5 => ok:d0027f8d98a3c5492f92cd7477ad83e8
+preset notes 6p seed=1 => ok:dfad5a258e28d2c80c9e8cb29bbcdcd3
+preset notes 6p seed=5 => ok:682f011a5328f8dd5746297bb7bf5e9d
+preset notes 8p seed=1 => ok:5f0bcedade24671d636a25a000f4dea1
+preset notes 8p seed=5 => ok:a66da73c552f4d59fc6d713f4b247199
+preset notes+rot 2p seed=1 => ok:435d2471dd34315b67d535785e5567ff
+preset notes+rot 2p seed=5 => ok:15312ae606c752a4a07b908228066c23
+preset notes+rot 3p seed=1 => ok:5f023c8fc885c88d970c2fc80c2867c1
+preset notes+rot 3p seed=5 => ok:44171c6fe5f8cfdc4088e91cb10e15cf
+preset notes+rot 4p seed=1 => ok:556e198ae9305626092d6ac48c8c5e46
+preset notes+rot 4p seed=5 => ok:d9dfabc3603213a721fc9d1caeaae99a
+preset notes+rot 6p seed=1 => ok:7a92d79f61c4f47f855f173122184cc7
+preset notes+rot 6p seed=5 => ok:5ee3a7d42055b7ad4ade3fdc5f200ce1
+preset notes+rot 8p seed=1 => ok:40c9632fd99f069be4cf6a191304b2f7
+preset notes+rot 8p seed=5 => ok:b61f5e3cb43b87fa8a8500e680d61efa
+preset notes+short 2p seed=1 => ok:1df6ff2046296492e1d56f19a8ce9866
+preset notes+short 2p seed=5 => ok:6ae9b0430a79864bffb8a4756b99cc6c
+preset notes+short 3p seed=1 => ok:55e11774270f241b6841a911fddbcc36
+preset notes+short 3p seed=5 => ok:c6ac9472d76716b5fc088f5060609ca4
+preset notes+short 4p seed=1 => ok:6eb073f71c7b770edf287f6c1223c5ed
+preset notes+short 4p seed=5 => ok:a8d23153029c8e642bc15efce1861824
+preset notes+short 6p seed=1 => ok:374ce9d2983de6641ccc7179b39fc3fb
+preset notes+short 6p seed=5 => ok:4d28b21276a892f71b6d9f8f85354b77
+preset notes+short 8p seed=1 => ok:77f14d96e05f40d8f7da79ccd2410694
+preset notes+short 8p seed=5 => ok:4fd08b640431d7203420783bb2bb1cfa
+preset notes+agenda 2p seed=1 => ok:7bf8aa2de04a7dbbe32515580384b0dc
+preset notes+agenda 2p seed=5 => ok:c2c85c75f9c8123b4a2499d8dc07ec84
+preset notes+agenda 3p seed=1 => ok:fb031d8d98ea2361ada82d21eadf676e
+preset notes+agenda 3p seed=5 => ok:98a702551f2b90463d0b12427fdf45a1
+preset notes+agenda 4p seed=1 => ok:130976725a41d8db159269424c043968
+preset notes+agenda 4p seed=5 => ok:487d124ace35c3b984d2383c4315a641
+preset notes+agenda 6p seed=1 => ok:b61216009c70a2a3d4ff36052989f3d5
+preset notes+agenda 6p seed=5 => ok:a019ba563445fde0e4a36c280445f344
+preset notes+agenda 8p seed=1 => ok:51fcf6ac1abdacd135e6dfe7269b996e
+preset notes+agenda 8p seed=5 => ok:84704f194f4e2e36e6e3638c8deae6c7
+preset notes+fac:sol:hacan 2p seed=1 => ok:290d5036e288b9b42fb5fe33e927aec1
+preset notes+fac:sol:hacan 2p seed=5 => ok:98e474aef223875920847f82967222df
+preset notes+fac:sol:hacan 3p seed=1 => ok:3d0e0f8926fd04032a56d0f7411514ed
+preset notes+fac:sol:hacan 3p seed=5 => ok:ada41cb9911404761bdda807a9c890b4
+preset notes+fac:sol:hacan 4p seed=1 => ok:9fae6fc5bf329de6ba9e6fe1dd289983
+preset notes+fac:sol:hacan 4p seed=5 => ok:bfd712f9c026afda4df1c4043274b507
+preset notes+fac:sol:hacan 6p seed=1 => ok:b9af69ea9b2f69df4c658b47271d92c3
+preset notes+fac:sol:hacan 6p seed=5 => ok:7c4197c58afdc1e5b5436f83facc1ee8
+preset notes+fac:sol:hacan 8p seed=1 => ok:32d29f9e03bab67177a82009b335e086
+preset notes+fac:sol:hacan 8p seed=5 => ok:1ee0ebb50838795cac4cc00bbaf6ccb1
+preset expedition 2p seed=1 => ok:eebb1f7a3e5546b5af5f46d64855cf83
+preset expedition 2p seed=5 => ok:19185e1376f95c9546dfd8686461f0d6
+preset expedition 3p seed=1 => ok:b1e86be8b8894171ea90cf96b3302474
+preset expedition 3p seed=5 => ok:56bb5caa1d4add9fd37d610894f11910
+preset expedition 4p seed=1 => ok:5dcd790239e22411a93dcca7d242630c
+preset expedition 4p seed=5 => ok:6c74565d9f38a64c32106b056db6340f
+preset expedition 6p seed=1 => ok:b6df912253715832180bc36b4090f7ce
+preset expedition 6p seed=5 => ok:3c5731732041190e2cdbe18de0402301
+preset expedition 8p seed=1 => ok:0d68e041aa92e6b42d4b9204d8744916
+preset expedition 8p seed=5 => ok:7c0fe2e3ea42ea189822ac3e8df56740
+preset expedition+rot 2p seed=1 => ok:43c2fd1c6345f9a03dbe799c191135b6
+preset expedition+rot 2p seed=5 => ok:55f42da8f6edaef821a82054d5a96d1c
+preset expedition+rot 3p seed=1 => ok:09d93e7283c64398ef93557c6793fb72
+preset expedition+rot 3p seed=5 => ok:eb221decfa065d102b0e49511c43f966
+preset expedition+rot 4p seed=1 => ok:e64d689e540122a307e552f58fdd6bf7
+preset expedition+rot 4p seed=5 => ok:30384a9872f0f6582d77e43cee588b78
+preset expedition+rot 6p seed=1 => ok:dcd2efcc116861979b45d0921ba8146c
+preset expedition+rot 6p seed=5 => ok:7025ed87c85c86a2ce2985c8c5bef8b5
+preset expedition+rot 8p seed=1 => ok:6b293b6890b98a1f5507d2ce6c56fe50
+preset expedition+rot 8p seed=5 => ok:ffdb58020f8be8ae9a2d2ccb0e5906a9
+preset expedition+short 2p seed=1 => ok:373dccae0ed08313aeb88adf66ecb12b
+preset expedition+short 2p seed=5 => ok:9e513f1251914312365f6e699dc0d442
+preset expedition+short 3p seed=1 => ok:6f491863689d19ca9dc22d6094cee1e8
+preset expedition+short 3p seed=5 => ok:8732f5f6ecbafc8059ebc8163d51ec7b
+preset expedition+short 4p seed=1 => ok:dc78fbf7c68beb97347d4c9ff5fd6b8e
+preset expedition+short 4p seed=5 => ok:e8c841da64800403af1f995f848f1ef6
+preset expedition+short 6p seed=1 => ok:f2bb134a8a06458eaca838324cbe7e98
+preset expedition+short 6p seed=5 => ok:8e859be1dbe9e0743a39522bd70270d2
+preset expedition+short 8p seed=1 => ok:3e9f323a151be77b5ee15927e1cae858
+preset expedition+short 8p seed=5 => ok:1b778870c1a8765a10ab37d8e21730cc
+preset expedition+agenda 2p seed=1 => ok:54bf4a76e4a81c102c7d44a2389435fb
+preset expedition+agenda 2p seed=5 => ok:09e571ed0435dfc2323cb779224b6272
+preset expedition+agenda 3p seed=1 => ok:b4bf1c3d099d6c936f9a558d9df86dba
+preset expedition+agenda 3p seed=5 => ok:d58d8f16d32cc4a8ca0ca236c2473dc2
+preset expedition+agenda 4p seed=1 => ok:35441b46c6a23ac297634e2344bc1141
+preset expedition+agenda 4p seed=5 => ok:e1ba4d72d6a1e280f978c69b299f127b
+preset expedition+agenda 6p seed=1 => ok:284202c0db7f18ef80c33b4304b3d527
+preset expedition+agenda 6p seed=5 => ok:3b744ec487f20dba79b3db47c0d26384
+preset expedition+agenda 8p seed=1 => ok:40f8e9640b98c9732ead739404737531
+preset expedition+agenda 8p seed=5 => ok:5767ae94a07c68b3554331b62b1616bf
+preset expedition+fac:sol:hacan 2p seed=1 => ok:eebb1f7a3e5546b5af5f46d64855cf83
+preset expedition+fac:sol:hacan 2p seed=5 => ok:19185e1376f95c9546dfd8686461f0d6
+preset expedition+fac:sol:hacan 3p seed=1 => ok:6438a59dddc33831cec84a728d898857
+preset expedition+fac:sol:hacan 3p seed=5 => ok:7df5679853340a05d8a59dd6ac5e6145
+preset expedition+fac:sol:hacan 4p seed=1 => ok:fc55dc283264457bd624c97353ef2a02
+preset expedition+fac:sol:hacan 4p seed=5 => ok:9e8dab6d9fb6303b3ab87ac13502fd60
+preset expedition+fac:sol:hacan 6p seed=1 => ok:4f0d886a9254b99e1fce17f6d1ae0e29
+preset expedition+fac:sol:hacan 6p seed=5 => ok:698d927feebf9debe63ec09d6ed2a4b7
+preset expedition+fac:sol:hacan 8p seed=1 => ok:cdb598a675714f0b378fe0e74e4c1de8
+preset expedition+fac:sol:hacan 8p seed=5 => ok:09786bac4b7d2321234b64143cced490
+preset research 2p seed=1 => ok:b19fa01d4bf480277a693bafbb7e63f4
+preset research 2p seed=5 => ok:60ba8b2f729649984de5ab9fca43763d
+preset research 3p seed=1 => ok:ef38596b27a5181ba5f656506eea7cbf
+preset research 3p seed=5 => ok:9d914141743b6b5fc07d7a3900a5ba40
+preset research 4p seed=1 => ok:c8bafca096e2c0b6f95635a12c1b7cd3
+preset research 4p seed=5 => ok:49862362acf4552e2786719fc0c67124
+preset research 6p seed=1 => ok:e799762b347a2daaf783cd0b9b385815
+preset research 6p seed=5 => ok:e177fd7e34cfd3e71fc5b7c571aa3dad
+preset research 8p seed=1 => ok:c9929f2a0975b7b931ab54878c9901ed
+preset research 8p seed=5 => ok:e2b15430f9f36dfea5d183fd102f778f
+preset research+rot 2p seed=1 => ok:3bcaf8bcbe38659fb4c6f3e143450908
+preset research+rot 2p seed=5 => ok:ade7205a20869d7cd1e7e73ecf53e97a
+preset research+rot 3p seed=1 => ok:4df29243788406457e5f02753eff756c
+preset research+rot 3p seed=5 => ok:03a6fd091de46938d0527fe810fa0337
+preset research+rot 4p seed=1 => ok:063868cad2b0ec37b9373b3a54fb9d7c
+preset research+rot 4p seed=5 => ok:1e5e874574793e37c84b77fed793c52c
+preset research+rot 6p seed=1 => ok:58d0479daf197d3bc4bff775be06e518
+preset research+rot 6p seed=5 => ok:f56479e67ec3de06740afafb074b1777
+preset research+rot 8p seed=1 => ok:e62ae9873803ba14e9323698e68a652c
+preset research+rot 8p seed=5 => ok:9f8d9a627fda03bb4d875fc1f25f7ddc
+preset research+short 2p seed=1 => ok:bd047e200a2dfe49521ce33af21699cd
+preset research+short 2p seed=5 => ok:84363f17383a5edd784e9aeb73620c15
+preset research+short 3p seed=1 => ok:ba5baa3626dea6c237c03ed33d7defc4
+preset research+short 3p seed=5 => ok:1d202f4b8f9057f971944606e568e96a
+preset research+short 4p seed=1 => ok:0c25fe90f32e4d6ab4ad9dcfa45173da
+preset research+short 4p seed=5 => ok:051a88995ad1f0072f7498e3ced80d09
+preset research+short 6p seed=1 => ok:47277ca786e37718b77d2fd1f365e649
+preset research+short 6p seed=5 => ok:04127aa3c8723f7b6b4a9b8dc59056ba
+preset research+short 8p seed=1 => ok:1e99839254b398b8f206549c413f8c4b
+preset research+short 8p seed=5 => ok:e098c81c3b4644bfdc1d8013f4183b5f
+preset research+agenda 2p seed=1 => ok:00305dab673ded44614f73cfac3aba7b
+preset research+agenda 2p seed=5 => ok:eb31dc1783a093b2b22973ff67e39c3b
+preset research+agenda 3p seed=1 => ok:1a5f575d949dd7973f7e45f7bcadd53d
+preset research+agenda 3p seed=5 => ok:6125f87fad0c4de978e5aac08198d7bd
+preset research+agenda 4p seed=1 => ok:3710ac59b3fa4aafbded158299fcf825
+preset research+agenda 4p seed=5 => ok:2c2e5b4e6d8460076753d0c4a222755a
+preset research+agenda 6p seed=1 => ok:8d0dbd4b3d91f90901e1c52669e4ea57
+preset research+agenda 6p seed=5 => ok:8589ca083141c4c2364ab203b34eb534
+preset research+agenda 8p seed=1 => ok:a70a326bb1b11befc2a3abd6373f64e8
+preset research+agenda 8p seed=5 => ok:0fd1b5478c52f53380454fe741535128
+preset research+fac:sol:hacan 2p seed=1 => ok:b19fa01d4bf480277a693bafbb7e63f4
+preset research+fac:sol:hacan 2p seed=5 => ok:60ba8b2f729649984de5ab9fca43763d
+preset research+fac:sol:hacan 3p seed=1 => ok:46b2ef54727084fd0743d00e5b3c7076
+preset research+fac:sol:hacan 3p seed=5 => ok:10fb0e9475444aa8f9aba9e03d174863
+preset research+fac:sol:hacan 4p seed=1 => ok:abaeea376b50559ea51ad65f037ca08f
+preset research+fac:sol:hacan 4p seed=5 => ok:02f9d9d9fa7897721f44b4fd5205f346
+preset research+fac:sol:hacan 6p seed=1 => ok:2f64203f0667cb703f18883770124a11
+preset research+fac:sol:hacan 6p seed=5 => ok:aa34b75927ac7ce5c6fbfc977d95b79f
+preset research+fac:sol:hacan 8p seed=1 => ok:d07609c8b27788da8b93eb07e180db9c
+preset research+fac:sol:hacan 8p seed=5 => ok:ee92c458c4c7719d75109989ec66d708
+preset research_nopa 2p seed=1 => ok:185d42fcb8e606c134dbfde47759757e
+preset research_nopa 2p seed=5 => ok:524d4112f2d9ca118efc33aa0dac347a
+preset research_nopa 3p seed=1 => ok:d493e97e5fa560bf4fc0bcc733916383
+preset research_nopa 3p seed=5 => ok:4885d049747d4812a2b588c109e41443
+preset research_nopa 4p seed=1 => ok:717811fcfe3bd1469f5e7b3f0a915c40
+preset research_nopa 4p seed=5 => ok:89522be2238000163cf0b06c8c39a2db
+preset research_nopa 6p seed=1 => ok:cf1ffc4c14b05a577354dbeff3a03695
+preset research_nopa 6p seed=5 => ok:46b55b1069d292625717fb2d0ce2644b
+preset research_nopa 8p seed=1 => ok:8b24d795a3f85cfc5d1fbf8228b72d48
+preset research_nopa 8p seed=5 => ok:c282915c4ea348b09c6158b6cb7d289e
+preset research_nopa+rot 2p seed=1 => ok:556ff839beb0495facf9622a869759dc
+preset research_nopa+rot 2p seed=5 => ok:abed5f0855a86fbdb30d95808d87aa80
+preset research_nopa+rot 3p seed=1 => ok:2d0e2822fac9c64d994b61feb898d85a
+preset research_nopa+rot 3p seed=5 => ok:94c077a1fcf8c9375532a5b853d21fea
+preset research_nopa+rot 4p seed=1 => ok:cb746e1a286d563fc5d0a8cc84a18c35
+preset research_nopa+rot 4p seed=5 => ok:a178f81e343f088c14fab52387496de4
+preset research_nopa+rot 6p seed=1 => ok:82be080a41ed2ce7ad70ca797407de2b
+preset research_nopa+rot 6p seed=5 => ok:4c48ef014371da023a338ed1b8050f29
+preset research_nopa+rot 8p seed=1 => ok:c01aeb63d27f86e8c893c72cd7903d85
+preset research_nopa+rot 8p seed=5 => ok:76ca6a5049f7b5686dcd90ecbccaf6ac
+preset research_nopa+short 2p seed=1 => ok:00450c5c840043662d1b0d35a7de0bd4
+preset research_nopa+short 2p seed=5 => ok:7b5ed5fff45ea951087fae73f3683712
+preset research_nopa+short 3p seed=1 => ok:b88150c82974ad5e02a3835950384b3f
+preset research_nopa+short 3p seed=5 => ok:b19e196c2d23b534ca04a4c1f175baae
+preset research_nopa+short 4p seed=1 => ok:c32d5781dd67b892f2e6d72432f1dd2f
+preset research_nopa+short 4p seed=5 => ok:e00dc268aa4630104fbe4895eb536141
+preset research_nopa+short 6p seed=1 => ok:56d6855f4aaa038294ea7deeb520e7de
+preset research_nopa+short 6p seed=5 => ok:c64d3c34a8d67d59b1e14e8cb201a3c7
+preset research_nopa+short 8p seed=1 => ok:8279559bd41d80090c042ee91152cad2
+preset research_nopa+short 8p seed=5 => ok:3d408a4a7c13ed53f6bf27a26ff7c403
+preset research_nopa+agenda 2p seed=1 => ok:4122782dff42f86bd5c631a1d471ac38
+preset research_nopa+agenda 2p seed=5 => ok:55077a6f9f5cbda1a0b083422e969620
+preset research_nopa+agenda 3p seed=1 => ok:fffe3def14992f5f4b98e1fd9162daf7
+preset research_nopa+agenda 3p seed=5 => ok:aecf3e1b2ee463d7cc13a02e41fe8555
+preset research_nopa+agenda 4p seed=1 => ok:9572b04c0bcfd3b57fb244c081ada6b4
+preset research_nopa+agenda 4p seed=5 => ok:f2bc5017eb561d42b7c8ad0e594fcc52
+preset research_nopa+agenda 6p seed=1 => ok:f73400f76a51982bb9bada55ff2e07cf
+preset research_nopa+agenda 6p seed=5 => ok:0e3fd67ec46a7cd774ded6dd5c044e3c
+preset research_nopa+agenda 8p seed=1 => ok:069e1ebaef56d042f012d81f83449ebc
+preset research_nopa+agenda 8p seed=5 => ok:5bb2ae3430782ba6b27c38319f7db2dc
+preset research_nopa+fac:sol:hacan 2p seed=1 => ok:185d42fcb8e606c134dbfde47759757e
+preset research_nopa+fac:sol:hacan 2p seed=5 => ok:524d4112f2d9ca118efc33aa0dac347a
+preset research_nopa+fac:sol:hacan 3p seed=1 => ok:d02fe4f5a8ca7be665c1c8de53d90f32
+preset research_nopa+fac:sol:hacan 3p seed=5 => ok:b0a8fe6c983a61d329a786e55cd2cecc
+preset research_nopa+fac:sol:hacan 4p seed=1 => ok:565e53b2f361f5d39c12af8b4a1e266f
+preset research_nopa+fac:sol:hacan 4p seed=5 => ok:b521c3a9431ab141ce8aaa594334d721
+preset research_nopa+fac:sol:hacan 6p seed=1 => ok:427e2c12944a645da52a1a6eda65d293
+preset research_nopa+fac:sol:hacan 6p seed=5 => ok:c84a47da7880ad9f6a2ec04be9a94f65
+preset research_nopa+fac:sol:hacan 8p seed=1 => ok:67fcf05091efb1c7d2fb7dc2fd939bf5
+preset research_nopa+fac:sol:hacan 8p seed=5 => ok:07860abd61a8b1a7608bf35bd1488ac4
+preset world 2p seed=1 => ok:7231de578415439d8782cc31c33fe08f
+preset world 2p seed=5 => ok:0a05321b6637646c686e5640c5613eac
+preset world 3p seed=1 => ok:f9a458f6c653ccd26075c1da9c4091d0
+preset world 3p seed=5 => ok:62a1e06d601c7445bc015b4fc05bbe7a
+preset world 4p seed=1 => ok:6a0b9305700887ed379fb34a7ea99778
+preset world 4p seed=5 => ok:efc4978708b3fae519fef54c2c32c4f9
+preset world 6p seed=1 => ok:609f90ec9ae32c91955966019d5a517b
+preset world 6p seed=5 => ok:88d02139792cbc307bb1886e5df83f06
+preset world 8p seed=1 => ok:dea5fe75d372714a8ea02b5525cb1a46
+preset world 8p seed=5 => ok:21af8e32b79a717b71f08298cf6df430
+preset world+rot 2p seed=1 => ok:7231de578415439d8782cc31c33fe08f
+preset world+rot 2p seed=5 => ok:0a05321b6637646c686e5640c5613eac
+preset world+rot 3p seed=1 => ok:f9a458f6c653ccd26075c1da9c4091d0
+preset world+rot 3p seed=5 => ok:62a1e06d601c7445bc015b4fc05bbe7a
+preset world+rot 4p seed=1 => ok:6a0b9305700887ed379fb34a7ea99778
+preset world+rot 4p seed=5 => ok:efc4978708b3fae519fef54c2c32c4f9
+preset world+rot 6p seed=1 => ok:609f90ec9ae32c91955966019d5a517b
+preset world+rot 6p seed=5 => ok:88d02139792cbc307bb1886e5df83f06
+preset world+rot 8p seed=1 => ok:dea5fe75d372714a8ea02b5525cb1a46
+preset world+rot 8p seed=5 => ok:21af8e32b79a717b71f08298cf6df430
+preset world+short 2p seed=1 => ok:da30c9a7b63352e7c161ad488d2f679f
+preset world+short 2p seed=5 => ok:997fe50a1cd328e11f75d4a40cd42c23
+preset world+short 3p seed=1 => ok:8b5271173ee7ad0e19862a634d5e1005
+preset world+short 3p seed=5 => ok:46fc796360fff5f785a69b84d1007c0e
+preset world+short 4p seed=1 => ok:7da31381c01df6cb52d3c87f274233c8
+preset world+short 4p seed=5 => ok:0e8a1787e1ee525d076f98aff00cc347
+preset world+short 6p seed=1 => ok:3c04535bdadd02ce90b8a2026b27c63a
+preset world+short 6p seed=5 => ok:10aaaae95d096e643a20db6837f3ba34
+preset world+short 8p seed=1 => ok:79e800f3a8ecf5d33c5962450f93d3d6
+preset world+short 8p seed=5 => ok:3e20cade5ecfb93f77479269c86d0025
+preset world+agenda 2p seed=1 => ok:09dab047bb5422b1b5e40bf7efd0ff5a
+preset world+agenda 2p seed=5 => ok:9efd0991c88aa3549b62833519650f29
+preset world+agenda 3p seed=1 => ok:3ffe326fc3bfe5eb16ac030e6054fec2
+preset world+agenda 3p seed=5 => ok:0dba58a2a687c40e60408e5c94914854
+preset world+agenda 4p seed=1 => ok:d6a775ee3a4730b26c958db71b6ca126
+preset world+agenda 4p seed=5 => ok:633b89fc94b5bafe2174d52dc6216db7
+preset world+agenda 6p seed=1 => ok:426d799bb238f4858d37207f5bec1980
+preset world+agenda 6p seed=5 => ok:04eecc5429794debf3fc0d2d86b71163
+preset world+agenda 8p seed=1 => ok:88ae65239817df112a5e408edbfea131
+preset world+agenda 8p seed=5 => ok:588f1705e03a649ab615bdc13efb017e
+preset world+fac:sol:hacan 2p seed=1 => ok:1656b4434fbc2b162d8127eecf8d7ddf
+preset world+fac:sol:hacan 2p seed=5 => ok:1fc792380fcccae3d9a90ec920a90918
+preset world+fac:sol:hacan 3p seed=1 => ok:bb7d2ab471bc2174cc99e73fb5a5fa76
+preset world+fac:sol:hacan 3p seed=5 => ok:fa2633c2c874883cf02ace3090a3cb98
+preset world+fac:sol:hacan 4p seed=1 => ok:5db20e09b737c0ce5094e4a38fd2bade
+preset world+fac:sol:hacan 4p seed=5 => ok:6f7bc4e2fe3e6117d03f8e0f555cfaa7
+preset world+fac:sol:hacan 6p seed=1 => ok:6ded334938db884d0a84d69d7fc966f0
+preset world+fac:sol:hacan 6p seed=5 => ok:09fae216d2eef171641a700bdc9a2d90
+preset world+fac:sol:hacan 8p seed=1 => ok:8de0079b068a27a346b3ee48d35e8555
+preset world+fac:sol:hacan 8p seed=5 => ok:9f1e96ed895c1b48f14a1dab411f6924
+scenario late-game seed=42 => ok:37347cb785ef85fb5d61b5922d42139c
+scenario late-game seed=1 => ok:37347cb785ef85fb5d61b5922d42139c
+scenario late-game seed=9 => ok:37347cb785ef85fb5d61b5922d42139c
+scenario late-game-deflectors seed=42 => ok:989f2ced7106a81c92b2d01b7f4387df
+scenario late-game-deflectors seed=1 => ok:989f2ced7106a81c92b2d01b7f4387df
+scenario late-game-deflectors seed=9 => ok:989f2ced7106a81c92b2d01b7f4387df
+scenario research_tech_skips seed=42 => ok:b4e5d81b2331152a74feeed7a3f0731d
+scenario research_tech_skips seed=1 => ok:e0e49e789da8b56f8a1341c76f804b4a
+scenario research_tech_skips seed=9 => ok:3bdca51e0ac9ada1f5912dd4a49f7743
+scenario tactical_action seed=42 => ok:f444098d6ed31abd44f1f1ed60a19374
+scenario tactical_action seed=1 => ok:f2d5ecd72bc1a0b56ba1b1f7ca737883
+scenario tactical_action seed=9 => ok:cee11c880ffe23f9f8d62f2f7df6d2ef
+scenario production_batch seed=42 => ok:434ee3b9fc04b47f410b6232abe0f193
+scenario production_batch seed=1 => ok:66b2a8ad3aa2c7868b568c934fa802aa
+scenario production_batch seed=9 => ok:04612dc141c37ee15e6e2ca2c5310bcf
+scenario production_payment_batch seed=42 => ok:0d4bc9b31cc2b39f2d2689637f2419fa
+scenario production_payment_batch seed=1 => ok:d46247d3ae58c39aa0ee7fd756eea28e
+scenario production_payment_batch seed=9 => ok:f57181860af0a050c99a6b9f0629899f
+scenario production_payment_autospend seed=42 => ok:1dbd1ad33603f1d3f6f4113e9f38e874
+scenario production_payment_autospend seed=1 => ok:eb07fc1d870f91d0e448ae7c9a8c7ea9
+scenario production_payment_autospend seed=9 => ok:62cbcd2520adcf7ecf43c8526d4a3c33
+scenario space_combat seed=42 => ok:c2e814a51ac3e53b09d273d130f221a9
+scenario space_combat seed=1 => ok:237d184bd92e82997b5609e26303aa41
+scenario space_combat seed=9 => ok:7c36042ed872addd7bf5b169e3e31775
+scenario ongoing_combat seed=42 => ok:c2e814a51ac3e53b09d273d130f221a9
+scenario ongoing_combat seed=1 => ok:237d184bd92e82997b5609e26303aa41
+scenario ongoing_combat seed=9 => ok:7c36042ed872addd7bf5b169e3e31775
+scenario ongoing_combat_four_views seed=42 => ok:824bf916a92cd052201c158b98b468ae
+scenario ongoing_combat_four_views seed=1 => ok:34619cc390c5998046febbaa9e80a06b
+scenario ongoing_combat_four_views seed=9 => ok:10f9709bb9bfcbac51be1528eb797e71
+scenario ongoing_invasion_four_views seed=42 => ok:bec30a60c13352c07e0535899c69270e
+scenario ongoing_invasion_four_views seed=1 => ok:0018f4178a9bbc762ac7145b5b80d12e
+scenario ongoing_invasion_four_views seed=9 => ok:30a3344329a5d3f9dafa255bcaf76551
+scenario ongoing_invasion_coexistence seed=42 => ok:a5d0983518d4d2f9d675ad5e25af45c7
+scenario ongoing_invasion_coexistence seed=1 => ok:1b7aee4ae30386c12a73b2cdfa501d7f
+scenario ongoing_invasion_coexistence seed=9 => ok:0b3588ddb2d93c3408abb44859d7c029
+scenario ongoing_invasion_parley seed=42 => ok:7b6b5149a09bc217b18262bc098a3b93
+scenario ongoing_invasion_parley seed=1 => ok:4b99b0d0ea336cfa74abaa409fcc6b57
+scenario ongoing_invasion_parley seed=9 => ok:d128ccfd3f81fddf335957cf130bf45d
+scenario endgame seed=42 => ok:551e4582b66930d706067bcfbb973c76
+scenario endgame seed=1 => ok:7c969d927ece0b867082224b681877cd
+scenario endgame seed=9 => ok:9ad673ec6aab966d7dd63bae66d129bf
+scenario score_objective_status seed=42 => ok:fe7c5348edb4fca6212a392b68179019
+scenario score_objective_status seed=1 => ok:46bcdb517361b28a76acb7b64df097b0
+scenario score_objective_status seed=9 => ok:0daf20f01810f3f7e1c95aa3a9c4ce1a
+scenario score_objective_imperial seed=42 => ok:4ff0644e8b3696e38817249b0ca03119
+scenario score_objective_imperial seed=1 => ok:d9115fb5abbe6e000c8d3a3729b37904
+scenario score_objective_imperial seed=9 => ok:a7efa74df8f65dabf598e0cd3c17e1d0
+scenario full_game seed=42 => ok:95fbb157a3e64276b45aa8f287bb1470
+scenario full_game seed=1 => ok:f185a2dd3a01ffccd408a78c6880deed
+scenario full_game seed=9 => ok:269b83a75adaf80b17a64e0b3f0a4be3

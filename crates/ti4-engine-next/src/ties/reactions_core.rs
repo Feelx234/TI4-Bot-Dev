@@ -478,7 +478,6 @@ mod tests {
     /// such a seat.
     #[test]
     fn every_rule_of_the_core_table_has_a_name_and_the_two_marks_are_found_by_their_ids() {
-        let r = Render::new(Vec::new());
         for spec in specs() {
             if !is_reaction_slot(spec.slot) && crate::ties::ability_gaps::index_of(spec.slot).is_none() && !PAIRS.iter().any(|p| p.0 == spec.slot) {
                 assert!(NAMED.iter().any(|n| n.slot == spec.slot), "no name for slot {:?}", spec.slot);

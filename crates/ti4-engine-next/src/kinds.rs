@@ -127,10 +127,8 @@ pub mod secrets {
 
 /// `seating.rs` (the rest of the module is setup, lane C).
 pub mod seating {
-    /// Mecatol Rex, which sits at the centre of the board: the base tile.
-    pub const MECATOL: &str = "18";
-    /// The Thunder's Edge Mecatol Rex tile.
-    pub const MECATOL_TE: &str = "112";
+    /// Mecatol Rex's tiles: defined once, in `crate::seating` (lane C).
+    pub use crate::seating::{MECATOL, MECATOL_TE};
 }
 
 /// `starting_tech.rs`.

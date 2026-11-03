@@ -4,11 +4,8 @@
 use serde::{Deserialize, Serialize};
 use ti4_model::id::{PlanetId, PlayerId, SystemId, UnitTypeId};
 
-/// The aliases of the factions that have a string module, in `factions::MODULES` order (which fixes the dice stream of the string engine).
-pub const MODULE_ALIASES: [&str; 27] = [
-    "arborec", "argent", "bastion", "cabal", "crimson", "deepwrought", "empyrean", "firmament", "ghost", "keleresm", "keleresx", "keleresa", "mahact",
-    "mentak", "muaat", "naalu", "naaz", "nekro", "nomad", "obsidian", "ralnel", "saar", "sardakk", "titans", "winnu", "yin", "yssaril",
-];
+/// The aliases of the factions that have a string module, in `factions::MODULES` order: defined once, in `crate::builders::factions` (lane C).
+pub use crate::builders::factions::MODULE_ALIASES;
 
 /// The modules with the `secondary_waivers` hook, in module order: the position rides in the id of a waiver option.
 pub const WAIVER_MODULES: [&str; 4] = ["mahact", "naalu", "obsidian", "winnu"];

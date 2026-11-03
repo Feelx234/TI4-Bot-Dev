@@ -3,6 +3,9 @@
 use ti4_content::ContentStore;
 use ti4_model::id::BreakthroughId;
 
+/// The Keleres variants and the tag test: defined once, in `crate::builders::factions` (lane C).
+pub use crate::builders::factions::{KELERES_VARIANTS as VARIANTS, is_keleres_faction, tag_belongs_to};
+
 
 /// This faction's breakthrough alias, if the corpus lists one.
 ///
@@ -26,25 +29,4 @@ pub fn for_faction(content: &ContentStore, faction: &str) -> Option<Breakthrough
         .map(BreakthroughId::new)
 }
 
-/// Whether a content record's `faction` tag belongs to `alias`.
-///
-/// A record normally names its faction by alias. Keleres is the exception: its shared cards are
-/// tagged with the family `keleres` (technologies, leaders, breakthrough) or with the first variant
-/// `keleresm` (units shared by all three), while each variant's Rider is tagged with the variant.
-/// The variant's own faction sheet still decides which leaders and units it actually has.
-#[must_use]
-pub fn tag_belongs_to(tag: &str, alias: &str, unit: bool) -> bool {
-    tag.eq_ignore_ascii_case(alias)
-        || (is_keleres_faction(alias)
-            && (tag.eq_ignore_ascii_case("keleres")
-                || (unit && tag.eq_ignore_ascii_case("keleresm"))))
-}
 
-/// The Keleres variants.
-pub const VARIANTS: [&str; 3] = ["keleresm", "keleresx", "keleresa"];
-
-/// Whether `faction` is any Keleres variant.
-#[must_use]
-pub fn is_keleres_faction(faction: &str) -> bool {
-    VARIANTS.contains(&faction)
-}

@@ -8,7 +8,7 @@
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::Choice;
-use ti4_engine::phase;
+use ti4_engine::builders::phase;
 use ti4_model::content_types::POK;
 use ti4_model::id::{
     ActionCardId, ObjectiveId, PlanetId, PlayerId, StrategyCardId, SystemId, TechnologyId,

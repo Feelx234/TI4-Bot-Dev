@@ -127,36 +127,7 @@ pub struct Asset {
     pub id: String,
 }
 
-/// Whether a record's faction tag belongs to the faction `alias` (the Keleres variants share the `keleres` tag, and their units `keleresm`).
-fn tag_belongs_to(tag: &str, alias: &str, unit: bool) -> bool {
-    const VARIANTS: [&str; 3] = ["keleresm", "keleresx", "keleresa"];
-    tag.eq_ignore_ascii_case(alias) || (VARIANTS.contains(&alias) && (tag.eq_ignore_ascii_case("keleres") || (unit && tag.eq_ignore_ascii_case("keleresm"))))
-}
-
-/// The leaders a faction has, in corpus order (same text as `builders::leaders::for_faction` of lane C; take one at the merge).
-fn leaders_for_faction(content: &ContentStore, sources: SourceSet, faction: &str) -> Vec<String> {
-    use ti4_model::content_types::ContentType;
-    let record_id = |record: &ti4_content::Record| record.text("id").or_else(|| record.text("alias")).map(ToOwned::to_owned);
-    let records = content.from_sources(ContentType::Leaders, sources).filter(|record| record.text("faction").is_some_and(|owner| tag_belongs_to(owner, faction, false))).collect::<Vec<_>>();
-    let replaced: std::collections::BTreeSet<&str> = records.iter().filter_map(|record| record.text("homebrewReplacesID")).collect();
-    let sheet: Vec<&str> = ti4_content::factions::get(content, faction).map(|record| record.leaders()).unwrap_or_default();
-    let available: std::collections::BTreeSet<String> = records.iter().filter_map(|record| record_id(record)).collect();
-    let kind_of = |id: &str| content.get(ContentType::Leaders, id).and_then(|record| record.text("type")).map(str::to_ascii_lowercase);
-    let missing_types: std::collections::BTreeSet<String> = sheet.iter().filter(|listed| !available.contains(**listed)).filter_map(|listed| kind_of(listed)).collect();
-    let on_sheet = |record: &&ti4_content::Record| {
-        sheet.is_empty()
-            || record_id(record).is_some_and(|id| sheet.contains(&id.as_str()))
-            || record.text("homebrewReplacesID").is_some_and(|original| sheet.contains(&original))
-            || record.text("type").is_some_and(|kind| missing_types.contains(&kind.to_ascii_lowercase()))
-    };
-    records
-        .into_iter()
-        .filter(on_sheet)
-        .filter_map(|record| record.text("id").or_else(|| record.text("alias")))
-        .filter(|leader| !replaced.contains(leader))
-        .map(ToOwned::to_owned)
-        .collect()
-}
+use crate::builders::factions::tag_belongs_to;
 
 /// Every faction-specific asset a faction has in `sources`, from the corpus (abilities, the technologies its sheet lists, units with their
 /// upgrade chain, promissory notes, leaders, breakthroughs), sorted.
@@ -215,8 +186,8 @@ pub fn assets(content: &ContentStore, sources: SourceSet, alias: &str) -> Vec<As
             add(AssetKind::Promissory, id);
         }
     }
-    for leader in leaders_for_faction(content, sources, alias) {
-        add(AssetKind::Leader, &leader);
+    for leader in crate::builders::leaders::for_faction(content, sources, alias) {
+        add(AssetKind::Leader, leader.as_str());
     }
     for record in content.from_sources(ContentType::Breakthroughs, sources) {
         if record.text("faction").is_some_and(|f| tag_belongs_to(f, alias, false))

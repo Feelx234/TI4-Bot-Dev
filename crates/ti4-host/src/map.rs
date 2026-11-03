@@ -207,7 +207,7 @@ pub fn with_recorded_edits(
     tiles: &[BoardTileView],
     state: &GameState,
 ) -> Vec<BoardTileView> {
-    use ti4_engine::movement::{MapEdit, recorded_map_edits};
+    use ti4_engine::builders::movement::{MapEdit, recorded_map_edits};
     let mut tiles = tiles.to_vec();
     let on_grid = |tile: &BoardTileView| tile.special_area.is_none();
     for edit in recorded_map_edits(state) {
@@ -576,14 +576,14 @@ mod template_tests {
             })
             .expect("a system with planets");
         let (old, q, r) = (target.system_id.clone(), target.q, target.r);
-        ti4_engine::movement::apply_map_edit(
+        ti4_engine::builders::movement::apply_map_edit(
             &mut state,
             &mut galaxy,
             content,
             POK,
-            &ti4_engine::movement::MapEdit::Replace {
+            &ti4_engine::builders::movement::MapEdit::Replace {
                 old: old.clone(),
-                new: ti4_engine::movement::NOVA_SEED.to_owned(),
+                new: ti4_engine::builders::movement::NOVA_SEED.to_owned(),
             },
         )
         .unwrap();
@@ -592,7 +592,7 @@ mod template_tests {
         assert!(!shown.iter().any(|tile| tile.system_id == old));
         let nova = shown
             .iter()
-            .find(|tile| tile.system_id == ti4_engine::movement::NOVA_SEED)
+            .find(|tile| tile.system_id == ti4_engine::builders::movement::NOVA_SEED)
             .expect("the supernova is on the board");
         assert_eq!((nova.q, nova.r), (q, r));
         assert!(nova.anomalies.iter().any(|kind| kind == "supernova"));
@@ -602,7 +602,7 @@ mod template_tests {
         assert!(
             view.map_tiles
                 .iter()
-                .any(|t| t.system_id == ti4_engine::movement::NOVA_SEED)
+                .any(|t| t.system_id == ti4_engine::builders::movement::NOVA_SEED)
         );
     }
 
@@ -647,14 +647,14 @@ mod template_tests {
             .unwrap()
             .system_id
             .clone();
-        ti4_engine::movement::apply_map_edit(
+        ti4_engine::builders::movement::apply_map_edit(
             &mut state,
             &mut galaxy,
             content,
             POK,
-            &ti4_engine::movement::MapEdit::Replace {
+            &ti4_engine::builders::movement::MapEdit::Replace {
                 old: target,
-                new: ti4_engine::movement::NOVA_SEED.to_owned(),
+                new: ti4_engine::builders::movement::NOVA_SEED.to_owned(),
             },
         )
         .unwrap();
@@ -663,7 +663,7 @@ mod template_tests {
         assert!(
             after
                 .iter()
-                .any(|t| t.system_id == ti4_engine::movement::NOVA_SEED)
+                .any(|t| t.system_id == ti4_engine::builders::movement::NOVA_SEED)
         );
         let view = crate::projection::project_board_view_with_map(&state, &setup);
         assert!(view.map_tiles.iter().any(|t| t.system_id == "51"));

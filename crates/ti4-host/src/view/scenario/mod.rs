@@ -19,8 +19,8 @@ use serde::Serialize;
 use ti4_content::galaxy::Galaxy;
 use ti4_content::{ActionCardTiming, ContentStore};
 use ti4_engine::choice::{Choice, ChoiceOption};
-use ti4_engine::objectives::{self, adjust_victory_points};
-use ti4_engine::{phase, promissory, technology};
+use ti4_engine::builders::objectives::{self, adjust_victory_points};
+use ti4_engine::builders::{phase, promissory, technology};
 use ti4_model::content_types::{ContentType, SourceSet};
 use ti4_model::id::{
     ActionCardId, LeaderId, ObjectiveId, PlanetId, PlayerId, RelicId, SecretObjectiveId,
@@ -549,7 +549,7 @@ fn late_game(
                 format!("attached:{attachment}")
             }
             Some("Fragment") => {
-                ti4_engine::exploration::gain_fragment(state, seat, deck);
+                ti4_engine::builders::exploration::gain_fragment(state, seat, deck);
                 "fragment".to_owned()
             }
             other => return Err(format!("the card '{card}' resolves as {other:?}")),

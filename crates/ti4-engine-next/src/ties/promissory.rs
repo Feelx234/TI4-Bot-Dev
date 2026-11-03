@@ -4,8 +4,6 @@
 pub use crate::kinds::promissory::{SUPPORT_PREFIX};
 
 
-/// This owner's Support for the Throne, by the faction name that owns it.
-#[must_use]
-pub fn support(owner_name: &str) -> String {
-    format!("{SUPPORT_PREFIX}{owner_name}")
-}
+
+/// This owner's Support for the Throne: defined once, in `crate::builders::promissory`.
+pub use crate::builders::promissory::support;

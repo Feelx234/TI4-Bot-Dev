@@ -435,7 +435,7 @@ fn as_the_engine_sees_it(
     ti4_engine::laws::apply_to_galaxy(state, &mut galaxy);
     // A recorded edit that no longer applies is a broken game; the engine stops on it, a view
     // keeps the map it has.
-    let _ = ti4_engine::movement::replay_map_edits(state, &mut galaxy, content, sources);
+    let _ = ti4_engine::builders::movement::replay_map_edits(state, &mut galaxy, content, sources);
     galaxy
 }
 
