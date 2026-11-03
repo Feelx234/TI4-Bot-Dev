@@ -516,10 +516,21 @@ pub fn create(
         ti4_engine::core_sync::guard::factions_known(drawn.factions.iter().map(FactionId::as_str))?;
     }
     if let Some(scenario) = setup.scenario()? {
-        return scenario::start(content, scenario.id, players, setup.game_seed());
+        let (state, galaxy) = scenario::start(content, scenario.id, players, setup.game_seed())?;
+        crate::disabled::check_state(&state).map_err(|e| e.to_string())?;
+        return Ok((state, galaxy));
     }
     if drawn.factions.len() != players.len() {
         return Err("one faction per seat is required".to_owned());
+    }
+    // Last Bastion and the Crimson Rebellion are switched off (`crate::disabled`): no pool seats
+    // them, this refuses a draw that somehow does, before a map is built for it.
+    if let Some(faction) = drawn
+        .factions
+        .iter()
+        .find(|faction| crate::disabled::is_disabled_faction(faction.as_str()))
+    {
+        return Err(crate::disabled::Disabled::Faction(faction.as_str().to_owned()).to_string());
     }
     let seed = setup.game_seed();
     let assignments: BTreeMap<PlayerId, FactionId> = players
@@ -540,6 +551,8 @@ pub fn create(
             ti4_model::content_types::POK
         },
     )?;
+    // Structured diplomacy is switched off too (`crate::disabled`); nothing here turns it on.
+    crate::disabled::check_state(&state).map_err(|e| e.to_string())?;
     state.thunders_edge = setup.thunders_edge;
     if setup.speaker_order == SpeakerOrder::Random
         && let Some(speaker) = ti4_engine::seeded_speaker(players, seed)
@@ -584,6 +597,34 @@ mod tests {
         (1..=count)
             .map(|i| PlayerId::new(format!("p{i}")))
             .collect()
+    }
+
+    #[test]
+    fn a_table_that_seats_last_bastion_or_the_crimson_rebellion_is_refused() {
+        // Both are Thunder's Edge factions; with Thunder's Edge on the map would build, so the
+        // refusal is the setup's own (`docs/DISABLE_XF123.md`).
+        for disabled in crate::disabled::DISABLED_FACTIONS {
+            for thunders_edge in [false, true] {
+                let setup = TableSetup::new(3, 7).with_thunders_edge(thunders_edge);
+                let drawn = Drawn {
+                    factions: ["sol", "hacan", disabled]
+                        .map(FactionId::new)
+                        .to_vec(),
+                };
+                let error = create(ContentStore::embedded(), &setup, &ids(3), &drawn)
+                    .expect_err("the faction is switched off");
+                assert!(
+                    error.contains(disabled) && error.contains("switched off"),
+                    "{error}"
+                );
+            }
+        }
+        // The lobby's own draw refuses to name them as a choice as well.
+        for disabled in crate::disabled::DISABLED_FACTIONS {
+            let setup = TableSetup::new(3, 7).with_thunders_edge(true);
+            let chosen = [Some(disabled.to_owned()), None, None];
+            assert!(draw(&setup, &chosen).is_err(), "{disabled}");
+        }
     }
 
     fn started(setup: &TableSetup, chosen: &[Option<String>]) -> (Drawn, GameState) {

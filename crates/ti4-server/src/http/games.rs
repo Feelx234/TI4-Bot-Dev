@@ -1054,6 +1054,14 @@ pub async fn turn_redo(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     use ti4_host::protocol::turn_redo::TurnRedoCommand;
     let token = require_player_session(&headers)?.to_owned();
+    // The deck reserve of a redone timeline is switched off (`ti4_host::disabled`); every
+    // command is refused, also `keep` and `restore`, since no redo can be in flight.
+    if !ti4_host::disabled::TURN_REDO_ENABLED {
+        return Err((
+            StatusCode::FORBIDDEN,
+            ti4_host::disabled::TURN_REDO_OFF.to_owned(),
+        ));
+    }
     let version = payload.expected_version;
     let outcome = tokio::task::spawn_blocking(move || match payload.command {
         TurnRedoCommand::Request { seat, turns } => registry
