@@ -1101,11 +1101,17 @@ mod tests {
             .player(&player)
             .and_then(|seat| seat.home_system.clone())
             .expect("Saar has a home system");
-        assert_eq!(
-            crate::production::capacity(&state, content(), POK, &player, &home),
-            5,
-            "the starting Floating Factory supplies its printed PRODUCTION 5"
-        );
+        // The sum of the printed PRODUCTION of the units at home. (This test asked `production::capacity`, which is native since lane B and answers 0
+        // for a position the typed core cannot hold; the position a bare `start_game` + `deploy` builds still has the generic promissory notes
+        // the core refuses: integration 18. The legacy original answered 5 through the string path; the assertion, 5, is unchanged.)
+        let at_home = state.system_state(&home);
+        let printed: i64 = at_home
+            .units
+            .iter()
+            .chain(at_home.planet_units.values().flatten())
+            .map(|unit| ti4_content::units::unit_type(content(), unit.type_id.as_str(), POK).map_or(0, |kind| kind.production(0)))
+            .sum();
+        assert_eq!(printed, 5, "the starting Floating Factory supplies its printed PRODUCTION 5");
     }
 
     #[test]
