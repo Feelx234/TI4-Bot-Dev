@@ -104,7 +104,9 @@ pub fn run_phase(sx: &mut Sx<'_>) -> Flow {
         }
         Moved::AgendaBegan => {
             sx.plain(PlainRec::bare(PlainKind::AgendaPhaseBegan));
-            // Two cards read "at the start of the agenda phase".
+            // Two cards read "at the start of the agenda phase". The resolver learns the new phase first (integration 18, see the round flip below): the
+            // agenda phase orders its windows from the speaker, the status phase before it does not.
+            sync_clock(sx);
             emit_typed(sx, EventKind::AgendaPhaseBegan, Payload::new())
         }
         Moved::RoundEnded => {
@@ -121,6 +123,10 @@ pub fn run_phase(sx: &mut Sx<'_>) -> Flow {
             // A round begins with the strategy phase, and cards read "at the start of the strategy phase". Only the typed event: the mirror of the
             // resolver's journal puts it into the queue, so a plain line as well would log the phase twice.
             revolution_levy(sx.state);
+            // The resolver learns the new phase first (integration 18): its clock was still the phase before (the status phase, or the agenda phase once the
+            // Custodians are taken), so the windows of the flip were ordered by THAT phase's rule: with the ruling of 2026-11-03 the status phase offers a
+            // window without an active player from the seat after the speaker, the speaker last, where the strategy phase starts at the speaker.
+            sync_clock(sx);
             emit_typed(sx, EventKind::StrategyPhaseBegan, Payload::new())
         }
     }

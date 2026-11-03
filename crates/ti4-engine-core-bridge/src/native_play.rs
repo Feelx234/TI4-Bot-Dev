@@ -1312,6 +1312,20 @@ mod tests {
         assert!(matches!(played.end, End::StepLimit), "the game goes on past step 568, where the fighters land: {:?}", played.end);
     }
 
+    /// Integration 18 (the ruling of 2026-11-03 x the round flip): `StrategyPhaseBegan` of round 2 and later was emitted with the resolver's clock still on the
+    /// phase before (the status phase), so its windows were ordered by THAT phase's rule: nobody active, from the seat after the speaker, the speaker last. The
+    /// strategy phase starts at the speaker (Mentak 4 players seed 4, step 512: the Mentak speaker is asked after the L1Z1X seat; Saar 4 players seed 4, step 581).
+    #[test]
+    fn the_windows_of_the_flip_into_a_strategy_phase_are_ordered_from_the_speaker_not_by_the_phase_before() {
+        for (faction, steps) in [("mentak", 520), ("saar", 590)] {
+            let shadowed = shadow_play(&lobby_spec(faction, 4, 4), steps, 50).expect("builds");
+            // (The string orders those windows by the stale phase too: known string bug S2, when the speaker is not the first seat. Before the fix the
+            // difference at step 512 / 581 was none of the known ones: the core's stale order was the status phase's.)
+            assert!(shadowed.first_difference.as_ref().is_none_or(|d| d.known == Some(KNOWN_S2)), "{faction}: {:?}", shadowed.first_difference);
+            assert!(shadowed.compared > 250, "{faction}: {}", shadowed.compared);
+        }
+    }
+
     /// Integration 14: the core's map of a hyperlane game follows the printed lanes from the first step. The string applies the laws and the lanes to its
     /// galaxy at every reconcile; a game that was loaded before its first step had a map where a lane tile was a neighbour and no system was joined across
     /// it (the Peace Accords question of an Xxcha seat listed the planets of the lane tile's far end short: found by `--quick --shadow`).
