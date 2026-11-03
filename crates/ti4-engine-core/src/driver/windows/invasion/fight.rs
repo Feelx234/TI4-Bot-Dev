@@ -234,7 +234,7 @@ impl InvasionMachine {
         let codes = sx.table.codes.invasion;
         // Decided when the round began: the agent that numbered it exhausts at that very start.
         let copied = self.p.round_copied;
-        let owns_x89 = |who: Seat| sx.state.players().by_seat(who).is_some_and(|p| p.tech.owned.contains(Technology::X89BacterialWeapon));
+        let owns_x89 = |who: Seat| crate::query::tech::holds_x89(sx.state, who);
         let x89 = [owns_x89(invader), owns_x89(defender)];
         let before: Vec<Piece> = sx.state.board().planet(planet).units.iter().copied().collect();
         // The dice, then the end of the "Roll Dice" step (the reroll windows open at the announcements).

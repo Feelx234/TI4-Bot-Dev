@@ -481,7 +481,7 @@ pub fn dannel(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
         harrow_cause: sx.table.codes.harrow,
         step_kind: codes.ground_round,
         harrow: sx.state.players().by_seat(who).is_some_and(|p| p.faction.data().abilities.contains(&Ability::Harrow)),
-        x89: seats.iter().copied().filter(|seat| owns(*seat, Technology::X89BacterialWeapon)).collect(),
+        x89: seats.iter().copied().filter(|seat| crate::query::tech::holds_x89(sx.state, *seat)).collect(),
         dacxive,
         notes: crate::driver::windows::tactical::note_holdings(sx.state).as_slice().to_vec(),
     };

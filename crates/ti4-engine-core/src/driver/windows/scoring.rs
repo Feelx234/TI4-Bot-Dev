@@ -219,10 +219,8 @@ impl<const EVENT: bool> Window for ScoringWin<EVENT> {
             Some(o) => Outcome::Scored { secret: matches!(o, ObjectiveRef::Secret(_)) && !revealed_before.contains(&o) },
             None => Outcome::Declined,
         };
-        // `objectives::award_tail`: a public score may unlock a hero (51.7); no map, no event.
-        if let Some(o) = one.scored
-            && (revealed_before.contains(&o) || matches!(o, ObjectiveRef::Public(_)))
-        {
+        // `objectives::award_tail`: any score may unlock a hero (51.7), a secret scored for the first time too; no map, no event.
+        if one.scored.is_some() {
             let unlocking = super::super::turn::start::unlockable(sx, asked.seat, true);
             leaders::unlock(sx.state, asked.seat, unlocking.as_slice());
         }

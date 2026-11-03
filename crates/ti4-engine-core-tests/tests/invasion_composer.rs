@@ -604,3 +604,76 @@ fn a_first_claim_with_integrated_economy_produces_and_then_explores() {
     assert!(asked.iter().any(|c| matches!(c.ask, Ask::Production(PAsk::Economy(_)))), "the production is asked");
     assert_eq!(core.explore().log.iter().count(), 1, "and the first claim is explored after it");
 }
+
+// ---- X-89 Bacterial Weapon in a native game (silent gap N-01 / F-technology-x89c4) ---------------------------------------------------
+//
+// The deck holds the Codex IV printing (`X89BacterialWeaponOmegaOmega`, id `x89c4`); the core used to read the base printing, which is in no game, so a seat
+// that researched the card never had its hits doubled nor its bombarded planets exhausted. The window tests hand the flag in; these give the technology.
+
+/// The defender infantry left on `p1`, the planet's exhaustion and who holds it after a whole invasion with `holder` (if any) owning the card.
+fn x89_run(scenario: Scenario, holder: Option<u8>, seed: u64, carried: usize, dreadnoughts: bool) -> (usize, usize, bool, Option<Seat>) {
+    let (p1, _) = planets();
+    let scenario = if dreadnoughts { scenario.unit(sys(), None, Unit::DreadnoughtI, 0, 6) } else { scenario.unit(sys(), None, Unit::CarrierI, 0, 1) };
+    let scenario = match holder {
+        Some(seat) => scenario.tech(seat, Technology::X89BacterialWeaponOmegaOmega),
+        None => scenario,
+    };
+    let (mut core, k) = scenario.build();
+    carry(&mut core, carried);
+    let env = env(&k, seed);
+    open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
+    let (_, end) = play(&mut core, &env, &mut first);
+    assert_eq!(end, Ok(()), "seed {seed}");
+    let exhausted = core.board().planet(p1).flags.has(ti4_engine_core::state::PlanetFlags::EXHAUSTED);
+    (units_on(&core, p1, 1), units_on(&core, p1, 0), exhausted, core.board().planet(p1).control)
+}
+
+fn defended(n: usize) -> Scenario {
+    let (p1, _) = planets();
+    arena().unit(sys(), Some(p1), Unit::InfantryI, 1, n).control(p1, 1)
+}
+
+#[test]
+fn x89_doubles_the_hits_of_the_holders_bombardment_and_exhausts_the_bombarded_planet_in_a_native_game() {
+    covers!("driver::windows::invasion::InvasionMachine");
+    let mut hit_somewhere = false;
+    for seed in 0..24_u64 {
+        let (plain_left, _, plain_exhausted, _) = x89_run(defended(40), None, seed, 0, true);
+        let (x89_left, _, x89_exhausted, _) = x89_run(defended(40), Some(0), seed, 0, true);
+        let (killed_plain, killed_x89) = (40 - plain_left, 40 - x89_left);
+        assert_eq!(killed_x89, 2 * killed_plain, "seed {seed}: the same dice, twice the hits");
+        hit_somewhere |= killed_plain > 0;
+        assert!(!plain_exhausted, "seed {seed}: without the card the planet stays ready");
+        assert!(x89_exhausted, "seed {seed}: the bombarded planet is exhausted");
+    }
+    assert!(hit_somewhere, "some seed hits");
+}
+
+#[test]
+fn x89_held_by_the_defender_leaves_the_invaders_bombardment_alone() {
+    covers!("driver::windows::invasion::InvasionMachine");
+    for seed in 0..8_u64 {
+        let plain = x89_run(defended(40), None, seed, 0, true);
+        let rival = x89_run(defended(40), Some(1), seed, 0, true);
+        assert_eq!((plain.0, plain.2), (rival.0, rival.2), "seed {seed}: the invader's rolls are the invader's card");
+    }
+}
+
+#[test]
+fn x89_doubles_the_ground_hits_of_the_holder_on_either_side_in_a_native_game() {
+    covers!("driver::windows::invasion::InvasionMachine");
+    // Aggregates over the seeds: the same dice stream, so only the doubled hits can move the totals.
+    let total = |holder: Option<u8>| {
+        let (mut defenders, mut invaders) = (0, 0);
+        for seed in 0..24_u64 {
+            let (d, i, _, _) = x89_run(defended(6), holder, seed, 6, false);
+            defenders += d;
+            invaders += i;
+        }
+        (defenders, invaders)
+    };
+    let (none, invader, defender) = (total(None), total(Some(0)), total(Some(1)));
+    assert!(invader.0 < none.0, "the invader's doubled hits leave fewer defenders: {invader:?} against {none:?}");
+    assert!(invader.1 > none.1, "and more of the invader's own: {invader:?} against {none:?}");
+    assert!(defender.1 < none.1, "the defender's doubled hits leave fewer invaders: {defender:?} against {none:?}");
+}
