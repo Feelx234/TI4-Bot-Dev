@@ -877,6 +877,9 @@ pub struct AbilityTable {
     /// other, so the layer that may (`driver::children::register`) fills them. Empty by default.
     pub links: super::children::AreaLinks,
     card_plays: Vec<CardPlay>,
+    /// A seat that has nothing to resolve in a reaction window was looked at once (`Table::window_skipped` of the string): the log the
+    /// wrapper drains after the step. `None` records nothing.
+    pub skipped: Option<std::sync::Arc<std::sync::Mutex<Vec<(Seat, EventRec, Relation)>>>>,
 }
 
 impl AbilityTable {
@@ -1115,6 +1118,12 @@ impl Host for RulesHost<'_> {
 
     fn bars_faction_abilities(&mut self, who: Seat) -> bool {
         self.table.bars.is_some_and(|f| f(self.state, who))
+    }
+
+    fn window_skipped(&mut self, who: Seat, event: &EventRec, relation: Relation) {
+        if let Some(log) = &self.table.skipped {
+            log.lock().expect("skipped log").push((who, event.clone(), relation));
+        }
     }
 
     fn condition(&mut self, ability: &AbilityDef, event: &EventRec, resolver: &Resolver) -> bool {

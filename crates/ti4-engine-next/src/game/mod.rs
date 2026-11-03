@@ -918,7 +918,10 @@ fn native_step(
     participation: Option<&Participation>,
     state: &GameState,
 ) -> Result<Done, GameError> {
-    let env = live::env::env_with_plays(&n.render, &n.core, n.kernel, n.seeds.clone(), sources);
+    let mut env = live::env::env_with_plays(&n.render, &n.core, n.kernel, n.seeds.clone(), sources);
+    // The seats a reaction window passed by because they had nothing to resolve (`Table::window_skipped`, the wait banner of the hidden reactions).
+    let skipped = Arc::new(std::sync::Mutex::new(Vec::new()));
+    env.table.skipped = Some(Arc::clone(&skipped));
     let lcx = live::Cx::new(&n.render, &env);
     let from = n.core.ledger.events.len();
     let mut asker = TableAsker::new(table, content, sources, galaxy, &n.cx, &n.base, strategic, aftermath).with_participation(participation);
@@ -954,6 +957,14 @@ fn native_step(
     let hidden = asker.hidden;
     drop(asker);
     drop(lcx);
+    // A window looked at each seat once, however often the driver ran it again after a nested question.
+    let mut told = std::collections::BTreeSet::new();
+    let passed_by: Vec<_> = skipped.lock().expect("skipped log").iter().filter(|(who, event, relation)| told.insert((event.id, who.0, *relation == ti4_engine_core::choice::reaction::Relation::After))).cloned().collect();
+    for (who, event, relation) in passed_by {
+        let at = n.materialized()?;
+        let relation = if relation == ti4_engine_core::choice::reaction::Relation::After { crate::ties::timing::Relation::After } else { crate::ties::timing::Relation::When };
+        table.window_skipped(&n.render.player(who), &crate::kernel_sync::text::event_text(&n.render, event.kind), relation, &at);
+    }
     // 4. The hand-overs between the arms.
     if out.finished {
         n.after_arm(arm);
