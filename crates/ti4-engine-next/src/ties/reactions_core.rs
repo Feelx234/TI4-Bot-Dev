@@ -116,6 +116,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::winnu::RECLAIMER, kind: "unit", card: "winnu_mech" },
     Named { slot: ti4_engine_core_factions::silent::winnu::HTP, kind: "technology", card: "htp" },
     Named { slot: ti4_engine_core_factions::silent::winnu::AGENT, kind: "leader", card: "winnuagent" },
+    Named { slot: ti4_engine_core_factions::silent::winnu::RECLAMATION_TACTICAL, kind: "ability", card: "reclamation_tactical" },
     Named { slot: ti4_engine_core_factions::silent::naaz::AGENT, kind: "leader", card: "naazagent" },
     Named { slot: ti4_engine_core_factions::silent::naaz::COMMANDER, kind: "leader", card: "naazcommander" },
     Named { slot: ti4_engine_core_factions::silent::sol::CLAIRE_GIBSON, kind: "leader", card: "solcommander" },
@@ -154,6 +155,7 @@ const NAMED: &[Named] = &[
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR, kind: "promissory", card: "tekklar" },
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR_END, kind: "promissory", card: "tekklar_end" },
     Named { slot: ti4_engine_core_factions::silent::g3::tekklar::TEKKLAR_TURN, kind: "promissory", card: "tekklar_turn" },
+    Named { slot: ti4_engine_core_factions::silent::g3::tro_marks::MARK, kind: "leader", card: "sardakkagent_mark" },
     Named { slot: ti4_engine_core_factions::silent::g3::tro_marks::TURN, kind: "leader", card: "sardakkagent_turn" },
     Named { slot: ti4_engine_core_factions::silent::g3::tro_marks::STRATEGIC, kind: "leader", card: "sardakkagent_strategic" },
     Named { slot: ti4_engine_core_factions::silent::g4::propagation::PROPAGATION, kind: "ability", card: "propagation" },
@@ -465,3 +467,24 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.silent.g4 = G4_CODE_TEXTS.map(|text| r.code(text));
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Integration 18 (lane A's copy x lane R's marks): lane R made the Sardakk agent's activation mark and the Winnu's note table rules
+    /// (slots `tro_marks::MARK`, `winnu::RECLAMATION_TACTICAL`) and named them in the string-side `NAMED` table of `reactions_core`; lane A's copy
+    /// of that table was cut before. A spec without a name panics in `id_text` ("every spec is named"), i.e. in the first window of a game with
+    /// such a seat.
+    #[test]
+    fn every_rule_of_the_core_table_has_a_name_and_the_two_marks_are_found_by_their_ids() {
+        let r = Render::new(Vec::new());
+        for spec in specs() {
+            if !is_reaction_slot(spec.slot) && crate::ties::ability_gaps::index_of(spec.slot).is_none() && !PAIRS.iter().any(|p| p.0 == spec.slot) {
+                assert!(NAMED.iter().any(|n| n.slot == spec.slot), "no name for slot {:?}", spec.slot);
+            }
+        }
+        assert_eq!(slot_of("leader:x:sardakkagent_mark:SYSTEM_ACTIVATED:after"), Some(ti4_engine_core_factions::silent::g3::tro_marks::MARK));
+        assert_eq!(slot_of("ability:x:reclamation_tactical:SYSTEM_ACTIVATED:after"), Some(ti4_engine_core_factions::silent::winnu::RECLAMATION_TACTICAL));
+    }
+}
