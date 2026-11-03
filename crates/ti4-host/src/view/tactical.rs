@@ -393,7 +393,8 @@ pub fn project_tactical_facts(
     choice: &Choice,
 ) -> Option<TacticalFacts> {
     let player = &choice.player;
-    match choice.context.as_ref()?.subtype.as_str() {
+    let subtype = choice.context.as_ref()?.subtype.as_str();
+    match subtype {
         ACTIVATION_SUBTYPE => Some(TacticalFacts::Activation(activation(
             state,
             content,
@@ -1495,6 +1496,70 @@ mod tests {
         assert!(boosted > 0, "no ship needed Gravity Drive");
         // The map of this seed may have no rift in reach: the count is only checked for shape.
         let _ = rifts;
+    }
+
+    /// Nightly 2026-10-25 (o1-48-0127): on a map with hyperlanes the engine moves a ship over the
+    /// lanes (its map follows the laws of the state, `laws::apply_to_galaxy`), but a host keeps the
+    /// map it was set up with. The facts called the cruiser "out of range", so the client guessed
+    /// a route of its own, staged a pickup on it, and the batch failed after the first step.
+    #[test]
+    fn the_facts_move_ships_over_the_hyperlanes_as_the_engine_does() {
+        let content = ContentStore::embedded();
+        let ids: Vec<PlayerId> = ["a", "b", "c"]
+            .iter()
+            .map(|name| PlayerId::new(*name))
+            .collect();
+        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
+        let template = crate::maps::default_template_for(content, &loader, 3, POK)
+            .expect("a template for three");
+        let (mut state, galaxy) =
+            crate::map::create_game_with_template(content, &ids, 3, Some(&template))
+                .expect("a game");
+        state.phase = Phase::Action;
+        state.rules_version = ti4_model::state::RULES_HYPERLANE_LANES;
+        // A cruiser of the seat in every system, so that some route can only use a lane.
+        let systems: Vec<SystemId> = galaxy
+            .system_ids()
+            .into_iter()
+            .filter(|id| !galaxy.is_hyperlane(id))
+            .map(SystemId::new)
+            .collect();
+        for system in &systems {
+            state
+                .system_mut(system)
+                .units
+                .push(Unit::new(UnitTypeId::new("cruiser"), seat()));
+        }
+        let mut engine_map = galaxy.clone();
+        ti4_engine::laws::apply_to_galaxy(&state, &mut engine_map);
+        assert!(engine_map.hyperlane_lanes);
+        let mut over_a_lane = 0;
+        for active in &systems {
+            let facts = facts_into(&mut state, &galaxy, active.as_str());
+            let offered: BTreeSet<(String, usize)> = ti4_engine::tactical::movable_into(
+                &state,
+                content,
+                POK,
+                &engine_map,
+                &seat(),
+                active,
+            )
+            .into_iter()
+            .map(|ship| (ship.origin.to_string(), ship.index))
+            .collect();
+            let without_lanes =
+                ti4_engine::tactical::movable_into(&state, content, POK, &galaxy, &seat(), active)
+                    .len();
+            over_a_lane += offered.len().saturating_sub(without_lanes);
+            let moving: BTreeSet<(String, usize)> = facts
+                .ships
+                .iter()
+                .filter(|ship| ship.r#move.is_some())
+                .map(|ship| (ship.origin.clone(), ship.index))
+                .collect();
+            assert_eq!(moving, offered, "into {active}");
+        }
+        assert!(over_a_lane > 0, "no ship needed a lane");
     }
 
     #[test]

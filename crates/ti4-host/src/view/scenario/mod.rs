@@ -1216,8 +1216,36 @@ mod tests {
         for ship in ships(&facts, at::TOKEN) {
             assert_eq!(ship.blocked, Some(Blocked::CommandToken), "{ship:?}");
         }
-        // The far fleet is not asserted out of range: the facts route on the map the engine has,
-        // where the wormholes of the scenario's laws link it to the middle.
+        // The lanes of the map of eight seats (rules version 22) bring the cruiser in `FAR` within
+        // Gravity Drive's reach, as the engine's own move offer has it; the destroyer stays behind.
+        let mut map = galaxy.clone();
+        ti4_engine::laws::apply_to_galaxy(&state, &mut map);
+        let mut probe = state.clone();
+        probe.active_system = Some(SystemId::new(at::DEPOT));
+        let offered = ti4_engine::tactical::movable_into(
+            &probe,
+            ContentStore::embedded(),
+            POK,
+            &map,
+            &seat(),
+            &SystemId::new(at::DEPOT),
+        );
+        for ship in ships(&facts, at::FAR) {
+            let engine_moves = offered
+                .iter()
+                .any(|found| found.origin.as_str() == at::FAR && found.index == ship.index);
+            assert_eq!(ship.r#move.is_some(), engine_moves, "{ship:?}");
+            if ship.unit.starts_with("cruiser") {
+                assert!(
+                    ship.r#move
+                        .as_ref()
+                        .is_some_and(|route| route.gravity_drive),
+                    "{ship:?}"
+                );
+            } else {
+                assert_eq!(ship.blocked, Some(Blocked::Range), "{ship:?}");
+            }
+        }
         // Five tokens in the fleet pool, and more ships than that can arrive.
         assert_eq!(facts.fleet_supply.limit, 5);
         let arriving = facts

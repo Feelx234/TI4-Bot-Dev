@@ -213,6 +213,19 @@ describe("Leadership purchase paid on the map (planet first)", () => {
     expect(steps.filter((s) => s.kind === "trade_good")).toHaveLength(1);
   });
 
+  it("does not reopen the panel while the bar's confirmation is still being sent (run o1-09-2349)", async () => {
+    const onSubmitBatch = vi.fn(() => new Promise<void>(() => {}));
+    render(<Harness onSubmitBatch={onSubmitBatch} />);
+    await click("token-pay-on-map");
+    await click("token-bar-pool-tactic");
+    await click("token-bar-confirm");
+    expect(screen.getByTestId("token-bar-confirm")).toHaveTextContent("Submitting...");
+    // Reopening the panel now would let a second, different confirmation race the first one.
+    expect(screen.getByTestId("resume-choice-button")).toBeDisabled();
+    await click("resume-choice-button");
+    expect(screen.queryByTestId("command-token-panel")).not.toBeInTheDocument();
+  });
+
   it("the bar offers the suggestion and lists the selected planets with their values", async () => {
     render(<Harness onSubmitBatch={vi.fn()} />);
     await click("token-pay-on-map");

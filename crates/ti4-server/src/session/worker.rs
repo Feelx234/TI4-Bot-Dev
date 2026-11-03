@@ -109,11 +109,10 @@ pub struct SessionShared {
     pub subscribers: BTreeMap<u64, Subscriber>,
     pub next_subscriber_id: u64,
     pub decision_log: Vec<DecisionRecord>,
-    /// Answers the table has recorded in the step now in progress that are not yet in
-    /// `decision_log` (a card play waits for its announcement before it is published), each with
-    /// the option it selected. Empty whenever the log is complete. A batch check must replay
-    /// them: the question on the table was asked after them.
-    pub held_back: Vec<(DecisionRecord, Option<ChoiceOption>)>,
+    /// Answers settled inside the running engine step that `decision_log` does not show yet: a
+    /// card played inside another card's window waits for its announcement (see the offer
+    /// observer). Each with the option it chose. A batch replays from them too.
+    pub held_decisions: Vec<(DecisionRecord, Option<ChoiceOption>)>,
     pub finished: bool,
     pub stopped: bool,
     pub error: Option<String>,
@@ -388,7 +387,7 @@ impl SessionShared {
             subscribers: BTreeMap::new(),
             next_subscriber_id: 0,
             decision_log: Vec::new(),
-            held_back: Vec::new(),
+            held_decisions: Vec::new(),
             event_log: Vec::new(),
             event_counter: 0,
             finished: false,
@@ -1301,8 +1300,11 @@ pub fn spawn_session_worker(
             let mut lock = offer_shared.lock().expect("shared lock");
             lock.undo.observe(records.len(), state);
             let mut published = offer_published.lock().expect("published count lock");
-            if lock.stopped || records.len() <= *published {
-                lock.held_back.clear();
+            if lock.stopped {
+                return;
+            }
+            if records.len() <= *published {
+                lock.held_decisions.clear();
                 return;
             }
             let start = *published;
@@ -1404,22 +1406,17 @@ pub fn spawn_session_worker(
                     ));
                 }
             }
-            // What the loop left unpublished is still part of the game the next question was
-            // asked in.
-            let held: Vec<_> = records[(*published).min(records.len())..]
+            lock.held_decisions = records[*published..]
                 .iter()
                 .map(|record| {
-                    (
-                        record.clone(),
-                        selected_for(
-                            &mut offer_selected.lock().expect("selected options lock"),
-                            record,
-                            false,
-                        ),
-                    )
+                    let selected = selected_for(
+                        &mut offer_selected.lock().expect("selected options lock"),
+                        record,
+                        false,
+                    );
+                    (record.clone(), selected)
                 })
                 .collect();
-            lock.held_back = held;
             if let Err(error) = lock.persist_history() {
                 lock.error = Some(error);
                 return;
@@ -1538,7 +1535,7 @@ pub fn spawn_session_worker(
                 let mut lock = worker_shared.lock().expect("shared lock");
                 lock.latest_state = game.state.clone();
                 lock.decision_log.clone_from(&game.table.log.records);
-                lock.held_back.clear();
+                lock.held_decisions.clear();
                 lock.replay_complete = true;
                 // One copy at a time. A boundary that recorded nothing since the last copy
                 // adds nothing: a fork of the older copy reaches the same game by stepping.
@@ -1602,7 +1599,7 @@ pub fn spawn_session_worker(
                 let event_start = lock.event_log.len();
                 lock.latest_state = game.state.clone();
                 lock.decision_log.clone_from(&game.table.log.records);
-                lock.held_back.clear();
+                lock.held_decisions.clear();
                 lock.forget_undone_of_deciders();
 
                 if let Some(err) = result.error {

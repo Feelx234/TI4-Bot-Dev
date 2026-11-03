@@ -20,6 +20,7 @@ mod draft_scripts;
 mod fixtures_verification;
 mod fork_equivalence;
 mod held_back_batch;
+mod held_play_batch;
 mod history;
 mod history_session_live;
 mod leadership_batch;
