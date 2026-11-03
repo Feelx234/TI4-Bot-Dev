@@ -114,10 +114,21 @@ fn the_games_the_host_creates_are_the_games_the_legacy_setup_made() {
         lines.len(),
         "the golden file and the matrix differ in size (the matrix is part of the contract)"
     );
+    // Integration 19 (lane E, D2-8 P1): Thunder's Edge is refused at creation (`te=true` rows, the `expedition` preset). The golden file is NOT re-recorded:
+    // each such row was a game (`ok:`) at the legacy setup and is an `err:` now, which this test states; every other row still equals the golden.
+    let refused = |line: &str| line.contains(" te=true ") || line.starts_with("preset expedition");
+    let mut refused_rows = 0_usize;
+    for (g, l) in golden.iter().zip(&lines) {
+        if refused(l) {
+            assert!(g.contains("=> ok:") && l.contains("=> err:"), "a Thunder's Edge table is refused at creation:\n golden {g}\n    now {l}");
+            refused_rows += 1;
+        }
+    }
+    assert_eq!(refused_rows, 302, "252 plain tables with the switch and 50 expedition presets are refused");
     let different: Vec<String> = golden
         .iter()
         .zip(&lines)
-        .filter(|(g, l)| g != l)
+        .filter(|(g, l)| g != l && !refused(l))
         .map(|(g, l)| format!("golden {g}\n   now {l}"))
         .collect();
     assert!(
@@ -127,7 +138,7 @@ fn the_games_the_host_creates_are_the_games_the_legacy_setup_made() {
         lines.len(),
         different.iter().take(12).cloned().collect::<Vec<_>>().join("\n")
     );
-    // The matrix is not vacuous: most of it creates a game.
+    // The matrix is not vacuous: most of the rest creates a game.
     let made = lines.iter().filter(|l| l.contains("=> ok:")).count();
     assert!(made * 2 > lines.len(), "only {made} of {} created a game", lines.len());
 }
