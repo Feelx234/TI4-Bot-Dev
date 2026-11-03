@@ -241,3 +241,24 @@ fn a_draw_skips_the_extra_vetos_only_from_the_new_version() {
         assert_eq!(drawn, expected, "version {version}");
     }
 }
+
+/// What `ti4_host::disabled::check_playable` refuses, the wrapper refuses with `GameError::Disabled` at creation and at the load (Thunder's Edge
+/// content, structured diplomacy, a deck reserve, a dropped faction); the strategy card set `te` is not content.
+#[test]
+fn the_wrapper_refuses_what_check_playable_refuses_with_disabled() {
+    let legacy = lobby_spec("sol", 4, 1).build().unwrap();
+    let refused = |edit: &dyn Fn(&mut ti4_model::state::GameState)| {
+        let mut state = legacy.state.clone();
+        edit(&mut state);
+        Game::try_new(state, ContentStore::embedded()).err()
+    };
+    assert!(matches!(refused(&|s| s.thunders_edge = true), Some(GameError::Disabled(_))));
+    assert!(matches!(refused(&|s| s.diplomacy.enabled = true), Some(GameError::Disabled(_))));
+    assert!(matches!(refused(&|s| s.players[0].faction = ti4_model::id::FactionId::new("ralnel")), Some(GameError::Disabled(_))));
+    assert_eq!(refused(&|_| {}), None, "the lobby game itself is playable");
+    // A game that was refused never steps: its first step reports the same refusal.
+    let mut state = legacy.state.clone();
+    state.thunders_edge = true;
+    let mut game = Game::new(state, ContentStore::embedded());
+    assert!(matches!(game.step().error, Some(GameError::Disabled(_))));
+}

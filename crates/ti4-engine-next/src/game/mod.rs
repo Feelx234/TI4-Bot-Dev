@@ -140,6 +140,9 @@ impl Native {
         if let Some(why) = crate::core_sync::unsupported::find(state) {
             return Err(GameError::Disabled(format!("{why:?}")));
         }
+        if state.thunders_edge {
+            return Err(GameError::Disabled("Thunder's Edge content".to_owned()));
+        }
         let mut cx = Ctx::of(state).map_err(|e| GameError::Unmapped(format!("no owners table: {e}")))?;
         let core = Codec::load(&mut cx, state, Sources { galaxy, rng: Some(positions) }, slices_for(galaxy.is_some()))
             .map_err(|e| GameError::Unmapped(e.to_string()))?;
@@ -419,6 +422,9 @@ impl<'a> Game<'a> {
         }
         if let Some(why) = crate::core_sync::unsupported::find(&self.state) {
             return Err(GameError::Disabled(format!("{why:?}")));
+        }
+        if self.state.thunders_edge {
+            return Err(GameError::Disabled("Thunder's Edge content".to_owned()));
         }
         Ok(())
     }
