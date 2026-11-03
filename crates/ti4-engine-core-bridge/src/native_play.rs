@@ -497,7 +497,9 @@ impl NativeGame {
         // (And past the hand-off of a tactical action to its aftermath, when no movement question stands between them: a Ceasefire denies the movement and the
         // string's step runs from the activation through the aftermath to the closing menu; the events the activation staged wait for the step after.)
         let handed_off = arm == Arm::Tactical && self.core.pending().window(ti4_engine_core::state::WindowKind::Aftermath).is_some();
-        self.after_glue = out.finished && (glued(arm) || arm == Arm::Aftermath || handed_off || (self.after_glue && arm == Arm::Tactical && asked.is_empty()));
+        // (Not past a scoring pause: the string's step ends at the pause, and the scoring step after it announces what was staged first.)
+        let parked_for_scoring = self.core.pending().window(ti4_engine_core::state::WindowKind::EventScoring).is_some();
+        self.after_glue = out.finished && !parked_for_scoring && (glued(arm) || arm == Arm::Aftermath || handed_off || (self.after_glue && arm == Arm::Tactical && asked.is_empty()));
         Step::Played(Played { arm, source, asked, events, finished: out.finished })
     }
 
@@ -1864,6 +1866,29 @@ mod tests {
         assert_eq!(difference.known, Some(KNOWN_S1), "{difference}");
     }
 
+    /// Lane S, found by the seeds 5 to 8 of the Z-gate command: (a) the flip into the strategy phase of a later round told the resolver the new phase before it
+    /// announced `STRATEGY_PHASE_BEGAN`, as the status phase's flip does not forget to: the windows went to the seats in the initiative order of the status phase
+    /// (the Naalu seat first) instead of from the speaker (L1Z1X, 6 players, seed 5, step 812); (b) the retreat's command token an aftermath step staged is
+    /// announced by the scoring step that follows a scoring pause, which is the string's next step (Sol, 6 players, seed 8, step 495).
+    #[test]
+    fn the_strategy_phase_of_a_later_round_orders_from_the_speaker_and_a_scoring_pause_announces_what_was_staged() {
+        for (faction, seed, steps) in [("l1z1x", 5, 818), ("sol", 8, 500)] {
+            let shadowed = shadow_play(&lobby_spec(faction, 6, seed), steps, 50).expect("builds");
+            assert!(shadowed.first_difference.is_none(), "{faction} seed {seed}: {:?}", shadowed.first_difference);
+        }
+    }
+
+    /// Lane S: the Nekro agent's discard is announced after the gain it pays for AND after the Pillage of that gain (the string emits the Pillage's gain inside the
+    /// event of the first, and the card moves follow the outer event): Xxcha (6 players, seed 6, step 382) and Arborec (6 players, seed 5, step 962) had the
+    /// discard between the two gains.
+    #[test]
+    fn the_nekro_agents_discard_follows_the_gain_and_the_pillage_of_the_gain() {
+        for (faction, seed, steps) in [("xxcha", 6, 388), ("arborec", 5, 968)] {
+            let shadowed = shadow_play(&lobby_spec(faction, 6, seed), steps, 50).expect("builds");
+            assert!(shadowed.first_difference.is_none(), "{faction} seed {seed}: {:?}", shadowed.first_difference);
+        }
+    }
+
     /// Lane R: one string step runs through many native steps (every removal over the fleet supply or the capacity is a native step of its own, and a Warfare
     /// action asks its second redistribution after them): the legacy game is given the answers of the steps ahead. Letnev (3 players, step 684; 4 players, step 289).
     #[test]
@@ -2013,6 +2038,11 @@ mod tests {
         assert!(!s1_in_questions(&state, "[0].options[0]", &[q("a", &reaction)], &[own("a")]), "the same seat");
         assert!(!s1_in_questions(&state, "[0].options[0]", &[q("a", &["0|2|4"])], &[own("d")]), "no ability offer of the core");
         assert!(!s1_in_questions(&state, "[2].options[0]", &[q("a", &reaction)], &[own("d")]), "no such question");
+        assert!(!s1_in_questions(&state, "[0].options[0]", &[json!({ "prompt": "x", "options": reaction })], &[own("d")]), "a question with no seat");
+        assert!(!s1_in_questions(&state, "[0].options[0]", &[q("a", &reaction)], &[json!({ "prompt": "x", "options": ["exhaust"] })]), "a string question with no seat");
+        state.phase = ti4_model::state::Phase::Strategy;
+        assert!(!s1_in_questions(&state, "[0].options[0]", &[q("a", &reaction)], &[own("d")]), "the strategy phase orders from the speaker in both engines");
+        state.phase = ti4_model::state::Phase::Action;
         state.active = Some(ids[0].clone());
         assert!(!s1_in_questions(&state, "[0].options[0]", &[q("a", &flipped)], &[q("a", &reaction)]), "the same order");
         assert!(!s1_in_questions(&state, "[0].options[0]", &[q("a", &reaction)], &[own("d")]), "the same order");

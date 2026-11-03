@@ -121,6 +121,9 @@ pub fn run_phase(sx: &mut Sx<'_>) -> Flow {
             // A round begins with the strategy phase, and cards read "at the start of the strategy phase". Only the typed event: the mirror of the
             // resolver's journal puts it into the queue, so a plain line as well would log the phase twice.
             revolution_levy(sx.state);
+            // The resolver learns the new phase first (as at the start of the status phase): the windows of the strategy phase go to the seats from the
+            // speaker, clockwise (LRR 1.20), not in the initiative order of the status phase the resolver was still in (the Naalu "0" card first).
+            sync_clock(sx);
             emit_typed(sx, EventKind::StrategyPhaseBegan, Payload::new())
         }
     }

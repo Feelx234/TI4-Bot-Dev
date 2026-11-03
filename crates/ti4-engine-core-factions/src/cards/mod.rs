@@ -771,6 +771,8 @@ mod tests {
             galaxy.refresh_lane_links();
             s.map_mut().set_galaxy(galaxy);
             s.board_mut().sys_mut(blocked).units.push(Piece::new(Unit::CruiserI, Seat(1)));
+            // Only SHIPS bar the card (Dark Energy Tap's variant would also refuse a destination with another player's ground force).
+            s.board_mut().planet_mut(to.data().planets[0]).units.push(Piece::new(Unit::InfantryI, Seat(1)));
             (s, t, system)
         };
         let mine = |s: &CoreState, sys: System| s.board().sys(sys).units.iter().filter(|p| p.owner() == Seat(0)).count();
