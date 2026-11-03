@@ -1300,6 +1300,18 @@ mod tests {
         NativeGame::from_spec(&lobby_spec(faction, players, seed)).expect("a lobby game builds and loads")
     }
 
+    /// Integration 18 (lane Q's Brother Milor x lane A's thin copy of the combat texts): the Yin game of the 6-player sweep (seed 3) puts two Fighter I of the Yin
+    /// seat on a board that had none when the fight opened, (step 568 of the native game). The texts of a fight must name the forms of the fighters Milor can land
+    /// (`UnportedAftermath(CombatUnported)` otherwise). The copy of `combat_live` in the thin crate was cut before lane Q; the native loop drives the thin glue.
+    #[test]
+    fn a_fight_with_brother_milor_in_play_names_the_fighters_he_lands_in_the_thin_texts() {
+        let mut g = game("yin", 6, 3);
+        let played = play_game(&mut g, 700, 50);
+        assert!(!matches!(played.end, End::Gap(_) | End::Defect(_)), "{:?}", played.end);
+        assert_eq!(played.matrix.total_gaps(), 0);
+        assert!(matches!(played.end, End::StepLimit), "the game goes on past step 568, where the fighters land: {:?}", played.end);
+    }
+
     /// Integration 14: the core's map of a hyperlane game follows the printed lanes from the first step. The string applies the laws and the lanes to its
     /// galaxy at every reconcile; a game that was loaded before its first step had a map where a lane tile was a neighbour and no system was joined across
     /// it (the Peace Accords question of an Xxcha seat listed the planets of the lane tile's far end short: found by `--quick --shadow`).
