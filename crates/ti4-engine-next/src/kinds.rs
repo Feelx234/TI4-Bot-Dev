@@ -73,8 +73,8 @@ pub mod neutral_units {
 
 /// `objectives.rs`.
 pub mod objectives {
-    /// Ten victory points wins (LRR 98).
-    pub const VICTORY_TARGET: i32 = 10;
+    /// Ten victory points wins (LRR 98): defined once, in `crate::builders::objectives` (lane C).
+    pub use crate::builders::objectives::VICTORY_TARGET;
     /// The choice kind of scoring an objective.
     pub const SCORE_KIND: &str = "score";
 }
@@ -103,8 +103,8 @@ pub mod production {
 
 /// `promissory.rs`.
 pub mod promissory {
-    /// Support for the Throne is keyed by its owner rather than by an alias.
-    pub const SUPPORT_PREFIX: &str = "support:";
+    /// Support for the Throne is keyed by its owner rather than by an alias: defined once, in `crate::builders::promissory` (lane C).
+    pub use crate::builders::promissory::SUPPORT_PREFIX;
 }
 
 /// `relics.rs`.

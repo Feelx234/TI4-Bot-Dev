@@ -9,7 +9,8 @@ use ti4_model::content_types::{ContentType, SourceSet};
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
-pub use crate::kinds::promissory::SUPPORT_PREFIX;
+/// Prefix of a Support for the Throne note id (the one definition; `crate::kinds::promissory` re-exports it).
+pub const SUPPORT_PREFIX: &str = "support:";
 
 /// The four generic notes every faction holds: Ceasefire, Political Secret, Trade Agreement,
 /// Alliance (`promissory::GENERIC`).

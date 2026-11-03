@@ -7,7 +7,8 @@ use ti4_model::content_types::ContentType;
 use ti4_model::id::{ObjectiveId, PlayerId};
 use ti4_model::state::GameState;
 
-pub use crate::kinds::objectives::VICTORY_TARGET;
+/// Points a game is played to (the one definition; `crate::kinds::objectives` re-exports it).
+pub const VICTORY_TARGET: i32 = 10;
 
 /// What a revealed objective is worth, or `None` if the corpus does not know it.
 #[must_use]
