@@ -171,6 +171,28 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
     for (slot, text) in t.end.iter_mut().zip(["losers", "retreated", "retreat", "draw", "destruction", "round_limit"]) {
         *slot = r.code(text);
     }
+    // The gunners of the space cannon offense (the tactical head runs before any combat is open): the offense stages each roll under its unit's
+    // type id, as the string does.
+    {
+        let mut guns: Vec<Unit> = Vec::new();
+        let systems: Vec<_> = core.board().systems().map(|(system, _)| system).collect();
+        for system in systems {
+            let mut here: Vec<Unit> = core.board().sys(system).units.iter().map(|p| p.kind()).collect();
+            for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
+                here.extend(core.board().planet(*planet).units.iter().map(|p| p.kind()));
+            }
+            for u in here {
+                if u.data().space_cannon.is_some() && !guns.contains(&u) {
+                    guns.push(u);
+                }
+            }
+        }
+        guns.sort_unstable();
+        for u in guns {
+            let id = IdStr::as_str(u);
+            t.guns.push((u, state_code(core, id), r.code(id)));
+        }
+    }
     let mut present: Vec<Unit> = Vec::new();
     let mut pieces: Vec<Unit> = if let Some((system, _, _)) = core.transient().combat.active_space_combat {
         let cell = core.board().sys(system);
@@ -193,6 +215,7 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
         for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
             owned.extend(core.board().planet(*planet).units.iter().map(|p| (p.owner(), p.kind())));
         }
+        let milor_in_play = milor_in_play(core);
         for (owner, unit) in owned {
             let Some(p) = core.players().by_seat(owner) else { continue };
             if let Some(upgrade) = ti4_engine_core::query::tech::unlocked_upgrade(ti4_engine_core::tables::Scope(u32::MAX), unit.data().base_type, p.faction, &p.tech.owned) {
@@ -202,10 +225,14 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
             // to research a unit upgrade"; the Nekro's Technological Singularity) may field any form of the base types it has units of: those are named
             // too, or the machine stands at the roller of the form it researched.
             if researches_in_combat(core, owner) {
-                let scope = ti4_engine_core::tables::Scope(u32::MAX);
-                pieces.extend(Unit::ALL.into_iter().filter(|u| {
-                    scope.unit(*u).is_some_and(|d| d.base_type == unit.data().base_type && d.faction.is_none_or(|tag| ti4_engine_core::query::tech::tag_is(tag, p.faction)) && matches!(d.required_technology, ti4_engine_core::generated::Requirement::Known(_)))
-                }));
+                pieces.extend(forms_of(unit.data().base_type, p.faction, false));
+            }
+            // Brother Milor (the Yin agent, or a Ssruu that copies it): "after a player's unit is destroyed during combat: you may exhaust this card to
+            // allow that player to place 2 fighters in the destroyed unit's system". The fighters land in the middle of the fight, for whichever side
+            // lost the ship, in the form that side places: named too, or the machine stands at the roller of the fighters (`CombatUnported`, the Yin
+            // game of the 6-player sweep: two Fighter I of the Yin seat in round 2).
+            if milor_in_play {
+                pieces.extend(forms_of(ti4_engine_core::generated::UnitBaseType::Fighter, p.faction, true));
             }
         }
     }
@@ -234,6 +261,26 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
         t.groups.push((kinds, state_code(core, &joined), r.code(&joined)));
     }
     t
+}
+
+/// Every form of a base type a faction can field (its upgrades and its own faction units, and with `with_plain` the plain unit): what a seat that gains a unit in the middle of a
+/// combat may end up with.
+fn forms_of(base: ti4_engine_core::generated::UnitBaseType, faction: ti4_engine_core::generated::Faction, with_plain: bool) -> impl Iterator<Item = Unit> {
+    let scope = ti4_engine_core::tables::Scope(u32::MAX);
+    Unit::ALL.into_iter().filter(move |u| {
+        scope.unit(*u).is_some_and(|d| d.base_type == base && d.faction.is_none_or(|tag| ti4_engine_core::query::tech::tag_is(tag, faction)) && match d.required_technology {
+                ti4_engine_core::generated::Requirement::Known(_) => true,
+                ti4_engine_core::generated::Requirement::None => with_plain,
+                ti4_engine_core::generated::Requirement::NotInCorpus => false, // mutants:skip: the one such unit (Combat Transport II) is Ghemina's, a faction nobody seats, so no form of any seat ever differs
+            })
+    })
+}
+
+/// Whether Brother Milor can place fighters in this game: a seat holds the card (readied now, or exhausted and readied again before the next fight; a Ssruu
+/// copies it only from a seat that holds it).
+fn milor_in_play(core: &CoreState) -> bool {
+    use ti4_engine_core::state::LeaderStatus;
+    core.players().iter().any(|p| matches!(p.leaders.status.get(&ti4_engine_core::generated::Leader::BrotherMilor), Some(LeaderStatus::Readied | LeaderStatus::Exhausted)))
 }
 
 /// Whether `seat` can gain a unit upgrade in the middle of a combat: it holds the action card Reveal Prototype, or it is the Nekro (Technological Singularity).
