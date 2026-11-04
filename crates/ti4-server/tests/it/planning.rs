@@ -298,18 +298,26 @@ fn replay_handles_nested_choices_and_reports_exhaustion_inside_a_step() {
     let (recorder, recording) =
         RecordingDecider::new(Box::new(Scripted::new(["yes", "fleet_tokens"])));
     draft.table = Table::with_default(Box::new(recorder));
-    assert_eq!(draft.step().error, None);
+    // (The string put the purchase and the pool selection in one step; a native step ends at each question of the window, so the steps go on
+    // until both are recorded. What the test is about -- the replay consumes them in order -- does not depend on the grouping.)
+    for _ in 0..8 {
+        assert_eq!(draft.step().error, None);
+        if recording.lock().unwrap().len() >= 2 {
+            break;
+        }
+    }
     let decisions = recording.lock().unwrap().clone();
-    assert_eq!(
-        decisions.len(),
-        2,
-        "the purchase and pool selection happen in one step"
-    );
+    assert_eq!(decisions.len(), 2, "the purchase and the pool selection");
 
     let mut rebuilt = checkpoint.fork();
     let (replay, progress) = ReplayDecider::new(decisions.clone());
     rebuilt.table = Table::with_default(Box::new(replay));
-    assert_eq!(rebuilt.step().error, None);
+    for _ in 0..8 {
+        assert_eq!(rebuilt.step().error, None);
+        if progress.lock().unwrap().consumed() >= 2 {
+            break;
+        }
+    }
     assert_eq!(progress.lock().unwrap().consumed(), 2);
     assert_eq!(progress.lock().unwrap().stop_reason(), None);
     assert_eq!(
@@ -321,7 +329,12 @@ fn replay_handles_nested_choices_and_reports_exhaustion_inside_a_step() {
     let mut interrupted = checkpoint.fork();
     let (replay, progress) = ReplayDecider::new(decisions[..1].to_vec());
     interrupted.table = Table::with_default(Box::new(replay));
-    let _ = interrupted.step(); // The progress latch, not StepResult, is authoritative.
+    for _ in 0..8 {
+        let _ = interrupted.step(); // The progress latch, not StepResult, is authoritative.
+        if progress.lock().unwrap().stop_reason().is_some() {
+            break;
+        }
+    }
     assert_eq!(
         progress.lock().unwrap().stop_reason(),
         Some(ReplayStopReason::Exhausted)
