@@ -105,7 +105,13 @@ fn a_recorded_move_survives_disposal_serialization_and_reconstruction() {
 
     // The next question requires new input; exhaustion must not select a default.
     let decisions_before = rebuilt.table.log.len();
-    let _ = rebuilt.step();
+    // (A native step may end before the question -- the end of the action is its own step -- so the steps go on until the question is put.)
+    for _ in 0..8 {
+        let _ = rebuilt.step();
+        if progress.lock().unwrap().stop_reason().is_some() {
+            break;
+        }
+    }
     assert_eq!(
         progress.lock().unwrap().stop_reason(),
         Some(ReplayStopReason::Exhausted)
@@ -278,7 +284,13 @@ fn replay_handles_nested_choices_and_reports_exhaustion_inside_a_step() {
     }
     let follower = PlayerId::new("b");
     checkpoint.state.player_mut(&follower).unwrap().trade_goods = 3;
-    assert_eq!(checkpoint.step().error, None); // Leadership primary.
+    // Leadership primary (a native step can end before the follower is asked: the steps go on until the follower's question stands).
+    for _ in 0..8 {
+        assert_eq!(checkpoint.step().error, None);
+        if checkpoint.legal_options().is_some_and(|c| c.player == follower) {
+            break;
+        }
+    }
     assert_eq!(checkpoint.legal_options().unwrap().player, follower);
     let original_state = serde_json::to_value(&checkpoint.state).unwrap();
 
