@@ -1324,6 +1324,9 @@ pub fn spawn_session_worker(
             }
             if records.len() <= *published {
                 lock.held_decisions.clear();
+                // (The question is shown the position it is asked in, also when no decision is new: a game recovered from its log asks its pending question
+                // after the replay, and its state must be the one the live game showed at the same question, `batch_commit_resume`.)
+                lock.latest_state = state.clone();
                 return;
             }
             let start = *published;

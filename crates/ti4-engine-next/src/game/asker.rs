@@ -113,13 +113,7 @@ impl<'t> TableAsker<'t> {
 /// declared in the window was not yet announced (`action_card_plays`), so the server held the declaring answer back, never acknowledged it,
 /// and the card's own question (a Rider's predicted outcome) was put to its owner before the reply (`D28G_RESUME.md`).
 fn position_of<'q>(q: &'q Question<'_>) -> &'q CoreState {
-    // (`Asking::at` is the state the driver's tape last needed a question in. It is shown only for the questions of the cards: a question put at the
-    // close of a window from inside a step (a Rider's prediction, the pick of a card declared there) is asked in a position past the live core's, the
-    // declared card announced. For every other question the two positions differ in what the step had done so far (the tokens a Leadership gain
-    // handed out one by one), and which one a question shows depended on the path that reached it: a game recovered from its saved log differed from
-    // the live game after a batch commit, `batch_commit_resume`.)
-    let cards = matches!(q.asking.choice.ask, ti4_engine_core::choice::Ask::Cards(_));
-    q.asking.nested.as_ref().map(|(_, at)| &**at).or(q.asking.at.as_deref().filter(|_| cards)).unwrap_or(q.core)
+    q.asking.nested.as_ref().map(|(_, at)| &**at).or(q.asking.at.as_deref()).unwrap_or(q.core)
 }
 
 impl Asker for TableAsker<'_> {
