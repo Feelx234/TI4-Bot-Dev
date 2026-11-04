@@ -216,3 +216,45 @@ scratch under `$OUT/mut`: delete it and rerun the module.
 
 `rm -rf /root/deploytmp/eod /root/deploytmp/core-rec /root/deploytmp/core-rec-target $OUT/mut $OUT/mut-work`
 (keep `$OUT` itself: summary, survivors, bench logs, the record of the flip).
+
+## 12. Starting run A (int-24): what is known red, what the user says, what is run
+
+### 12.1 Known before the start (measured on core-integration-24, 2026-11-04 evening)
+
+1. **Golden dual (steps 7 dual-all, 8 dual-drv, 9 dual-wide, 10 dual-lent, 22 strict) was red by construction, one cause fixed here, one open.**
+   `dual_run tools/engine_profile/profile-20.json 20 all=dual --game N` on games 1, 6, 8 gave 72 / 29 / 50 differences, every one
+   `[driver/Value] resolver.state`: the string's initiative list is the seating order of `Game::new` (string bug S1, user ruling 2026-11-01), the core's is the position's
+   initiative order. The same numbers appear at `core-botstops-1` (before version 36), so it is not a version 36 effect: nobody had run the golden dual since the S1 ruling.
+   Fixed in `compare_resolver` (`dual_window.rs`): the seats of the initiative list are compared as a set, not their order (test
+   `the_order_of_the_initiative_list_is_not_compared_the_seats_are_s1`). After the fix games 1 and 8 are clean (exit 0).
+   **Still open: game 6** (`winnu,titans,mentak,ghost`, 4pHyperlanes seed 7) has one `[driver/Value] combat::settle` difference: the string's roll groups of the settle are
+   `[(7,[1,7]),(9,[6]),(0,[8,7])]`, the core's lack the last group `(0,[8,7])` (an extra ability roll of the string, no hit threshold). Identical at core-botstops-1.
+   With `TI4_DUAL_FAIL_FAST=1` the shard holding game 6 stops there; so dual-all / dual-drv / dual-wide are likely to FAIL in run A unless that is explained first
+   (string bug or core gap) -- one agent, one game: `dual_run tools/engine_profile/profile-20.json 20 all=dual --game 6`. The other 17 games were not run.
+2. **Bench steps (15-18)** cannot be green on a string recording at 35: Parley / Ixthian For (section 4). Do the section 4 lane BEFORE run A, so that the committed baselines are the
+   version 36 ones; otherwise expect `bench-off`, `bench-resolver`, `bench-state`, `bench-resolver+state` red in the summary of run A (by design, not a core bug).
+3. `corpus` is skipped (section 5), `alpha` is skipped.
+
+### 12.2 What the user says
+
+Either of
+
+* "Start run A" -- run A at once with the four bench steps and possibly the dual steps expected red (item 1 and 2 above), the other steps meaningful; or
+* "Bench lane first, then run A" (recommended) -- one agent does section 4 (record at 35 with the string recorder, native verify, classify the differing games as Parley / Ixthian For,
+  re-record natively, one commit), another looks at game 6 (item 1); run A starts when both are done.
+
+### 12.3 What is run (the coordinator, on the go)
+
+```sh
+cd /root/TI4-Bot-Dev/.claude/worktrees/core-integration-24                     # clean tree at the tip
+git rev-parse heavy-base-int24 && git diff --stat heavy-base-int24 -- web/ crates/ti4-model/src/state.rs   # tag exists, diff empty
+TZ=Europe/Berlin date; df -h /root | tail -1                                  # not within the hour before 20:30; >= 60 GB free
+for f in /root/.ti4-heavy.lock /root/.ti4-heavy.lock.2; do flock -n $f true && echo free $f || echo BUSY $f; done
+export CARGO_TARGET_DIR=/root/deploytmp/eod CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0
+OUT=/root/end-of-d1-$(date -u +%Y%m%d)
+ZERO_BAIL=enforce SHARDS=3 WORKERS=6 GAMES=20 SOAK_GAMES=40 \
+  nohup tools/engine_core/end_of_d1.sh --skip ratchet --out $OUT > $OUT.nohup 2>&1 &     # via the harness with run_in_background
+```
+
+Then monitor with section 9. Run B (ratchet) per section 6 after A is understood. Delete `/root/deploytmp/eod` and the recorder dirs at the end (section 11).
+
