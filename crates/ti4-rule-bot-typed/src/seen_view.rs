@@ -243,7 +243,7 @@ const fn core_spend(kind: Spend) -> CoreSpend {
 
 /// The row of a core progress, as the policy feature path (and the bot) consume it.
 fn card_of(row: &ProgressRow) -> CardProgress {
-    use ti4_engine::queries::objectives as oc;
+    use ti4_engine::objectives as oc;
     let alias = match row.objective {
         ObjectiveRef::Public(o) => o.as_str(),
         ObjectiveRef::Secret(o) => o.as_str(),

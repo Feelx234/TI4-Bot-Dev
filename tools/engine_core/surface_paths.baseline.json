@@ -275,6 +275,9 @@
  "game::SECONDARY_PREVIEW_COMPLETE": {
   "status": "native"
  },
+ "generated::IdStr": {
+  "status": "native"
+ },
  "invasion::COMMIT_KIND": {
   "status": "native"
  },
@@ -321,6 +324,9 @@
   "status": "native"
  },
  "objectives::bought_progress_at": {
+  "status": "native"
+ },
+ "objectives::cost_family_token": {
   "status": "native"
  },
  "objectives::cost_of": {
@@ -573,6 +579,12 @@
   "status": "native"
  },
  "transactions::OPEN_KIND": {
+  "status": "native"
+ },
+ "transit::Cargo": {
+  "status": "native"
+ },
+ "transit::CargoSource": {
   "status": "native"
  },
  "transit::LOAD_KIND": {

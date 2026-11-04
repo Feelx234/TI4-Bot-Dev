@@ -140,7 +140,7 @@ pub mod legendary {
 pub mod objectives {
     pub use crate::kinds::objectives::{SCORE_KIND, VICTORY_TARGET};
     pub use crate::queries::content::{leader, points_for, winner};
-    pub use crate::queries::objectives::{CardProgress, Cost, Imagined, Position, bought_progress_at, cost_family_token, cost_of, counting_progress, family_token, home_planets_not_controlled, neighbour_planet_counts, remaining_position_progress, scoreable_on};
+    pub use crate::queries::objectives::{CardProgress, Cost, Imagined, Position, bought_progress_at, cost_family_token, cost_of, cost_progress_of, counting_progress, family, family_token, home_planets_not_controlled, neighbour_planet_counts, remaining_position_progress, scoreable_on};
     pub use ti4_engine_legacy::objectives::*;
 }
 pub mod planets {
