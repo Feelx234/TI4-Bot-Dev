@@ -727,7 +727,7 @@ fn in_notable_systems(pos: &Pos<'_>) -> usize {
                 || a.scar
                 || a.asteroid_field
                 || a.gravity_rift
-                || d.planets.iter().any(|p| in_scope_planet(scope, *p) && p.data().legendary)
+                || d.planets.iter().any(|p| in_scope_planet(scope, *p) && board::is_legendary(pos.core, *p))
         })
         .count()
 }
@@ -1388,7 +1388,7 @@ pub fn secret_progress(pos: &Pos<'_>, obj: SecretObjective) -> Result<Option<Pro
         Family::Laws => pos.core.agenda().laws.len(),
         Family::SharedPlanetSystems => shared_planet_systems(pos),
         Family::LegendaryPlanets => {
-            secret_controlled(pos).iter().filter(|p| in_scope_planet(scope, *p) && p.data().legendary).count()
+            secret_controlled(pos).iter().filter(|p| in_scope_planet(scope, *p) && board::is_legendary(pos.core, *p)).count()
         }
         Family::MecatolShipsWhileControlling => mecatol_ships_while_controlling(pos),
         Family::CombinedValue(kind) => usize::try_from(combined_value(pos, kind)).unwrap_or(0),

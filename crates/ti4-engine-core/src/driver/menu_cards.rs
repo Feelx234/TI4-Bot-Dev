@@ -61,7 +61,7 @@ pub fn stellar_targets(core: &CoreState, scope: Scope, who: Seat) -> Vec<(System
         }
         for planet in board::planets_in(core, scope, system).as_slice() {
             let data = planet.data();
-            if data.homeworld_of.is_some() || data.legendary || data.traits.contains(&crate::generated::PlanetTrait::Mr) {
+            if data.homeworld_of.is_some() || board::is_legendary(core, *planet) || data.traits.contains(&crate::generated::PlanetTrait::Mr) {
                 continue;
             }
             if core.board().planet(*planet).flags.has(crate::state::PlanetFlags::PURGED) {

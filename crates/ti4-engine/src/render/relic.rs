@@ -45,6 +45,7 @@ impl Family for Fam {
             Ask::FragmentType { count: 1 } => "purge 1 fragment of which type".to_owned(),
             Ask::FragmentType { count } => format!("purge {count} fragments of which type"),
             Ask::TokenPool => "Fabrication: which pool gains the token".to_owned(),
+            Ask::NanoForge => "Nano-Forge: attach it to which planet".to_owned(),
         }
     }
 
@@ -61,6 +62,7 @@ impl Family for Fam {
             Subtype::DeviceChooseTechnology => "enigmatic_device_choose_technology",
             Subtype::FragmentType => "fragment_type",
             Subtype::TokenPool => "token_pool",
+            Subtype::NanoForgeChooseTarget => "nano_forge_choose_target",
         }
         .to_owned()
     }
@@ -97,6 +99,10 @@ impl Family for Fam {
                 let id = p.as_str();
                 ChoiceOption::labelled(id, "planet", format!("destroy {id}")).with_planet(id, shown.system.map(|s| s.as_str()))
             }
+            Opt::Attach(p, shown) => {
+                let id = p.as_str();
+                ChoiceOption::labelled(id, "planet", format!("attach the Nano-Forge to {id} (+2 resources, +2 influence, legendary)")).with_planet(id, shown.system.map(|s| s.as_str()))
+            }
             Opt::Tech(t) if matches!(a, Ask::DeviceTechnology { .. }) => {
                 let id = t.as_str();
                 let name = ti4_content::ContentStore::embedded().get(ti4_model::content_types::ContentType::Technologies, id).and_then(|record| record.text("name")).unwrap_or(id);
@@ -117,6 +123,7 @@ impl Family for Fam {
             Ask::Codex => ActionCard::from_id(id).map(|c| Opt::Take(c, Shown::default())),
             Ask::TitanPrototype => r.seat(id).map(Opt::Builder),
             Ask::StellarConverter => Planet::from_id(id).map(|p| Opt::Destroy(p, Shown::default())),
+            Ask::NanoForge => Planet::from_id(id).map(|p| Opt::Attach(p, Shown::default())),
             Ask::GainTechnology { .. } | Ask::GainTechnologyFrom { .. } | Ask::DeviceTechnology { .. } => Technology::from_id(id).map(Opt::Tech),
             Ask::FragmentType { .. } => ExploreType::ALL.iter().copied().find(|k| k.as_str().eq_ignore_ascii_case(id)).map(Opt::Fragment),
             Ask::TokenPool => [Pool::Tactic, Pool::Fleet, Pool::Strategic].into_iter().find(|pool| pool_name(*pool) == id).map(Opt::Pool),

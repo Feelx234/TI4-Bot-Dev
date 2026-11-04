@@ -1,6 +1,6 @@
 //! The relic component actions of the action menu (`relics::perform`): purging fragments for a relic, and using a relic with an ACTION (every one
 //! the string resolves: the Dynamis Core, the Book of Latvinia, the Codex, the Enigmatic Device, the Maw of Worlds, the Stellar Converter, the
-//! Titan Prototype and the Silver Flame). The Enigmatic Device exploration cards are the counted gap
+//! Titan Prototype, the Nano-Forge and the Silver Flame). The Enigmatic Device exploration cards are the counted gap
 //! [`crate::kernel::turn_codes::MenuGap::Unrouted`] until their question is native.
 
 use super::component::{conclude_quiet, Verdict};
@@ -31,6 +31,7 @@ pub const fn routed(relic: Relic) -> bool {
             | Relic::StellarConverter
             | Relic::JRXS455O
             | Relic::TheSilverFlame
+            | Relic::NanoForge
     )
 }
 
@@ -78,6 +79,10 @@ pub fn use_relic(sx: &mut Sx<'_>, who: Seat, key: u32, relic: Relic) -> Flow {
             silver_flame(sx, who);
             true
         }
+        Relic::NanoForge => match nano_forge(sx, who) {
+            Ok(resolved) => resolved,
+            Err(flow) => return flow,
+        },
         other => return gap_flow(sx, TurnGap::Menu(MenuGap::Unrouted(7, crate::choice::turn::Opt::UseRelic(other).key().unwrap_or(0)))), // mutants:skip (the key default): every option on the menu has a key
     };
     if !resolved {
@@ -159,6 +164,20 @@ fn stellar_converter(sx: &mut Sx<'_>, who: Seat) -> Result<bool, Flow> {
         return Err(Flow::Halt);
     }
     Ok(window.destroyed.is_some())
+}
+
+/// "Attach this card to a non-legendary, non-home planet you control": the owner picks the planet and the attachment is put on it. Nothing to
+/// attach to resolves nothing (`false`).
+fn nano_forge(sx: &mut Sx<'_>, who: Seat) -> Result<bool, Flow> {
+    let targets = crate::query::relic::nano_targets(sx.state, who);
+    if targets.is_empty() { // mutants:skip: the menu offers the Nano-Forge only with a target
+        return Ok(false); // mutants:skip: the menu offers the Nano-Forge only with a target
+    }
+    let mut window = crate::rules::relic_windows::NanoForge::new(who, &targets);
+    if run_window(sx, &mut window) == Flow::Halt {
+        return Err(Flow::Halt);
+    }
+    Ok(window.attached.is_some())
 }
 
 /// "Choose a player, that player may spend 3 resources to place a structure on a planet they control. If they do not, they gain 1 trade good": the
