@@ -122,3 +122,35 @@ Narrowed, not found. The `Unknown::MissingFact` is NOT raised through `CondCx::u
 ## Item 3, what is still legacy (exact names)
 
 `action_cards::apply_movement_effects` (needs the faction rift-effect hook tables of `factions::hooks_movement::apply_rift_effects`), `movement::{Board, MovementRules}`, `tactical::ship_routes`, `transit::{CargoWindow, rifts_exited}`, `reactions::window_table` (a 2000-line table with guard functions over string `Event`s), `secondary_preview::preview_secondary` (JSON bridge). `rolls()` `outcome`/ability `reason`: not added to the core's `RollRec` (touches every roll site).
+
+
+---
+
+# Round 4 (same branch)
+
+## Root causes found and fixed (each failed before)
+
+* **Observed state at a question was the PRE-answer position.** `TableAsker` built the decider's `Observed` from `asking.at` (the position a stage question was put in, before its answer was applied) instead of the live core; the session published that as `latest_state`, so e.g. the tactic tokens showed 3 where the recovered game had 2 (`batch_commit_resume`, the "private:#staged" suspicion was wrong: nothing to do with marks). Only a nested question's own position (`asking.nested`) is a different position. Fix in `game/asker.rs`. Guard: `batch_commit_resume::a_batch_checked_and_resumed_from_step_copies_leaves_the_same_game_as_full_replays`.
+* **The Leadership primary's pool question lacked `details.purchase`** (the string attached it to every pool question of the primary, `gain_tokens_offering(.., announce_purchase)`): `live/details.rs` now adds it for the seat in turn that holds Leadership. Guard: `leadership_batch` (5/5). A seat that holds Leadership and gains tokens by another route in its own turn also gets it (approximation).
+* `session_recovery_replay` hard-coded game version 2 for the first question; the native session bumps the version once more (a step with no question precedes the first ask). The test now submits with the version of the `PendingChoice` message it received.
+* Fixtures with invented ids or the `generic` faction: `projection_redaction` (playable sample), `draft_last_card` (real factions + notes), `stale_offer_state` (the stored game is an old rules version: the session must refuse it, which is now asserted; re-record the position at version 35 to run the movement checks again).
+* `Game::edit_position(|state| ..)` (new): the state is a mirror after the first step, so tests that write to it between steps edit through this call (reloads the core, drops open windows). Used by `planning`.
+* **splice fixtures re-chosen at rules version 35**: `setup()` no longer pins version 3 and factionless notes; decision indices re-chosen from the new 400-decision history of seed 7 (token pool 28, mech deployment 63, secret draw 44 "yes", action-card draw 51 "no", the action-card removal test now plays the same game with 51 = "yes"), `kept_later` 371. 9 of 11 non-slow tests pass.
+
+## Tried and reverted: "a step runs on to the next question"
+
+Looping native steps inside `Game::step` until a question is asked fixes the version bump and the granularity of two tests but breaks others (`finish_tactical` then asks one more question than the string's step did, `planning` recorded 5 decisions instead of 4): the string's steps stop at events, not at questions. The wrapper keeps one native step per `step()`; tests that assumed the string's grouping loop their steps (justified in the test comments; `planning::replay_handles_nested_choices...` also asserts the journal is empty after a failed step, the wrapper's whole-step rollback contract).
+
+## `tests/it`, after round 4 (70 modules; turn-redo modules left alone)
+
+Pass: `crash_recovery` (5), `session_recovery_replay` (2), `leadership_batch` (5), `projection_redaction` (15), `draft_last_card`, `stale_offer_state`, `batch_commit_resume`, `planning` (5, last fix in the final commit; re-run it), `secondary_draft`, `ready_secondary` (6), `history` (11), `history_session_live` (4), `never_offer_window` (2), `bluff_reaction` (11), `session_deterministic_replay`, `seat_order` (7), `random_seats` (2, 600 s), `secondary_preview_differential` (2), `undo` non-slow (2), `replay_export::seated_players_get_the_replay...`, and every module not named in this file.
+
+Red, with the reason:
+* `splice::{a_single_option_question_that_appears_is_reported, a_single_option_question_that_vanishes_is_reported}`: the native core collapses a single-way payment inside `PayStep` (`rules/production/pay.rs`, the `[only]` branch of `step` and the lone branch of `pay_in`) without any note, so `Table::auto_resolve` is never called: no toast "it was the only way left to pay" and no `Appeared`/`Vanished` alignment. Needs a core hook (a log on `Out` or the tape that the wrapper drains, like `AbilityTable::skipped`). Not done.
+* `lobby_all_factions::slow_tricky_factions_play_a_longer_smart_game`: `nekro: the core stopped: aftermath: Unported(Dacxive)`: `driver/windows/invasion/fight.rs::round_unported` deliberately bails when a side owns Dacxive Animators (a Nekro copy). A known core gap for the integration lane.
+* Turn redo (left alone): `batch_after_redo`, `batch_fork_differential`, `turn_redo*`, `random_bots::..redo..`, `fork_equivalence::slow_..forced_rng..`.
+* Slow (dev profile, about 0.6 s per decision on this game; not a hang): `undo::slow_a_card...` (needs about 10 minutes), `replay_export::{a_lobby_game_exports.., a_game_in_progress..}` and `smart_bots::slow_*`; results of the 1800 s runs are in the final report of the round. The undo latch is exercised by that test (barriers `Revealed`, `OtherSeat`); the two fast undo tests pass.
+
+## Item 3 and the rest, not done (exact names)
+
+`action_cards::apply_movement_effects`, `movement::{Board, MovementRules}` (2 479 lines), `tactical::ship_routes` (the search over `MovementRules`), `transit::{CargoWindow, rifts_exited}` (2 278 lines), `reactions::window_table`, `secondary_preview::preview_secondary`. These are the string movement/transit/reaction searches, not small pure helpers: porting them is re-pointing the host's movement facts (`ti4-host/src/view/tactical.rs`, `planning/`) at the core's `query::reach`/`queries::tactical::{routes_into, typed_rift_exits}` and the cargo/rift readers of `queries::transit`, with a differential test per fact, which is a lane of its own. `rolls()` `outcome`/`reason` not added to `RollRec`. `aftermath: MissingFact` (policy, seed 7793): the `l1z1x_agent::faction_mech` suspect was not tested in a short try; still listed for the integration lane. Wrapper performance (materialise per question, `env_with_plays` per step, two core clones per step): the cause of the slow server modules above.
