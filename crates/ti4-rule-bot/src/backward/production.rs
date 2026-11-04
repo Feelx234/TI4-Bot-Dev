@@ -16,7 +16,7 @@
 //! | `mtm` | Mechanize the Military | secret | 1 | `mechs_on_distinct_planets` |
 //! | `pem` | Produce en Masse | secret | 1 | `production_in_one_system` |
 
-use ti4_engine::choice::{Observed, SeatObservation};
+use crate::view::{View, SeatView};
 use ti4_model::id::{PlayerId, SystemId};
 
 use super::{Cost, ObjectivePlanner, Plan, PlanCtx, Steer, structures};
@@ -71,7 +71,7 @@ pub fn capacity_with(dock: &Dock, place: usize, dock_production: impl Fn(i64) ->
             .sum::<i64>()
 }
 
-fn docks_of(seen: &Observed<'_>, me: &PlayerId) -> Vec<Dock> {
+fn docks_of(seen: &dyn View, me: &PlayerId) -> Vec<Dock> {
     let tokened = seen.systems_with_token(me);
     let mut out = Vec::new();
     for (system, record) in seen.board() {
@@ -126,7 +126,7 @@ fn docks_of(seen: &Observed<'_>, me: &PlayerId) -> Vec<Dock> {
     out
 }
 
-fn unit_cost(seen: &Observed<'_>, base: &str) -> i64 {
+fn unit_cost(seen: &dyn View, base: &str) -> i64 {
     #[expect(clippy::cast_possible_truncation, reason = "printed costs are small")]
     let cost = crate::unit_type(seen, base).map_or(99, |k| k.cost().ceil() as i64);
     cost
@@ -150,7 +150,7 @@ impl ObjectivePlanner for Production {
         IDS
     }
 
-    fn plan(&self, obs: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
+    fn plan(&self, obs: &dyn SeatView, ctx: &PlanCtx) -> Option<Plan> {
         let observed = obs.observed();
         let g = missing(ctx);
         if g == 0 {
@@ -259,6 +259,7 @@ impl ObjectivePlanner for Production {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_engine::choice::SeatObservation;
 
     fn dock(capacity: i64, mechless: usize, dockless: &[i64], tokened: bool) -> Dock {
         Dock {

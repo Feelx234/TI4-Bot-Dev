@@ -20,7 +20,7 @@
 //! | `dtd` | Drive the Debate | secret | 1 | none (event, agenda phase) |
 //! | `dp` | Dictate Policy | secret | 1 | `laws` |
 
-use ti4_engine::choice::SeatObservation;
+use crate::view::{View, SeatView};
 use ti4_model::content_types::ContentType;
 use ti4_model::id::PlayerId;
 
@@ -50,7 +50,7 @@ impl AgendaBias {
     /// The bias of the seat: nothing with the knob off, For on laws while it holds Dictate
     /// Policy and has fewer than three laws.
     #[must_use]
-    pub fn of(seen: &SeatObservation<'_>) -> Self {
+    pub fn of(seen: &dyn SeatView) -> Self {
         if !tuning::bw_enabled() || !tuning::bw_agenda() {
             return Self::default();
         }
@@ -68,7 +68,7 @@ impl AgendaBias {
 /// The type (`Law` or `Directive`) and what an agenda elects (its printed target, typed).
 #[must_use]
 pub fn agenda_kind(
-    seen: &ti4_engine::choice::Observed<'_>,
+    seen: &dyn View,
     agenda: &str,
 ) -> Option<(String, ti4_content::ElectType)> {
     let record = seen.content().get(ContentType::Agendas, agenda)?;
@@ -81,7 +81,7 @@ pub fn at_least_of(n: u32, p: f64, k: u32) -> f64 {
     super::abilities::at_least(n as usize, p, k as usize)
 }
 
-fn influence(seen: &ti4_engine::choice::Observed<'_>, player: &PlayerId) -> f64 {
+fn influence(seen: &dyn View, player: &PlayerId) -> f64 {
     #[expect(clippy::cast_precision_loss, reason = "single digits")]
     let total = seen
         .controlled_planets(player)
@@ -95,7 +95,7 @@ fn influence(seen: &ti4_engine::choice::Observed<'_>, player: &PlayerId) -> f64 
 }
 
 /// The seat's share of the table's influence (what its votes weigh).
-fn vote_share(seen: &ti4_engine::choice::Observed<'_>, me: &PlayerId) -> f64 {
+fn vote_share(seen: &dyn View, me: &PlayerId) -> f64 {
     let all: f64 = seen.players().into_iter().map(|p| influence(seen, p)).sum();
     if all <= 0.0 {
         return 0.0;
@@ -111,7 +111,7 @@ impl ObjectivePlanner for Agenda {
         IDS
     }
 
-    fn plan(&self, obs: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
+    fn plan(&self, obs: &dyn SeatView, ctx: &PlanCtx) -> Option<Plan> {
         let observed = obs.observed();
         // No agenda phase before the custodians token is gone.
         if !observed.custodians_removed() {
@@ -151,7 +151,7 @@ impl ObjectivePlanner for Agenda {
 
 /// The held agenda secrets as goals when the engine reports no progress (Drive the Debate).
 #[must_use]
-pub fn event_goals(seen: &SeatObservation<'_>) -> Vec<Goal> {
+pub fn event_goals(seen: &dyn SeatView) -> Vec<Goal> {
     super::combat::event_goals_of(seen, &["dtd"])
 }
 

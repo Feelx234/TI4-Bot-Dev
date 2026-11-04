@@ -14,7 +14,7 @@
 //! placement goal and planned by [`super::fleet`]. Prep kinds: all four, through
 //! [`super::mecatol_two_step`] when the one-step plan is not likely.
 
-use ti4_engine::choice::{Observed, SeatObservation};
+use crate::view::{View, SeatView};
 use ti4_model::id::PlayerId;
 
 use super::{Cost, MecatolState, Plan, PlanCtx, Steer};
@@ -25,7 +25,7 @@ const IMPERIAL_SHARE: f64 = 0.6;
 
 /// Mecatol Rex as the planners see it.
 #[must_use]
-pub fn state(seen: &Observed<'_>, me: &PlayerId) -> MecatolState {
+pub fn state(seen: &dyn View, me: &PlayerId) -> MecatolState {
     let system = crate::mecatol_system(seen);
     let rival_holds = system.as_ref().is_some_and(|s| {
         seen.system(s)
@@ -45,7 +45,7 @@ pub fn state(seen: &Observed<'_>, me: &PlayerId) -> MecatolState {
 
 /// The plan for Mecatol Rex, if the seat can do anything about it this turn.
 #[must_use]
-pub fn plan(_seen: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
+pub fn plan(_seen: &dyn SeatView, ctx: &PlanCtx) -> Option<Plan> {
     let m = &ctx.mecatol;
     let system = m.system.clone()?;
     let weight = tuning::bw_mecatol_weight();

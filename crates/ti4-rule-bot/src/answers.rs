@@ -15,21 +15,22 @@
 //! - **Small windows** (`misc_rule`): readying the most valuable planet, retreating to the
 //!   system with most of its own, and Trade's free replenish for nobody else.
 
-use ti4_engine::choice::{Choice, ChoiceOption, Observed};
+use crate::view::View;
+use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
 
 use crate::backward::agenda::{AgendaBias, agenda_kind};
 use crate::{is_ship, payload_str, planet_worth, tuning};
 
 /// The answer for one of the questions above, or `None` to keep the random pick.
-pub fn pick(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+pub fn pick(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     pick_with(choice, seen, me, &AgendaBias::default())
 }
 
 /// [`pick`] with the agenda secrets' vote bias (`backward/agenda.rs`).
 pub fn pick_with(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     bias: &AgendaBias,
 ) -> Option<usize> {
@@ -161,7 +162,7 @@ pub fn pick_with(
 
 /// Technological Singularity's gain (bot version 3): the best technology by the seat's order;
 /// the Valefar and Z-token choices keep the random pick when no technology can be gained.
-fn assimilate(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn assimilate(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let candidates: Vec<(usize, &str)> = choice
         .options
         .iter()
@@ -220,12 +221,12 @@ const GOOD_PLANET: &[&str] = &[
 /// Planet elections that hurt the planet's owner.
 const BAD_PLANET: &[&str] = &["redistribution", "disarmament", "demilitarized_zone"];
 
-fn points(seen: &Observed<'_>, player: &PlayerId) -> i32 {
+fn points(seen: &dyn View, player: &PlayerId) -> i32 {
     seen.seat(player).map_or(0, |seat| seat.victory_points)
 }
 
 /// The rival with most points (ties: seating order).
-fn rival_leader(seen: &Observed<'_>, me: &PlayerId) -> Option<PlayerId> {
+fn rival_leader(seen: &dyn View, me: &PlayerId) -> Option<PlayerId> {
     seen.players()
         .into_iter()
         .filter(|p| *p != me)
@@ -233,7 +234,7 @@ fn rival_leader(seen: &Observed<'_>, me: &PlayerId) -> Option<PlayerId> {
         .cloned()
 }
 
-fn planet_owner(seen: &Observed<'_>, planet: &str) -> Option<PlayerId> {
+fn planet_owner(seen: &dyn View, planet: &str) -> Option<PlayerId> {
     let id = PlanetId::new(planet);
     seen.board()
         .values()
@@ -244,7 +245,7 @@ fn planet_owner(seen: &Observed<'_>, planet: &str) -> Option<PlayerId> {
 fn preferred_outcome(
     agenda: &str,
     outcomes: &[&str],
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     bias: &AgendaBias,
 ) -> Option<String> {
@@ -307,7 +308,7 @@ fn preferred_outcome(
 pub(crate) fn old_preference(
     agenda: &str,
     outcomes: &[&str],
-    seen: &Observed<'_>,
+    seen: &dyn View,
     who: &PlayerId,
 ) -> Option<String> {
     preferred_outcome(agenda, outcomes, seen, who, &AgendaBias::default())
@@ -319,7 +320,7 @@ pub(crate) fn old_preference(
 fn secret_outcome(
     agenda: &str,
     outcomes: &[&str],
-    seen: &Observed<'_>,
+    seen: &dyn View,
     _me: &PlayerId,
     bias: &AgendaBias,
 ) -> Option<String> {
@@ -350,7 +351,7 @@ fn outcome_ids(choice: &Choice) -> Vec<&str> {
 /// random pick when the seat does not care).
 fn cast_vote(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     bias: &AgendaBias,
 ) -> Option<usize> {
@@ -396,7 +397,7 @@ fn votes_of(option: &ChoiceOption) -> i64 {
 /// first; none for any other outcome.
 fn exhaust_for_vote(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     bias: &AgendaBias,
 ) -> Option<usize> {
@@ -455,7 +456,7 @@ fn own_seat_option(choice: &Choice, me: &PlayerId) -> Option<usize> {
 }
 
 /// Already the speaker: the seat with fewest points gets the token (the least dangerous one).
-fn weakest_seat_option(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
+fn weakest_seat_option(choice: &Choice, seen: &dyn View) -> Option<usize> {
     let seats = choice.details.get("seats")?.as_object()?;
     choice
         .options
@@ -471,7 +472,7 @@ fn weakest_seat_option(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
 
 /// Politics' look at the agenda deck: an agenda with an outcome the seat wants goes on top, one
 /// that harms it (an election of a rival for a card, a point for the leader) at the bottom.
-fn place_agenda(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn place_agenda(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let agenda = agenda_of(choice)?;
     let mut good = GOOD_FOR_ELECTED.contains(&agenda)
         || GOOD_PLANET.contains(&agenda)
@@ -492,7 +493,7 @@ fn place_agenda(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
 
 // -- combat ---------------------------------------------------------------------------------------
 
-fn value_of(seen: &Observed<'_>, unit: &str) -> f64 {
+fn value_of(seen: &dyn View, unit: &str) -> f64 {
     ti4_engine::valuation::unit_value(seen.content(), seen.sources(), unit)
 }
 
@@ -501,7 +502,7 @@ fn is_flagship_or_war_sun(unit: &str) -> bool {
 }
 
 /// Sustain whenever a unit can, on the cheapest unit that can (a flagship or war sun last).
-fn sustain(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
+fn sustain(choice: &Choice, seen: &dyn View) -> Option<usize> {
     choice
         .options
         .iter()
@@ -522,7 +523,7 @@ fn sustain(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
 }
 
 /// The least valuable casualty; a damaged unit counts as worth less than a fresh one.
-fn casualty(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
+fn casualty(choice: &Choice, seen: &dyn View) -> Option<usize> {
     choice
         .options
         .iter()
@@ -543,7 +544,7 @@ fn casualty(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
 
 // -- small windows --------------------------------------------------------------------------------
 
-fn ready_best_planet(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
+fn ready_best_planet(choice: &Choice, seen: &dyn View) -> Option<usize> {
     choice
         .options
         .iter()
@@ -558,7 +559,7 @@ fn ready_best_planet(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
 }
 
 /// Retreat where most of its own is: planets it controls, its ships, a dock.
-fn retreat_to(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn retreat_to(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     choice
         .options
         .iter()
@@ -581,6 +582,7 @@ fn retreat_to(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usi
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_engine::choice::Observed;
     use ti4_content::ContentStore;
     use ti4_engine::fixtures::loadable_game as game;
     use ti4_model::POK;

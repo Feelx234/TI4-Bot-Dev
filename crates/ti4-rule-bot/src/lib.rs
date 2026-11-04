@@ -94,6 +94,7 @@
 //! Other technology choices, action cards, the other secondaries and every other window stay
 //! random.
 
+use crate::view::{View, SeatView};
 use std::collections::{BTreeMap, BTreeSet};
 
 use rand::Rng;
@@ -101,7 +102,7 @@ use rand_chacha::ChaCha8Rng;
 use serde_json::Value;
 use ti4_content::StrategyCardKind;
 use ti4_content::units::UnitType;
-use ti4_engine::choice::{Choice, ChoiceOption, Observed, SeatObservation};
+use ti4_engine::choice::{Choice, ChoiceOption, SeatObservation};
 use ti4_engine::fleet_strength::{Descriptors, descriptors, matchup};
 use ti4_engine::production::Spend;
 use ti4_engine::tactical::Movable;
@@ -123,6 +124,7 @@ pub mod planner;
 pub mod random;
 mod rift;
 pub mod tuning;
+pub mod view;
 
 pub use decider::RuleBotDecider;
 
@@ -190,6 +192,19 @@ pub fn choose_explained(
     seat: usize,
     index: usize,
 ) -> (usize, bool, ChaCha8Rng) {
+    choose_explained_view(choice, seen.map(|seen| seen as &dyn SeatView), game_seed, seat, index)
+}
+
+/// [`choose_explained`] over any source of the position (`view::SeatView`): the string `SeatObservation` or the typed core's
+/// `Seen` through `ti4_rule_bot_typed::seen_view::SeenView`. Same pick, same stream, for the same answers of the accessors.
+#[must_use]
+pub fn choose_explained_view(
+    choice: &Choice,
+    seen: Option<&dyn SeatView>,
+    game_seed: u64,
+    seat: usize,
+    index: usize,
+) -> (usize, bool, ChaCha8Rng) {
     let mut rng = random::decision_rng(game_seed, seat, index);
     let random_pick = random::pick_index(choice, &mut rng);
     let smart = seen
@@ -208,7 +223,7 @@ pub fn choose_explained(
 /// Gravity Drive route round a rift, a route that passes units to pick up) would decide, with
 /// `seen.observed().ship_routes_into(..)` for the same facts the choice lists.
 #[must_use]
-pub fn pick_route(choice: &Choice, picked: usize, seen: &SeatObservation<'_>) -> usize {
+pub fn pick_route(choice: &Choice, picked: usize, seen: &dyn SeatView) -> usize {
     let _ = (choice, picked, seen);
     0
 }
@@ -217,7 +232,7 @@ pub fn pick_route(choice: &Choice, picked: usize, seen: &SeatObservation<'_>) ->
 /// default route, else the id of the route [`pick_route`] names (`ti4_engine::tactical::
 /// route_suffix`). A choice without routes is answered with the option's id.
 #[must_use]
-pub fn answer_id(choice: &Choice, picked: usize, seen: &SeatObservation<'_>) -> String {
+pub fn answer_id(choice: &Choice, picked: usize, seen: &dyn SeatView) -> String {
     let option = &choice.options[picked];
     let route = pick_route(choice, picked, seen);
     let routes = ti4_engine::tactical::routes_of(choice, &option.id);
@@ -228,7 +243,7 @@ pub fn answer_id(choice: &Choice, picked: usize, seen: &SeatObservation<'_>) -> 
 
 /// The smart answer to `choice`, or `None` to keep the random pick.
 #[must_use]
-pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -> Option<usize> {
+pub fn pick(choice: &Choice, seen: &dyn SeatView, rng: &mut ChaCha8Rng) -> Option<usize> {
     let me = seen.bound_seat().clone();
     let observed = seen.observed();
     let subtype = choice.context.as_ref().map(|c| c.subtype.as_str());
@@ -415,7 +430,7 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
 /// Whether every objective Imperial offers to score now spends something (tokens, resources,
 /// influence, trade goods) while a round-1 plan still needs it ([`transport_plan`], the Cruiser II
 /// plan's reserve).
-fn spending_objective_blocks_plan(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn spending_objective_blocks_plan(choice: &Choice, seen: &dyn View, me: &PlayerId) -> bool {
     const SPENDING: &[&str] = &[
         "monument",
         "lead",
@@ -438,21 +453,21 @@ fn spending_objective_blocks_plan(choice: &Choice, seen: &Observed<'_>, me: &Pla
 
 // -- reading the board ---------------------------------------------------------------------------
 
-fn faction(seen: &Observed<'_>, player: &PlayerId) -> String {
+fn faction(seen: &dyn View, player: &PlayerId) -> String {
     seen.seat(player)
         .map(|seat| seat.faction.as_str().to_owned())
         .unwrap_or_default()
 }
 
-fn unit_type<'a>(seen: &Observed<'a>, id: &str) -> Option<UnitType<'a>> {
+fn unit_type<'a>(seen: &'a dyn View, id: &str) -> Option<UnitType<'a>> {
     ti4_content::units::unit_type(seen.content(), id, seen.sources())
 }
 
-fn is_ship(seen: &Observed<'_>, unit: &Unit) -> bool {
+fn is_ship(seen: &dyn View, unit: &Unit) -> bool {
     unit_type(seen, unit.type_id.as_str()).is_some_and(|t| t.is_ship())
 }
 
-fn is_ground(seen: &Observed<'_>, unit: &Unit) -> bool {
+fn is_ground(seen: &dyn View, unit: &Unit) -> bool {
     unit_type(seen, unit.type_id.as_str()).is_some_and(|t| t.is_ground_force())
 }
 
@@ -474,7 +489,7 @@ fn tally<'u>(units: impl IntoIterator<Item = &'u Unit>) -> (Counts, Counts) {
 
 /// Combat descriptors of `units`, all owned by `owner`.
 fn fleet<'u>(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     owner: &PlayerId,
     units: impl IntoIterator<Item = &'u Unit>,
 ) -> Descriptors {
@@ -490,7 +505,7 @@ fn fleet<'u>(
 
 /// Sum descriptors of several owners' units (a multi-player defence is treated as one side).
 fn hostile_fleet<'u>(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     units: impl IntoIterator<Item = &'u Unit>,
 ) -> Descriptors {
@@ -515,7 +530,7 @@ fn hostile_fleet<'u>(
 }
 
 /// Hostile ships in a system's space area, plus the space cannon of hostile units on its planets.
-fn hostile_space(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Descriptors {
+fn hostile_space(seen: &dyn View, me: &PlayerId, system: &SystemId) -> Descriptors {
     let board = seen.system(system);
     let mut ships = hostile_fleet(seen, me, board.units.iter().filter(|u| is_ship(seen, u)));
     let ground = hostile_fleet(seen, me, board.planet_units.values().flatten());
@@ -523,7 +538,7 @@ fn hostile_space(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Descr
     ships
 }
 
-fn has_hostile_ships(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool {
+fn has_hostile_ships(seen: &dyn View, me: &PlayerId, system: &SystemId) -> bool {
     seen.system(system)
         .units
         .iter()
@@ -532,7 +547,7 @@ fn has_hostile_ships(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> b
 
 /// What a planet is worth to take: resources plus influence, Mecatol Rex more while its custodians
 /// point is still there.
-fn planet_worth(seen: &Observed<'_>, planet: &str) -> f64 {
+fn planet_worth(seen: &dyn View, planet: &str) -> f64 {
     let Some(record) = ti4_content::galaxy::planet(seen.content(), planet, seen.sources()) else {
         return 0.0;
     };
@@ -558,7 +573,7 @@ fn planet_worth(seen: &Observed<'_>, planet: &str) -> f64 {
 }
 
 /// Mecatol Rex's system on this map.
-fn mecatol_system(seen: &Observed<'_>) -> Option<SystemId> {
+fn mecatol_system(seen: &dyn View) -> Option<SystemId> {
     ti4_content::galaxy::planet(seen.content(), MECATOL, seen.sources())?
         .system_id()
         .map(SystemId::new)
@@ -567,7 +582,7 @@ fn mecatol_system(seen: &Observed<'_>) -> Option<SystemId> {
 /// Whether the seat could invade Mecatol Rex this turn or next, so six influence for the
 /// custodians are worth keeping back: the custodians still stand and it has units in Mecatol's
 /// system or next to it, or ships that could move there now. Without a map, assume it can.
-fn mecatol_in_reach(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn mecatol_in_reach(seen: &dyn View, me: &PlayerId) -> bool {
     if seen.custodians_removed() {
         return false;
     }
@@ -593,7 +608,7 @@ fn mecatol_in_reach(seen: &Observed<'_>, me: &PlayerId) -> bool {
 /// Whether the seat could take Mecatol Rex with its next activation: the custodians still stand,
 /// it has the six influence for them, and carriers that can reach the system bring ground forces
 /// past any defence there (no hostile fleet it cannot clearly beat).
-fn mecatol_takeable(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn mecatol_takeable(seen: &dyn View, me: &PlayerId) -> bool {
     if seen.custodians_removed()
         || (!blood_ties(seen, me) && seen.available_spend(me, Spend::Influence) < 6)
     {
@@ -613,17 +628,17 @@ fn mecatol_takeable(seen: &Observed<'_>, me: &PlayerId) -> bool {
 /// now or could take it, so Imperial's primary scores a point for it. The controller of the
 /// planet is what is known at draft time (round 1 nobody holds it; the plan to take it counts
 /// through [`mecatol_takeable`]).
-pub(crate) fn mecatol_imperial_wanted(seen: &Observed<'_>, me: &PlayerId) -> bool {
+pub(crate) fn mecatol_imperial_wanted(seen: &dyn View, me: &PlayerId) -> bool {
     holds_mecatol(seen, me) || mecatol_takeable(seen, me)
 }
 
 /// Bot version 3: the Winnu's Blood Ties lift the custodians without influence.
-fn blood_ties(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn blood_ties(seen: &dyn View, me: &PlayerId) -> bool {
     tuning::winnu_mecatol() && faction(seen, me) == "winnu"
 }
 
 /// Whether the seat holds Mecatol Rex (Imperial's point).
-fn holds_mecatol(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn holds_mecatol(seen: &dyn View, me: &PlayerId) -> bool {
     seen.controlled_planets(me)
         .into_iter()
         .any(|(_, planet)| planet.as_str() == MECATOL)
@@ -631,7 +646,7 @@ fn holds_mecatol(seen: &Observed<'_>, me: &PlayerId) -> bool {
 
 /// Ground forces needed to take `planet`: one more than the hit points defending it.
 fn ground_needed(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     system: &SystemId,
     planet: &PlanetId,
@@ -663,7 +678,7 @@ fn ground_needed(
 /// Planets in `system` worth invading, best value per ground force first: (planet, worth, ground
 /// needed). Planets the
 /// seat already holds, and Mecatol Rex while it cannot pay to lift the custodians, are left out.
-fn targets(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<(PlanetId, f64, usize)> {
+fn targets(seen: &dyn View, me: &PlayerId, system: &SystemId) -> Vec<(PlanetId, f64, usize)> {
     let board = seen.system(system);
     let mut out: Vec<(PlanetId, f64, usize)> =
         ti4_content::galaxy::planets_in(seen.content(), system.as_str(), seen.sources())
@@ -718,7 +733,7 @@ fn takeable_value(targets: &[(PlanetId, f64, usize)], mut ground: usize) -> f64 
 }
 
 /// Count this seat's units.
-fn own_counts(seen: &Observed<'_>, me: &PlayerId) -> (usize, usize) {
+fn own_counts(seen: &dyn View, me: &PlayerId) -> (usize, usize) {
     let (mut ships, mut ground) = (0, 0);
     for system in seen.board().values() {
         for unit in system
@@ -744,7 +759,7 @@ fn own_counts(seen: &Observed<'_>, me: &PlayerId) -> (usize, usize) {
 
 /// Whether the seat is short of units it could build in `system`: ships while it has few and the
 /// system's fleet supply has room, ground forces while few wait at its docks for transport.
-fn wants_to_build(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool {
+fn wants_to_build(seen: &dyn View, me: &PlayerId, system: &SystemId) -> bool {
     let (ships, _) = own_counts(seen, me);
     let here = seen
         .system(system)
@@ -764,12 +779,12 @@ fn wants_to_build(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool
 
 /// Whether as many ground forces wait at its docks as its ships can carry (at least
 /// [`MIN_IDLE_GROUND`]), so more would only sit there.
-fn enough_ground(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn enough_ground(seen: &dyn View, me: &PlayerId) -> bool {
     let (idle, lift) = idle_ground_and_lift(seen, me);
     idle >= usize::try_from(lift.max(tuning::min_idle_ground())).unwrap_or(0)
 }
 
-fn has_own_production(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool {
+fn has_own_production(seen: &dyn View, me: &PlayerId, system: &SystemId) -> bool {
     let board = seen.system(system);
     board
         .units
@@ -785,7 +800,7 @@ fn has_own_production(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> 
 ///
 /// Negative when the fight there would be lost; zero when the bot has no reason to go.
 #[must_use]
-pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> f64 {
+pub fn activation_value(seen: &dyn View, me: &PlayerId, system: &SystemId) -> f64 {
     let movable = movable_for(seen, me, system);
     // Bot version 6 (rift_risk): the expected loss of the ships that must cross a rift.
     let penalty = rift::penalty(seen, me, system, &movable);
@@ -799,7 +814,7 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
 
 /// [`activation_value`] for the given ships coming (the gravity-rift model weighs subsets).
 pub(crate) fn activation_value_with(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     system: &SystemId,
     movable: Vec<Movable>,
@@ -911,7 +926,7 @@ pub(crate) fn activation_value_with(
 }
 
 /// Bot version 3: how many systems next to `system` hold a planet of the seat (at most three).
-fn own_neighbours(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> f64 {
+fn own_neighbours(seen: &dyn View, me: &PlayerId, system: &SystemId) -> f64 {
     let Some(galaxy) = seen.galaxy() else {
         return 0.0;
     };
@@ -933,7 +948,7 @@ fn own_neighbours(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> f64 
 
 /// Bot version 3, the Nekro: technologies of the rivals in `system` the seat lacks, each one a
 /// Technological Singularity pick (a destroyed unit is enough).
-fn technologies_to_take(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> f64 {
+fn technologies_to_take(seen: &dyn View, me: &PlayerId, system: &SystemId) -> f64 {
     let Some(mine) = seen.seat(me) else {
         return 0.0;
     };
@@ -963,12 +978,12 @@ fn technologies_to_take(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
 // -- the expansion plan --------------------------------------------------------------------------
 
 /// Whether this is one of the opening rounds, when planets come first.
-fn expanding(seen: &Observed<'_>) -> bool {
+fn expanding(seen: &dyn View) -> bool {
     seen.round() <= tuning::expansion_rounds()
 }
 
 /// The seat's home system: where its home planets are.
-fn home_system(seen: &Observed<'_>, me: &PlayerId) -> Option<SystemId> {
+fn home_system(seen: &dyn View, me: &PlayerId) -> Option<SystemId> {
     seen.controlled_planets(me)
         .into_iter()
         .find(|(_, planet)| {
@@ -979,16 +994,16 @@ fn home_system(seen: &Observed<'_>, me: &PlayerId) -> Option<SystemId> {
 }
 
 /// Which strategy card `card` (an id) is.
-fn card_kind(seen: &Observed<'_>, card: &str) -> Option<StrategyCardKind> {
+fn card_kind(seen: &dyn View, card: &str) -> Option<StrategyCardKind> {
     ti4_engine::strategy_cards::card_kind(seen.content(), card)
 }
 
-fn card_is(seen: &Observed<'_>, card: &str, kind: StrategyCardKind) -> bool {
+fn card_is(seen: &dyn View, card: &str, kind: StrategyCardKind) -> bool {
     card_kind(seen, card) == Some(kind)
 }
 
 /// The seat's strategy card of this kind, while it is still unplayed.
-fn ready_card(seen: &Observed<'_>, me: &PlayerId, kind: StrategyCardKind) -> Option<String> {
+fn ready_card(seen: &dyn View, me: &PlayerId, kind: StrategyCardKind) -> Option<String> {
     let seat = seen.seat(me)?;
     seat.strategy_cards
         .iter()
@@ -1000,7 +1015,7 @@ fn ready_card(seen: &Observed<'_>, me: &PlayerId, kind: StrategyCardKind) -> Opt
 
 /// Whether another seat holds the card called `name` and has not played it yet: its secondary
 /// is still to come this round.
-fn secondary_to_come(seen: &Observed<'_>, me: &PlayerId, kind: StrategyCardKind) -> bool {
+fn secondary_to_come(seen: &dyn View, me: &PlayerId, kind: StrategyCardKind) -> bool {
     seen.players()
         .into_iter()
         .filter(|player| *player != me)
@@ -1010,7 +1025,7 @@ fn secondary_to_come(seen: &Observed<'_>, me: &PlayerId, kind: StrategyCardKind)
 /// Strategy tokens kept back for a secondary worth more than the one on offer: in the opening
 /// rounds one for Warfare's home production while another seat has Warfare still to play, and
 /// one for Diplomacy's readying while the transport plan has a home build to pay for.
-fn strategy_reserve(seen: &Observed<'_>, me: &PlayerId) -> i32 {
+fn strategy_reserve(seen: &dyn View, me: &PlayerId) -> i32 {
     let warfare = expanding(seen) && secondary_to_come(seen, me, StrategyCardKind::Warfare);
     // Short of transports: one more for Diplomacy's readying, the home build's resources.
     let diplomacy = short_of_transports(seen, me)
@@ -1020,7 +1035,7 @@ fn strategy_reserve(seen: &Observed<'_>, me: &PlayerId) -> i32 {
 }
 
 /// Own non-fighter ships in `system`'s space area, and their capacity.
-fn ships_and_lift(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> (usize, i64) {
+fn ships_and_lift(seen: &dyn View, me: &PlayerId, system: &SystemId) -> (usize, i64) {
     seen.system(system)
         .units
         .iter()
@@ -1032,7 +1047,7 @@ fn ships_and_lift(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> (usi
 
 /// Whether a planet it could take lies within one move of `origin` (a carrier's reach), with no
 /// hostile fleet in the way.
-fn target_near(seen: &Observed<'_>, me: &PlayerId, origin: &SystemId) -> bool {
+fn target_near(seen: &dyn View, me: &PlayerId, origin: &SystemId) -> bool {
     let Some(galaxy) = seen.galaxy() else {
         return false;
     };
@@ -1049,7 +1064,7 @@ fn target_near(seen: &Observed<'_>, me: &PlayerId, origin: &SystemId) -> bool {
 
 /// A new carrier's movement: one, plus Gravity Drive, plus the Creuss' Slipstream (they start in
 /// a wormhole system).
-fn carrier_reach(seen: &Observed<'_>, me: &PlayerId) -> i32 {
+fn carrier_reach(seen: &dyn View, me: &PlayerId) -> i32 {
     let gravity = seen.seat(me).is_some_and(|seat| {
         seat.technologies
             .iter()
@@ -1062,7 +1077,7 @@ fn carrier_reach(seen: &Observed<'_>, me: &PlayerId) -> i32 {
 /// it, home is not activated (so a new carrier can leave), a tactic token is left to send it, and
 /// the seat can pay for a carrier (and two infantry when none wait at home). Then a production at
 /// home that places no token there (Warfare, Construction) is worth a planet.
-fn wants_home_transport(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn wants_home_transport(seen: &dyn View, me: &PlayerId) -> bool {
     if !expanding(seen) {
         return false;
     }
@@ -1087,7 +1102,7 @@ fn wants_home_transport(seen: &Observed<'_>, me: &PlayerId) -> bool {
 /// production) is the seat's best next step in the opening: a new transport once the others have
 /// left ([`wants_home_transport`]), or, before they leave, a transport and troops for a third
 /// system when it has fewer than three transports and can pay for a carrier and two infantry.
-fn home_build_wanted(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn home_build_wanted(seen: &dyn View, me: &PlayerId) -> bool {
     if wants_home_transport(seen, me) {
         return true;
     }
@@ -1108,7 +1123,7 @@ fn home_build_wanted(seen: &Observed<'_>, me: &PlayerId) -> bool {
 }
 
 /// How many more non-fighter ships fleet supply lets the seat build in `home` now.
-fn home_fleet_room(seen: &Observed<'_>, me: &PlayerId, home: &SystemId) -> i64 {
+fn home_fleet_room(seen: &dyn View, me: &PlayerId, home: &SystemId) -> i64 {
     let (ships, _) = ships_and_lift(seen, me, home);
     let fleet = seen.seat(me).map_or(0, |seat| i64::from(seat.fleet_tokens));
     fleet - i64::try_from(ships).unwrap_or(i64::MAX)
@@ -1117,7 +1132,7 @@ fn home_fleet_room(seen: &Observed<'_>, me: &PlayerId, home: &SystemId) -> i64 {
 /// The round-1 transport plan of a seat with fewer transports than tactic tokens: how many it is
 /// short (at most three systems' worth) and what building them and a troop each at home costs.
 /// `None` when it has enough, or outside round 1.
-fn transport_plan(seen: &Observed<'_>, me: &PlayerId) -> Option<(i64, i64)> {
+fn transport_plan(seen: &dyn View, me: &PlayerId) -> Option<(i64, i64)> {
     if seen.round() > 1
         || (cruiser_plan(seen, me) && ready_card(seen, me, StrategyCardKind::Technology).is_some())
     {
@@ -1146,14 +1161,14 @@ fn transport_plan(seen: &Observed<'_>, me: &PlayerId) -> Option<(i64, i64)> {
 }
 
 /// Whether the seat owns technology `alias`.
-fn has_technology(seen: &Observed<'_>, me: &PlayerId, alias: &str) -> bool {
+fn has_technology(seen: &dyn View, me: &PlayerId, alias: &str) -> bool {
     seen.seat(me)
         .is_some_and(|seat| seat.technologies.iter().any(|t| t.as_str() == alias))
 }
 
 /// Systems activated this round (they hold its command token) where it now controls a planet,
 /// home aside: the systems the round has taken so far.
-fn systems_taken_this_round(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+fn systems_taken_this_round(seen: &dyn View, me: &PlayerId) -> i64 {
     let home = home_system(seen, me);
     let taken = seen
         .systems_with_token(me)
@@ -1172,7 +1187,7 @@ fn systems_taken_this_round(seen: &Observed<'_>, me: &PlayerId) -> i64 {
 /// The Creuss: their home lies beyond the wormhole everyone else uses too, so their warships
 /// have nowhere to wait out of the others' way (the Gate itself is their road); they escort the
 /// first carrier instead of a separate clearing move.
-fn gate_bound(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn gate_bound(seen: &dyn View, me: &PlayerId) -> bool {
     faction(seen, me) == "ghost"
 }
 
@@ -1181,7 +1196,7 @@ fn gate_bound(seen: &Observed<'_>, me: &PlayerId) -> bool {
 /// transport for every remaining token. The loaded transport has already left; Warfare's
 /// redistribution gives the token back (the spread-out fleet needs fewer fleet tokens), so the
 /// tokens still send every new transport. It also waits a turn for Diplomacy's readying.
-fn wait_move_pays(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn wait_move_pays(seen: &dyn View, me: &PlayerId) -> bool {
     if gate_bound(seen, me) {
         return false;
     }
@@ -1215,7 +1230,7 @@ fn wait_move_pays(seen: &Observed<'_>, me: &PlayerId) -> bool {
 
 /// The waiting move's system ([`wait_move_pays`]): one the home warships can reach, without a
 /// hostile fleet, best without planets to take (nothing is landed).
-fn pick_wait_activation(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_wait_activation(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let wanted = wait_systems(seen, me);
     choice
         .options
@@ -1236,7 +1251,7 @@ fn pick_wait_activation(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> 
 /// would want its planets); each scored by the neighbouring systems holding another seat's units,
 /// planet systems after the planet-less ones (lower is better: the warships stay out of the
 /// others' way).
-fn wait_systems(seen: &Observed<'_>, me: &PlayerId) -> Vec<(SystemId, usize)> {
+fn wait_systems(seen: &dyn View, me: &PlayerId) -> Vec<(SystemId, usize)> {
     let (Some(galaxy), Some(home)) = (seen.galaxy(), home_system(seen, me)) else {
         return Vec::new();
     };
@@ -1287,7 +1302,7 @@ fn wait_systems(seen: &Observed<'_>, me: &PlayerId) -> Vec<(SystemId, usize)> {
 
 /// Whether the seat's ground forces have Production (the Arborec): a transport can be built where
 /// they land.
-fn ground_produces(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn ground_produces(seen: &dyn View, me: &PlayerId) -> bool {
     seen.board()
         .values()
         .flat_map(|s| s.units.iter().chain(s.planet_units.values().flatten()))
@@ -1298,14 +1313,14 @@ fn ground_produces(seen: &Observed<'_>, me: &PlayerId) -> bool {
 
 /// Whether the transport plan needs two or more new transports: a single transport, whose
 /// Warfare route (a free activation, then a tactical one) reaches two systems at most.
-fn short_of_transports(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn short_of_transports(seen: &dyn View, me: &PlayerId) -> bool {
     transport_plan(seen, me).is_some_and(|(missing, _)| missing >= 2)
 }
 
 /// Whether a token-free production at home is still to come this round: Construction or Warfare
 /// held unplayed, or Warfare's secondary while another seat has it to play and a strategy token
 /// is left.
-fn home_builder_ahead(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn home_builder_ahead(seen: &dyn View, me: &PlayerId) -> bool {
     ready_card(seen, me, StrategyCardKind::Construction).is_some()
         || ready_card(seen, me, StrategyCardKind::Warfare).is_some()
         || (secondary_to_come(seen, me, StrategyCardKind::Warfare)
@@ -1314,7 +1329,7 @@ fn home_builder_ahead(seen: &Observed<'_>, me: &PlayerId) -> bool {
 
 /// Whether the seat's home is full for fleet supply while a transport with troops waits there:
 /// it leaves first, or nothing could be built.
-fn loaded_transport_blocks_home(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn loaded_transport_blocks_home(seen: &dyn View, me: &PlayerId) -> bool {
     home_system(seen, me).is_some_and(|home| {
         let (waiting, lift) = waiting_and_lift(seen, me, &home);
         home_fleet_room(seen, me, &home) <= 0 && lift > 0 && waiting > 0
@@ -1323,7 +1338,7 @@ fn loaded_transport_blocks_home(seen: &Observed<'_>, me: &PlayerId) -> bool {
 
 /// Own transports (non-fighter ships with capacity) and ground forces outside the
 /// systems holding its command token: what can still move this round.
-fn free_transports_and_ground(seen: &Observed<'_>, me: &PlayerId) -> (i64, i64) {
+fn free_transports_and_ground(seen: &dyn View, me: &PlayerId) -> (i64, i64) {
     let tokens = seen.systems_with_token(me);
     let (mut transports, mut ground) = (0, 0);
     for (id, system) in seen.board() {
@@ -1350,7 +1365,7 @@ fn free_transports_and_ground(seen: &Observed<'_>, me: &PlayerId) -> (i64, i64) 
 }
 
 /// Whether the seat could research Gravity Drive: it needs one propulsion technology.
-fn gravity_drive_open(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn gravity_drive_open(seen: &dyn View, me: &PlayerId) -> bool {
     let Some(seat) = seen.seat(me) else {
         return false;
     };
@@ -1381,7 +1396,7 @@ const TRADE_GOODS: i64 = 3;
 const SECOND_RESEARCH: i64 = 6;
 
 /// A technology's colour letter (`G`, `Y`, `R`, `B`), if it has one.
-fn tech_colour(seen: &Observed<'_>, tech: &str) -> Option<char> {
+fn tech_colour(seen: &dyn View, tech: &str) -> Option<char> {
     let record = seen
         .content()
         .get(ti4_model::content_types::ContentType::Technologies, tech)?;
@@ -1398,7 +1413,7 @@ fn tech_colour(seen: &Observed<'_>, tech: &str) -> Option<char> {
 }
 
 /// The prerequisite colours `tech` needs that the seat's technologies do not cover yet.
-fn missing_colours(seen: &Observed<'_>, me: &PlayerId, tech: &str) -> Vec<char> {
+fn missing_colours(seen: &dyn View, me: &PlayerId, tech: &str) -> Vec<char> {
     let Some(record) = seen
         .content()
         .get(ti4_model::content_types::ContentType::Technologies, tech)
@@ -1423,7 +1438,7 @@ fn missing_colours(seen: &Observed<'_>, me: &PlayerId, tech: &str) -> Vec<char> 
 }
 
 /// Own units of type `id` on the board.
-fn own_units(seen: &Observed<'_>, me: &PlayerId, id: &str) -> usize {
+fn own_units(seen: &dyn View, me: &PlayerId, id: &str) -> usize {
     seen.board()
         .values()
         .flat_map(|s| s.units.iter())
@@ -1432,7 +1447,7 @@ fn own_units(seen: &Observed<'_>, me: &PlayerId, id: &str) -> usize {
 }
 
 /// Resources on the seat's planets (ready or not): what it could spend in a round.
-fn planet_resources(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+fn planet_resources(seen: &dyn View, me: &PlayerId) -> i64 {
     seen.controlled_planets(me)
         .into_iter()
         .filter_map(|(_, planet)| {
@@ -1446,7 +1461,7 @@ fn planet_resources(seen: &Observed<'_>, me: &PlayerId) -> i64 {
 /// round 1 Trade's goods and Technology's primary research the missing colour for free and then
 /// Cruiser II for six, so both cruisers carry a ground force (capacity 1, move 3) beside the
 /// carrier: three transports for the three tactic tokens without building anything at home.
-fn cruiser_plan(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn cruiser_plan(seen: &dyn View, me: &PlayerId) -> bool {
     seen.round() <= 1
         && own_units(seen, me, "cruiser") >= 2
         && missing_colours(seen, me, CRUISER_II).len() == 1
@@ -1455,7 +1470,7 @@ fn cruiser_plan(seen: &Observed<'_>, me: &PlayerId) -> bool {
 
 /// Draft picks the other seats make before this seat's next one, in the snake draft (1..n, n..1),
 /// while it still has none: `None` once it holds a card or the draft is not a two-pass one.
-fn picks_before_next(seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn picks_before_next(seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let players = seen.players();
     let n = players.len();
     let made: usize = players
@@ -1473,7 +1488,7 @@ fn picks_before_next(seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
 
 /// Whether `seat` takes Trade early in round 1: the Hacan, the Cruiser II plan, and a seat short
 /// of transports and of the resources to build them.
-fn wants_trade(seen: &Observed<'_>, seat: &PlayerId) -> bool {
+fn wants_trade(seen: &dyn View, seat: &PlayerId) -> bool {
     faction(seen, seat) == "hacan"
         || cruiser_plan(seen, seat)
         || transport_plan(seen, seat).is_some_and(|(_, cost)| planet_resources(seen, seat) < cost)
@@ -1481,7 +1496,7 @@ fn wants_trade(seen: &Observed<'_>, seat: &PlayerId) -> bool {
 
 /// Whether Trade would still be there at this seat's next draft pick: the other seats take every
 /// card but Imperial before Trade in round 1 (unless one loves Trade).
-fn trade_survives(choice: &Choice, seen: &Observed<'_>, me: &PlayerId, taking: &str) -> bool {
+fn trade_survives(choice: &Choice, seen: &dyn View, me: &PlayerId, taking: &str) -> bool {
     let Some(between) = picks_before_next(seen, me) else {
         return false;
     };
@@ -1515,7 +1530,7 @@ fn trade_survives(choice: &Choice, seen: &Observed<'_>, me: &PlayerId, taking: &
 /// A faction opening's draft score for `card` in round 1, overriding the default, or `None`.
 fn faction_card_score(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     card: &str,
 ) -> Option<f64> {
@@ -1588,7 +1603,7 @@ fn faction_card_score(
 
 /// Resources a faction opening keeps for a strategic action still to come: the Cruiser II plan's
 /// six for Technology's second research.
-fn reserved_resources(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+fn reserved_resources(seen: &dyn View, me: &PlayerId) -> i64 {
     if cruiser_plan(seen, me) && ready_card(seen, me, StrategyCardKind::Technology).is_some() {
         SECOND_RESEARCH
     } else {
@@ -1597,14 +1612,14 @@ fn reserved_resources(seen: &Observed<'_>, me: &PlayerId) -> i64 {
 }
 
 /// Resources free for building: what the seat can spend less what its opening keeps back.
-fn spare_resources(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+fn spare_resources(seen: &dyn View, me: &PlayerId) -> i64 {
     seen.available_spend(me, Spend::Resources) - reserved_resources(seen, me)
 }
 
 /// A faction opening's next strategic action in round 1, before any tactical action: Trade first
 /// when the transport plan cannot pay for its home build yet; the Cruiser II plan plays Trade, then
 /// Technology once six resources are there.
-fn faction_card_play(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn faction_card_play(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let play = |kind: StrategyCardKind| {
         ready_card(seen, me, kind).and_then(|card| strategic_option(choice, seen, &card))
     };
@@ -1694,7 +1709,7 @@ fn faction_card_play(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opt
 /// The fleet pool the bot needs during the action phase of the opening rounds, once its ships are
 /// spread out: its biggest stack (and room at home for what a planned build adds), at least one.
 /// Every token above that is a tactic token for one more system.
-fn fleet_lean(seen: &Observed<'_>, me: &PlayerId) -> i32 {
+fn fleet_lean(seen: &dyn View, me: &PlayerId) -> i32 {
     let stack = biggest_stack(seen, me);
     let home_need = home_system(seen, me)
         .filter(|_| home_build_wanted(seen, me))
@@ -1702,7 +1717,7 @@ fn fleet_lean(seen: &Observed<'_>, me: &PlayerId) -> i32 {
     i32::try_from(stack.max(home_need).max(1)).unwrap_or(i32::MAX)
 }
 
-fn biggest_stack(seen: &Observed<'_>, me: &PlayerId) -> usize {
+fn biggest_stack(seen: &dyn View, me: &PlayerId) -> usize {
     seen.board()
         .keys()
         .map(|system| ships_and_lift(seen, me, system).0)
@@ -1713,7 +1728,7 @@ fn biggest_stack(seen: &Observed<'_>, me: &PlayerId) -> usize {
 // -- the questions -------------------------------------------------------------------------------
 
 /// Best activation among the offered systems; avoid losing fights; random among the rest.
-fn pick_activation(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_activation(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     seen.galaxy()?;
     if wait_move_pays(seen, me)
         && let Some(index) = pick_wait_activation(choice, seen, me)
@@ -1746,7 +1761,7 @@ fn best_above(scored: &[(usize, f64)], threshold: f64) -> Option<usize> {
 /// so the card is played); otherwise no opinion.
 fn pick_action(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     rng: &mut ChaCha8Rng,
 ) -> Option<usize> {
@@ -1838,7 +1853,7 @@ fn pick_action(
 
 /// The action-phase option that plays `card`: `strategic|card`, or the bare `strategic` while it
 /// is the only card left to play.
-fn strategic_option(choice: &Choice, seen: &Observed<'_>, card: &str) -> Option<usize> {
+fn strategic_option(choice: &Choice, seen: &dyn View, card: &str) -> Option<usize> {
     choice
         .options
         .iter()
@@ -1862,7 +1877,7 @@ fn strategic_option(choice: &Choice, seen: &Observed<'_>, card: &str) -> Option<
 /// Warfare's free tactical action: home, to build a transport there without a token, when the
 /// opening plan wants one; otherwise the system most worth activating (one with its own token
 /// too, as no token is placed).
-fn pick_free_tactical(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_free_tactical(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let landing_build = short_of_transports(seen, me) && ground_produces(seen, me);
     if !landing_build
         && home_build_wanted(seen, me)
@@ -1894,7 +1909,7 @@ fn pick_free_tactical(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Op
 
 /// Construction's primary: a production at home when the opening plan wants a new transport there,
 /// else a structure.
-fn pick_construction(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_construction(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let structure = choice.options.iter().position(|o| o.id == "structure");
     if home_build_wanted(seen, me)
         && let Some(home) = home_system(seen, me)
@@ -1910,7 +1925,7 @@ fn pick_construction(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opt
 
 /// Research: Gravity Drive whenever it is on offer (one more hex for a ship each activation);
 /// otherwise no opinion.
-fn pick_research(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_research(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let offered = |id: &str| choice.options.iter().position(|o| o.id == id);
     // The Cruiser II plan: Cruiser II as soon as it is open, before it the missing colour (a
     // technology of that colour without prerequisites).
@@ -1948,7 +1963,7 @@ fn payload_f64(option: &ChoiceOption, key: &str) -> Option<f64> {
 }
 
 /// Ground forces the active system's planets still need beyond what is already in its space.
-fn ground_shortfall(seen: &Observed<'_>, me: &PlayerId, system: &SystemId, extra: usize) -> usize {
+fn ground_shortfall(seen: &dyn View, me: &PlayerId, system: &SystemId, extra: usize) -> usize {
     let carried = seen
         .system(system)
         .units
@@ -1987,7 +2002,7 @@ fn ground_shortfall(seen: &Observed<'_>, me: &PlayerId, system: &SystemId, extra
 
 /// Movement: reinforce a fight until it is clearly won, bring a carrier while planets need ground
 /// forces, then finish. Never into a fight that cannot be won.
-fn pick_move(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_move(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let active = seen.active_system()?.clone();
     let done = choice.options.iter().position(ChoiceOption::is_decline)?;
     let moves: Vec<(usize, &ChoiceOption, UnitType<'_>)> = choice
@@ -2059,7 +2074,7 @@ fn pick_move(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usiz
 
 /// The matchup a fight in `system` must reach: [`tuning::win_margin`], more in a nebula, where the
 /// defender rolls one better (bot version 2, [`tuning::nebula_margin`]).
-fn fight_margin(seen: &Observed<'_>, system: &SystemId) -> f64 {
+fn fight_margin(seen: &dyn View, system: &SystemId) -> f64 {
     let nebula = tuning::nebula_margin() > 0.0
         && ti4_content::galaxy::system(seen.content(), system.as_str(), seen.sources())
             .is_some_and(|s| s.is_nebula());
@@ -2076,7 +2091,7 @@ fn fight_margin(seen: &Observed<'_>, system: &SystemId) -> f64 {
 /// Bot version 2 ([`tuning::home_guard`]): the move options to keep when a ship leaving its home
 /// system would leave it to a fleet a rival could bring there now ([`Observed::movable_into`],
 /// which follows the map's anomalies, wormholes and hyperlanes); `None` when nothing is held back.
-fn home_guard_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<Vec<usize>> {
+fn home_guard_keep(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<Vec<usize>> {
     if !(tuning::home_guard() || tuning::home_last_ship()) || seen.round() < 2 {
         return None;
     }
@@ -2172,7 +2187,7 @@ fn home_guard_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Optio
 /// leaving costs the least matchup, while the rest still deters; those are the surplus that may
 /// move out for tactical actions. Fighters always stay. Feedback fb_1792225201_7d70d5bd: the
 /// Muaat warsun, the only ship on Mecatol Rex, left it for Thibah and a rival took the planet.
-fn mecatol_surplus(seen: &Observed<'_>, me: &PlayerId) -> Option<BTreeMap<String, usize>> {
+fn mecatol_surplus(seen: &dyn View, me: &PlayerId) -> Option<BTreeMap<String, usize>> {
     if !tuning::mecatol_guard() || seen.round() < 2 || !holds_mecatol(seen, me) {
         return None;
     }
@@ -2234,11 +2249,11 @@ fn mecatol_surplus(seen: &Observed<'_>, me: &PlayerId) -> Option<BTreeMap<String
 
 /// The ships that could move into `system` ([`Observed::movable_into`]), less the Mecatol Rex
 /// garrison ([`mecatol_surplus`]).
-pub(crate) fn movable_for(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<Movable> {
+pub(crate) fn movable_for(seen: &dyn View, me: &PlayerId, system: &SystemId) -> Vec<Movable> {
     rift::prune(seen, me, system, movable_guarded(seen, me, system))
 }
 
-fn movable_guarded(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<Movable> {
+fn movable_guarded(seen: &dyn View, me: &PlayerId, system: &SystemId) -> Vec<Movable> {
     let movable = seen.movable_into(me, system);
     if !tuning::mecatol_guard() {
         return movable;
@@ -2264,7 +2279,7 @@ fn movable_guarded(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec
 }
 
 /// Whether a unit of `me` at `origin` is a warship (not a fighter) of the Mecatol Rex system.
-fn garrison_ship(seen: &Observed<'_>, mecatol: &SystemId, origin: &SystemId, unit: &str) -> bool {
+fn garrison_ship(seen: &dyn View, mecatol: &SystemId, origin: &SystemId, unit: &str) -> bool {
     origin == mecatol && unit_type(seen, unit).is_some_and(|t| t.is_ship() && !t.is_fighter())
 }
 
@@ -2281,7 +2296,7 @@ fn take_one(surplus: &mut BTreeMap<String, usize>, kind: &str) -> bool {
 
 /// Bot version 5 candidate ([`tuning::mecatol_guard`]): the move options that do not take more
 /// ships from Mecatol Rex than [`mecatol_surplus`] allows; `None` when none is dropped.
-fn mecatol_guard_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<Vec<usize>> {
+fn mecatol_guard_keep(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<Vec<usize>> {
     if !tuning::mecatol_guard() {
         return None;
     }
@@ -2311,7 +2326,7 @@ fn mecatol_guard_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Op
 /// Bot version 2 ([`tuning::rift_caution`]): outside a fight, the move options that do not
 /// leave a gravity rift (41.2: a ship rolls for each rift it exits, and dies on 1-3 with its
 /// cargo; the engine marks such a move's preview as unresolved); `None` when none is dropped.
-fn rift_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<Vec<usize>> {
+fn rift_keep(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<Vec<usize>> {
     if !tuning::rift_caution() {
         return None;
     }
@@ -2337,7 +2352,7 @@ fn rift_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<Vec<
 }
 
 /// Space cannon of the seat's own units on the planets of `system`.
-fn hostile_fleet_cannon(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> f64 {
+fn hostile_fleet_cannon(seen: &dyn View, me: &PlayerId, system: &SystemId) -> f64 {
     let board = seen.system(system);
     fleet(
         seen,
@@ -2363,7 +2378,7 @@ fn strength(kind: UnitType<'_>) -> f64 {
 /// A ship with capacity whose origin has ground forces, while the active system needs more.
 fn carrier_for_ground(
     moves: &[(usize, &ChoiceOption, UnitType<'_>)],
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     active: &SystemId,
 ) -> Option<usize> {
@@ -2401,7 +2416,7 @@ fn carrier_for_ground(
 /// is room for one more.
 fn escort_from_home(
     moves: &[(usize, &ChoiceOption, UnitType<'_>)],
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     active: &SystemId,
 ) -> Option<usize> {
@@ -2441,7 +2456,7 @@ fn escort_from_home(
 /// home warships without capacity go, so the home build has fleet supply.
 fn waiting_escort(
     moves: &[(usize, &ChoiceOption, UnitType<'_>)],
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     active: &SystemId,
 ) -> Option<usize> {
@@ -2472,7 +2487,7 @@ fn waiting_escort(
 }
 
 /// Own ground forces waiting on the planets of `system`, and own capacity in its space area.
-fn waiting_and_lift(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> (usize, i64) {
+fn waiting_and_lift(seen: &dyn View, me: &PlayerId, system: &SystemId) -> (usize, i64) {
     let board = seen.system(system);
     let waiting = board
         .planet_units
@@ -2491,7 +2506,7 @@ fn waiting_and_lift(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> (u
 }
 
 /// Whether ground forces wait at `system` with no ship there to carry them.
-fn needs_transport(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool {
+fn needs_transport(seen: &dyn View, me: &PlayerId, system: &SystemId) -> bool {
     let (waiting, lift) = waiting_and_lift(seen, me, system);
     waiting >= 2 && lift == 0
 }
@@ -2500,7 +2515,7 @@ fn needs_transport(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> boo
 /// wait without a ride.
 fn empty_transport_home(
     moves: &[(usize, &ChoiceOption, UnitType<'_>)],
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     active: &SystemId,
 ) -> Option<usize> {
@@ -2524,7 +2539,7 @@ fn empty_transport_home(
 }
 
 /// Loading: ground forces while the target needs them, fighters for a fight, else stop.
-fn pick_load(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_load(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let active = seen.active_system()?.clone();
     let done = choice.options.iter().position(ChoiceOption::is_decline)?;
     let loaded = choice
@@ -2579,7 +2594,7 @@ fn pick_load(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usiz
 
 /// Landing: the planet still short of a winning force with the best worth per troop it still
 /// needs, never one the troops in space cannot win; stop when every planet is covered.
-fn pick_commit(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_commit(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let done = choice.options.iter().position(ChoiceOption::is_decline)?;
     let system = seen
         .active_system()
@@ -2639,7 +2654,7 @@ fn pick_commit(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<us
 /// not yet held slightly ahead. `None` when every planet is defended (the troops stay aboard).
 fn land_leftover(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     system: &SystemId,
 ) -> Option<usize> {
@@ -2672,7 +2687,7 @@ fn land_leftover(
 }
 
 /// Retreat when clearly losing the space combat, else stay.
-fn pick_retreat(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_retreat(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let system = choice
         .options
         .iter()
@@ -2699,7 +2714,7 @@ fn pick_retreat(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
 
 /// Ground forces waiting in systems with own production (where new ones appear), and the
 /// capacity of every own ship that could carry them away.
-fn idle_ground_and_lift(seen: &Observed<'_>, me: &PlayerId) -> (usize, i64) {
+fn idle_ground_and_lift(seen: &dyn View, me: &PlayerId) -> (usize, i64) {
     if tuning::ground_rule() {
         return idle_ground_and_free_lift(seen, me);
     }
@@ -2731,7 +2746,7 @@ fn idle_ground_and_lift(seen: &Observed<'_>, me: &PlayerId) -> (usize, i64) {
 /// still have (capacity less the fighters and ground forces already in their systems' space), so
 /// the docks do not keep filling with troops that no free ship can carry (fb_1791902555,
 /// fb_1792038973).
-fn idle_ground_and_free_lift(seen: &Observed<'_>, me: &PlayerId) -> (usize, i64) {
+fn idle_ground_and_free_lift(seen: &dyn View, me: &PlayerId) -> (usize, i64) {
     let (mut idle, mut lift) = (0usize, 0i64);
     for (id, system) in seen.board() {
         let at_dock = has_own_production(seen, me, id);
@@ -2767,7 +2782,7 @@ fn idle_ground_and_free_lift(seen: &Observed<'_>, me: &PlayerId) -> (usize, i64)
 /// transport whenever its troop is there or affordable with it, then troops for every transport.
 fn opening_production(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     free_transports: i64,
     free_ground: i64,
@@ -2827,14 +2842,14 @@ fn opening_production(
 /// are plentiful), within fleet supply and capacity. Ground forces only while fewer are waiting
 /// at its docks than its ships can carry; when nothing useful is left, stop.
 #[cfg(test)]
-fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_produce(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     pick_produce_biased(choice, seen, me, &planner::Bias::default())
 }
 
 /// [`pick_produce`] with the objective planner's unit weights ([`planner::Bias`]).
 fn pick_produce_biased(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     bias: &planner::Bias,
 ) -> Option<usize> {
@@ -2968,7 +2983,7 @@ fn pick_produce_biased(
 /// paid for: a planet's other value (influence when paying resources, and the reverse), and a
 /// trade good's whole worth. The influence counts heavily while Mecatol Rex's custodians are in
 /// reach (six are needed to land there).
-fn pick_pay(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_pay(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let resources = choice
         .options
         .iter()
@@ -3011,7 +3026,7 @@ fn pick_pay(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize
 }
 
 /// Remove the cheapest unit when over fleet supply.
-fn pick_cheapest_removal(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
+fn pick_cheapest_removal(choice: &Choice, seen: &dyn View) -> Option<usize> {
     choice
         .options
         .iter()
@@ -3034,7 +3049,7 @@ fn pick_cheapest_removal(choice: &Choice, seen: &Observed<'_>) -> Option<usize> 
 /// Politics in round 1 (an agenda peek wins nothing yet). In round 2 Imperial comes first when
 /// Mecatol Rex can be taken this round. Later: Imperial, else the card with most trade goods.
 /// Trade goods on a card add to its score throughout.
-fn pick_strategy_card(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_strategy_card(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     if !expanding(seen) {
         // Imperial when it scores: Mecatol Rex held or about to be.
         let imperial = choice
@@ -3076,7 +3091,7 @@ fn pick_strategy_card(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Op
     best_above(&scored, f64::NEG_INFINITY)
 }
 
-fn card_goods(seen: &Observed<'_>, card: &str) -> i32 {
+fn card_goods(seen: &dyn View, card: &str) -> i32 {
     seen.strategy_card_goods(&ti4_model::id::StrategyCardId::new(card))
 }
 
@@ -3117,7 +3132,7 @@ fn r1_card(faction: &str, card: Option<StrategyCardKind>) -> Option<f64> {
 }
 
 /// What a strategy card is worth to the seat in the opening rounds (see [`pick_strategy_card`]).
-fn opening_card_score(seen: &Observed<'_>, me: &PlayerId, card: &str) -> f64 {
+fn opening_card_score(seen: &dyn View, me: &PlayerId, card: &str) -> f64 {
     let hacan = faction(seen, me) == "hacan";
     let first_round = seen.round() <= 1;
     let holds = |kind: StrategyCardKind| {
@@ -3169,7 +3184,7 @@ fn opening_card_score(seen: &Observed<'_>, me: &PlayerId, card: &str) -> f64 {
 
 /// A new command token: the fleet pool until it holds a few, then whichever of the tactic and
 /// strategy pools is smaller (tactic on a tie, as tactical actions are what the bot mostly takes).
-fn pick_token_pool(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_token_pool(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let seat = seen.seat(me)?;
     let pool = if let Some((fleet, strategy)) = opening_pools(seen, me) {
         // In the opening a tactic token is one more system.
@@ -3192,14 +3207,14 @@ fn pick_token_pool(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Optio
 
 /// Whether the seat's round-1 transports need every token: it is short of them (the plan builds
 /// more).
-fn transports_need_tokens(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn transports_need_tokens(seen: &dyn View, me: &PlayerId) -> bool {
     short_of_transports(seen, me)
 }
 
 /// Round 1, Warfare's redistribution around its home build: as many transports wait at home to
 /// move as there are tactic tokens (or more), so no token stays in the strategy pool unless a
 /// secondary worth one is still to come.
-fn warfare_build_needs_tokens(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn warfare_build_needs_tokens(seen: &dyn View, me: &PlayerId) -> bool {
     let (transports, _) = free_transports_and_ground(seen, me);
     seen.round() <= 1
         && strategy_reserve(seen, me) == 0
@@ -3212,7 +3227,7 @@ fn warfare_build_needs_tokens(seen: &Observed<'_>, me: &PlayerId) -> bool {
 /// the fleet as spread out now ([`fleet_lean`]) and one strategy token; in the status phase before
 /// round 2 a fleet of two (or the biggest stack) for the builds to come and one strategy token
 /// (Warfare's secondary). `None` outside the opening.
-fn opening_pools(seen: &Observed<'_>, me: &PlayerId) -> Option<(i32, i32)> {
+fn opening_pools(seen: &dyn View, me: &PlayerId) -> Option<(i32, i32)> {
     match seen.phase() {
         ti4_model::state::Phase::Action if expanding(seen) => {
             // Round 1: a strategy token only while a secondary worth one is still to come; the
@@ -3234,7 +3249,7 @@ fn opening_pools(seen: &Observed<'_>, me: &PlayerId) -> Option<(i32, i32)> {
 
 /// The fleet pool the bot wants: a few tokens, or enough for its biggest stack of non-fighter
 /// ships in one system.
-fn fleet_wanted(seen: &Observed<'_>, me: &PlayerId) -> i32 {
+fn fleet_wanted(seen: &dyn View, me: &PlayerId) -> i32 {
     let stack = seen
         .board()
         .values()
@@ -3267,7 +3282,7 @@ fn fleet_wanted(seen: &Observed<'_>, me: &PlayerId) -> i32 {
 /// every spare token goes to tactics: each tactic token is another system.
 fn pick_redistribution(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     warfare: bool,
 ) -> Option<usize> {
@@ -3295,7 +3310,7 @@ fn pick_redistribution(
 
 /// Strategy-card follow-ups worth a strategy token whenever offered: research and a secret
 /// objective (Leadership's token purchase is handled the same way). Others stay random.
-fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_secondary(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let yes = choice.options.iter().position(|o| o.id == "yes")?;
     let no = choice.options.iter().position(|o| o.id == "no")?;
     let prompt = choice.prompt.as_str();
@@ -3409,7 +3424,7 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
 }
 
 /// The seat's printed commodity limit (0 when unknown).
-fn faction_commodities(seen: &Observed<'_>, me: &PlayerId) -> i32 {
+fn faction_commodities(seen: &dyn View, me: &PlayerId) -> i32 {
     let faction = faction(seen, me);
     seen.content()
         .get(ti4_model::content_types::ContentType::Factions, &faction)
@@ -3419,7 +3434,7 @@ fn faction_commodities(seen: &Observed<'_>, me: &PlayerId) -> i32 {
 }
 
 /// Resources on the seat's exhausted planets: what readying them could give back.
-fn exhausted_resources(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+fn exhausted_resources(seen: &dyn View, me: &PlayerId) -> i64 {
     seen.controlled_planets(me)
         .into_iter()
         .filter(|(_, planet)| !seen.planet_is_ready(planet))
@@ -3431,7 +3446,7 @@ fn exhausted_resources(seen: &Observed<'_>, me: &PlayerId) -> i64 {
 }
 
 /// Resources the two richest exhausted planets would give back when readied (Diplomacy).
-fn best_two_exhausted(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+fn best_two_exhausted(seen: &dyn View, me: &PlayerId) -> i64 {
     let mut values: Vec<i64> = seen
         .controlled_planets(me)
         .into_iter()
@@ -3447,7 +3462,7 @@ fn best_two_exhausted(seen: &Observed<'_>, me: &PlayerId) -> i64 {
 
 /// Whether readying planets now pays for a round-1 plan: the transport plan's home build or the
 /// Cruiser II research still to come.
-fn readying_pays(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn readying_pays(seen: &dyn View, me: &PlayerId) -> bool {
     (home_builder_ahead(seen, me)
         && transport_plan(seen, me).is_some_and(|(_, cost)| spare_resources(seen, me) < cost))
         || (cruiser_plan(seen, me) && ready_card(seen, me, StrategyCardKind::Technology).is_some())
@@ -3455,7 +3470,7 @@ fn readying_pays(seen: &Observed<'_>, me: &PlayerId) -> bool {
 
 /// Which planet to ready: while a round-1 plan has resources to find ([`readying_pays`]), the one
 /// with the most resources; otherwise no opinion.
-fn pick_ready_planet(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_ready_planet(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     if !readying_pays(seen, me) {
         return None;
     }
@@ -3472,7 +3487,7 @@ fn pick_ready_planet(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opt
 }
 
 /// Influence on the seat's exhausted planets: what readying them could give back.
-fn exhausted_influence(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+fn exhausted_influence(seen: &dyn View, me: &PlayerId) -> i64 {
     seen.controlled_planets(me)
         .into_iter()
         .filter(|(_, planet)| !seen.planet_is_ready(planet))
@@ -3489,7 +3504,7 @@ const FIRES_OF_THE_GASHLAI: &str = "fires:muaat";
 
 /// Bot version 6 (`muaat_keeps_note`): the seat plays the Muaat and keeps its own Fires of the
 /// Gashlai out of every transaction.
-fn keeps_fires(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn keeps_fires(seen: &dyn View, me: &PlayerId) -> bool {
     tuning::muaat_keeps_note() && faction(seen, me) == "muaat"
 }
 
@@ -3577,6 +3592,7 @@ fn pick_proposal(choice: &Choice, keeps_fires: bool) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_engine::choice::{Observed, SeatObservation};
     use crate::tuning::Tuning;
     use rand::SeedableRng;
     use ti4_content::ContentStore;

@@ -18,7 +18,8 @@
 //! |---|---|---|---|---|
 //! | `ttfd` | Turn Their Fleets to Dust | secret | 1 | none (event) |
 
-use ti4_engine::choice::{Choice, Observed, SeatObservation};
+use crate::view::{View, SeatView};
+use ti4_engine::choice::Choice;
 use ti4_model::id::{PlayerId, SystemId};
 
 use super::{Cost, ObjectivePlanner, Plan, PlanCtx, Steer, structures};
@@ -36,12 +37,12 @@ pub const FLEET_DIES: f64 = 0.15;
 
 /// The held event secret as a goal.
 #[must_use]
-pub fn event_goals(seen: &SeatObservation<'_>) -> Vec<crate::objectives::Goal> {
+pub fn event_goals(seen: &dyn SeatView) -> Vec<crate::objectives::Goal> {
     super::combat::event_goals_of(seen, IDS)
 }
 
 /// Whether the seat owns the technology that gives its PDS the Deep Space Cannon.
-fn deep_cannon(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn deep_cannon(seen: &dyn View, me: &PlayerId) -> bool {
     seen.seat(me).is_some_and(|seat| {
         seat.technologies
             .iter()
@@ -68,7 +69,7 @@ pub fn placement_score(
     }
 }
 
-fn beside_mecatol(seen: &Observed<'_>, mecatol: &SystemId) -> Vec<String> {
+fn beside_mecatol(seen: &dyn View, mecatol: &SystemId) -> Vec<String> {
     seen.galaxy().map_or_else(Vec::new, |galaxy| {
         galaxy
             .adjacent(mecatol.as_str())
@@ -79,7 +80,7 @@ fn beside_mecatol(seen: &Observed<'_>, mecatol: &SystemId) -> Vec<String> {
 }
 
 /// Whether a PDS of the seat already covers Mecatol Rex.
-fn covered(seen: &Observed<'_>, me: &PlayerId, mecatol: &SystemId) -> bool {
+fn covered(seen: &dyn View, me: &PlayerId, mecatol: &SystemId) -> bool {
     let deep = deep_cannon(seen, me);
     let beside = beside_mecatol(seen, mecatol);
     seen.board().iter().any(|(system, record)| {
@@ -95,7 +96,7 @@ fn covered(seen: &Observed<'_>, me: &PlayerId, mecatol: &SystemId) -> bool {
 /// A structure placement (`kind|system|planet`) for Turn Their Fleets to Dust: the PDS that
 /// covers Mecatol Rex, when the seat holds the secret and nothing covers it yet.
 #[must_use]
-pub fn placement(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Option<usize> {
+pub fn placement(choice: &Choice, seen: &dyn SeatView, me: &PlayerId) -> Option<usize> {
     if !tuning::bw_enabled() || !tuning::bw_ttfd() {
         return None;
     }
@@ -132,7 +133,7 @@ impl ObjectivePlanner for Ttfd {
         IDS
     }
 
-    fn plan(&self, obs: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
+    fn plan(&self, obs: &dyn SeatView, ctx: &PlanCtx) -> Option<Plan> {
         let observed = obs.observed();
         let mecatol = ctx.mecatol.system.clone()?;
         if covered(observed, &ctx.me, &mecatol) {
@@ -177,6 +178,7 @@ impl ObjectivePlanner for Ttfd {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_engine::choice::SeatObservation;
     use ti4_engine::choice::ChoiceOption;
 
     #[test]

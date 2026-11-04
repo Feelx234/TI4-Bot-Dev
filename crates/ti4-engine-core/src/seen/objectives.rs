@@ -51,7 +51,15 @@ impl Seen<'_> {
         self.st().loaded.has(Slice::Map) && self.st().galaxy().is_some()
     }
 
-    fn terms(&self, seat: Seat) -> Terms {
+    /// The hook answers of `seat` (faction, Firmament planets, trade-good worth, spendable commodities, oceans, Helios
+    /// bonuses and, for Produce en Masse, the seat's production per system).
+    ///
+    /// Public so that a caller with its own `SeatFacts` scan (the thin crate's `ObjView`, `secrets::progress` of any card)
+    /// reads the same terms as the view and does not keep a copy of this function (it did, until D3 lane V0). The
+    /// production scan is made when the seat can be asked about it (`wants_capacity`), or when `force_capacity` says the
+    /// caller asks about Produce en Masse for this seat alone.
+    #[must_use]
+    pub fn terms(&self, seat: Seat, force_capacity: bool) -> Terms {
         let (core, k) = (self.st(), self.kernel());
         let mut t = Terms { blanked: self.blanked(), ..Terms::default() };
         t.faction_tag = core
@@ -72,7 +80,7 @@ impl Seen<'_> {
         }
         // Produce en Masse reads the PRODUCTION of the seat in every system (`production::capacity` of the board entries): only a seat that can be
         // asked about it (the card in its hand, or a leaked copy revealed) pays for the scan.
-        if q::wants_capacity(core, seat) {
+        if force_capacity || q::wants_capacity(core, seat) {
             let cx = Cx::new(core, k, self.scope(), self.blanked());
             for (system, _) in core.board().systems() {
                 let capacity = crate::rules::production::capacity(&cx, seat, system);
@@ -91,7 +99,7 @@ impl Seen<'_> {
         if let Some(f) = &self.memo().borrow().facts.slots[slot] {
             return Rc::clone(f);
         }
-        let f = Rc::new(SeatFacts::of(self.st(), self.scope(), seat, self.terms(seat)));
+        let f = Rc::new(SeatFacts::of(self.st(), self.scope(), seat, self.terms(seat, false)));
         self.memo().borrow_mut().facts.slots[slot] = Some(Rc::clone(&f));
         f
     }

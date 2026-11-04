@@ -13,7 +13,7 @@
 //! Serves the virtual `mecatol` plan only (no card alias; see [`super::mecatol`]). All four prep
 //! kinds apply ([`KINDS`]).
 
-use ti4_engine::choice::SeatObservation;
+use crate::view::{View, SeatView};
 
 use super::{Cost, Plan, PlanCtx, Steer};
 use crate::tuning;
@@ -23,7 +23,7 @@ use crate::tuning;
 #[must_use]
 pub fn gather_move(
     choice: &ti4_engine::choice::Choice,
-    seen: &ti4_engine::choice::Observed<'_>,
+    seen: &dyn View,
 ) -> Option<usize> {
     let done = choice
         .options
@@ -51,7 +51,7 @@ pub fn gather_move(
 #[must_use]
 pub fn gather_load(
     choice: &ti4_engine::choice::Choice,
-    seen: &ti4_engine::choice::Observed<'_>,
+    seen: &dyn View,
 ) -> Option<usize> {
     let done = choice
         .options
@@ -69,7 +69,7 @@ pub fn gather_load(
 /// The Mecatol plan from the best prepared step on Mecatol Rex's system, if the one-step plan is
 /// not likely.
 #[must_use]
-pub fn plan(_seen: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
+pub fn plan(_seen: &dyn SeatView, ctx: &PlanCtx) -> Option<Plan> {
     let system = ctx.mecatol.system.clone()?;
     if ctx.mecatol.held {
         return None;

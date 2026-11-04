@@ -21,9 +21,10 @@
 //! Only the bound seat's view is read (public board plus its own hand); every answer is one of the
 //! offered options, and the choice of one is deterministic for a given position.
 
+use crate::view::{View, SeatView};
 use crate::tuning;
 use rand_chacha::ChaCha8Rng;
-use ti4_engine::choice::{Choice, ChoiceOption, Observed, SeatObservation};
+use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_engine::decision_context::DecisionTrigger;
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
 
@@ -96,13 +97,13 @@ fn beneficiary<'t>(trigger: Option<&'t DecisionTrigger>, agent: &str) -> Option<
 /// The agent layer's answer to `choice`, or `None` to leave it to the other rules. Never the
 /// action-phase choice itself (see [`action_choice`]).
 #[must_use]
-pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Option<usize> {
+pub fn pick(choice: &Choice, seen: &dyn SeatView, me: &PlayerId) -> Option<usize> {
     decide(choice, seen.observed(), me, seen.held_action_cards().len())
 }
 
 /// [`pick`] on the public view plus the size of the bot's own hand.
 #[must_use]
-pub fn decide(choice: &Choice, seen: &Observed<'_>, me: &PlayerId, held: usize) -> Option<usize> {
+pub fn decide(choice: &Choice, seen: &dyn View, me: &PlayerId, held: usize) -> Option<usize> {
     let subtype = choice.context.as_ref().map(|c| c.subtype.as_str());
     let by_id = |id: &str| choice.options.iter().position(|o| o.id == id);
     let decline = || choice.options.iter().position(ChoiceOption::is_decline);
@@ -164,7 +165,7 @@ pub fn decide(choice: &Choice, seen: &Observed<'_>, me: &PlayerId, held: usize) 
 
 /// A reaction window: use the first agent worth using; with every agent on offer not worth it and
 /// nothing else to choose, decline; otherwise no opinion.
-fn reaction(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn reaction(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let trigger = choice.context.as_ref().and_then(|c| c.trigger.as_ref());
     let mut unwanted = 0;
     for (index, option) in choice.options.iter().enumerate() {
@@ -188,7 +189,7 @@ fn reaction(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize
 fn use_in_window(
     agent: &str,
     trigger: Option<&DecisionTrigger>,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
 ) -> Option<bool> {
     let mine = beneficiary(trigger, agent).is_some_and(|who| who == me);
@@ -233,7 +234,7 @@ fn use_in_window(
 }
 
 /// Whether the bot fights the current space combat or invasion.
-fn in_combat(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn in_combat(seen: &dyn View, me: &PlayerId) -> bool {
     seen.space_battle()
         .is_some_and(|(_, a, b)| &a == me || &b == me)
         || seen.invasion().is_some_and(|invasion| {
@@ -243,7 +244,7 @@ fn in_combat(seen: &Observed<'_>, me: &PlayerId) -> bool {
 
 /// Whether the bot has a ship in a wormhole system other than `active` (Emissary Taivra's link
 /// lets it move in from there).
-fn ships_in_other_wormhole(seen: &Observed<'_>, me: &PlayerId, active: &SystemId) -> bool {
+fn ships_in_other_wormhole(seen: &dyn View, me: &PlayerId, active: &SystemId) -> bool {
     let Some(galaxy) = seen.galaxy() else {
         return false;
     };
@@ -261,7 +262,7 @@ fn ships_in_other_wormhole(seen: &Observed<'_>, me: &PlayerId, active: &SystemId
 // -- Captain Mendosa (Saar) ----------------------------------------------------------------------
 
 /// The fastest printed move of any ship on the board.
-fn top_move(seen: &Observed<'_>) -> i64 {
+fn top_move(seen: &dyn View) -> i64 {
     seen.board()
         .values()
         .flat_map(|s| s.units.iter())
@@ -275,7 +276,7 @@ fn top_move(seen: &Observed<'_>) -> i64 {
 /// Own transports with ground forces to load that cannot reach `active` on their own move but can
 /// on the board's fastest: `(origin, unit type)`.
 fn saar_candidates(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     active: &SystemId,
 ) -> Vec<(SystemId, String)> {
@@ -317,7 +318,7 @@ fn saar_candidates(
 }
 
 /// `agent_ship`: the option naming a candidate transport (`<unit> in <system> (move a to b)`).
-fn saar_ship(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn saar_ship(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let active = seen.active_system()?;
     let candidates = saar_candidates(seen, me, active);
     choice.options.iter().position(|o| {
@@ -332,7 +333,7 @@ fn saar_ship(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usiz
 /// Ground forces of the bot's that no plan needs where they stand: all but one on a planet away
 /// from home; at home, those beyond what its transports there lift plus a small reserve while
 /// expanding, beyond the reserve later.
-fn spare_at(seen: &Observed<'_>, me: &PlayerId, system: &SystemId, planet: Option<&str>) -> usize {
+fn spare_at(seen: &dyn View, me: &PlayerId, system: &SystemId, planet: Option<&str>) -> usize {
     let board = seen.system(system);
     let home = home_system(seen, me).is_some_and(|h| &h == system);
     let here = |p: &PlanetId| {
@@ -359,7 +360,7 @@ fn spare_at(seen: &Observed<'_>, me: &PlayerId, system: &SystemId, planet: Optio
 }
 
 /// Spare ground forces across the board.
-fn spare_ground_total(seen: &Observed<'_>, me: &PlayerId) -> usize {
+fn spare_ground_total(seen: &dyn View, me: &PlayerId) -> usize {
     let home = home_system(seen, me);
     let mut total = home.as_ref().map_or(0, |h| spare_at(seen, me, h, None));
     for (system, planet) in seen.controlled_planets(me) {
@@ -375,7 +376,7 @@ fn spare_ground_total(seen: &Observed<'_>, me: &PlayerId) -> usize {
 /// `(system, planet)`.
 fn spare_site(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     parse: impl Fn(&str) -> Option<(SystemId, Option<String>)>,
 ) -> Option<usize> {
@@ -391,7 +392,7 @@ fn spare_site(
 
 /// `ospha_ship` (`<owner>'s <unit>[ (damaged)] in <system>`): the bot's own cheapest non-carrier
 /// ship (a cruiser or destroyer becomes a carrier), outside its tokened systems first.
-fn ospha_ship(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn ospha_ship(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let prefix = format!("{me}'s ");
     let tokens = seen.systems_with_token(me);
     choice
@@ -415,7 +416,7 @@ fn ospha_ship(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usi
 }
 
 /// `ospha_replace`: a carrier while the opening is short of transports, else the dearest ship.
-fn ospha_replace(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn ospha_replace(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let (transports, _) = free_transports_and_ground(seen, me);
     let carrier = choice
         .options
@@ -440,7 +441,7 @@ fn ospha_replace(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<
 }
 
 /// `stillness_target`: the dearest unit, a carrier on a tie.
-fn dearest_unit(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
+fn dearest_unit(choice: &Choice, seen: &dyn View) -> Option<usize> {
     choice
         .options
         .iter()
@@ -456,7 +457,7 @@ fn dearest_unit(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
 
 /// `leader_xxchaagent_ready_planet`: the bot's own planet with the most resources (then
 /// influence); no opinion when none of its planets is offered.
-fn own_richest_planet(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn own_richest_planet(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let own: Vec<PlanetId> = seen
         .controlled_planets(me)
         .into_iter()
@@ -477,7 +478,7 @@ fn own_richest_planet(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Op
 
 /// `leader_ssruu_round_agent_unit` (`<owner>|<planet>|<unit>|<index>|<marks>`): the bot's own
 /// dearest unit.
-fn own_round_unit(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn own_round_unit(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     choice
         .options
         .iter()
@@ -496,7 +497,7 @@ fn own_round_unit(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
 }
 
 /// `zeu_activate_system`: the best system by activation value, if it is worth a tactical action.
-fn zeu_system(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn zeu_system(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     seen.galaxy()?;
     choice
         .options
@@ -515,7 +516,7 @@ fn zeu_system(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usi
 /// Jae Mir Kan inside a secondary prompt (`follow|waived|...|agent|<system>`): follow through the
 /// agent whenever the bot would follow anyway, and for the secondaries that cost nothing but the
 /// token. The token comes from the system with the fewest units in it.
-fn mahact_waiver(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn mahact_waiver(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let waivers: Vec<(usize, &str)> = choice
         .options
         .iter()
@@ -573,7 +574,7 @@ fn component(choice: &Choice, agent: &str) -> Option<usize> {
 
 /// Whether the bot has a ship of its own outside its tokened systems that Letani Ospha could make a
 /// carrier of: a non-fighter ship without capacity for four.
-fn ospha_target(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn ospha_target(seen: &dyn View, me: &PlayerId) -> bool {
     let tokens = seen.systems_with_token(me);
     seen.board().iter().any(|(id, system)| {
         !tokens.contains(id)
@@ -588,7 +589,7 @@ fn ospha_target(seen: &Observed<'_>, me: &PlayerId) -> bool {
 
 /// Where Umbat would build for the bot: a system with its war sun or flagship and no token of its,
 /// with a planet still in reach of a new carrier.
-fn umbat_useful(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn umbat_useful(seen: &dyn View, me: &PlayerId) -> bool {
     let tokens = seen.systems_with_token(me);
     seen.board().iter().any(|(id, system)| {
         !tokens.contains(id)
@@ -603,7 +604,7 @@ fn umbat_useful(seen: &Observed<'_>, me: &PlayerId) -> bool {
 
 /// The opening's transport agents: the Arborec cruiser into a carrier and Muaat's Umbat build,
 /// while the round-1 plan is short of transports and a tactic token is left to send them.
-fn opening_agent(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn opening_agent(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     if !expanding(seen) || seen.seat(me).is_none_or(|seat| seat.tactic_tokens <= 0) {
         return None;
     }
@@ -625,7 +626,7 @@ fn opening_agent(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<
 /// the war sun's system builds it without a command token. Measured: used as the very first
 /// action instead, it cost Muaat a system (the resources and the turn went before the
 /// transports had left).
-fn umbat_home_build(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn umbat_home_build(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let index = component(choice, "muaatagent")?;
     (expanding(seen)
         && seen.seat(me).is_some_and(|seat| seat.tactic_tokens > 0)
@@ -639,7 +640,7 @@ fn umbat_home_build(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opti
 /// something to do.
 fn stalling_agent(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     held: usize,
     passing: bool,
@@ -677,7 +678,7 @@ fn stalling_agent(
 }
 
 /// Resources plus influence on the bot's exhausted planets.
-fn own_exhausted_value(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+fn own_exhausted_value(seen: &dyn View, me: &PlayerId) -> i64 {
     seen.controlled_planets(me)
         .into_iter()
         .filter(|(_, planet)| !seen.planet_is_ready(planet))
@@ -689,7 +690,7 @@ fn own_exhausted_value(seen: &Observed<'_>, me: &PlayerId) -> i64 {
 }
 
 /// Whether Hacan are two or more below their commodity value.
-fn hacan_short(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn hacan_short(seen: &dyn View, me: &PlayerId) -> bool {
     let Some(seat) = seen.seat(me) else {
         return false;
     };
@@ -698,7 +699,7 @@ fn hacan_short(seen: &Observed<'_>, me: &PlayerId) -> bool {
 }
 
 /// After the turn's action: the agents that do not take an action.
-fn end_of_turn(choice: &Choice, seen: &Observed<'_>, me: &PlayerId, held: usize) -> Option<usize> {
+fn end_of_turn(choice: &Choice, seen: &dyn View, me: &PlayerId, held: usize) -> Option<usize> {
     if let Some(index) = component(choice, "nekroagent")
         && held > 0
     {
@@ -717,7 +718,7 @@ fn end_of_turn(choice: &Choice, seen: &Observed<'_>, me: &PlayerId, held: usize)
 #[must_use]
 pub fn action_choice(
     choice: &Choice,
-    seen: &SeatObservation<'_>,
+    seen: &dyn SeatView,
     me: &PlayerId,
     rng: &mut ChaCha8Rng,
 ) -> Option<Option<usize>> {
@@ -734,7 +735,7 @@ pub fn action_choice(
 #[must_use]
 pub fn action_decision(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     held: usize,
     rng: &mut ChaCha8Rng,
@@ -799,7 +800,7 @@ pub fn action_decision(
 
 /// Whether some system Z'eu may activate (away from home, without the bot's token) is worth a
 /// tactical action.
-fn zeu_best_is_away(seen: &Observed<'_>, me: &PlayerId) -> bool {
+fn zeu_best_is_away(seen: &dyn View, me: &PlayerId) -> bool {
     let Some(galaxy) = seen.galaxy() else {
         return false;
     };
@@ -820,6 +821,7 @@ fn zeu_best_is_away(seen: &Observed<'_>, me: &PlayerId) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_engine::choice::Observed;
     use rand::SeedableRng;
     use ti4_content::ContentStore;
     use ti4_engine::decision_context::{DecisionContext, DecisionSource, TriggerKind};

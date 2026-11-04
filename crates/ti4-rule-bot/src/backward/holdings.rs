@@ -24,7 +24,8 @@
 //! | `dhw` | Destroy Heretical Works | secret | 1 | `relic_fragments` |
 //! | `sb` | Strengthen Bonds | secret | 1 | `rival_note_issuers` |
 
-use ti4_engine::choice::{Choice, ChoiceOption, SeatObservation};
+use crate::view::{View, SeatView};
+use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_engine::objectives::Imagined;
 use ti4_model::id::PlayerId;
 
@@ -45,7 +46,7 @@ pub const OWN_CARD_P: f64 = 0.95;
 pub const SECONDARY_P: f64 = 0.7;
 
 /// The held secret `alias` as a goal, met or not.
-fn held_goal(seen: &SeatObservation<'_>, me: &PlayerId, alias: &str) -> Option<Goal> {
+fn held_goal(seen: &dyn SeatView, me: &PlayerId, alias: &str) -> Option<Goal> {
     objectives::goals(seen, me, &Imagined::NONE)
         .into_iter()
         .find(|g| g.alias == alias && g.secret)
@@ -63,7 +64,7 @@ fn is_purge(option: &ChoiceOption) -> bool {
 /// needs: action cards while Form a Spy Network is five or fewer cards from done, a relic purge
 /// while Destroy Heretical Works holds two to four fragments. `None`: nothing is held back.
 #[must_use]
-pub fn keep(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Option<Vec<usize>> {
+pub fn keep(choice: &Choice, seen: &dyn SeatView, me: &PlayerId) -> Option<Vec<usize>> {
     if !tuning::bw_enabled() || !tuning::bw_holdings() {
         return None;
     }
@@ -85,7 +86,7 @@ pub fn keep(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Optio
 
 /// Strengthen Bonds: accept an offer that hands the seat a rival's Support for the Throne.
 #[must_use]
-pub fn answer(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Option<usize> {
+pub fn answer(choice: &Choice, seen: &dyn SeatView, me: &PlayerId) -> Option<usize> {
     if !tuning::bw_enabled() || !tuning::bw_holdings() {
         return None;
     }
@@ -139,7 +140,7 @@ pub fn politics_route(
 }
 
 fn politics_open(
-    seen: &ti4_engine::choice::Observed<'_>,
+    seen: &dyn View,
     seat: &ti4_engine::choice::PublicSeat<'_>,
 ) -> bool {
     seat.strategy_cards.iter().any(|c| {
@@ -157,7 +158,7 @@ impl ObjectivePlanner for Holdings {
         IDS
     }
 
-    fn plan(&self, obs: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
+    fn plan(&self, obs: &dyn SeatView, ctx: &PlanCtx) -> Option<Plan> {
         if ctx.goal.alias != "fsn" {
             return None;
         }
@@ -209,6 +210,7 @@ impl ObjectivePlanner for Holdings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_engine::choice::SeatObservation;
 
     #[test]
     fn politics_draws_two_cards_per_turn() {

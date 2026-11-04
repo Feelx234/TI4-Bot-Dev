@@ -204,3 +204,30 @@ fn the_typed_view_agrees_with_the_string_view_in_thunders_edge_games() {
     // positions whose Transient names an owner outside the table are the documented bail D3-bail-08
     assert!(p.unmapped.keys().all(|k| k.starts_with("Transient: owner not in the table")), "{:?}", p.unmapped);
 }
+
+/// D3 lane V: the bot code reading the position from the typed core (`SeenView` over `Seen`) answers every call as the
+/// string view does (pick, smart flag, rng position), and the float forecasts and accessor rows of the probe agree bit for bit.
+#[test]
+fn the_bot_on_the_typed_view_answers_as_on_the_string_view() {
+    let config = short_config(1500);
+    let cfg = Config { mode: Mode::ViewDiff, seen_stride: 25, ..Config::default() };
+    let report = run(&config, &[0], &cfg);
+    assert!(report.calls() > 200, "calls: {}", report.calls());
+    assert_eq!(report.coverage("*"), 1.0, "calls skipped: {:?}", report.by_subtype.values().map(|s| &s.skipped).collect::<Vec<_>>());
+    assert!(report.mismatches.is_empty(), "{:#?}", report.mismatches.iter().take(5).collect::<Vec<_>>());
+    let p = &report.parity;
+    assert!(p.positions >= 8 && p.compared > 3000, "probes: {} rows: {}", p.positions, p.compared);
+    assert!(p.mismatches.is_empty(), "{:#?}", &p.mismatches[..p.mismatches.len().min(10)]);
+    assert!(p.skipped.is_empty(), "the typed side bailed: {:?}", p.skipped);
+}
+
+/// The view-diff harness catches a typed half that disagrees (the mutants apply to it as to the self-check).
+#[test]
+fn the_view_diff_catches_a_mutant() {
+    let config = short_config(400);
+    for mutant in [Mutant::Pick, Mutant::Smart, Mutant::Rng] {
+        let cfg = Config { mode: Mode::ViewDiff, mutant, ..Config::default() };
+        let report = run(&config, &[0], &cfg);
+        assert!(!report.mismatches.is_empty(), "{mutant:?} not caught");
+    }
+}
