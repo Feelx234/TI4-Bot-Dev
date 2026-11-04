@@ -152,8 +152,13 @@ pub mod promissory {
     pub use crate::builders::promissory::deal;
     pub use ti4_engine_legacy::promissory::*;
 }
+pub mod movement {
+    pub use crate::queries::movement::{MoveView, Pool};
+    pub use ti4_engine_legacy::movement::*;
+}
 pub mod reactions {
     pub use crate::kinds::action_cards::ACTION_CARD_KIND;
+    pub use crate::queries::reactions::{Window, window_table};
     pub use ti4_engine_legacy::reactions::*;
 }
 pub mod relics {

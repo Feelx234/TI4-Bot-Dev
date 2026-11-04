@@ -3,6 +3,8 @@
 
 pub mod adapter;
 pub mod tactical;
+pub mod movement;
+pub mod reactions;
 pub mod laws;
 pub mod production;
 pub mod view;
