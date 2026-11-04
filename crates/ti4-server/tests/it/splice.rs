@@ -121,8 +121,9 @@ fn slow_the_same_input_twice_gives_an_identical_report() {
     let (state, galaxy, h) = base_history();
     for edit in [
         SpliceEdit::Remove { cursor: 44 },
-        replace(40, "36"),
-        replace(54, "1|6|1"),
+        // (Re-chosen on the version-35 history of seed 7: decision 40 is a transaction offer, 54 the action phase menu.)
+        replace(40, "ss"),
+        replace(54, "pass"),
     ] {
         let a = splice_preview(&state, Some(&galaxy), &h, &edit).unwrap();
         let b = splice_preview(&state, Some(&galaxy), &h, &edit).unwrap();
@@ -366,9 +367,14 @@ fn slow_dice_rolled_around_a_decision_are_counted() {
     // The aggressive policy reaches a roll on seed 2; a removal at or just before the step
     // that rolled must report consumed dice. The budget is generous so that a shift in the
     // seeded game (e.g. a card no longer offered) does not push the first roll out of reach.
-    let (state, galaxy) = setup(2);
-    let (h, first_roll) = play_with(&state, &galaxy, Box::new(Lcg(2, true)), 900);
-    let k = first_roll.expect("the fixture game rolls dice");
+    // (At version 35 the aggressive policy no longer reaches a roll on seed 2 within the budget; the first of the next seeds that does is used.)
+    let (state, galaxy, h, k) = (2_u64..10)
+        .find_map(|seed| {
+            let (state, galaxy) = setup(seed);
+            let (h, first_roll) = play_with(&state, &galaxy, Box::new(Lcg(seed, true)), 900);
+            first_roll.map(|k| (state, galaxy, h, k))
+        })
+        .expect("the fixture game rolls dice");
     let base = SpliceBaseline::new(&state, Some(&galaxy), &h);
     let flagged = (k.saturating_sub(3)..(k + 2).min(h.len()))
         .map(|c| base.preview(&SpliceEdit::Remove { cursor: c }).unwrap())
@@ -505,3 +511,4 @@ fn the_dry_run_leaves_the_game_its_history_and_storage_untouched() {
     session.stop();
     let _ = std::fs::remove_dir_all(&path);
 }
+
