@@ -22,7 +22,7 @@ Branch `core-d29b-strip`, cut from `core-integration-21` (4a6cc5200) with `core-
 | server `it`: crash_recovery, replay_export, secondary_preview, bluff_reaction, session_deterministic_replay (gate) | 32 passed |
 | `native_play --quick` | 1,165 steps, fingerprint 74d5675ac754ac81, zero gaps (also with `--shadow`) |
 | plain 96-set | 96/96 zero gaps, exit 0 |
-| Z-gate `--factions all --players P --seeds 8 --shadow` | 3p: 192 games, 20 known string bugs, exit 0; 4p: 192, 39, exit 0; 5p/6p see the final report |
+| Z-gate `--factions all --players P --seeds 8 --shadow` | 3p: 192 games, 20 known string bugs, exit 0; 4p: 192, 39, exit 0; 5p: 192, 34, exit 0; 6p: 192, 59, exit 0 (known string bugs 152 = int-21) |
 | `cargo wire-web` | generated TS in `web-shared` unchanged. It rewrites `fixtures/protocol/*_snapshot.json` (drops objective_progress/home_system_lost): the known int-21 Unmapped fixture issue (INTEGRATION21 section 5), reverted, not caused by 9b |
 | `host_create_golden` | 45 of 1405 rows differ (production_batch, production_payment_batch, research_tech_skips, tactical_action presets): IDENTICAL on core-integration-21 (checked in a worktree), so pre-existing; the golden file is untouched |
 | output probes | server release binary and wasm: no legacy literal (the `generated` module path does not trip them). int-21 wasm: 99 hits |
