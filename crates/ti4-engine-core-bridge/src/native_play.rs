@@ -1836,7 +1836,7 @@ mod tests {
         assert_eq!(compare_run(&mut legacy, &native, &base, &group, &run, &mut owed, false), None, "the native step is ahead: not a difference yet");
         assert_eq!((owed.native.as_slice(), owed.legacy.len()), (["INVENTED".to_owned()].as_slice(), 0));
         // The next group's legacy events must open with it.
-        let mut next = Owed { native: vec!["INVENTED".to_owned()], legacy: Vec::new() };
+        let mut next = Owed { native: vec!["INVENTED".to_owned()], legacy: Vec::new(), announced: Vec::new() };
         let nothing: Vec<Played> = vec![Played { arm: Arm::Tokens, source: None, asked: Vec::new(), events: Vec::new(), announced: 0, finished: false }];
         let run = LegacyRun { info: run.info, records: Vec::new(), events: vec!["OTHER".to_owned()] };
         let d = compare_run(&mut legacy, &native, &base, &nothing, &run, &mut next, false).expect("the string pushed another line than the one owed");

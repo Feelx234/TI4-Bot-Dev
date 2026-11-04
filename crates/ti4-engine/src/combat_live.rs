@@ -202,7 +202,7 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
         // (The units on the planets are named only where they can fight as ships: a ground force or a structure rolls no die in a space combat, and each kind named
         // doubles the roll groups: a fight whose seats also hold infantry, a PDS and a dock on the planets went over `MAX_TYPES`, which names none: `CombatUnported`.)
         for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
-            pieces.extend(core.board().planet(*planet).units.iter().filter(|p| fights_as_a_ship(core, p.owner(), p.kind())).map(|p| p.kind()));
+            pieces.extend(core.board().planet(*planet).units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| p.kind()));
         }
         pieces
     } else {
@@ -217,7 +217,7 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
     if let Some((system, _, _)) = core.transient().combat.active_space_combat {
         let mut owned: Vec<(ti4_engine_core::ids::Seat, Unit)> = core.board().sys(system).units.iter().map(|p| (p.owner(), p.kind())).collect();
         for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
-            owned.extend(core.board().planet(*planet).units.iter().filter(|p| fights_as_a_ship(core, p.owner(), p.kind())).map(|p| (p.owner(), p.kind())));
+            owned.extend(core.board().planet(*planet).units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| (p.owner(), p.kind())));
         }
         let milor_in_play = milor_in_play(core);
         for (owner, unit) in owned {
@@ -270,12 +270,14 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
 }
 
 /// Whether a unit of `owner` standing on a planet of `system` can fight the system's space combat: a ship (none stands on a planet), a Naaz Eidolon Maximum, or a ground
-/// force of the Nekro, whose flagship, the Alastor, chooses ground forces that fight as ships (the choice is a mark of the combat that outlives the flagship, so the
-/// Nekro's ground forces are named whether or not the Alastor still stands).
-fn fights_as_a_ship(core: &CoreState, owner: ti4_engine_core::ids::Seat, unit: Unit) -> bool {
+/// force a Nekro Alastor can choose or has chosen (the choice is a mark of the combat that outlives the flagship): the flagship stands in the space area, or the
+/// mark names the unit.
+fn fights_as_a_ship(core: &CoreState, system: ti4_engine_core::generated::System, owner: ti4_engine_core::ids::Seat, unit: Unit) -> bool {
     unit.data().ship
         || unit == Unit::EidolonMaximum
-        || (unit.data().ground_force && core.players().by_seat(owner).is_some_and(|p| p.faction == ti4_engine_core::generated::Faction::TheNekroVirus))
+        || (unit.data().ground_force
+            && (core.board().sys(system).units.iter().any(|p| p.owner() == owner && p.kind() == Unit::TheAlastor)
+                || core.marks().tail.iter().any(|(key, _)| matches!(key, ti4_engine_core::keys::MarkKey::NekroAlastor(_, s, o, _, u) if *s == system && *o == owner && *u == unit))))
 }
 
 /// Every form of a base type a faction can field (its upgrades and its own faction units, and with `with_plain` the plain unit): what a seat that gains a unit in the middle of a
