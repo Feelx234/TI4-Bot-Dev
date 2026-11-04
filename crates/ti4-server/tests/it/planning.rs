@@ -1,7 +1,7 @@
 use ti4_content::ContentStore;
 use ti4_engine::choice::{AlwaysDecline, Choice, ChoiceOption, Decider, Scripted, Table};
 use ti4_engine::decision_context::{DecisionContext, DecisionSource};
-use ti4_engine::fixtures::{game, plain_hub, put};
+use ti4_engine::fixtures::{loadable_game as game, plain_hub, put};
 use ti4_engine::game::Game;
 use ti4_host::planning::{RecordedDecision, RecordingDecider, ReplayDecider, ReplayStopReason};
 use ti4_model::id::{PlayerId, SystemId};

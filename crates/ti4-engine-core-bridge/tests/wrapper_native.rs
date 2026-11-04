@@ -281,3 +281,50 @@ fn installing_a_table_keeps_the_decision_log_of_the_game() {
     game.install_table(Table::new());
     assert_eq!(game.table.log.records.len(), logged);
 }
+
+/// `laws::apply_to_galaxy` is native now: it leaves the map exactly as the string's does, on every position of a played game and on positions with
+/// each law, token and piece it reads.
+#[test]
+fn the_native_apply_to_galaxy_equals_the_legacy_one() {
+    let spec = lobby_spec("sol", 4, 1);
+    let legacy = spec.build().unwrap();
+    let galaxy = legacy.galaxy().cloned().unwrap();
+    let same = |state: &ti4_model::state::GameState, what: &str| {
+        let (mut a, mut b) = (galaxy.clone(), galaxy.clone());
+        ti4_engine::laws::apply_to_galaxy(state, &mut a);
+        ti4_engine_legacy::laws::apply_to_galaxy(state, &mut b);
+        assert_eq!(a, b, "{what}");
+        a
+    };
+    let mut game = wrapper("sol", 4, 1);
+    for i in 0..600 {
+        if i % 20 == 0 {
+            same(&game.state, &format!("step {i}"));
+        }
+        assert_eq!(game.step().error, None);
+    }
+    let mut state = game.state.clone();
+    let plain = same(&state, "as played");
+    for law in ["travel_ban", "wormhole_recon", "nexus"] {
+        state.laws.insert(law.to_owned(), "for".to_owned());
+    }
+    state.nexus_unlocked = true;
+    state.wormhole_tokens.insert("GAMMA".to_owned(), ti4_model::id::SystemId::new("19"));
+    state.ion_storm = Some((ti4_model::id::SystemId::new("20"), "ALPHA".to_owned()));
+    let loaded = same(&state, "laws, nexus, tokens, ion storm");
+    assert_ne!(loaded, plain, "the position changed the map");
+    let player = state.players[0].id.clone();
+    state.active = Some(player.clone());
+    state.active_system = Some(ti4_model::id::SystemId::new("18"));
+    state.player_mut(&player).unwrap().spatial_conduit = Some(state.activation_seq);
+    let seq = state.activation_seq;
+    state.player_mut(&player).unwrap().lost_star.push(seq);
+    same(&state, "conduit and lost star");
+    state.system_mut(&ti4_model::id::SystemId::new("21")).units.push(ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("ghost_flagship"), player));
+    same(&state, "a Ghost flagship");
+    state.laws.clear();
+    state.laws.insert("travel_ban".to_owned(), "for".to_owned());
+    state.faction_marks.insert("keleres|laws_blank".to_owned(), state.turn_seq.to_string());
+    state.phase = ti4_model::state::Phase::Action;
+    same(&state, "laws blanked");
+}

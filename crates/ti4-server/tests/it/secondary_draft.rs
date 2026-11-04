@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use ti4_content::ContentStore;
 use ti4_engine::choice::Choice;
-use ti4_engine::fixtures::{game, hub_with_centre, put_on_planet};
+use ti4_engine::fixtures::{hub_with_centre, loadable_game as game, put_on_planet};
 use ti4_engine::strategy_cards::RESEARCH_KIND;
 use ti4_host::protocol::status::ViewerRole;
 use ti4_model::content_types::POK;

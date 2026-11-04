@@ -93,7 +93,7 @@ fn asked_with_never(
 #[test]
 fn a_never_card_window_is_declined_unasked_and_journaled_as_a_decline() {
     let build = || {
-        let mut state = ti4_engine::fixtures::game(&["a", "b"]);
+        let mut state = ti4_engine::fixtures::loadable_game(&["a", "b"]);
         state
             .player_mut(&PlayerId::new("a"))
             .unwrap()
@@ -130,7 +130,7 @@ fn a_never_card_window_is_declined_unasked_and_journaled_as_a_decline() {
 
 #[test]
 fn a_never_card_leaves_the_same_seats_other_cards_offered() {
-    let mut state = ti4_engine::fixtures::game(&["a", "b"]);
+    let mut state = ti4_engine::fixtures::loadable_game(&["a", "b"]);
     state
         .player_mut(&PlayerId::new("b"))
         .unwrap()

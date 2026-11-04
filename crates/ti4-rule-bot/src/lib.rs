@@ -4328,6 +4328,11 @@ mod tests {
     fn later_drafts_take_imperial_only_with_mecatol_rex_else_the_most_trade_goods() {
         let (mut state, hub, _, _) = board();
         state.round = 3;
+        // The seat has no faction plan: a faction with one (Sol drafts Leadership first) would have an opinion of its own, which is not what
+        // this test is about. The notes are dealt again for the faction set.
+        let planless = ti4_engine::seating::LOBBY_FACTIONS.iter().find(|f| faction_plans::plan_for(f).is_none()).expect("a faction without a plan");
+        state.player_mut(&me()).expect("seat").faction = ti4_model::id::FactionId::new(*planless);
+        ti4_engine::fixtures::redeal_notes(&mut state, POK);
         let all = draft(&["pok1leadership", "pok5trade", "pok8imperial"]);
         assert_eq!(picked(&state, &hub, &all), None, "no Mecatol, no goods");
         state

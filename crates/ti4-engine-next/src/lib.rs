@@ -110,6 +110,23 @@ pub mod invasion {
     pub use crate::queries::invasion::bombardable;
     pub use ti4_engine_legacy::invasion::*;
 }
+pub mod thunders_edge {
+    /// The breakthrough a faction owns (the printed record's `faction` tag).
+    #[must_use]
+    pub fn breakthrough_for(content: &ti4_content::ContentStore, _sources: ti4_model::content_types::SourceSet, faction: &str) -> Option<ti4_model::id::BreakthroughId> {
+        content
+            .records(ti4_model::content_types::ContentType::Breakthroughs)
+            .iter()
+            .find(|record| record.text("faction").is_some_and(|tag| crate::builders::factions::tag_belongs_to(tag, faction, false)))
+            .and_then(|record| record.text("alias"))
+            .map(ti4_model::id::BreakthroughId::new)
+    }
+    pub use ti4_engine_legacy::thunders_edge::*;
+}
+pub mod laws {
+    pub use crate::queries::laws::{apply_to_galaxy, elected, extra_wormholes, nexus_wormholes_suppressed, spatial_conduit_links, wormholes_all_connected, wormholes_suppressed};
+    pub use ti4_engine_legacy::laws::*;
+}
 pub mod legendary {
     pub use crate::queries::legendary::{available, ionian_available};
     pub use ti4_engine_legacy::legendary::*;
@@ -132,6 +149,7 @@ pub mod production {
 pub mod promissory {
     pub use crate::kinds::promissory::SUPPORT_PREFIX;
     pub use crate::queries::promissory::{alias_of, faction_name, held_by, holder_of, may_receive, note_id, owner_of};
+    pub use crate::builders::promissory::deal;
     pub use ti4_engine_legacy::promissory::*;
 }
 pub mod reactions {
