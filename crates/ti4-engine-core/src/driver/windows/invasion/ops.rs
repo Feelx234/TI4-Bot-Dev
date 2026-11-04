@@ -6,7 +6,7 @@ use crate::kernel::ability::Unported as Why;
 use crate::choice::invasion::Opt as IOpt;
 use crate::choice::{Choice, Opt, Pick};
 use crate::containers::{Cow, SeatSet, SortedMap};
-use crate::generated::{Planet, Technology};
+use crate::generated::Planet;
 use crate::ids::Seat;
 use crate::kernel::fx;
 use crate::kernel::stage::{Illegal, Sx, Window};
@@ -331,8 +331,9 @@ impl InvasionMachine {
                 }
             })
             .collect();
-        let _ = s;
         let mut w = Bombardment::new(self.p.invader, self.p.system, b.occurrence, true, crate::state::Code(0), plan, usize::from(b.index));
+        // X-89: "Exhaust each planet you use BOMBARDMENT against" (the window reads the flag where each planet's turn begins).
+        w.x89 = crate::query::tech::holds_x89(s, self.p.invader);
         if let Some(c) = &b.cursor {
             w = w.at_cursor(
                 Cursor {
@@ -629,7 +630,7 @@ fn spend(b: &IBill) -> Spend {
 
 /// `X-89 Bacterial Weapon` doubles the hits of the seat's bombardment.
 pub(super) fn x89_multiplier(s: &CoreState, who: Seat) -> u32 {
-    if s.players().by_seat(who).is_some_and(|p| p.tech.owned.contains(Technology::X89BacterialWeapon)) { 2 } else { 1 }
+    if crate::query::tech::holds_x89(s, who) { 2 } else { 1 }
 }
 
 /// `RerollEntry::hits`: a die hits when its face plus its delta reaches the number.

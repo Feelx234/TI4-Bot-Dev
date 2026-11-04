@@ -135,6 +135,13 @@ pub fn owns(core: &CoreState, seat: Seat, tech: Technology) -> bool {
     core.players().by_seat(seat).is_some_and(|p| p.tech.owned.contains(tech))
 }
 
+/// Whether the seat holds `X-89 Bacterial Weapon`. The deck holds the Codex IV printing (`X89BacterialWeaponOmegaOmega`, id `x89c4`, the one the
+/// string reads); the base and Omega printings are never in a game, so reading one of them is always false.
+#[must_use]
+pub fn holds_x89(core: &CoreState, seat: Seat) -> bool {
+    owns(core, seat, Technology::X89BacterialWeaponOmegaOmega)
+}
+
 /// The seat's owned technologies.
 #[must_use]
 pub fn owned(core: &CoreState, seat: Seat) -> TechSet {

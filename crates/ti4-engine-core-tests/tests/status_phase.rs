@@ -755,3 +755,25 @@ fn the_status_phase_readies_artunos_card_and_pays_out_its_pile() {
     assert_eq!(staged.len(), 1, "one gain staged: only the Nomad's pile pays");
     assert_eq!(staged[0].payload.code(ti4_engine_core::state::Key::Source), Some(artuno), "from Artuno, not from the supply");
 }
+
+/// Silent gap B-X01: the first score of a secret objective unlocks a hero at once, as the string's `award_tail` does for every score (51.7). The core checked only
+/// a public objective or a secret that was already revealed, so the hero of a seat whose third objective was a secret waited for the next turn start. (An event
+/// window of the action phase: no status bookkeeping follows that would unlock it anyway.)
+#[test]
+fn the_third_scored_objective_unlocks_the_hero_when_it_is_a_secret_scored_for_the_first_time() {
+    let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).build();
+    let hero = Leader::ALL.iter().copied().find(|l| l.data().faction == FactionTag::Sol && l.data().kind == LeaderType::Hero).unwrap();
+    s.players_mut().edit(0).leaders.status.insert(hero, LeaderStatus::Locked);
+    s.players_mut().edit(0).cards.secrets = [SecretObjective::ProveEndurance].into_iter().collect();
+    s.players_mut().edit(0).misc.event_feats.push((Feat::LastToPass, 3));
+    for o in [PublicObjective::ExpandBorders, PublicObjective::ALL[3]] {
+        s.objectives_mut().revealed.push(ObjectiveRef::Public(o));
+        ti4_engine_core::kernel::fx::record_score(&mut s, Seat(0), ObjectiveRef::Public(o));
+    }
+    open_event(&mut s, ScoringTiming::Action, 3, true);
+    let e = env(&k);
+    let score = Pick::Opt(Opt::Objectives(OOpt::Score(ObjectiveRef::Secret(SecretObjective::ProveEndurance))));
+    advance_scoring_event(&mut s, &e, score);
+    assert!(s.players().by_seat(Seat(0)).unwrap().cards.secrets.is_empty(), "scored");
+    assert_eq!(s.players().by_seat(Seat(0)).unwrap().leaders.status.get(&hero), Some(&LeaderStatus::Unlocked), "the third objective unlocks the hero at once");
+}

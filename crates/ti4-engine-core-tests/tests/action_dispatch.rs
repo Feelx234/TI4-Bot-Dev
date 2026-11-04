@@ -1784,6 +1784,43 @@ fn dannel_of_the_tenth_fights_the_defender_of_the_planet_chosen() {
     assert_eq!(count(EventKind::GroundCombatEnded), 1, "and ended");
 }
 
+/// Silent gap N-01: the committed fight of Dannel doubles the hits of a seat that holds X-89 Bacterial Weapon (the deck's printing, `x89c4`). The same dice stream
+/// is rolled with and without the card on the defender's side, so only the doubled hits can move the total of the defender's infantry that fall to Dannel's.
+#[test]
+fn dannel_of_the_tenth_fights_with_the_doubled_hits_of_a_holder_of_x89() {
+    use ti4_engine_core::generated::{Leader, Technology};
+    use ti4_engine_core::state::LeaderStatus;
+    let ps = ti4_engine_core_tests::scenario::plain_systems();
+    let system = ps.iter().copied().find(|s| !s.data().planets.is_empty() && !s.data().home_system).expect("a system with a planet");
+    let planet = system.data().planets[0];
+    let defenders_left = |holder: Option<u8>| {
+        let mut left = 0;
+        for seed in 0..24_u64 {
+            let mut scenario = Scenario::new(&[Faction::TheYinBrotherhood, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+                .phase(Phase::Action)
+                .active(Some(0))
+                .map_from(&[system])
+                .unit(system, Some(planet), Unit::InfantryI, 1, 6)
+                .control(planet, 1)
+                .tokens(0, 3, 3, 2);
+            if let Some(seat) = holder {
+                scenario = scenario.tech(seat, Technology::X89BacterialWeaponOmegaOmega);
+            }
+            let (mut s, k) = scenario.build();
+            s.players_mut().edit(0).leaders.status.insert(Leader::DannelOfTheTenth, LeaderStatus::Unlocked);
+            let mut e = env_r(&k);
+            e.seeds = Rc::new(ti4_engine_core_tests::rig::KitSeeds(seed));
+            let first = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::DannelOfTheTenth)))).expect("the hero is native");
+            first_options_emitted(&mut s, &e, first, 80);
+            left += s.board().planet(planet).units.iter().filter(|u| u.owner() == Seat(1)).count();
+        }
+        left
+    };
+    let (plain, yin, rival) = (defenders_left(None), defenders_left(Some(0)), defenders_left(Some(1)));
+    assert!(yin < plain, "Dannel's seat holds the card: its hits are doubled ({yin} left against {plain})");
+    assert!(rival >= plain, "the defender's card doubles the defender's hits, not Dannel's ({rival} left against {plain})");
+}
+
 /// Lane L: the Thunder's Edge corners the committed fights do not carry are the counted gap `HeroFight`, not a wrong fight: L1Z1X's Fealty Uplink, a
 /// coexisting planet, a neutral side. (Proxima Targeting VI and Alarum, the other two, belong to the dropped factions Last Bastion and Ral Nel.)
 #[test]

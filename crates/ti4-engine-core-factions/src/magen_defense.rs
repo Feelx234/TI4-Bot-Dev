@@ -4,8 +4,7 @@
 //! owner places, within what the reinforcements hold, before the activator's reactions (`SYSTEM_ACTIVATED`, `when`). From rules
 //! version `RULES_TECH_EFFECTS`; registered for every seat (the card can be gained mid-game), the condition names the holder.
 //!
-//! Not ported: the second effect (a hit on a ground force as a ground combat starts: the owner assigns it), which stays the
-//! string's and bails its window as an unported ability.
+//! The second effect (a hit on a ground force as a ground combat starts: the owner assigns it) is `silent::g4::magen_hit`.
 
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
 use ti4_engine_core::generated::{Planet, System, Technology, UnitBaseType};

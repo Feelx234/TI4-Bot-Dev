@@ -727,3 +727,80 @@ fn the_tail_of_a_heros_free_action_opens_the_job_after_it_too() {
     assert_eq!(advance_tactical(&mut plain, &env2, None).unwrap().0, Live::Done);
     assert_eq!(ti4_engine_core::driver::turn::open_job_of(&plain), Some(TurnJob::Finish));
 }
+
+// ---- Sh'val, Harbinger (silent gap D-sardakk_hero_skip) ------------------------------------------------------------------------------
+//
+// The hook slot `skip_to_commit` was read by the close of the movement step but no provider filled it, so the hero's offer never existed in a native game.
+
+/// A row whose last tile holds a planet; seat 0 plays Sardakk with the hero in `status`, a carrier on C and an infantry waiting in the space area of D.
+fn shval(status: ti4_engine_core::state::LeaderStatus) -> (CoreState, Kernel, System) {
+    let p = plain_systems();
+    let planet_tile = p.iter().copied().find(|s| !s.data().planets.is_empty()).expect("a tile with a planet");
+    let others: Vec<System> = p.iter().copied().filter(|s| *s != planet_tile).take(3).collect();
+    let tiles = [others[0], others[1], others[2], planet_tile];
+    let (mut core, k) = Scenario::new(&[Faction::SardakkNorr, Faction::TheArborec])
+        .map_hexes(&[(tiles[0], Hex::new(0, 0)), (tiles[1], Hex::new(1, 0)), (tiles[2], Hex::new(2, 0)), (tiles[3], Hex::new(3, 0))])
+        .tokens(0, 3, 4, 2)
+        .active(Some(0))
+        .phase(Phase::Action)
+        .unit(tiles[2], None, Unit::CarrierI, 0, 1)
+        .build();
+    core.players_mut().edit(0).leaders.status.insert(Leader::ShvalHarbinger, status);
+    core.board_mut().sys_mut(tiles[3]).units.push(ti4_engine_core::state::Piece::new(Unit::InfantryI, Seat(0)));
+    (core, k, tiles[3])
+}
+
+/// Open the action, activate the planet tile, sail the cruiser in and finish the movement: the live position after the close.
+fn shval_to_the_close(core: &mut CoreState, env: &Env<'_>, target: System) -> Live {
+    open_tactical(core, Seat(0));
+    let Live::Asks(q) = advance_tactical(core, env, None).unwrap().0 else { panic!("the activation is asked") };
+    let Live::Asks(q) = advance_tactical(core, env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(target))))).unwrap().0 else { panic!("the movement is asked") };
+    let mut live = advance_tactical(core, env, Some(pick(&q.choice, |o| matches!(o, Opt::Tactical(TOpt::Move { .. }))))).unwrap().0;
+    // The ship may ask about its cargo first: the first option each time, until the movement can be finished.
+    for _ in 0..12 {
+        let Live::Asks(q) = live else { break };
+        let finish = q.choice.opts.as_slice().contains(&t(TOpt::DoneMoving));
+        live = advance_tactical(core, env, Some(if finish { pick(&q.choice, |o| *o == t(TOpt::DoneMoving)) } else { Pick::Opt(q.choice.opts.as_slice()[0]) })).unwrap().0;
+        if finish {
+            return live;
+        }
+    }
+    live
+}
+
+#[test]
+fn shvals_skip_is_offered_after_the_movement_to_an_unlocked_hero_and_the_answer_writes_the_mark() {
+    covers!("driver::windows::tactical::TacticalAction");
+    use ti4_engine_core::choice::leaders::{Ask as LAsk, Opt as LOpt, Subtype as LSub};
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    use ti4_engine_core::state::LeaderStatus;
+    let mark = |c: &CoreState| marks_of(c, MarkKey::SardakkHeroSkip());
+    // Unlocked: the question stands at the close; the accepting answer writes the mark of the player and the system and the aftermath opens at the commitment.
+    let (mut core, k, target) = shval(LeaderStatus::Unlocked);
+    let e = env(&k, 3);
+    let Live::Asks(q) = shval_to_the_close(&mut core, &e, target) else { panic!("the hero's offer is asked") };
+    assert_eq!(q.choice.ask, Ask::Leaders(LAsk::SardakkSkip));
+    assert_eq!((q.choice.actor, q.choice.ctx.subtype, q.choice.ctx.optional), (Seat(0), ti4_engine_core::choice::Subtype::Leaders(LSub::SardakkSkip), true));
+    assert!(q.choice.opts.as_slice().contains(&Opt::Decline));
+    assert_eq!(mark(&core), None);
+    let clone = core.clone();
+    let (live, _) = advance_tactical(&mut core, &e, Some(pick(&q.choice, |o| *o == Opt::Leaders(LOpt::SardakkSkip)))).unwrap();
+    assert_eq!(live, Live::Done);
+    assert_eq!(mark(&core), Some(MarkVal::Rec(vec![MarkVal::Atom(Atom::Seat(Seat(0))), MarkVal::Atom(Atom::System(target))])));
+    let Some(OpenWindow::Aftermath(a)) = core.pending().window(WindowKind::Aftermath) else { panic!("the aftermath is open") };
+    assert_eq!(a.stage, AStage::Invading, "the skip goes straight to the commitment");
+    // Declined: no mark, the fight stage as usual.
+    let mut declined = clone;
+    let (live, _) = advance_tactical(&mut declined, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
+    assert_eq!(live, Live::Done);
+    assert_eq!(mark(&declined), None);
+    let Some(OpenWindow::Aftermath(a)) = declined.pending().window(WindowKind::Aftermath) else { panic!("the aftermath is open") };
+    assert_eq!(a.stage, AStage::Fighting);
+    // A hero that is not unlocked is not offered.
+    for status in [LeaderStatus::Locked, LeaderStatus::Purged] {
+        let (mut core, k, target) = shval(status);
+        let e = env(&k, 3);
+        assert_eq!(shval_to_the_close(&mut core, &e, target), Live::Done, "{status:?}: nothing is asked");
+        assert_eq!(mark(&core), None);
+    }
+}

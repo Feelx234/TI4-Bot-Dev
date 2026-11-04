@@ -376,7 +376,9 @@ pub fn sustains_in_space(rd: Rd<'_>, system: System, player: Seat, unit: Piece, 
         && (sustains_by_itself(rd, player, unit.kind())
             // The string context "space_cannon" (a SPACE CANNON OFFENSE hit) has no `CombatCtx`: no
             // module grants the ability there, so the slot is asked for combat hits only.
-            || (in_combat && rd.k.hooks.combat.grants_sustain(rd.s, rd.k, cu(CombatCtx::Space))))
+            // The slot (the module hooks of the dual's kernels) and the seam (what a faction module registers: Nomad's Quantum Manipulator and The Cavalry
+            // only register the seam, so reading the slot alone left them without SUSTAIN DAMAGE in a native game).
+            || (in_combat && (rd.k.hooks.combat.grants_sustain(rd.s, rd.k, cu(CombatCtx::Space)) || rd.k.hooks.seam.grants_sustain.decide(rd.q(), &cu(CombatCtx::Space), false))))
         && rd.k.hooks.seam.may_sustain.decide(rd.q(), &cu(CombatCtx::Space), true)
 }
 

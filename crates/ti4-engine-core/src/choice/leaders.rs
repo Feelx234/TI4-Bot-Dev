@@ -84,6 +84,8 @@ pub enum Ask {
     YinCommit { n: u8, stock: u8 },
     /// Z'eu (Naalu agent): the system the free tactical action is performed in (or decline).
     ZeuSystem,
+    /// Sh'val, Harbinger (Sardakk hero): skip directly to the "Commit Ground Forces" step (or decline).
+    SardakkSkip,
 }
 
 /// The kind of unit Xxekir Grom places.
@@ -153,6 +155,8 @@ pub enum Opt {
     MahactMove(crate::generated::System, crate::generated::System),
     /// Quantum Dissemination: commit infantry to this planet of this system.
     YinSpot(crate::generated::System, crate::generated::Planet),
+    /// Sh'val: skip to the commitment.
+    SardakkSkip,
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -187,4 +191,5 @@ pub enum Subtype {
     MahactMove,
     YinCommit,
     ZeuSystem,
+    SardakkSkip,
 }
