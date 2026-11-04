@@ -232,7 +232,7 @@ pub mod native;
 // THE SWAP: the public paths of the wire types, `Observed` and the `Game` are the thin crate's. Everything that speaks `Choice`, `Table`, `Decider`
 // or `Game` now speaks these; the legacy modules of the glob that still name the legacy types are listed in docs/D28D_RESUME.md.
 pub mod game {
-    pub use crate::kinds::game::*;
+    pub use crate::kinds::game::{CONTINUE_ACTION_ID, CONTINUE_ACTION_KIND, END_TURN_ID, END_TURN_KIND, SECONDARY_PREVIEW_COMPLETE, TACTICAL_ACTION_ID};
     pub use crate::native::{Game, GameError, GameSnapshot, RunError, StepResult};
 }
 pub mod choice {

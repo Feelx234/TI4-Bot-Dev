@@ -327,3 +327,22 @@ fn every_lobby_faction_moves_as_the_string_helpers_say() {
     println!("{counts:?}");
     assert!(counts.paths > 500, "{counts:?}");
 }
+
+/// The Cabal's dimensional tears make rifts anywhere, and their owner does not roll for them (`rift_roll_exempt`).
+#[test]
+fn dimensional_tears_make_rifts_the_owner_does_not_roll_for() {
+    let mut counts = Counts::default();
+    for seed in [3_u64, 11, 19] {
+        let (mut state, galaxy) = armed_table("cabal", seed);
+        let who = players(&state);
+        let ids: Vec<SystemId> = galaxy.system_ids().into_iter().map(SystemId::new).collect();
+        // A dock of the Cabal seat in a few systems on the way: tears, rifts for all.
+        for id in ids.iter().skip(1).step_by(2).take(20) {
+            let cell = state.board.entry(id.clone()).or_default();
+            cell.units.push(Unit::new(UnitTypeId::new("cabal_spacedock"), who[0].clone()));
+        }
+        compare(&format!("tears seed {seed}"), &state, &galaxy, POK, &who, 8, &mut counts);
+    }
+    println!("{counts:?}");
+    assert!(counts.rifts > 0, "{counts:?}");
+}

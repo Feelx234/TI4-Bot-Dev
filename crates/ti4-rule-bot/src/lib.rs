@@ -199,7 +199,7 @@ pub fn choose_explained(
 }
 
 /// The route (rules version 29: `details.routes` of a movement choice, see
-/// `ti4_engine::tactical::ship_routes`) that the bot takes for the move option `picked`: the
+/// `ti4_engine::tactical::routes_into`) that the bot takes for the move option `picked`: the
 /// number of the route in the option's list, 0 being the default, the route the engine took
 /// before routes existed.
 ///
