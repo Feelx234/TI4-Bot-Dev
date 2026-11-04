@@ -31,7 +31,7 @@
         "strategic_tokens": 2,
         "passed": false,
         "strategy_cards": [
-          "leadership"
+          "pok1leadership"
         ],
         "exhausted_strategy_cards": [],
         "technologies": [],
@@ -41,11 +41,11 @@
         "action_cards_count": 2,
         "secret_objectives_count": 1,
         "held_action_cards": [
-          "direct_hit",
-          "morale_boost"
+          "dh1",
+          "mb1"
         ],
         "held_secret_objectives": [
-          "destroy_their_greatest_ship"
+          "dtgs"
         ],
         "leaders": {}
       },
@@ -60,7 +60,7 @@
         "strategic_tokens": 3,
         "passed": false,
         "strategy_cards": [
-          "trade"
+          "pok5trade"
         ],
         "exhausted_strategy_cards": [],
         "technologies": [],
@@ -82,7 +82,7 @@
         "strategic_tokens": 2,
         "passed": false,
         "strategy_cards": [
-          "warfare"
+          "pok6warfare"
         ],
         "exhausted_strategy_cards": [],
         "technologies": [],
@@ -140,61 +140,47 @@
     },
     "table": {
       "revealed_objectives": [
-        "corner_the_market",
-        "develop_weaponry"
+        "corner",
+        "develop"
       ],
       "scored_objectives": {},
       "objective_progress": {
         "seat_a": {
-          "corner_the_market": {
+          "corner": {
             "have": 0,
             "threshold": 4,
             "satisfied": false
           },
-          "develop_weaponry": {
+          "develop": {
             "have": 0,
             "threshold": 2,
             "satisfied": false
           }
         },
         "seat_b": {
-          "corner_the_market": {
+          "corner": {
             "have": 0,
             "threshold": 4,
             "satisfied": false
           },
-          "develop_weaponry": {
+          "develop": {
             "have": 0,
             "threshold": 2,
             "satisfied": false
           }
         },
         "seat_c": {
-          "corner_the_market": {
+          "corner": {
             "have": 0,
             "threshold": 4,
             "satisfied": false
           },
-          "develop_weaponry": {
+          "develop": {
             "have": 0,
             "threshold": 2,
             "satisfied": false
           }
         }
-      },
-      "home_system_lost": {
-        "seat_a": [
-          "jord"
-        ],
-        "seat_b": [
-          "arretze",
-          "hercant",
-          "kamdorn"
-        ],
-        "seat_c": [
-          "arcprime",
-          "wrenterra"
-        ]
       },
       "unclaimed_strategy_cards": [],
       "strategy_card_goods": {},
@@ -209,7 +195,7 @@
         "home_system": null,
         "home_planets": [],
         "strategy_cards": [
-          "leadership"
+          "pok1leadership"
         ],
         "exhausted_strategy_cards": [],
         "tactic_tokens": 3,
@@ -220,13 +206,13 @@
         "trade_goods": 4,
         "commodities": 2,
         "secret_objectives": [
-          "destroy_their_greatest_ship"
+          "dtgs"
         ],
         "technologies": [],
         "exhausted_technologies": [],
         "action_cards": [
-          "direct_hit",
-          "morale_boost"
+          "dh1",
+          "mb1"
         ],
         "reaction_card_modes": {},
         "breakthrough": null,
@@ -285,7 +271,7 @@
         "home_system": null,
         "home_planets": [],
         "strategy_cards": [
-          "trade"
+          "pok5trade"
         ],
         "exhausted_strategy_cards": [],
         "tactic_tokens": 2,
@@ -360,7 +346,7 @@
         "home_system": null,
         "home_planets": [],
         "strategy_cards": [
-          "warfare"
+          "pok6warfare"
         ],
         "exhausted_strategy_cards": [],
         "tactic_tokens": 3,
@@ -530,8 +516,8 @@
     "pending": null,
     "exhausted_planets": [],
     "revealed_objectives": [
-      "corner_the_market",
-      "develop_weaponry"
+      "corner",
+      "develop"
     ],
     "objective_deck": [],
     "scored_objectives": {},
@@ -680,17 +666,17 @@
     "target": 10,
     "public": [
       {
-        "id": "corner_the_market",
-        "name": "corner_the_market",
+        "id": "corner",
+        "name": "Corner the Market",
         "points": 1,
-        "text": "",
+        "text": "Control 4 planets that each have the same planet trait.",
         "scored": []
       },
       {
-        "id": "develop_weaponry",
-        "name": "develop_weaponry",
+        "id": "develop",
+        "name": "Develop Weaponry",
         "points": 1,
-        "text": "",
+        "text": "Own 2 unit upgrade technologies.",
         "scored": []
       }
     ],
