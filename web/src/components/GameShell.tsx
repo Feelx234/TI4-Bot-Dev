@@ -878,7 +878,13 @@ export const ChoiceRendererDispatcher: React.FC<
     return readOnlyBar;
 
   // Movement with no unit that can move is finished for the player (see useLoneAutoSubmit): no dialog.
-  if (choice.nonce === autoAnswerNonce && choice.prompt === "movement") return null;
+  // (Never a movement that offers a move: the dialog is the only way to make it.)
+  if (
+    choice.nonce === autoAnswerNonce &&
+    choice.prompt === "movement" &&
+    !choice.options.some((option) => option.kind === "move")
+  )
+    return null;
 
   // A production's later payments are answered from the plan the player confirmed: no prompt.
   if (isAnsweredFromPlan(choice, productionPay))

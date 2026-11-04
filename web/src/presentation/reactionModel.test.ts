@@ -346,6 +346,64 @@ describe("Salvage effect", () => {
   });
 });
 
+describe("The Stillness of Stars (Cabal agent)", () => {
+  const offer = (withTrigger = true): PendingChoiceDto => ({
+    actor: "p1",
+    nonce: "1",
+    prompt: "after COMMODITIES_REPLENISHED",
+    context: partialContext({
+      subtype: "reaction_after_COMMODITIES_REPLENISHED",
+      optional: true,
+      source: { Reaction: "COMMODITIES_REPLENISHED" },
+      ...(withTrigger
+        ? {
+            trigger: {
+              kind: "other",
+              event_type: "COMMODITIES_REPLENISHED",
+              event_id: 4,
+              relation: "after",
+              actor: "p2",
+            },
+          }
+        : {}),
+    }),
+    options: [
+      {
+        id: "leader:cabal:cabalagent:COMMODITIES_REPLENISHED:after",
+        kind: "ability",
+        label: "Use The Stillness of Stars",
+        payload: {},
+      },
+      { id: "decline", kind: "decline", label: "Pass", payload: {} },
+    ],
+  });
+
+  it("names the replenished player's commodity value on the offer and in the sentence", () => {
+    const model = describeReaction({
+      choice: offer(),
+      ...labels,
+      viewerSeat: "p1",
+      commodities: (seat) => ({ p1: 2, p2: 4 })[seat] ?? null,
+    });
+    expect(model.sentence).toBe("Bob replenished their commodities to 4.");
+    expect(model.reactions[0].effect).toBe(
+      "Bob holds 4 commodities: they become 4 trade goods for Bob, and you capture 1 unit costing 4 or less from their reinforcements.",
+    );
+  });
+
+  it("uses the singular for 1 and stays silent without a count", () => {
+    const one = describeReaction({ choice: offer(), ...labels, viewerSeat: "p1", commodities: () => 1 });
+    expect(one.sentence).toBe("Bob replenished their commodities to 1.");
+    expect(one.reactions[0].effect).toContain("1 trade good for Bob");
+    expect(one.reactions[0].effect).toContain("costing 1 or less");
+    const unknown = describeReaction({ choice: offer(), ...labels, viewerSeat: "p1" });
+    expect(unknown.reactions[0].effect).toBeNull();
+    expect(unknown.sentence).toBe("Bob replenished their commodities.");
+    const none = describeReaction({ choice: offer(), ...labels, viewerSeat: "p1", commodities: () => 0 });
+    expect(none.reactions[0].effect).toBeNull();
+  });
+});
+
 describe("Engine effect previews", () => {
   const sabotageOffer = (previews: unknown): PendingChoiceDto => ({
     actor: "p1",

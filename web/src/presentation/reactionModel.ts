@@ -63,6 +63,8 @@ export interface ReactionTriggerFacts {
   planetId: string | null;
   units: readonly { owner: string; unit_type: string; count: number }[];
   hits: number | null;
+  /** The actor's commodities (public), for a replenish: the value the Cabal agent reads. */
+  commodities: number | null;
 }
 
 export interface ReactionModel {
@@ -189,6 +191,7 @@ export function emptyFacts(eventType: string | null): ReactionTriggerFacts {
     planetId: null,
     units: [],
     hits: null,
+    commodities: null,
   };
 }
 
@@ -413,6 +416,8 @@ export function triggerSentence(
       return `${A} produced units${inSystem}.`;
     case "UNIT_ABILITY_ROLLED":
       return `A unit ability was rolled${inSystem}.`;
+    case "COMMODITIES_REPLENISHED":
+      return `${A} replenished ${you ? "your" : "their"} commodities${facts.commodities === null ? "" : ` to ${facts.commodities}`}.`;
     default: {
       const phrase = describeEventPhrase(eventType || "event");
       return `A reaction window opened: ${relation ?? "after"} ${phrase}.`;
@@ -603,6 +608,18 @@ export function salvageEffect(
   return `You would gain ${noun}${detail}, as trade goods.`;
 }
 
+/** The Stillness of Stars (Cabal agent): the replenished commodities are the value that caps the captured unit. */
+export function stillnessEffect(
+  who: string | null,
+  commodities: ReactionModelInput["commodities"],
+  playerLabel: (id: string) => string,
+): string | null {
+  const count = who && commodities ? commodities(who) : null;
+  if (who === null || count === null || count <= 0) return null;
+  const noun = `${count} commodit${count === 1 ? "y" : "ies"}`;
+  return `${playerLabel(who)} holds ${noun}: they become ${count} trade good${count === 1 ? "" : "s"} for ${playerLabel(who)}, and you capture 1 unit costing ${count} or less from their reinforcements.`;
+}
+
 function joinNames(names: string[]): string {
   if (names.length <= 1) return names[0] ?? "";
   return `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
@@ -658,6 +675,15 @@ export function describeReaction(input: ReactionModelInput): ReactionModel {
         input.commodities,
         input.playerLabel,
       );
+    }
+  }
+  // A replenish names the seat whose commodities were filled; their count is public.
+  if (eventType === "COMMODITIES_REPLENISHED" && facts.actorId && input.commodities) {
+    facts.commodities = input.commodities(facts.actorId);
+    for (const row of reactions) {
+      if (row.optionId.startsWith("leader:cabal:cabalagent:") && !row.effect) {
+        row.effect = stillnessEffect(facts.actorId, input.commodities, input.playerLabel);
+      }
     }
   }
   const declineOptionId = choice.options.find(isDeclineOption)?.id ?? null;

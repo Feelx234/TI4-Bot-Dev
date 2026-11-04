@@ -1,0 +1,55 @@
+{
+  "title": "Stillness of Stars: commodity value on the offer",
+  "description": "Alpha feedback fb_1793183942: the Cabal agent's offer after another player replenishes commodities did not say how many commodities that player holds, which is the number that caps the cost of the unit the Cabal may capture. The reaction window now says 'Bob replenished their commodities to 4.' and, under the card, 'Bob holds 4 commodities: they become 4 trade goods for Bob, and you capture 1 unit costing 4 or less from their reinforcements.' The count is the replenished player's public commodities (the same public number Salvage already reads). Mocked fixtures; regenerate with npm run screenshots -- HN. The before PNGs were taken with TI4_SHOT_PREFIX=before on the commit without the change.",
+  "tag": "web/e2e/screenshots/HN-stillness-commodities",
+  "shots": [
+    {
+      "heading": "Four commodities (desktop)",
+      "caption": "Before: 'A reaction window opened: after commodities replenished.' and the printed text only. After: the sentence and an effect line with the value.",
+      "images": [
+        {
+          "label": "Before",
+          "file": "before/before-1-stillness-4-desktop.png"
+        },
+        {
+          "label": "After",
+          "file": "out/1-stillness-4-desktop.png"
+        }
+      ]
+    },
+    {
+      "heading": "One commodity (desktop)",
+      "caption": "Singular wording: 1 commodity, 1 trade good, costing 1 or less.",
+      "images": [
+        {
+          "label": "Before",
+          "file": "before/before-1-stillness-1-desktop.png"
+        },
+        {
+          "label": "After",
+          "file": "out/1-stillness-1-desktop.png"
+        }
+      ]
+    },
+    {
+      "heading": "Four commodities (390x844)",
+      "caption": "Same on a phone.",
+      "images": [
+        {
+          "label": "Before",
+          "file": "before/before-1-stillness-4-390x844.png"
+        },
+        {
+          "label": "After",
+          "file": "out/1-stillness-4-390x844.png"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    {
+      "title": "Where the value comes from",
+      "text": "The engine's trigger names the seat that replenished (trigger.actor); the client reads that seat's commodities from the public player view, shortly after the replenish and before anything else changes them. The engine's event also carries the value (Key::Commodities) but the wire trigger does not, so no wire or engine change was made. When the count is unknown or 0 the offer reads as before."
+    }
+  ]
+}

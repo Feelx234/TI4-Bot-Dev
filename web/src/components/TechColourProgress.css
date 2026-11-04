@@ -1,0 +1,71 @@
+.tech-colour-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 4px;
+  width: 100%;
+}
+
+.tech-colour-progress__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tech-colour-progress__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid #475569;
+  color: #94a3b8;
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.tech-colour-progress__chip--met {
+  color: #e2e8f0;
+  border-color: #34d399;
+}
+
+.tech-colour-progress__swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.tech-colour-progress__summary {
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.tech-colour-progress__summary--met {
+  color: #34d399;
+}
+
+.tech-colour-progress__heading {
+  font-size: 10px;
+  font-weight: 700;
+  color: #cbd5e1;
+}
+
+/* The viewer's own colours in the card column: on a phone the player columns scroll sideways and
+   may start off screen; on wider screens the viewer's column already shows them. */
+.tech-colour-progress--card {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .tech-colour-progress--card {
+    display: flex;
+  }
+}

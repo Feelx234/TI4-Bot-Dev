@@ -1,0 +1,12 @@
+{
+  "title": "Move dialog after an undo",
+  "description": "Alpha report fb_1793818512 (\"Why is no move dialog shown?\"). The offline engine numbers the questions of a run from 1 and an undo starts a new run. The client answers a lone movement question (no unit can move) without opening the dialog, and kept that question's nonce to hold the dialog closed; the movement question of the next try, with ships to move, could carry the same nonce and its dialog stayed closed. The dialog is now held closed only for the lone question itself (and never for a movement that offers a move). The captures drive the real app against a mocked game through exactly that sequence: a lone movement with nonce 6, an undo (new history generation), and a movement with ships and nonce 6 again. Regenerate with npm run screenshots -- HL.",
+  "tag": "web/e2e/screenshots/HL-movement-dialog-after-undo",
+  "shots": [
+    { "file": "out/1-dialog-after-undo-desktop.png", "heading": "Dialog opens after the undo, desktop", "caption": "After the lone movement was answered and undone, the movement question with a carrier pair and a destroyer to move opens the tray (before the fix it stayed closed, with no resume pill either)." },
+    { "file": "out/1-dialog-after-undo-360x601.png", "heading": "Dialog opens after the undo, 360x601", "caption": "The reporter's phone size." }
+  ],
+  "notes": [
+    { "title": "Not changed", "text": "No engine or protocol change. A lone movement is still answered by the client with its dialog closed, once; only the dialog's hold is now tied to the question it was made for." }
+  ]
+}

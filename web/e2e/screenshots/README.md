@@ -191,3 +191,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Berekar Berekon in the production dialog (HA-berekar-production)
 
 `HA-berekar-production` shows the Winnu agent as a toggle in the owner's own production dialog (total lowered by 2, the exhaust sent before the builds) and as a button of its own when nothing is within reach without it, desktop and 390x844. Synthetic fixtures through the mocked server; no `before/` (the card was a reaction question ahead of the dialog). `npm run screenshots -- HA`.
+
+## Alpha feedback 2026-11-04 UI ideas (HM, HN, HO)
+
+`HM-tech-colour-counts` shows technologies per colour on Diversify Research and Master the Sciences in the Objectives dialog (a chip per colour with owned/needed and a tick, every seat, the viewer's row repeated on a phone). `HN-stillness-commodities` shows the Cabal agent's offer naming the replenished player's commodity value (sentence and effect line). `HO-committee-log-wording` shows the event log wording for the agenda questions the host logs as "<seat> resolved <question>" (Committee Formation's discard offer, Quash, and the like), with the rule as a hover title. All mocked fixtures; each folder's `before/` PNGs were taken with `TI4_SHOT_PREFIX=before` on the commit without the change (the captures then skip their assertions); `npm run screenshots -- HM` (or `HN`, `HO`) regenerates the `out/` PNGs and asserts the texts.

@@ -723,6 +723,59 @@ describe("ObjectivesModal", () => {
     });
   });
 
+  describe("technologies per colour", () => {
+    const sol: PlayerView = { ...mockPlayers[0], technologies: ["amd", "det", "nm"] };
+    const hacan: PlayerView = { ...mockPlayers[1], technologies: ["st", "sdn", "ps", "aida"] };
+    const progress: Record<string, Record<string, ObjectiveProgressView>> = {
+      p1: { diversify: { have: 1, threshold: 2, satisfied: false } },
+      p2: { diversify: { have: 2, threshold: 2, satisfied: true } },
+    };
+
+    it("lists each colour's technologies for every seat on Diversify Research", () => {
+      render(
+        <ObjectivesModal
+          isOpen={true}
+          onClose={vi.fn()}
+          revealedObjectives={["diversify"]}
+          objectiveProgress={progress}
+          players={[sol, hacan]}
+          viewerSeat="p1"
+        />,
+      );
+      const mine = screen.getByTestId("tech-colour-progress-diversify-p1");
+      expect(mine).toHaveTextContent("Blue 2/2 ✓");
+      expect(mine).toHaveTextContent("Green 1/2");
+      expect(mine).toHaveTextContent("Yellow 0/2");
+      expect(mine).toHaveTextContent("1 of 2 colors with 2+ · need 2");
+      expect(screen.getByTestId("tech-colour-diversify-p1-propulsion")).toHaveAttribute("data-met", "true");
+      expect(screen.getByTestId("tech-colour-diversify-p1-biotic")).toHaveAttribute("data-met", "false");
+      const theirs = screen.getByTestId("tech-colour-progress-diversify-p2");
+      expect(theirs).toHaveTextContent("Yellow 2/2 ✓");
+      expect(theirs).toHaveTextContent("Red 2/2 ✓");
+      expect(theirs).toHaveTextContent("2 of 2 colors with 2+ · need 2");
+      // The viewer's copy in the card column (shown on phones).
+      expect(screen.getByTestId("tech-colour-progress-diversify-card")).toHaveTextContent("You:");
+    });
+
+    it("is absent once the seat scored it and on other objectives", () => {
+      render(
+        <ObjectivesModal
+          isOpen={true}
+          onClose={vi.fn()}
+          revealedObjectives={["diversify", "corner"]}
+          scoredObjectives={{ p1: ["diversify"] }}
+          objectiveProgress={{ ...progress, p2: { ...progress.p2, corner: { have: 1, threshold: 4, satisfied: false } } }}
+          players={[sol, hacan]}
+          viewerSeat="p1"
+        />,
+      );
+      expect(screen.queryByTestId("tech-colour-progress-diversify-p1")).toBeNull();
+      expect(screen.queryByTestId("tech-colour-progress-diversify-card")).toBeNull();
+      expect(screen.queryByTestId("tech-colour-progress-corner-p2")).toBeNull();
+      expect(screen.getByTestId("tech-colour-progress-diversify-p2")).toBeInTheDocument();
+    });
+  });
+
   it("names the systems Learn the Secrets of the Cosmos counts", () => {
     const owner: PlayerView = {
       ...mockPlayers[0],
