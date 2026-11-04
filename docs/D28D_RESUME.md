@@ -158,3 +158,32 @@ Red, with the reason:
 ## Slow modules, result of the long runs
 
 `undo::slow_a_card_that_is_drawn_ends_the_undo_and_a_recovered_game_knows_it`: **passes** (608 s, dev profile): the undo latch (barriers `Revealed` from the deck-length latch and `OtherSeat`) agrees with the string's. `replay_export::a_lobby_game_exports_its_setup_and_replays_from_the_file_alone` and `a_game_in_progress_replays_to_its_open_question`: not finished after more than 15 minutes (killed, no failure message seen: slow or hung, undetermined); `smart_bots::slow_*` not re-run. First thing for the next round: profile one session game (the per-step cost of `materialize` per question, `env_with_plays` and the two `CoreState` clones) and run these with a release-profile test binary.
+
+---
+
+# Round 5 (same branch)
+
+## Perf note (gate profile = release code generation without LTO; dev = unoptimized)
+
+| measure | dev | gate |
+|---|---:|---:|
+| `wrapper_native` quick game (sol 4p seed 1, 1165 native steps, the rule bot answering) | 15 s (13 ms/step) | 2.9 s (2.5 ms/step) |
+| `undo::slow_a_card_that_is_drawn...` (a session game of 120 own decisions) | 608 s | 571 s |
+| `smart_bots::*` (4 tests) | not run to the end | 33 s |
+| `replay_export::a_game_in_progress...` | not finished (TE refusal) | 1.9 s |
+
+The wrapper itself costs about 2.5 ms per native step in release code. The session tests that looked like "0.6 s per decision" are **not CPU-bound**: the gate build is as slow as dev (571 s against 608 s) and the process sits at 6 % CPU, i.e. it waits (the random-bot and poll delays of the session and the test driver). So no wrapper work was cut: there is no avoidable hot spot to chase without a symbolised profile (gate strips symbols; `perf` showed only addresses). If it is wanted later: rebuild with `CARGO_PROFILE_RELEASE_STRIP=false` and look at `Native::materialized` (once per question and per step), `env_with_plays` (per step) and the two `CoreState` clones of `native_step`/`run_live`.
+
+## Slow vs hung (gate binary)
+
+* `replay_export::a_game_in_progress_replays_to_its_open_question`: was not slow, it was refused: the test table switches Thunder's Edge content on and the session answers `GameError::Disabled` (the test polled for a question for ever). The two `replay_export` tests now create a table with the content off (what lane E did) and assert `thunders_edge` is not true in the export. Passes in 1.9 s.
+* `replay_export::a_lobby_game_exports_its_setup_and_replays_from_the_file_alone`: **hangs** (400 answers asked of three human seats). Cause found, not fixed: after answer 144 (a Cabal reaction that plays `imp_rider` in the `AGENDA_REVEALED:after` window) the same window asks the same seat a second question ("Warfare Rider: predict the agenda outcome") before the first card play is announced. `ti4-server/src/session/worker.rs` (`on_observed_offer`) holds a played-card record back "for the next boundary" until `state.action_card_plays` contains the play, so the reply to the first `submit_choice` is not sent, and a synchronous client (this test) waits for it while the engine waits for the same seat's second answer. In the state the callback sees (`nested` position of the second question) the play is not in `action_card_plays` yet (checked: `has=false`, 14 plays present). Either the core announces the card at the window close (`AbilityTable::on_close`) where the string announced it when the card was declared, or the hold-back needs another criterion; the durability promise (a reply only after the decision is persisted) forbids replying early. A real client is asynchronous, so this is a delayed acknowledgement in the product and a deadlock in the test. Needs the core owner (announcement timing of `imp_rider`/riders declared inside a window).
+* `smart_bots::slow_*`: slow, not hung (33 s). Two of four fail on core gaps: `aftermath: Unported(Dacxive)` (listed for the integration lane) and `ask: TurnGap(StrategyAbility)` (a strategy-card ability the core does not turn into a question yet; new in this list).
+
+## Item 2, not done (list, no loosening)
+
+`apply_movement_effects`, `movement::{Board, MovementRules}`, `ship_routes`, `CargoWindow`/`rifts_exited`, `window_table`, `preview_secondary` are untouched. Why they were not started: together with the string `tactical`/`transit` helpers they are 7 900 lines whose host users (`view/tactical.rs`, `planning/`, `session/preview.rs`) must be re-pointed at the core's reach queries; each fact needs a differential test against the legacy function on played games, and the first mismatch (route sets with `MoveRoute` ordering, rift-exit lists, cargo capacity under Spatial Conduit/Gravity Drive) has to be listed rather than papered over. This is a lane of its own. The exact legacy items remain: `ti4_engine::{action_cards::apply_movement_effects, movement::{Board, MovementRules}, tactical::ship_routes, transit::{CargoWindow, rifts_exited}, reactions::window_table, secondary_preview::preview_secondary}`.
+
+## Checks at the end of round 5
+
+`cargo check --workspace --all-targets` (minus the torch crates) green; unit suites: host 299, rule-bot 190 (1 ignored), wasm 9, policy 286 (the `scored_games_stay...` test skipped: core gap `aftermath: MissingFact`, not mine). Left red and listed, not mine: the Dacxive bail, `aftermath: MissingFact` seed 7793, the `PayStep` single-way note for splice.
