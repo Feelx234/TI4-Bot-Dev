@@ -515,11 +515,11 @@ pub enum IStage {
 #[derive(Debug, Clone)]
 pub struct ImperialPrimary {
     pub who: Seat,
-    scoreable: SmallList<PublicObjective, 16>,
+    scoreable: SmallList<crate::state::ObjectiveRef, 16>,
     stage: IStage,
     env: Option<fx_pay::PayEnv>,
     /// The objective the holder scored, if any.
-    pub scored: Option<PublicObjective>,
+    pub scored: Option<crate::state::ObjectiveRef>,
     /// The hand limit after the secret draw (`secrets::enforce_hand_limit`), a child of the objectives area.
     hand: ErasedChild,
     /// The table has no link to the hand limit window (it was not filled by `driver::children::register`): the draw cannot be
@@ -529,7 +529,7 @@ pub struct ImperialPrimary {
 
 impl ImperialPrimary {
     #[must_use]
-    pub const fn new(who: Seat, scoreable: SmallList<PublicObjective, 16>) -> Self {
+    pub const fn new(who: Seat, scoreable: SmallList<crate::state::ObjectiveRef, 16>) -> Self {
         Self { who, scoreable, stage: IStage::Start, env: None, scored: None, hand: ErasedChild::idle(), unsupported: false }
     }
 
@@ -596,7 +596,10 @@ impl Window for ImperialPrimary {
             return self.hand.ask_of(s, k);
         }
         (self.stage == IStage::Score).then(|| {
-            let mut options = opts(self.scoreable.as_slice().iter().map(|o| SOpt::Objective(*o)));
+            let mut options = opts(self.scoreable.as_slice().iter().map(|o| match o {
+                crate::state::ObjectiveRef::Public(p) => SOpt::Objective(*p),
+                crate::state::ObjectiveRef::Secret(x) => SOpt::LeakedSecret(*x),
+            }));
             options.push(Opt::Decline);
             Choice { actor: self.who, ask: ask(SAsk::ImperialScore), ctx: ctx(StrategyCard::Imperial, false, SSub::ImperialScoreObjective), opts: options }
         })
@@ -611,15 +614,26 @@ impl Window for ImperialPrimary {
         }
         match pick {
             Pick::Opt(Opt::Decline) => {}
-            Pick::Opt(Opt::Strategy(SOpt::Objective(o))) if self.scoreable.as_slice().contains(&o) => {
-                // `objectives::award`: the price first (an unaffordable one scores nothing), then the score.
-                let paid = match crate::query::objectives::cost_of(o) {
-                    None => true,
-                    Some(cost) => self.env.is_some_and(|env| fx_pay::pay_cost(sx.state, sx.kernel, env, self.who, cost)),
+            Pick::Opt(Opt::Strategy(opt @ (SOpt::Objective(_) | SOpt::LeakedSecret(_)))) => {
+                let chosen = match opt {
+                    SOpt::Objective(o) => crate::state::ObjectiveRef::Public(o),
+                    SOpt::LeakedSecret(x) => crate::state::ObjectiveRef::Secret(x),
+                    _ => return Err(Illegal),
+                };
+                if !self.scoreable.as_slice().contains(&chosen) {
+                    return Err(Illegal);
+                }
+                // `objectives::award`: the price first (an unaffordable one scores nothing), then the score. (A secret in the public area has no price.)
+                let paid = match chosen {
+                    crate::state::ObjectiveRef::Public(o) => match crate::query::objectives::cost_of(o) {
+                        None => true,
+                        Some(cost) => self.env.is_some_and(|env| fx_pay::pay_cost(sx.state, sx.kernel, env, self.who, cost)),
+                    },
+                    crate::state::ObjectiveRef::Secret(_) => true,
                 };
                 if paid {
-                    fx::score_public(sx.state, self.who, crate::state::ObjectiveRef::Public(o));
-                    self.scored = Some(o);
+                    fx::score_public(sx.state, self.who, chosen);
+                    self.scored = Some(chosen);
                 }
             }
             _ => return Err(Illegal),

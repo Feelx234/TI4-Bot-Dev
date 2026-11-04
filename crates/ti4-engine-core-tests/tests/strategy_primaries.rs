@@ -244,7 +244,7 @@ fn imperial(mecatol: bool, scoreable: &[PublicObjective]) -> Rig<ImperialPrimary
     }
     let mut state = sc.state();
     state.decks_mut().secret = Deck::new(vec![ti4_engine_core::generated::SecretObjective::ALL[0], ti4_engine_core::generated::SecretObjective::ALL[1]]);
-    let list: SmallList<PublicObjective, 16> = scoreable.iter().copied().collect();
+    let list: SmallList<ti4_engine_core::state::ObjectiveRef, 16> = scoreable.iter().map(|o| ti4_engine_core::state::ObjectiveRef::Public(*o)).collect();
     Rig::from_parts(state, ti4_engine_core_tests::kernel_all(), ImperialPrimary::new(Seat(0), list))
 }
 
@@ -257,7 +257,7 @@ fn imperial_scores_the_chosen_objective_then_the_mecatol_point_or_a_secret() {
     assert_eq!(rig.opts().last(), Some(&Opt::Decline), "the decline comes last");
     rig.pick_opt(strat(SOpt::Objective(o)));
     assert!(rig.is_done());
-    assert_eq!(rig.driver.window.scored, Some(o));
+    assert_eq!(rig.driver.window.scored, Some(ti4_engine_core::state::ObjectiveRef::Public(o)));
     assert!(rig.state.objectives().scored[0].public.contains(o));
     assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.victory_points, i16::from(objectives::points_of(o)) + 1, "the objective and the Mecatol point");
 
@@ -265,6 +265,30 @@ fn imperial_scores_the_chosen_objective_then_the_mecatol_point_or_a_secret() {
     off.run().pick_opt(strat(SOpt::Objective(o)));
     assert_eq!(off.state.players().by_seat(Seat(0)).unwrap().econ.victory_points, i16::from(objectives::points_of(o)), "without Mecatol: the objective only");
     assert_eq!(off.state.players().by_seat(Seat(0)).unwrap().cards.secrets.len(), 1, "and a secret objective instead of the point");
+}
+
+/// A secret objective a leak (Classified Document Leaks) moved into the public area is offered beside the public ones and scored with the Imperial
+/// primary for its points (it stopped the step with `TurnGap(StrategyAbility)`: server `smart_bots` "outplay", `Secret(EstablishHegemony)`).
+#[test]
+fn imperial_offers_and_scores_a_secret_a_leak_moved_into_the_public_area() {
+    covers!("rules::strategy_primaries::ImperialPrimary");
+    use ti4_engine_core::state::ObjectiveRef;
+    let secret = ti4_engine_core::generated::SecretObjective::ALL[0];
+    let o = free_objective();
+    let list: SmallList<ObjectiveRef, 16> = [ObjectiveRef::Secret(secret), ObjectiveRef::Public(o)].into_iter().collect();
+    let (base, _) = (imperial(true, &[]), ());
+    let mut rig = Rig::from_parts(base.state.clone(), ti4_engine_core_tests::kernel_all(), ImperialPrimary::new(Seat(0), list));
+    rig.run();
+    assert!(rig.opts().contains(&strat(SOpt::LeakedSecret(secret))) && rig.opts().contains(&strat(SOpt::Objective(o))), "both are offered, in reveal order");
+    rig.pick_opt(strat(SOpt::LeakedSecret(secret)));
+    assert!(rig.is_done());
+    assert_eq!(rig.driver.window.scored, Some(ObjectiveRef::Secret(secret)));
+    assert!(rig.state.objectives().scored[0].secret.contains(secret));
+    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.victory_points, i16::from(objectives::secret_points(secret)) + 1, "its points and the Mecatol point");
+    // A secret not on the list is refused.
+    let mut other = imperial(true, &[o]);
+    other.run();
+    other.expect_illegal(Pick::Opt(strat(SOpt::LeakedSecret(secret))));
 }
 
 #[test]

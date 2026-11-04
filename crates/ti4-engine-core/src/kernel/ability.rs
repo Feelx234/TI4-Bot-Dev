@@ -15,7 +15,7 @@ use super::stage::Sx;
 use super::resolver::{AbilityDef, CannotDef, Host, Resolver, TimingError};
 use super::{Asker, Kernel};
 use crate::choice::reaction::{AbilityId, AbilityKind, Frequency, Relation};
-use crate::choice::{Choice, Pick};
+use crate::choice::{Choice, Opt, Pick};
 use crate::generated::Faction;
 use crate::ids::Seat;
 use crate::state::{CoreState, EventKind, EventRec, RngDomain, SeedSource};
@@ -167,7 +167,6 @@ pub enum Unported {
     BombardmentDiceMismatch,
     X89,
     Thundarian,
-    Dacxive,
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.
@@ -877,9 +876,30 @@ pub struct AbilityTable {
     /// other, so the layer that may (`driver::children::register`) fills them. Empty by default.
     pub links: super::children::AreaLinks,
     card_plays: Vec<CardPlay>,
+    /// A payment with one way left to pay was collapsed without a question (`PayStep`, `pay_in`): the log the wrapper drains after the step to
+    /// tell the payer (`Table::auto_resolve`: "it was the only way left to pay"). `None` records nothing and clones nothing.
+    pub auto_paid: Option<std::sync::Arc<std::sync::Mutex<Vec<AutoPaid>>>>,
+}
+
+/// A payment question that was not asked because it had one option: what the wrapper needs to announce it (the question as it would have been
+/// put, the option taken, the position it was put in). A step the driver repeats (a rollback and a replay) logs the same entry again: the
+/// wrapper takes the log of the committed step only.
+#[derive(Debug, Clone)]
+pub struct AutoPaid {
+    pub choice: Choice,
+    pub taken: Opt,
+    pub at: Box<CoreState>,
 }
 
 impl AbilityTable {
+    /// Log a collapsed single-way payment (nothing is built when no log is installed).
+    pub fn note_auto_paid(&self, state: &CoreState, question: impl FnOnce() -> Option<Choice>) {
+        let Some(log) = &self.auto_paid else { return };
+        let Some(choice) = question() else { return };
+        let Some(&taken) = choice.opts.as_slice().first() else { return };
+        log.lock().expect("auto paid log").push(AutoPaid { choice, taken, at: Box::new(state.clone()) });
+    }
+
     /// Register the effect of some reaction cards.
     pub fn add_card_play(&mut self, play: CardPlay) {
         self.card_plays.push(play);
@@ -1223,6 +1243,12 @@ impl<'a> Eff<'_, 'a> {
     #[must_use]
     pub fn adapter_facts(&self) -> &AdapterFacts {
         &self.host.table.facts
+    }
+
+    /// The table of abilities the window runs with (the logs the wrapper drains).
+    #[must_use]
+    pub fn host_table(&self) -> &AbilityTable {
+        self.host.table
     }
 
     /// The kernel a payment inside this ability reads, if the adapter lent one.

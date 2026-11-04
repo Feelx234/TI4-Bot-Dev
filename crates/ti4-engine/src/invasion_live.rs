@@ -59,7 +59,6 @@ pub const fn unported_text(why: ti4_engine_core::kernel::ability::Unported) -> &
         U::BombardmentDiceMismatch => "the bombardment dice do not match the plan",
         U::X89 => "X-89 Bacterial Weapon in a ground round",
         U::Thundarian => "The Thundarian watching the roll step",
-        U::Dacxive => "Dacxive Animators in a ground combat",
     }
 }
 

@@ -83,10 +83,13 @@ fn scramble(host: &mut RulesHost<'_>, _: &mut Resolver, _: Seat, _: ActionCard) 
 fn fire_team(host: &mut RulesHost<'_>, _: &mut Resolver, who: Seat, card: ActionCard) -> Result<(), TimingError> {
     use ti4_engine_core::choice::combat::{Ask as CAsk, Opt as COpt, RerollSource, Subtype as CSub};
     use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype, Target};
-    let Some(facts) = host.table.facts.reroll.clone() else {
-        host.tape.unknown.set(Some(Unknown::MissingFact));
-        return Ok(());
-    };
+    // The texts of the ground dice are the invasion's own (`codes.invasion`: the kind `ground` the roll stages under and the group names it
+    // calls its dice by); an adapter that lends other ones (`facts.reroll`) wins. No adapter ever did, so a Fire Team played in a ground round
+    // stopped the step with `MissingFact` (policy `scored_games_stay...`, seed 7850 rotation 1).
+    let facts = host.table.facts.reroll.clone().unwrap_or_else(|| {
+        let inv = &host.table.codes.invasion;
+        ti4_engine_core::kernel::ability::RerollFacts { ground: inv.ground, shown: inv.names.iter().map(|n| (*n, *n)).collect() }
+    });
     let Some(set) = host.state.transient().combat.reroll_staging.iter().find(|(s, _)| *s == who).map(|(_, set)| set.clone()) else { return Ok(()) };
     if set.kind != facts.ground {
         return Ok(());
@@ -679,6 +682,30 @@ mod tests {
         let before = other.clone();
         assert_eq!(run(&mut other, &registered(), ActionCard::ScrambleFrequency, Seat(0), false), Ok(None));
         assert_eq!(other, before, "the roller staged nothing: nothing changes");
+    }
+
+    /// Fire Team played in a ground round with no adapter facts for the rerolls (`facts.reroll` is lent by nobody): the dice are asked about by the
+    /// invasion's own texts, one optional question per die, and the step is not unknown (it stopped with `MissingFact`: policy seed 7850 rotation 1).
+    #[test]
+    fn fire_team_asks_about_the_dice_of_the_ground_round_with_the_invasions_own_texts() {
+        let mut s = rolled(Some(Seat(1)));
+        // `rolled` stages the roll of seat 1 under kind 9 with the groups 1 and 2; seat 1 plays the card.
+        let mut t = registered();
+        t.codes.invasion.ground = ti4_engine_core::state::Code(9);
+        t.codes.invasion.names[0] = ti4_engine_core::state::Code(1);
+        t.codes.invasion.names[1] = ti4_engine_core::state::Code(2);
+        assert!(t.facts.reroll.is_none());
+        let kernel = ti4_engine_core::kernel::Kernel::plain();
+        let mut tape = Tape::default();
+        let mut next_id = 1_u64;
+        let mut resolver = Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
+        let mut host = RulesHost { state: &mut s, kernel: &kernel, table: &t, tape: &mut tape, next_id: &mut next_id, seeds: &NoSeeds };
+        let effect = t.card_play(ActionCard::FireTeam).copied().expect("registered").effect;
+        effect(&mut host, &mut resolver, Seat(1), ActionCard::FireTeam).unwrap();
+        assert_eq!(tape.take_unknown(), None, "the texts are the invasion's");
+        let q = tape.needed().cloned().expect("the first die is asked about");
+        assert!(matches!(q.ask, ti4_engine_core::choice::Ask::Combat(ti4_engine_core::choice::combat::Ask::RerollDie { die: 0, .. })));
+        assert_eq!(q.actor, Seat(1));
     }
 
     /// Fire Team keeps its redraw as registered (B12): the draws are made and marked but no ledger row is kept.

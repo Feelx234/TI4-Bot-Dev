@@ -724,7 +724,7 @@ mod real {
             return None;
         }
         if let Some(objective) = driver.window.scored {
-            crate::objectives::award_tail(gs, content, sources, player.clone(), &ti4_model::id::ObjectiveId::new(objective.as_str()));
+            crate::objectives::award_tail(gs, content, sources, player.clone(), &ti4_model::id::ObjectiveId::new(crate::strategy_cards_core::objective_ref_id(objective)));
         }
         gs.finished = crate::objectives::winner(gs).is_some();
         Some(finish(&driven, &driver.window))
@@ -750,18 +750,26 @@ mod real {
             return Err("a Keleres seat (non-lobby)");
         }
         let scoreable = crate::objectives::scoreable_on(gs, content, sources.clone(), player, galaxy);
-        let typed: Vec<PublicObjective> = scoreable
+        // (A secret a leak moved into the public area is offered beside the public ones, in reveal order.)
+        let typed: Vec<ti4_engine_core::state::ObjectiveRef> = scoreable
             .iter()
-            .map(|o| crate::core_adapter::typed::<PublicObjective>(o.as_str()))
+            .map(|o| {
+                crate::core_adapter::typed::<PublicObjective>(o.as_str())
+                    .map(ti4_engine_core::state::ObjectiveRef::Public)
+                    .or_else(|| crate::core_adapter::typed::<ti4_engine_core::generated::SecretObjective>(o.as_str()).map(ti4_engine_core::state::ObjectiveRef::Secret))
+            })
             .collect::<Option<_>>()
             .ok_or("a scoreable objective the tables do not know")?;
         let mut priced = false;
         for (alias, objective) in scoreable.iter().zip(&typed) {
-            let points = i32::from(ti4_engine_core::query::objectives::points_of(*objective));
+            let points = i32::from(match objective {
+                ti4_engine_core::state::ObjectiveRef::Public(p) => ti4_engine_core::query::objectives::points_of(*p),
+                ti4_engine_core::state::ObjectiveRef::Secret(x) => ti4_engine_core::query::objectives::secret_points(*x),
+            });
             if crate::objectives::points_for(content, alias) != Some(points) {
                 return Err("an objective whose points the tables read otherwise");
             }
-            priced |= ti4_engine_core::query::objectives::cost_of(*objective).is_some();
+            priced |= matches!(objective, ti4_engine_core::state::ObjectiveRef::Public(p) if ti4_engine_core::query::objectives::cost_of(*p).is_some());
         }
         if priced && price_is_string(gs, player) {
             return Err("a bought objective at a table whose payment the production kernel does not follow (ocean cards)");
@@ -1780,5 +1788,14 @@ mod tests {
         assert_eq!(shared, 0, "the shared report is focused on this thread: the other thread's window is not in it");
         assert_eq!(counts(label), (0, 0), "this thread ran none");
         let _ = take_report();
+    }
+}
+
+/// The id of a typed revealed objective, public or a leaked secret.
+pub(crate) fn objective_ref_id(objective: ti4_engine_core::state::ObjectiveRef) -> &'static str {
+    use crate::generated::IdStr;
+    match objective {
+        ti4_engine_core::state::ObjectiveRef::Public(p) => p.as_str(),
+        ti4_engine_core::state::ObjectiveRef::Secret(x) => x.as_str(),
     }
 }

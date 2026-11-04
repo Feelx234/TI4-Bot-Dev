@@ -202,7 +202,7 @@ pub struct Finished {
     /// What the Warfare secondary's home production made, in order, with the system it ran in: the adapter announces it (`UNITS_PRODUCED`).
     pub made: Option<Made>,
     /// The public objective the Imperial primary scored (what the score sets off is the adapter's).
-    pub scored: Option<PublicObjective>,
+    pub scored: Option<crate::state::ObjectiveRef>,
     /// The system of the free tactical action of the Thunder's Edge Warfare primary: the game plays it next (`Ability::FreeTactical`).
     pub free: Option<System>,
     /// The system of the use of PRODUCTION the Thunder's Edge Construction primary ran, when it ran one (`made` is what it made).

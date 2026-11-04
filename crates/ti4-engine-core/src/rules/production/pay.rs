@@ -144,7 +144,11 @@ pub fn pay_in(eff: &mut Eff<'_, '_>, who: Seat, cost: i64, kind: Spend) -> Resul
             }
         };
         let picked = match (lone, question) {
-            (Some(only), _) => only,
+            (Some(only), _) => {
+                let s: &CoreState = eff.read().0;
+                eff.host_table().note_auto_paid(s, || step.question(s, k));
+                only
+            }
             (None, Some(q)) => match eff.ask(&q) {
                 Pick::Opt(Opt::Production(o)) => o,
                 _ => return Ok(false),
@@ -178,6 +182,7 @@ impl Window for PayStep {
             }
             [only] => {
                 let only = *only;
+                sx.table.note_auto_paid(sx.state, || self.question(sx.state, sx.kernel));
                 self.took = self.apply(sx.state, sx.kernel, only);
                 self.stage = Stage::Done;
                 Next::Done
@@ -353,6 +358,51 @@ mod bill_tests {
         let d = pay(&mut s, 3);
         assert_eq!(d.window.outcome, Some(false));
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 2);
+    }
+
+    fn pay_logged(s: &mut CoreState, cost: i64) -> (Driver<PayBill>, Vec<crate::kernel::ability::AutoPaid>, usize) {
+        let k = Kernel::plain();
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut table = AbilityTable::default();
+        table.auto_paid = Some(log.clone());
+        let mut d = Driver::new(PayBill::new(Seat(0), Spend::Influence, cost), Resolver::new(&[Seat(0)], Some(Seat(0))), table, 1);
+        let mut asked = 0;
+        let mut status = d.run(s, &k).unwrap();
+        while let Status::Asking(c) = status {
+            asked += 1;
+            let pick = c.pick(0).unwrap();
+            status = d.resume(s, &k, pick).unwrap();
+        }
+        let entries = log.lock().unwrap().clone();
+        (d, entries, asked)
+    }
+
+    /// A payment with one way left to pay is logged for the wrapper (`AbilityTable::auto_paid`): the question as it would have been put, the lone
+    /// option taken, the position it was put in. Each trade good of the bill is one entry.
+    #[test]
+    fn a_single_way_payment_is_logged_with_its_question_and_the_position() {
+        let mut s = game(5);
+        let (d, entries, asked) = pay_logged(&mut s, 3);
+        assert_eq!((d.window.outcome, asked), (Some(true), 0));
+        assert_eq!(entries.len(), 3, "one entry per collapsed step");
+        for (n, e) in entries.iter().enumerate() {
+            assert_eq!(e.choice.opts.len(), 1);
+            assert_eq!(e.choice.opts.as_slice()[0], e.taken);
+            assert!(matches!(e.choice.ask, Ask::Production(PAsk::Pay(_))));
+            assert_eq!(e.choice.actor, Seat(0));
+            assert_eq!(e.at.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 5 - n as i16, "the position before the step took its good");
+        }
+    }
+
+    /// A payment with a real choice is asked, not logged.
+    #[test]
+    fn a_payment_with_a_choice_is_asked_and_not_logged() {
+        let mut s = game(5);
+        let planet = crate::generated::Planet::ALL.iter().copied().find(|p| p.data().influence > 0).expect("a planet with influence");
+        s.board_mut().planet_mut(planet).control = Some(Seat(0));
+        let (_, entries, asked) = pay_logged(&mut s, 1);
+        assert!(asked >= 1, "trade goods or the planet: a question");
+        assert!(entries.is_empty());
     }
 
     /// Nothing owed is paid.

@@ -198,7 +198,10 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
     let mut present: Vec<Unit> = Vec::new();
     let mut pieces: Vec<Unit> = if let Some((system, _, _)) = core.transient().combat.active_space_combat {
         let cell = core.board().sys(system);
-        let mut pieces: Vec<Unit> = cell.units.iter().map(|p| p.kind()).collect();
+        // (The units in the space area are named only where they can fight as ships too: the infantry and mechs a carrier holds roll no die in a space
+        // combat, and each kind named, with its other form, doubles the roll groups: Sol carrying infantry beside a Dreadnought II, Super-Dreadnoughts and
+        // an L1Z1X flagship went over `MAX_TYPES` with the two infantry forms, which names none: `CombatUnported`, policy seed 7793 rotation 0.)
+        let mut pieces: Vec<Unit> = cell.units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| p.kind()).collect();
         // (The units on the planets are named only where they can fight as ships: a ground force or a structure rolls no die in a space combat, and each kind named
         // doubles the roll groups: a fight whose seats also hold infantry, a PDS and a dock on the planets went over `MAX_TYPES`, which names none: `CombatUnported`.)
         for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
@@ -215,7 +218,7 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
     // A seat that owns an upgrade whose units still stand in the older form takes the new form when the combat opens (`technology::apply_unit_upgrades`):
     // its roll groups are named too, or the machine stands at a roller its texts do not name.
     if let Some((system, _, _)) = core.transient().combat.active_space_combat {
-        let mut owned: Vec<(ti4_engine_core::ids::Seat, Unit)> = core.board().sys(system).units.iter().map(|p| (p.owner(), p.kind())).collect();
+        let mut owned: Vec<(ti4_engine_core::ids::Seat, Unit)> = core.board().sys(system).units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| (p.owner(), p.kind())).collect();
         for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
             owned.extend(core.board().planet(*planet).units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| (p.owner(), p.kind())));
         }
@@ -845,8 +848,15 @@ mod tests {
         };
         let mut sizes = Vec::new();
         let mut beyond = None;
-        for kind in ["cruiser", "destroyer", "dreadnought", "carrier", "fighter", "warsun", "infantry", "mech", "pds", "spacedock", "flagship"] {
-            crate::fixtures::put(&mut state, &target, kind, &a(), 1);
+        // (Ships only: the ground forces and structures of the space area are not named, `the_texts_of_a_fight_do_not_name_the_ground_forces_a_ship_carries`.)
+        // (The upgrades add the second form of a kind already named.)
+        for kind in ["cruiser", "destroyer", "dreadnought", "carrier", "fighter", "warsun", "flagship", "tech:cr2", "tech:dd2", "tech:dn2", "tech:cv2", "tech:ff2"] {
+            match kind.strip_prefix("tech:") {
+                Some(tech) => {
+                    state.player_mut(&a()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(tech));
+                }
+                None => crate::fixtures::put(&mut state, &target, kind, &a(), 1),
+            }
             let t = texts(&state);
             if t.unit_codes.is_empty() {
                 assert!(t.groups.is_empty(), "no kind is named, no group either");
@@ -908,6 +918,31 @@ mod tests {
         use ti4_engine_core::generated::Unit as U;
         assert!(named.contains(&U::CruiserI) && named.contains(&U::DestroyerI) && named.contains(&U::FighterI), "the ships of the fight are named: {named:?}");
         assert!(!named.contains(&U::InfantryI) && !named.contains(&U::PDSI) && !named.contains(&U::SpaceDockI), "no ground force or structure is a roller: {named:?}");
+        assert_eq!(texts.groups.len(), (1 << named.len()) - 1);
+    }
+
+    /// Core gaps 19 (policy `scored_games_stay...` seed 7793 rotation 0, `CombatUnported`): the ground forces that ride in the SPACE area roll no die in a space
+    /// combat either, and naming them (with the other form of each) put a fight of five ship kinds over `MAX_TYPES`, which names none: the machine stood at the first
+    /// roller. Only the ships of the fight are named.
+    #[test]
+    fn the_texts_of_a_fight_do_not_name_the_ground_forces_a_ship_carries() {
+        let (hub, _origin, target) = hub();
+        let mut state = table(&[("a", "sol"), ("b", "hacan")]);
+        for ship in ["cruiser", "carrier", "dreadnought", "fighter", "destroyer"] {
+            crate::fixtures::put(&mut state, &target, ship, &a(), 1);
+        }
+        crate::fixtures::put(&mut state, &target, "infantry", &a(), 2);
+        crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
+        let mut cx = Ctx::of(&state).expect("owners");
+        let mut core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&crate::rng::RngPositions::default()) }, SliceSet::ALL).expect("the position loads");
+        let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+        let (seat_a, seat_b) = (render.seat("a").expect("a"), render.seat("b").expect("b"));
+        core.transient_mut().combat.active_space_combat = Some((<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(target.as_str()).expect("a system"), seat_a, seat_b));
+        let texts = super::combat_texts(&mut core, &render);
+        let named: Vec<ti4_engine_core::generated::Unit> = texts.unit_codes.iter().map(|(u, _)| *u).collect();
+        use ti4_engine_core::generated::Unit as U;
+        assert!(named.contains(&U::CruiserI) && named.contains(&U::CarrierI) && named.contains(&U::FighterI), "the ships are named: {named:?}");
+        assert!(!named.contains(&U::InfantryI) && !named.contains(&U::InfantryII), "the infantry a carrier holds is no roller: {named:?}");
         assert_eq!(texts.groups.len(), (1 << named.len()) - 1);
     }
 

@@ -677,3 +677,43 @@ fn x89_doubles_the_ground_hits_of_the_holder_on_either_side_in_a_native_game() {
     assert!(invader.1 > none.1, "and more of the invader's own: {invader:?} against {none:?}");
     assert!(defender.1 < none.1, "the defender's doubled hits leave fewer invaders: {defender:?} against {none:?}");
 }
+
+/// Dacxive Animators in the composed invasion: no longer a counted bail (`Unported(Dacxive)`). The holder that wins a ground combat has one more
+/// infantry on the planet than the same fight (same dice) without the technology; a seat that does not hold it gets nothing.
+#[test]
+fn dacxive_animators_places_an_infantry_for_the_winner_of_the_composed_fight() {
+    covers!("driver::windows::invasion::InvasionMachine");
+    let (p1, _) = planets();
+    let run = |holder: Option<u8>, n: usize, d: usize, seed: u64| {
+        let (mut core, k) = conquest(n, d);
+        if let Some(seat) = holder {
+            core.players_mut().by_seat_mut(Seat(seat)).expect("seated").tech.owned.insert(Technology::DacxiveAnimators);
+        }
+        let mut env = env(&k, seed);
+        with_plays(&mut env);
+        open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
+        let (_, end) = play(&mut core, &env, &mut first);
+        assert_eq!(end, Ok(()), "holder {holder:?} seed {seed}: the invasion runs in the core");
+        (units_on(&core, p1, 0), units_on(&core, p1, 1))
+    };
+    let (mut invader_won, mut defender_won) = (0, 0);
+    for seed in 0..12 {
+        // Invader holds it: one more infantry when it won.
+        let (without, with) = (run(None, 3, 3, seed), run(Some(0), 3, 3, seed));
+        if without.0 > 0 {
+            invader_won += 1;
+            assert_eq!((with.0, with.1), (without.0 + 1, without.1), "seed {seed}: the invader that won gets an infantry");
+        } else {
+            assert_eq!(with, without, "seed {seed}: a lost combat places nothing");
+        }
+        // Defender holds it: one more infantry when the defender won, none when the invader did.
+        let with = run(Some(1), 3, 3, seed);
+        if without.1 > 0 {
+            defender_won += 1;
+            assert_eq!(with, (without.0, without.1 + 1), "seed {seed}: the defender that won gets an infantry");
+        } else {
+            assert_eq!(with, without, "seed {seed}: the holder lost, nothing placed");
+        }
+    }
+    assert!(invader_won > 0 && defender_won > 0, "the seeds cover both winners ({invader_won}, {defender_won})");
+}

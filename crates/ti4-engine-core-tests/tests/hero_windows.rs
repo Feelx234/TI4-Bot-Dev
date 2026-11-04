@@ -1380,7 +1380,7 @@ fn answer_somehow<W: Window>(rig: &mut Rig<W>) {
 fn imperial_facts(options: &[PublicObjective]) -> ImperialFacts {
     let mut scoreable = [None; 16];
     for (slot, o) in scoreable.iter_mut().zip(options) {
-        *slot = Some(*o);
+        *slot = Some(ti4_engine_core::state::ObjectiveRef::Public(*o));
     }
     ImperialFacts { scoreable, env: PayEnv { scope: Scope(u32::from(kernel_all().sources.0)), blanked: false } }
 }
@@ -1399,7 +1399,7 @@ fn the_imperial_primary_is_a_child_that_reports_the_objective_scored() {
     while !rig.is_done() {
         rig.pick(0);
     }
-    assert!(!rig.driver.window.unsupported && rig.driver.window.scored == Some(free), "{}", rig.transcript());
+    assert!(!rig.driver.window.unsupported && rig.driver.window.scored == Some(ti4_engine_core::state::ObjectiveRef::Public(free)), "{}", rig.transcript());
     // Declined: nothing scored; a secret objective instead of the Mecatol point.
     let facts = PerformFacts { imperial: Some(imperial_facts(&[free])), ..perform_facts(Carried { payments: true, ..Carried::default() }) };
     let sc = Scenario::new(&[Faction::TheWinnu, Faction::TheArborec]).kernel(kernel_all()).commodities(0, 0);
