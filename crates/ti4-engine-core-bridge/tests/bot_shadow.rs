@@ -56,14 +56,15 @@ impl Decider for Counter {
 fn counted_calls(config: &str, game: usize, max_steps: usize) -> usize {
     let (_, specs) = workload::specs(config).unwrap();
     let spec = &specs[game];
-    let mut g = spec.build().unwrap();
+    // The profile's rules versions are the string engine's (1..35): the wrapper's game plays 35 only.
+    let mut g = ti4_engine_core_bridge::legacy_game::legacy_game(spec).unwrap();
     let seeing = Rc::new(RefCell::new(0));
-    g.table.set_default(Box::new(Counter {
+    g.table.set_default(Box::new(ti4_engine_core_bridge::legacy_adapter::ThinDecider::new(Box::new(Counter {
         seed: spec.seed,
         decided: 0,
         random: SeededRandom::new(spec.seed),
         seeing: Rc::clone(&seeing),
-    }));
+    }))));
     for _ in 0..max_steps {
         if g.state.finished {
             break;

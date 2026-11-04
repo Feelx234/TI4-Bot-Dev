@@ -307,7 +307,7 @@ impl Shadow {
         use ti4_engine_core::Seat;
         use ti4_rule_bot_typed::seen_view::{Owners, SeenView};
         let obs = seen.observed();
-        let owned = ti4_engine_legacy::seen_load::SeenOwned::of(obs)
+        let owned = ti4_engine::seen_load::SeenOwned::of(obs)
             .map_err(|e| Reason::SeenUnavailable(format!("{:?}: {}", e.slice, e.what)))?;
         let typed = owned.seen(seen.bound_seat()).ok_or_else(|| Reason::SeenUnavailable("bound seat has no seat".to_owned()))?;
         let owners = Owners::new((0..16u8).map_while(|i| owned.player(Seat(i))).collect());

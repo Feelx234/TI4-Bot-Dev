@@ -243,7 +243,7 @@ const fn core_spend(kind: Spend) -> CoreSpend {
 
 /// The row of a core progress, as the policy feature path (and the bot) consume it.
 fn card_of(row: &ProgressRow) -> CardProgress {
-    use ti4_engine::objectives_core as oc;
+    use ti4_engine::queries::objectives as oc;
     let alias = match row.objective {
         ObjectiveRef::Public(o) => o.as_str(),
         ObjectiveRef::Secret(o) => o.as_str(),
@@ -253,7 +253,7 @@ fn card_of(row: &ProgressRow) -> CardProgress {
     let family_token = match row.family {
         RowFamily::Count(f) => ti4_engine::objectives::family_token(&oc::family(f)),
         RowFamily::Cost(f) => {
-            let p = oc::cost_progress(ti4_engine_core::query::objectives::CostProgress { family: f, have: row.have, target: row.threshold });
+            let p = oc::cost_progress_of(ti4_engine_core::query::objectives::CostProgress { family: f, have: row.have, target: row.threshold });
             ti4_engine::objectives::cost_family_token(&p.family)
         }
     };
