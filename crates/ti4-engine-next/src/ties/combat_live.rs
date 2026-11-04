@@ -219,7 +219,9 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
         // (The units in the space area are named only where they can fight as ships too: the infantry and mechs a carrier holds roll no die in a space
         // combat, and each kind named, with its other form, doubles the roll groups: Sol carrying infantry beside a Dreadnought II, Super-Dreadnoughts and
         // an L1Z1X flagship went over `MAX_TYPES` with the two infantry forms, which names none: `CombatUnported`, policy seed 7793 rotation 0.)
-        let mut owned: Vec<(ti4_engine_core::ids::Seat, Unit)> = cell.units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| (p.owner(), p.kind())).collect();
+        // (A dual-form unit in the space area whose other form is a ship takes it at the start of the combat round, "flip to ship forms": the Naaz
+        // Eidolon a carrier holds fights as a Z-Grav Eidolon, which the machine then names, `CombatUnported` in the lobby sweep's Ghost table.)
+        let mut owned: Vec<(ti4_engine_core::ids::Seat, Unit)> = cell.units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind()) || flips_into_a_ship(p.kind())).map(|p| (p.owner(), p.kind())).collect();
         // (The units on the planets are named only where they can fight as ships: a ground force or a structure rolls no die in a space combat, and each kind named
         // doubles the roll groups: a fight whose seats also hold infantry, a PDS and a dock on the planets went over `MAX_TYPES`, which names none: `CombatUnported`.)
         for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
@@ -309,6 +311,11 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
         }
     }
     t
+}
+
+/// Whether a unit takes a ship's form at the start of a space combat round when it stands in the space area (`flip_space_area`).
+fn flips_into_a_ship(unit: Unit) -> bool {
+    !unit.data().ship && ti4_engine_core::query::tech::other_form(unit).is_some_and(|twin| twin.data().ship)
 }
 
 /// Whether a unit of `owner` standing on a planet of `system` can fight the system's space combat: a ship (none stands on a planet), a Naaz Eidolon Maximum, or a ground

@@ -46,12 +46,12 @@ pub fn create_sample_game() -> GameState {
         p_a.tactic_tokens = 3;
         p_a.fleet_tokens = 4;
         p_a.strategic_tokens = 2;
-        p_a.strategy_cards = vec![StrategyCardId::new("leadership")];
+        p_a.strategy_cards = vec![StrategyCardId::new("pok1leadership")];
         p_a.action_cards = vec![
-            ActionCardId::new("direct_hit"),
-            ActionCardId::new("morale_boost"),
+            ActionCardId::new("dh1"),
+            ActionCardId::new("mb1"),
         ];
-        p_a.secret_objectives = vec![SecretObjectiveId::new("destroy_their_greatest_ship")];
+        p_a.secret_objectives = vec![SecretObjectiveId::new("dtgs")];
     }
 
     // Configure Player B
@@ -64,9 +64,9 @@ pub fn create_sample_game() -> GameState {
         p_b.tactic_tokens = 2;
         p_b.fleet_tokens = 3;
         p_b.strategic_tokens = 3;
-        p_b.strategy_cards = vec![StrategyCardId::new("trade")];
-        p_b.action_cards = vec![ActionCardId::new("flank_speed")];
-        p_b.secret_objectives = vec![SecretObjectiveId::new("brave_the_void")];
+        p_b.strategy_cards = vec![StrategyCardId::new("pok5trade")];
+        p_b.action_cards = vec![ActionCardId::new("fs1")];
+        p_b.secret_objectives = vec![SecretObjectiveId::new("btv")];
     }
 
     // Configure Player C
@@ -75,9 +75,9 @@ pub fn create_sample_game() -> GameState {
         p_c.faction = FactionId::new("letnev");
         p_c.victory_points = 1;
         p_c.trade_goods = 1;
-        p_c.strategy_cards = vec![StrategyCardId::new("warfare")];
-        p_c.action_cards = vec![ActionCardId::new("shields_holding")];
-        p_c.secret_objectives = vec![SecretObjectiveId::new("unveil_flagship")];
+        p_c.strategy_cards = vec![StrategyCardId::new("pok6warfare")];
+        p_c.action_cards = vec![ActionCardId::new("sh1")];
+        p_c.secret_objectives = vec![SecretObjectiveId::new("uf")];
     }
 
     // Add board systems and units
@@ -91,16 +91,15 @@ pub fn create_sample_game() -> GameState {
     state.board.insert(sys_18, s18);
 
     state.revealed_objectives = vec![
-        ObjectiveId::new("corner_the_market"),
-        ObjectiveId::new("develop_weaponry"),
+        ObjectiveId::new("corner"),
+        ObjectiveId::new("develop"),
     ];
 
     state
 }
 
 /// [`create_sample_game`] as a table the typed core can play: the same three seats (Sol, Hacan, Letnev) in the action phase of round 2 with the same
-/// economy, but real strategy card, action card and objective ids and a deployed board (the sample's invented ids are fine for a snapshot fixture
-/// and refused by the core). For the sessions that actually step.
+/// economy, but real strategy card, action card and objective ids and a deployed board (the sample's ids are real too since integration 22). For the sessions that actually step.
 ///
 /// # Panics
 /// If setup refuses the three seats.

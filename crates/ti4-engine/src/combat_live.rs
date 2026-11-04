@@ -221,7 +221,9 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
         // (The units in the space area are named only where they can fight as ships too: the infantry and mechs a carrier holds roll no die in a space
         // combat, and each kind named, with its other form, doubles the roll groups: Sol carrying infantry beside a Dreadnought II, Super-Dreadnoughts and
         // an L1Z1X flagship went over `MAX_TYPES` with the two infantry forms, which names none: `CombatUnported`, policy seed 7793 rotation 0.)
-        let mut owned: Vec<(ti4_engine_core::ids::Seat, Unit)> = cell.units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| (p.owner(), p.kind())).collect();
+        // (A dual-form unit in the space area whose other form is a ship takes it at the start of the combat round, "flip to ship forms": the Naaz
+        // Eidolon a carrier holds fights as a Z-Grav Eidolon, which the machine then names, `CombatUnported` in the lobby sweep's Ghost table.)
+        let mut owned: Vec<(ti4_engine_core::ids::Seat, Unit)> = cell.units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind()) || flips_into_a_ship(p.kind())).map(|p| (p.owner(), p.kind())).collect();
         // (The units on the planets are named only where they can fight as ships: a ground force or a structure rolls no die in a space combat, and each kind named
         // doubles the roll groups: a fight whose seats also hold infantry, a PDS and a dock on the planets went over `MAX_TYPES`, which names none: `CombatUnported`.)
         for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
@@ -311,6 +313,11 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
         }
     }
     t
+}
+
+/// Whether a unit takes a ship's form at the start of a space combat round when it stands in the space area (`flip_space_area`).
+fn flips_into_a_ship(unit: Unit) -> bool {
+    !unit.data().ship && ti4_engine_core::query::tech::other_form(unit).is_some_and(|twin| twin.data().ship)
 }
 
 /// Whether a unit of `owner` standing on a planet of `system` can fight the system's space combat: a ship (none stands on a planet), a Naaz Eidolon Maximum, or a ground
@@ -957,6 +964,28 @@ mod tests {
         assert!(named(&[U::CruiserI, U::CruiserII, U::DestroyerI, U::DestroyerII, U::DreadnoughtI, U::DreadnoughtII, U::FactionlessFlagship]), "all of the first seat's kinds together: {:?}", t.unit_codes.iter().map(|(u, _)| *u).collect::<Vec<_>>());
         assert!(named(&[U::CarrierI, U::CarrierII, U::FighterI, U::FighterII, U::WarSun]), "all of the second seat's kinds together");
         assert!(!named(&[U::CruiserI, U::CarrierI]), "a group is one seat's");
+    }
+
+    /// I22 (`lobby_all_factions::slow_tricky_factions_play_a_longer_smart_game`, a Ghost table: `UnportedAftermath(CombatUnported)`): a Naaz Eidolon a carrier
+    /// holds in the space area is no ship, but takes the Z-Grav Eidolon's form when the combat round starts ("flip to ship forms"), and the machine then rolls
+    /// it. Its form is named, and its roll group with the carrier's; on a planet it is not (it flips in the space area only).
+    #[test]
+    fn the_texts_of_a_fight_name_the_z_grav_form_of_a_naaz_mech_the_carrier_holds() {
+        let (hub, _origin, target) = hub();
+        let mut state = table(&[("a", "naaz"), ("b", "hacan")]);
+        crate::fixtures::put(&mut state, &target, "carrier", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "destroyer", &b(), 1);
+        crate::fixtures::put(&mut state, &target, "naaz_mech", &a(), 1);
+        let mut cx = Ctx::of(&state).expect("owners");
+        let mut core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&crate::rng::RngPositions::default()) }, SliceSet::ALL).expect("the position loads");
+        let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+        let (seat_a, seat_b) = (render.seat("a").expect("a"), render.seat("b").expect("b"));
+        core.transient_mut().combat.active_space_combat = Some((<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(target.as_str()).expect("a system"), seat_a, seat_b));
+        let t = super::combat_texts(&mut core, &render);
+        use ti4_engine_core::generated::Unit as U;
+        let named: Vec<U> = t.unit_codes.iter().map(|(u, _)| *u).collect();
+        assert!(named.contains(&U::ZGravEidolonNaazMechSpace), "the form the mech takes at the start of the round is named: {named:?}");
+        assert!(t.groups.iter().any(|(k, _, _)| k.contains(&U::ZGravEidolonNaazMechSpace) && k.contains(&U::CarrierI)), "and rolls with the carrier");
     }
 
     /// Lane Q (mutation of `hero_fight_types`): the pairs Airo Shir Aur can start a fight in name the SHIPS of the hero's fleet (fighters count as ships here, a

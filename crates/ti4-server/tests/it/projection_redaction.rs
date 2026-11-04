@@ -153,11 +153,11 @@ fn actor_payload_includes_own_private_information_and_pending_choice() {
 
     // Actor sees own cards
     assert!(
-        json.contains("direct_hit"),
+        json.contains("\"dh1\""),
         "Actor must see own action card"
     );
     assert!(
-        json.contains("destroy_their_greatest_ship"),
+        json.contains("\"dtgs\""),
         "Actor must see own secret objective"
     );
 
@@ -183,11 +183,11 @@ fn actor_payload_includes_own_private_information_and_pending_choice() {
 
     // Actor DOES NOT see opponent's private cards
     assert!(
-        !json.contains("flank_speed"),
+        !json.contains("\"fs1\""),
         "Actor must not see opponent's action card"
     );
     assert!(
-        !json.contains("brave_the_void"),
+        !json.contains("\"btv\""),
         "Actor must not see opponent's secret objective"
     );
 }
@@ -210,17 +210,17 @@ fn opponent_payload_strictly_redacts_actor_private_cards_options_and_constraints
 
     // 1. Proves opponent payload contains NO action-card identity of actor
     assert!(
-        !json.contains("direct_hit"),
+        !json.contains("\"dh1\""),
         "Opponent payload leaked actor's direct_hit card!"
     );
     assert!(
-        !json.contains("morale_boost"),
+        !json.contains("\"mb1\""),
         "Opponent payload leaked actor's morale_boost card!"
     );
 
     // 2. Proves opponent payload contains NO secret-objective identity of actor
     assert!(
-        !json.contains("destroy_their_greatest_ship"),
+        !json.contains("\"dtgs\""),
         "Opponent payload leaked actor's secret objective!"
     );
 
@@ -295,13 +295,13 @@ fn spectator_payload_redacts_all_private_cards_and_pending_choices() {
     let json = serde_json::to_string(&ServerMessage::InitialSnapshot(snapshot)).expect("serialize");
 
     // Spectator sees NO private cards from ANY player
-    assert!(!json.contains("direct_hit"));
-    assert!(!json.contains("morale_boost"));
-    assert!(!json.contains("destroy_their_greatest_ship"));
-    assert!(!json.contains("flank_speed"));
-    assert!(!json.contains("brave_the_void"));
-    assert!(!json.contains("shields_holding"));
-    assert!(!json.contains("unveil_flagship"));
+    assert!(!json.contains("\"dh1\""));
+    assert!(!json.contains("\"mb1\""));
+    assert!(!json.contains("\"dtgs\""));
+    assert!(!json.contains("\"fs1\""));
+    assert!(!json.contains("\"btv\""));
+    assert!(!json.contains("\"sh1\""));
+    assert!(!json.contains("\"uf\""));
 
     // Spectator sees NO pending choice or legal options
     assert!(!json.contains("\"pending_choice\""));
@@ -327,8 +327,8 @@ fn state_update_preserves_identical_redaction_guarantees() {
     );
     let json = serde_json::to_string(&ServerMessage::StateUpdate(update)).expect("serialize");
 
-    assert!(!json.contains("direct_hit"));
-    assert!(!json.contains("destroy_their_greatest_ship"));
+    assert!(!json.contains("\"dh1\""));
+    assert!(!json.contains("\"dtgs\""));
     assert!(!json.contains("opt_carrier"));
     assert!(!json.contains("\"pending_choice\""));
 }
