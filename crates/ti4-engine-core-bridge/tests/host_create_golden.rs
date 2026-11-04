@@ -27,11 +27,56 @@ fn ids(count: usize) -> Vec<PlayerId> {
     (1..=count).map(|i| PlayerId::new(format!("p{i}"))).collect()
 }
 
+/// The three-seat scenarios deal Sol, Hacan and Letnev a strategy card each. The legacy scenarios named the cards by aliases
+/// (`leadership`, `trade`, `warfare`) and left the real cards in the unclaimed row; the typed core refuses the aliases, so
+/// the scenarios now deal the real ids (`pok1leadership`, `pok5trade`, `pok6warfare`) and take them out of the unclaimed row
+/// (`docs/GOLDEN45_RESUME.md`). This puts a scenario state back the way the legacy scenario made it: the dealt real ids
+/// named by their aliases, the three real cards back in the unclaimed row (sorted, as the deck lists them), and their piles of trade goods back, and a card the scenario
+/// pushed back to the row (`pok1leadership`, last in the row) as the alias at the end.
+fn as_the_legacy_scenario_dealt(state: &mut ti4_model::state::GameState) {
+    use ti4_model::id::StrategyCardId;
+    const DEALT: [(&str, &str); 3] =
+        [("pok1leadership", "leadership"), ("pok5trade", "trade"), ("pok6warfare", "warfare")];
+    let alias_of = |card: &StrategyCardId| {
+        DEALT.iter().find(|(real, _)| *real == card.as_str()).map(|(_, alias)| StrategyCardId::new(*alias))
+    };
+    for player in &mut state.players {
+        for card in &mut player.strategy_cards {
+            if let Some(alias) = alias_of(card) {
+                *card = alias;
+            }
+        }
+    }
+    let mut row = std::mem::take(&mut state.unclaimed_strategy_cards);
+    let mut pushed = None;
+    if row.last().is_some_and(|card| card.as_str() == "pok1leadership") {
+        pushed = row.pop().and_then(|card| alias_of(&card));
+    }
+    for (real, _) in DEALT {
+        let real = StrategyCardId::new(real);
+        if !row.contains(&real) {
+            row.push(real.clone());
+        }
+        // The cards lying on the table carry one trade good; a dealt card's pile is gone from the map.
+        state.strategy_card_goods.entry(real).or_insert(1);
+    }
+    row.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+    row.extend(pushed);
+    state.unclaimed_strategy_cards = row;
+}
+
 fn digest(setup: &TableSetup) -> String {
+    digest_with(setup, false)
+}
+
+fn digest_with(setup: &TableSetup, aliases: bool) -> String {
     let content = ContentStore::embedded();
     let players = ids(setup.player_count);
     let made = draw(setup, &vec![None; setup.player_count]).and_then(|drawn| {
-        create(content, setup, &players, &drawn).map(|(state, galaxy)| {
+        create(content, setup, &players, &drawn).map(|(mut state, galaxy)| {
+            if aliases {
+                as_the_legacy_scenario_dealt(&mut state);
+            }
             let json = serde_json::to_string(&state).expect("serialises");
             format!("{json}\n{state:?}\n{galaxy:?}")
         })
@@ -100,10 +145,22 @@ fn matrix() -> Vec<(String, TableSetup)> {
 
 #[test]
 fn the_games_the_host_creates_are_the_games_the_legacy_setup_made() {
+    // The scenarios of three seats (every scenario but the two late-game ones) hand out cards by real ids: their rows are
+    // compared with the aliases named back, and the real-id digest must differ (the rename is real, 15 x 3 rows).
+    let renamed = |key: &str| key.starts_with("scenario ") && !key.starts_with("scenario late-game");
+    let mut renamed_rows = 0_usize;
     let lines: Vec<String> = matrix()
         .iter()
-        .map(|(key, setup)| format!("{key} => {}", digest(setup)))
+        .map(|(key, setup)| {
+            let aliased = renamed(key);
+            if aliased {
+                assert_ne!(digest(setup), digest_with(setup, true), "{key}: the scenario deals the real cards");
+                renamed_rows += 1;
+            }
+            format!("{key} => {}", digest_with(setup, aliased))
+        })
         .collect();
+    assert_eq!(renamed_rows, 45, "15 scenarios of three seats on 3 seeds");
     if let Ok(path) = std::env::var("TI4_RECORD_HOST_GOLDEN") {
         std::fs::write(&path, lines.join("\n") + "\n").expect("the golden file is written");
         return;
