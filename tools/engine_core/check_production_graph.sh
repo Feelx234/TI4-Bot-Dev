@@ -37,7 +37,7 @@ done
 PROD_CRATES="${PROD_CRATES:-ti4-host ti4-server ti4-wasm ti4-rule-bot ti4-model ti4-content ti4-calc ti4-engine}"
 WASM_CRATE="${WASM_CRATE:-ti4-wasm}"
 DEV_TOOLS="${DEV_TOOLS:-ti4-engine-core-bridge ti4-engine-core-tests ti4-training ti4-sim ti4-policy ti4-mlp ti4-review ti4-replayer ti4-cli ti4-bot-agent ti4-selfplay ti4-bridge ti4-legacy ti4-advisor ti4-rule-bot-typed ti4-tensor xtask}"
-ALLOW_LEND="${ALLOW_LEND:-ti4-engine-next ti4-engine-core-bridge ti4-engine-core-tests ti4-training ti4-review ti4-replayer ti4-sim ti4-selfplay ti4-cli ti4-mlp ti4-bridge ti4-legacy ti4-advisor}"
+ALLOW_LEND="${ALLOW_LEND:-ti4-engine ti4-engine-core-bridge ti4-engine-core-tests ti4-training ti4-review ti4-replayer ti4-sim ti4-selfplay ti4-cli ti4-mlp ti4-bridge ti4-legacy ti4-advisor}"
 DEV_FEATURES='typed-core|native-subject|observed-count|string-[a-z]+|lend-string'
 
 # ---- tree helpers (all take the workspace dir first) ----
@@ -50,7 +50,17 @@ crate_violations() {
   for k in "normal,build" "normal,build,dev"; do
     out="$(tree "$dir" -p "$p" $extra -e "$k,features" --prefix none)"
     if [[ "$out" == error:* || "$out" == *"error: "* && "$out" != *"$p"* ]]; then echo "ERROR $label [$k]: cargo tree failed: $(head -1 <<<"$out")"; continue; fi
-    if grep -qE '^ti4-engine-legacy |lend-string|lend_string' <<<"$out"; then
+    local reach=0 who
+    if [[ "$k" == "normal,build" ]]; then
+      grep -qE '^ti4-engine-legacy |lend-string|lend_string' <<<"$out" && reach=1
+    else
+      # dev tree: the feature never; the legacy crate only as a DIRECT dev-dependency of P (tests and examples that drive a string window;
+      # it is not linked into any product binary). Any other package that depends on legacy in the tree of P (a depth-1 dependent of legacy other than P) is a violation.
+      grep -qE 'lend-string|lend_string' <<<"$out" && reach=1
+      who="$(tree "$dir" -p "$p" $extra -e "$k" -i ti4-engine-legacy --prefix depth | grep -E '^1[^0-9]' | sed -E 's/^1//; s/ v[0-9].*//' | sort -u | grep -v -x -e "$p" | head -1)"
+      [[ -n "$who" && "$who" != error* && "$who" != *"did not match"* && "$who" != *"nothing to print"* ]] && reach=1
+    fi
+    if (( reach )); then
       echo "VIOLATION $label [$k]: reaches legacy / lend-string"
       tree "$dir" -p "$p" $extra -e "$k" -i ti4-engine-legacy --prefix depth | head -6 | sed 's/^/    via /'
       grep -E 'lend-string' <<<"$out" | sort -u | head -3 | sed 's/^/    feature /'
@@ -142,9 +152,9 @@ self_test() {
   export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-$(cd "$root" && rustup show active-toolchain 2>/dev/null | awk '{print $1; exit}')}"
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/d29a-graph.XXXXXX")" || return 1
   trap 'rm -rf "$tmp"' RETURN
-  mkdir -p "$tmp/legacy/src" "$tmp/thin/src" "$tmp/good/src" "$tmp/bad/src" "$tmp/devbad/src" "$tmp/direct/src" "$tmp/tool/src"
-  for d in legacy thin good bad devbad direct tool; do : > "$tmp/$d/src/lib.rs"; done
-  printf '[workspace]\nresolver="2"\nmembers=["legacy","thin","good","bad","devbad","direct","tool"]\n' > "$tmp/Cargo.toml"
+  mkdir -p "$tmp/legacy/src" "$tmp/thin/src" "$tmp/good/src" "$tmp/bad/src" "$tmp/devbad/src" "$tmp/direct/src" "$tmp/tool/src" "$tmp/devok/src" "$tmp/devtrans/src"
+  for d in legacy thin good bad devbad direct tool devok devtrans; do : > "$tmp/$d/src/lib.rs"; done
+  printf '[workspace]\nresolver="2"\nmembers=["legacy","thin","good","bad","devbad","direct","tool","devok","devtrans"]\n' > "$tmp/Cargo.toml"
   mk() { printf '[package]\nname="%s"\nversion="0.1.0"\nedition="2021"\n%s\n' "$1" "$2" > "$tmp/$3/Cargo.toml"; }
   mk ti4-engine-legacy '' legacy
   mk ti4-engine '[dependencies]
@@ -163,12 +173,22 @@ ti4-engine={path="../thin",features=["lend-string"]}' devbad
 ti4-engine-legacy={path="../legacy"}' direct
   mk tool '[dependencies]
 ti4-engine={path="../thin",features=["lend-string"]}' tool
+  mk devok '[dependencies]
+ti4-engine={path="../thin"}
+[dev-dependencies]
+ti4-engine-legacy={path="../legacy"}' devok
+  mk devtrans '[dependencies]
+ti4-engine={path="../thin"}
+[dev-dependencies]
+direct={path="../direct"}' devtrans
   fail() { echo "SELF-TEST FAILED: $*"; rc=1; }
   v="$(crate_violations "$tmp" good)";   [[ -z "$v" ]] || fail "clean crate flagged: $v"
   v="$(crate_violations "$tmp" bad)";    grep -q VIOLATION <<<"$v" || fail "normal feature smuggle not caught"
   v="$(crate_violations "$tmp" devbad)"; grep -q 'normal,build,dev' <<<"$v" || fail "dev-dependency smuggle not caught"
   grep -q 'VIOLATION devbad \[normal,build\]' <<<"$v" && fail "dev smuggle wrongly flagged in the normal tree"
   v="$(crate_violations "$tmp" direct)"; grep -q VIOLATION <<<"$v" || fail "direct legacy dependency not caught"
+  v="$(crate_violations "$tmp" devok)";  [[ -z "$v" ]] || fail "a direct legacy dev-dependency (tests only) wrongly flagged: $v"
+  v="$(crate_violations "$tmp" devtrans)"; grep -q 'normal,build,dev' <<<"$v" || fail "legacy reached through a dev-dependency's own dependency not caught"
   # a dev tool may use the feature: it is a violation only for a production crate (the list decides, not the tool)
   PROD_CRATES="good tool" v="$(all_graph_violations "$tmp")"
   grep -q 'VIOLATION tool' <<<"$v" || fail "tool listed as production not caught"
@@ -178,7 +198,7 @@ ti4-engine={path="../thin",features=["lend-string"]}' tool
   v="$(static_violations "$tmp")"; grep -q -- '--workspace' <<<"$v" || fail "--workspace in deploy not caught"
   v="$(negative_controls "$tmp")" || true  # no bridge in the synthetic workspace: only the missing-package control runs
   [[ -z "$v" ]] || fail "controls on synthetic workspace: $v"
-  (( rc == 0 )) && echo "self-test ok: 6 violating shapes caught, the clean crate passes, controls pass"
+  (( rc == 0 )) && echo "self-test ok: 7 violating shapes caught, the clean crate and the direct legacy dev-dependency pass, controls pass"
   return $rc
 }
 

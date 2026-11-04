@@ -169,7 +169,7 @@ pub fn check(gs: &GameState) -> R<()> {
     }
     let Some(d) = find(gs) else { return Ok(()) };
     if policy == Policy::Panic {
-        panic!("{d:?} is switched off (docs/DISABLE_XF123.md): the typed core does not play it; use ti4-engine-legacy");
+        panic!("{d:?} is switched off (docs/DISABLE_XF123.md): the typed core does not play it; use the old string engine in a dev tool (crates/ti4-engine)");
     }
     Err(bad(Slice::Meta, "disabled feature", format!("{d:?}")))
 }

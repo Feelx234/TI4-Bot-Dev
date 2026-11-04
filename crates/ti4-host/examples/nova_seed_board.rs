@@ -3,7 +3,7 @@
 //!
 //! `cargo run -p ti4-host --example nova_seed_board -- <out dir>`
 use ti4_content::ContentStore;
-use ti4_engine::movement::{MapEdit, NOVA_SEED, apply_map_edit};
+use ti4_engine_legacy::movement::{MapEdit, NOVA_SEED, apply_map_edit};
 use ti4_host::map::{build_board_tiles, create_game_with_template};
 use ti4_host::projection::project_board_view_with_map;
 use ti4_model::content_types::POK;

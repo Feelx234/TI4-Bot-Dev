@@ -41,3 +41,10 @@ pub fn gravity_drive_available(state: &GameState, player: &PlayerId) -> bool {
     };
     seat.technologies.contains(ti4_model::id::text(&"gd")) && seat.gravity_drive_used_activation != Some(state.activation_seq)
 }
+
+/// The technologies `player` could research with the prerequisites met, for a seat that has played nothing (the pick of a starting technology,
+/// `StartingTechSource::Researchable`: the Winnu). Empty when the seat holds something the typed tables do not know.
+#[must_use]
+pub fn researchable_by_prerequisites(state: &GameState, _content: &ContentStore, sources: SourceSet, player: &PlayerId) -> Vec<TechnologyId> {
+    technology_core::setup_researchable_by_prerequisites(state, sources, player).unwrap_or_default()
+}

@@ -34,7 +34,7 @@ pub fn wide_profiles(
     let mut factions: Vec<&'static str> = Vec::new();
     for entry in ti4_engine::seating::wide_roster(content, ti4_model::content_types::FULL) {
         if entry == ti4_engine::seating::KELERES_FAMILY {
-            factions.extend(ti4_engine::factions::keleres::VARIANTS);
+            factions.extend(ti4_engine_legacy::factions::keleres::VARIANTS);
         } else {
             factions.push(entry);
         }

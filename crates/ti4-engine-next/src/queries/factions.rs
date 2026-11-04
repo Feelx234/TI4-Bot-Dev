@@ -198,3 +198,28 @@ pub fn assets(content: &ContentStore, sources: SourceSet, alias: &str) -> Vec<As
     }
     found.into_iter().collect()
 }
+
+/// The flagship `faction` brings (`<faction>_flagship`; the three Keleres share `keleres_flagship`).
+fn flagship_of(faction: &str) -> String {
+    if faction.starts_with("keleres") { "keleres_flagship".to_owned() } else { format!("{faction}_flagship") }
+}
+
+/// Whether the unit `unit_type` of `owner` has the text of flagship `flagship_id` (`factions::flagship_has_text`): it is that flagship, or it is
+/// a Nekro flagship whose owner has placed the Z token (Valefar Assimilator Z) on that faction. Only text abilities follow; stats never do.
+#[must_use]
+pub fn flagship_has_text(state: &GameState, owner: &PlayerId, unit_type: &str, flagship_id: &str) -> bool {
+    if unit_type == flagship_id {
+        return true;
+    }
+    if unit_type != "nekro_flagship" {
+        return false;
+    }
+    let nekro = state.player(owner).is_some_and(|seat| seat.faction.as_str() == "nekro");
+    let holds = state.player(owner).and_then(|seat| seat.breakthrough.as_ref()).is_some_and(|held| held.as_str() == "nekrobt");
+    nekro
+        && holds
+        && state
+            .faction_marks
+            .get(&format!("nekro:token:{owner}:Z"))
+            .is_some_and(|marks| marks.split(',').filter(|faction| !faction.is_empty()).any(|faction| flagship_of(faction) == flagship_id))
+}

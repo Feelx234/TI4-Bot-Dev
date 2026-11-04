@@ -323,7 +323,7 @@ fn audit(seed: u64, rounds: u32) -> Tally {
             .any(|event| event.starts_with("TRANSACTION"));
         for (note, holder) in &game.state.promissory_notes {
             let Some(owner) = ti4_engine::promissory::owner_of(note)
-                .and_then(|name| ti4_engine::promissory::seat_of(&game.state, &name))
+                .and_then(|name| ti4_engine_legacy::promissory::seat_of(&game.state, &name))
             else {
                 continue;
             };

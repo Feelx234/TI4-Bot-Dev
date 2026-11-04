@@ -131,3 +131,93 @@ pub fn roster_for(content: &ContentStore, sources: SourceSet) -> Option<&'static
     })
     .as_ref()
 }
+
+// --- the string state at setup as a research context (D2-9b: the thin crate has no string engine to ask) ----------------------------
+
+/// The faction hooks of the research questions at a seat of a position that is being made (`starting_tech`): no purge (the Deepwrought
+/// are refused), the Analytical ability's waiver, and nothing else a faction effect, a relic or a law could add before the first card is played.
+struct SetupHooks {
+    analytical: bool,
+}
+
+impl q::ResearchHooks for SetupHooks {
+    fn purged(&self, _: Technology) -> bool {
+        false
+    }
+    fn waived_prerequisites(&self, t: Technology) -> usize {
+        usize::from(self.analytical && !q::is_unit_upgrade(t))
+    }
+    fn extra_colours(&self) -> Colours {
+        [0; 4]
+    }
+    fn inheritance_affordable(&self) -> bool {
+        false
+    }
+    fn waiver_offer(&self, _: Technology) -> bool {
+        false
+    }
+}
+
+/// The technologies `player` could research with the prerequisites met, in a position that is being made (`starting_tech::options`,
+/// `StartingTechSource::Researchable`; `technology::researchable_by_prerequisites` of the legacy crate for a seat that has played nothing).
+/// `None` when the seat holds something the typed tables do not know.
+#[must_use]
+pub fn setup_researchable_by_prerequisites(state: &ti4_model::state::GameState, sources: SourceSet, player: &ti4_model::id::PlayerId) -> Option<Vec<TechnologyId>> {
+    let seat = state.player(player)?;
+    let sc = scope(sources);
+    let faction = <Faction as IdStr>::from_id(seat.faction.as_str())?;
+    let mut owned = TechSet::new();
+    for t in &seat.technologies {
+        owned.insert(tech(t.as_str())?);
+    }
+    let held = q::colours_of(&owned);
+    let free = state.rules_version >= q::RULES_TECH_EFFECTS && seat.technologies.contains(ti4_model::id::text(&"pa"));
+    let mut spec = [0u16; 4];
+    for (_, planet) in state.controlled_planets(player) {
+        if !free && state.exhausted_planets.contains(planet) {
+            continue;
+        }
+        let typed = <ti4_engine_core::generated::Planet as IdStr>::from_id(planet.as_str())?;
+        let mut attached = Vec::new();
+        for id in state.planet_attachments.get(planet).into_iter().flatten() {
+            attached.push(<ti4_engine_core::generated::Attachment as IdStr>::from_id(id)?);
+        }
+        for s in q::specialties_of(sc, typed, attached).as_slice() {
+            if let Some(i) = q::colour_index(*s) {
+                spec[i] += 1;
+            }
+        }
+    }
+    let mut holdings = [0u16; 4];
+    for i in 0..4 {
+        holdings[i] = held[i] + spec[i];
+    }
+    let mut joined = [false; 4];
+    if seat.relics.iter().any(|r| r.as_str() == "quantumcore") {
+        joined = [true; 4];
+    } else if let Some(b) = &seat.breakthrough {
+        let d = <ti4_engine_core::generated::Breakthrough as IdStr>::from_id(b.as_str())?.data();
+        if sc.0 & source_bit(d.source) != 0
+            && let [first, second] = d.synergy
+        {
+            for c in [first, second] {
+                if let Some(i) = q::colour_index(*c) {
+                    joined[i] = true;
+                }
+            }
+        }
+    }
+    let ready = |t: Technology| owned.contains(t) && !seat.exhausted_technologies.contains(ti4_model::id::text(<Technology as IdStr>::as_str(t)));
+    let ctx = q::ResearchCtx {
+        faction,
+        owned,
+        holdings,
+        waivable: 0,
+        joined,
+        aida_ready: state.rules_version >= q::RULES_TECH_EFFECTS && ready(Technology::AIDevelopmentAlgorithm),
+        inheritance_card: ready(Technology::InheritanceSystems),
+        war_sun_waived: false,
+    };
+    let hooks = SetupHooks { analytical: faction.data().abilities.contains(&ti4_engine_core::generated::Ability::Analytical) };
+    Some(ids(&ctx.researchable_by_prerequisites(sc, &hooks)))
+}

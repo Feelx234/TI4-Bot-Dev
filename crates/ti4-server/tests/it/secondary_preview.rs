@@ -36,8 +36,8 @@ fn start(card_name: &str, card_id: &str) -> Table {
     let card = StrategyCardId::new(card_id);
     state.unclaimed_strategy_cards.retain(|c| c != &card);
     state.player_mut(&p1).unwrap().strategy_cards = vec![card.clone()];
-    ti4_engine::phase::advance_phase(&mut state);
-    ti4_engine::phase::begin_action_turn(&mut state, &p1);
+    ti4_engine_legacy::phase::advance_phase(&mut state);
+    ti4_engine_legacy::phase::begin_action_turn(&mut state, &p1);
     for seat in &mut state.players {
         seat.strategic_tokens = 2;
         seat.trade_goods = 6;

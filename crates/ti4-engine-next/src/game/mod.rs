@@ -1051,9 +1051,9 @@ fn hypothetical_position(state: &mut GameState, player: &PlayerId) {
     state.units_produced_this_use = 0;
     state.production_discount_remaining = 0;
     state.production_value_swapped_planet = None;
-    crate::transactions::clear_turn_transactions(state);
-    crate::diplomacy::relations::clear_turn_initiations(state);
-    crate::transactions::clear_action_negotiations(state);
+    state.clear_transactions();
+    state.diplomacy.clear_turn_initiations();
+    state.negotiations_this_action.clear();
     state.activation_seq += 1;
     state.combat_round_seq += 1;
     state.production_seq += 1;

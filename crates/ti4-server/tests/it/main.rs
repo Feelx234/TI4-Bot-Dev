@@ -31,6 +31,7 @@ mod lobby_lifecycle;
 mod lobby_settings;
 mod map_selection;
 mod never_offer_window;
+mod oracle_adapter;
 mod planning;
 mod player_lobby_admission;
 mod projection_redaction;

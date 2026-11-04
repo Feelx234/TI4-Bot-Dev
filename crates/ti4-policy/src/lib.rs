@@ -29,6 +29,15 @@ pub mod vocabulary;
 // Shared with the rule bot (`ti4-rule-bot`), which the wasm build links without this crate.
 pub use ti4_engine::{fleet_strength, valuation};
 
+/// A wire value of the legacy crate read as the same value of the thin one (one serde shape, `ti4-engine/tests/wire_parity.rs`): for the
+/// tests and tools that still read a legacy position.
+///
+/// # Panics
+/// Never for the wire types.
+pub fn from_legacy_wire<A: serde::Serialize, B: serde::de::DeserializeOwned>(a: &A) -> B {
+    serde_json::from_value(serde_json::to_value(a).expect("a wire value serialises")).expect("the thin crate reads the same wire value")
+}
+
 pub use bot::*;
 pub use features::*;
 pub use inference::*;

@@ -206,7 +206,7 @@ fn play(seats: usize, seed: u64, max_round: u32) -> GameRecord {
                         };
                         row.had_public = true;
                     }
-                    let secrets = ti4_engine::secrets::scoreable_on(
+                    let secrets = ti4_engine_legacy::secrets::scoreable_on(
                         state,
                         content,
                         sources,
@@ -230,7 +230,7 @@ fn play(seats: usize, seed: u64, max_round: u32) -> GameRecord {
                         id,
                         Some(&galaxy),
                     );
-                    let secrets = ti4_engine::secrets::scoreable_on(
+                    let secrets = ti4_engine_legacy::secrets::scoreable_on(
                         state,
                         content,
                         sources,

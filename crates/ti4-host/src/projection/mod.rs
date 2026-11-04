@@ -1051,7 +1051,7 @@ mod tests {
             ti4_model::content_types::DEFAULT,
         );
         let (mahact, other) = (PlayerId::new("a"), PlayerId::new("b"));
-        assert!(ti4_engine::factions::mahact::add_token(
+        assert!(ti4_engine_legacy::factions::mahact::add_token(
             &mut state, &mahact, &other
         ));
         for viewer in [ViewerRole::Spectator, ViewerRole::Player(other.clone())] {

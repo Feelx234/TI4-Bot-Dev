@@ -250,7 +250,7 @@ mod tests {
         let top = state.exploration_decks["HAZARDOUS"][0].clone();
         let before = project_exploration_facts(&state, content, POK, &galaxy);
 
-        ti4_engine::exploration::explore(&mut state, content, &seat, "HAZARDOUS", Some(&planet))
+        ti4_engine_legacy::exploration::explore(&mut state, content, &seat, "HAZARDOUS", Some(&planet))
             .expect("a card is drawn");
         state
             .system_mut(&SystemId::new("38"))

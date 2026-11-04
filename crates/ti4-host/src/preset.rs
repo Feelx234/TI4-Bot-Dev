@@ -1755,7 +1755,7 @@ mod tests {
                         continue;
                     };
                     assert_eq!(
-                        ti4_engine::technology::unit_form_violations(&state, content(), POK),
+                        ti4_engine_legacy::technology::unit_form_violations(&state, content(), POK),
                         Vec::<String>::new(),
                         "{preset} {n}p seed {seed}"
                     );
@@ -1949,7 +1949,7 @@ mod tests {
                 // The engine's own gate: the raider inside Mecatol has landable ground forces and
                 // the influence, so the custodians can be lifted the first time it invades.
                 assert!(
-                    invasion::custodians_removable(&state, content(), POK, in_mecatol[0], &mecatol),
+                    ti4_engine_legacy::invasion::custodians_removable(&state, content(), POK, in_mecatol[0], &mecatol),
                     "{n}p seed {seed}: the raider in Mecatol cannot lift the custodians"
                 );
                 // Nobody else is in Mecatol.
@@ -2718,7 +2718,7 @@ mod tests {
         assert_eq!(state.expedition_slices.get("resources"), Some(&list[1]));
         assert_eq!(state.expedition_slices.get("influence"), Some(&list[2]));
         assert!(state.player(&list[1]).unwrap().breakthrough.is_some());
-        let mut options: Vec<String> = ti4_engine::thunders_edge::available_actions(
+        let mut options: Vec<String> = ti4_engine_legacy::thunders_edge::available_actions(
             &state,
             content(),
             ti4_model::content_types::FULL,

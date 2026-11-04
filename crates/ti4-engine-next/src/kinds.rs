@@ -59,6 +59,8 @@ pub mod game {
 
 /// `invasion.rs`.
 pub mod invasion {
+    /// Influence the custodians cost to take Mecatol Rex (27.2).
+    pub const CUSTODIANS_COST: i64 = 6;
     /// The choice kind for committing a ground force to a planet.
     pub const COMMIT_KIND: &str = "commit";
     /// The choice kind for choosing which of your own ground forces dies.

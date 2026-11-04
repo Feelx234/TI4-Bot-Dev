@@ -179,7 +179,7 @@ done
 # D2-9 lane 9a (docs/D29A_RESUME.md): a deploy must never ship a graph with the legacy engine. D29A_MODE is `--report` until
 # lane 9b has landed (set it to "strict" then); only when the scripts exist in the checkout being deployed.
 if [[ -x "$WT/tools/engine_core/check_production_graph.sh" ]]; then
-  say "Production graph check (no legacy engine, no lend-string)"
+  say "Production graph check (no legacy engine, no dev-tool feature)"
   if [[ "${D29A_MODE:---report}" == strict ]]; then "$WT/tools/engine_core/check_production_graph.sh" || { echo "production graph reaches ti4-engine-legacy: nothing was built" >&2; exit 1; }
   else "$WT/tools/engine_core/check_production_graph.sh" --report | tail -1; fi
 fi

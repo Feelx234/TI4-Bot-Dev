@@ -3,20 +3,20 @@ fn main() {
     let content = ti4_content::ContentStore::embedded();
     let pok = ti4_model::content_types::DEFAULT;
     let scope = ti4_engine::seating::IN_SCOPE_FACTIONS;
-    println!("{}", ti4_engine::registry::report(content, pok));
+    println!("{}", ti4_engine_legacy::registry::report(content, pok));
     println!(
         "leaders unimplemented (in scope): {:?}",
-        ti4_engine::leaders::unimplemented(content, &scope)
+        ti4_engine_legacy::leaders::unimplemented(content, &scope)
     );
     println!(
         "faction abilities blocked: {:?}",
-        ti4_engine::faction_abilities::blocked()
+        ti4_engine_legacy::faction_abilities::blocked()
             .keys()
             .collect::<Vec<_>>()
     );
     println!(
         "reaction windows unsupported: {}",
-        ti4_engine::reactions::unsupported_windows().len()
+        ti4_engine_legacy::reactions::unsupported_windows().len()
     );
     println!(
         "bot choice kinds unscored: {:?}",

@@ -893,7 +893,7 @@ fn public_game_state_facts(seen: &Observed<'_>, player: &PlayerId) -> Vec<(Strin
                     seen.sources(),
                 )
                 .as_ref()
-                .is_some_and(ti4_engine::fleet::counts_against_supply)
+                .is_some_and(ti4_engine_legacy::fleet::counts_against_supply)
                 {
                     fleet += 1;
                 }
@@ -1585,7 +1585,7 @@ fn card_tag_option_facts(option: &ChoiceOption, held: &CardTagInput<'_>) -> Vec<
     };
     let tags: &'static [&'static str] = match option.kind.as_str() {
         ti4_engine::strategy_cards::RESEARCH_KIND => tags_of(kind::TECHNOLOGY, &option.id),
-        ti4_engine::draft::STRATEGY_CARD_KIND => tags_of(kind::STRATEGY_CARD, &option.id),
+        ti4_engine_legacy::draft::STRATEGY_CARD_KIND => tags_of(kind::STRATEGY_CARD, &option.id),
         ti4_engine::reactions::ACTION_CARD_KIND => {
             if holds_card(&option.id) {
                 tags_of(kind::ACTION_CARD, &option.id)
@@ -1594,7 +1594,7 @@ fn card_tag_option_facts(option: &ChoiceOption, held: &CardTagInput<'_>) -> Vec<
             }
         }
         // `component` is shared by action cards, leaders, relics and faction abilities.
-        ti4_engine::action_cards::ACTION_KIND => {
+        ti4_engine_legacy::action_cards::ACTION_KIND => {
             if let Some(index) = option.id.strip_prefix("action_card|") {
                 index
                     .parse::<usize>()
@@ -1611,7 +1611,7 @@ fn card_tag_option_facts(option: &ChoiceOption, held: &CardTagInput<'_>) -> Vec<
                 &[]
             }
         }
-        ti4_engine::diplomacy::builder::ITEM_KIND => {
+        ti4_engine_legacy::diplomacy::builder::ITEM_KIND => {
             if let Some(note) = option.id.strip_prefix("diplomacy|note|") {
                 if held.held_promissory_notes.iter().any(|held| held == note) {
                     note_tags(note)
@@ -1926,7 +1926,7 @@ mod tests {
             let mut activated = state.clone();
             activated.active_system = Some(system.clone());
             let actually =
-                !ti4_engine::tactical::movable(&activated, content, POK, &hub.galaxy, &player)
+                !ti4_engine_legacy::tactical::movable(&activated, content, POK, &hub.galaxy, &player)
                     .is_empty();
 
             assert!(
@@ -2914,7 +2914,7 @@ mod card_tag_tests {
         held: &CardTagInput<'_>,
     ) -> Vec<FeatureVector> {
         // (The string windows of these tests speak the frozen engine's `Choice`: one wire shape.)
-        let choice: &Choice = &ti4_engine::from_legacy_wire(choice);
+        let choice: &Choice = &crate::from_legacy_wire(choice);
         let seen = Observed::new(
             state,
             ContentStore::embedded(),
@@ -2935,7 +2935,7 @@ mod card_tag_tests {
     fn a_strategy_card_option_carries_that_cards_tags() {
         let content = ContentStore::embedded();
         let state = ti4_engine::fixtures::game(&["a", "b"]);
-        let choice = ti4_engine::draft::strategy_options(&state, content)
+        let choice = ti4_engine_legacy::draft::strategy_options(&state, content)
             .expect("the draft opens with a picker");
         let held = input(&[], &[]);
         let vectors = projected(&state, &choice, &choice.player, &held);
@@ -2959,7 +2959,7 @@ mod card_tag_tests {
         let (decider, seen) =
             ti4_engine_legacy::choice::Capturing::new(Box::new(ti4_engine_legacy::choice::FirstOption));
         let mut table = ti4_engine_legacy::choice::Table::with_default(Box::new(decider));
-        ti4_engine::strategy_cards::primary(
+        ti4_engine_legacy::strategy_cards::primary(
             &mut state,
             content,
             ti4_model::content_types::POK,
@@ -2994,10 +2994,10 @@ mod card_tag_tests {
             .filter_map(|record| record.id())
             .map(ActionCardId::new)
             .find(|alias| {
-                ti4_engine::action_cards::is_component_action(content, alias)
+                ti4_engine_legacy::action_cards::is_component_action(content, alias)
                     && alias.as_str() != "jamming"
                     // A card with no target on the starting board is not offered (version 10).
-                    && ti4_engine::action_cards::is_playable(
+                    && ti4_engine_legacy::action_cards::is_playable(
                         &table_of("sol", "winnu").0,
                         content,
                         ti4_model::content_types::POK,
@@ -3018,7 +3018,7 @@ mod card_tag_tests {
         // Index 1, so a mapping that forgot to index the hand would read the wrong card.
         let hand = vec![ActionCardId::new("fs1"), card.clone()];
         state.player_mut(&a).unwrap().action_cards = hand.clone();
-        let options = ti4_engine::action_cards::available_actions(
+        let options = ti4_engine_legacy::action_cards::available_actions(
             &state,
             content,
             ti4_model::content_types::POK,
@@ -3031,7 +3031,7 @@ mod card_tag_tests {
             .collect();
         assert_eq!(played.len(), 1, "{options:?}");
         assert_eq!(played[0].id, "action_card|1");
-        let choice = Choice::new(a.clone(), "act", ti4_engine::from_legacy_wire::<_, Vec<ChoiceOption>>(&options));
+        let choice = Choice::new(a.clone(), "act", crate::from_legacy_wire::<_, Vec<ChoiceOption>>(&options));
         let held = input(&hand, &[]);
         let vectors = projected(&state, &choice, &a, &held);
         let index = choice
@@ -3069,7 +3069,7 @@ mod card_tag_tests {
                 ti4_model::id::LeaderId::new(id),
                 ti4_model::state::LeaderStatus::Readied,
             );
-            let options = ti4_engine::leaders::component_actions(&state, content, &a);
+            let options = ti4_engine_legacy::leaders::component_actions(&state, content, &a);
             if let Some(option) = options.iter().find(|o| o.id.ends_with(id)) {
                 found = Some((state, a, options.clone(), option.clone()));
                 break;
@@ -3078,7 +3078,7 @@ mod card_tag_tests {
         let (state, a, options, option) = found.expect("some tagged agent is offered");
         assert!(option.id.starts_with("component|leader|"));
         let leader = option.id.strip_prefix("component|leader|").unwrap();
-        let choice = Choice::new(a.clone(), "act", ti4_engine::from_legacy_wire::<_, Vec<ChoiceOption>>(&options));
+        let choice = Choice::new(a.clone(), "act", crate::from_legacy_wire::<_, Vec<ChoiceOption>>(&options));
         let held = input(&[], &[]);
         let vectors = projected(&state, &choice, &a, &held);
         let index = choice
@@ -3100,7 +3100,7 @@ mod card_tag_tests {
 
     #[test]
     fn a_promissory_note_item_carries_the_notes_tags_only_when_held() {
-        use ti4_engine::diplomacy::builder::{ContactScope, Draft, ITEM_KIND, item_options};
+        use ti4_engine_legacy::diplomacy::builder::{ContactScope, Draft, ITEM_KIND, item_options};
         let content = ContentStore::embedded();
         let (mut state, a, b) = table_of("sol", "winnu");
         // The fixture deals no notes: hold a mix of generic and faction notes, and give the
@@ -3131,7 +3131,7 @@ mod card_tag_tests {
             .filter(|(id, holder)| **holder == a && !state.promissory_faceup.contains(*id))
             .map(|(id, _)| id.clone())
             .collect();
-        let choice = Choice::new(a.clone(), "build", ti4_engine::from_legacy_wire::<_, Vec<ChoiceOption>>(&options));
+        let choice = Choice::new(a.clone(), "build", crate::from_legacy_wire::<_, Vec<ChoiceOption>>(&options));
         let held = input(&[], &hand);
         let vectors = projected(&state, &choice, &a, &held);
         let mut tagged = 0;
@@ -3174,17 +3174,17 @@ mod card_tag_tests {
         let (decider, seen) =
             ti4_engine_legacy::choice::Capturing::new(Box::new(ti4_engine_legacy::choice::FirstOption));
         let mut table = ti4_engine_legacy::choice::Table::with_default(Box::new(decider));
-        let mut resolver = ti4_engine::timing::Resolver::new(
+        let mut resolver = ti4_engine_legacy::timing::Resolver::new(
             vec![a.clone(), PlayerId::new("b")],
             Some(a.clone()),
             ti4_engine_legacy::choice::Table::default(),
         );
-        ti4_engine::reactions::arm(&mut resolver, &state);
+        ti4_engine_legacy::reactions::arm(&mut resolver, &state);
         let mut dice = ti4_engine_legacy::dice::Dice::new();
         let mut rng = ti4_engine_legacy::rng::GameRng::new(0);
         let mut event_sequence = ti4_engine_legacy::event::EventSequence::new();
         let mut working = state.clone();
-        let mut context = ti4_engine::timing::TimingContext {
+        let mut context = ti4_engine_legacy::timing::TimingContext {
             state: &mut working,
             content,
             sources: ti4_model::content_types::POK,
@@ -3229,9 +3229,9 @@ mod card_tag_tests {
         let content = ContentStore::embedded();
         let (state, a, _) = table_of("sol", "winnu");
         let seen = Observed::new(&state, content, ti4_model::content_types::POK, None);
-        let choice = ti4_engine::draft::strategy_options(&state, content).unwrap();
+        let choice = ti4_engine_legacy::draft::strategy_options(&state, content).unwrap();
         let baseline = crate::progress::Baseline::default();
-        let choice: Choice = ti4_engine::from_legacy_wire(&choice);
+        let choice: Choice = crate::from_legacy_wire(&choice);
         let legacy = mlp_choice_features(&seen, &choice, &choice.player, &[], baseline);
         let off = mlp_choice_features_with(&seen, &choice, &choice.player, &[], baseline, None);
         assert_eq!(legacy, off, "None must be byte-identical to the wrapper");

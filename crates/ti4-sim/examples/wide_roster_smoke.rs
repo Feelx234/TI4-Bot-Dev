@@ -158,7 +158,7 @@ fn main() {
         .into_iter()
         .flat_map(|alias| {
             if alias == ti4_engine::seating::KELERES_FAMILY {
-                ti4_engine::factions::keleres::VARIANTS.to_vec()
+                ti4_engine_legacy::factions::keleres::VARIANTS.to_vec()
             } else {
                 vec![alias]
             }

@@ -1450,7 +1450,7 @@ mod tests {
         state.player_mut(&pid("a")).unwrap().trade_goods = 2;
         let planets: Vec<_> = state.controlled_planets(&pid("a")).into_iter().map(|(_, planet)| planet.clone()).collect();
         assert!(!planets.is_empty(), "a seat controls its home planets at the opening");
-        let worth = |spend| -> i64 { planets.iter().map(|planet| crate::production::planet_value(content, POK, planet, spend)).sum() };
+        let worth = |spend| -> i64 { planets.iter().map(|planet| ti4_engine_legacy::production::planet_value(content, POK, planet, spend)).sum() };
         let resources = worth(ti4_engine_legacy::production::Spend::Resources);
         let influence = worth(ti4_engine_legacy::production::Spend::Influence);
 
@@ -1664,8 +1664,8 @@ mod tests {
 
         // The engine's own receipt path: a play-area note goes to the table (public), an in-hand
         // note stays private.
-        crate::promissory::take(&mut state, content, &pid("a"), "an:generic");
-        crate::promissory::take(&mut state, content, &pid("b"), "cf:generic");
+        ti4_engine_legacy::promissory::take(&mut state, content, &pid("a"), "an:generic");
+        ti4_engine_legacy::promissory::take(&mut state, content, &pid("b"), "cf:generic");
 
         let seen = Observed::new(&state, content, POK, None);
         let public_notes = seen.promissory_notes();
@@ -2024,7 +2024,7 @@ mod obs004_actor_owned_inventory {
         // BF-00h-cards: three seats, a shows nothing, b's hand is shown to a. Only a's bound view
         // reports it, in each of the three kinds; b and c get nothing, and the public `Observed`
         // carries a count for b, as it did before.
-        use crate::factions::hooks_cards::{RevealKind, RevealScope, reveal, reveal_hand};
+        use ti4_engine_legacy::factions::hooks_cards::{RevealKind, RevealScope, reveal, reveal_hand};
         let content = ContentStore::embedded();
         let mut state = ti4_engine_legacy::fixtures::game(&["a", "b", "c"]);
         state.player_mut(&pid("b")).unwrap().action_cards = vec![

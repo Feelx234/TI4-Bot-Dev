@@ -1545,7 +1545,7 @@ mod tests {
         state.production_discount_remaining = 1;
         let mut window = ti4_engine_legacy::production::ProductionWindow::new(&state, content, POK, &seat(), &system);
         window.refresh(&state, content, POK);
-        let choice: Choice = ti4_engine::from_legacy_wire(&window
+        let choice: Choice = crate::from_legacy_wire(&window
             .pending_choice(&state, content, POK)
             .expect("the seat can produce"));
         match project_tactical_facts(&state, content, POK, galaxy, &choice) {

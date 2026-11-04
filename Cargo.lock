@@ -4388,7 +4388,6 @@ dependencies = [
  "ti4-engine-legacy",
  "ti4-host",
  "ti4-model",
- "ti4-policy",
  "ti4-rule-bot",
  "ti4-wasm",
  "tokio",
