@@ -270,6 +270,24 @@ fn an_event_window_asks_the_seat_whose_secret_the_table_satisfies_and_closes_lik
     assert_eq!(string.questions.len(), 1);
 }
 
+/// String bug S5 (`docs/STRING_ENGINE_BUGS.md`), pinned: a secret scored for the first time runs no unlock check in the string (`secrets::award`), so the hero
+/// stays locked until the next check; the core unlocks it at the score (51.7). The test states the difference (the position differs in exactly that leader);
+/// when the string is fixed, remove it.
+#[test]
+fn a_secret_scored_for_the_first_time_leaves_the_hero_locked_in_the_string_s5() {
+    let mut state = dictate_policy_table();
+    for o in ["expand_borders", "corner"] {
+        state.scored_objectives.entry(pid("b")).or_default().insert(ObjectiveId::new(o));
+    }
+    let hero = state.player(&pid("b")).unwrap().leaders.iter().find(|(l, _)| l.as_str().ends_with("hero")).map(|(l, s)| (l.clone(), *s)).expect("the seat has a hero");
+    assert_eq!(hero.1, ti4_model::state::LeaderStatus::Locked, "the hero starts locked");
+    let (string, native) = event_both(&state, 1, crate::secrets::Timing::Agenda, true, &["dp"]);
+    assert!(has(&string, "OBJECTIVE_SCORED:dp"), "{:?}", string.events);
+    let status = |run: &Run| run.state["players"].as_array().and_then(|p| p.iter().find(|p| p["id"] == "b")).map(|p| p["leaders"][hero.0.as_str()].clone());
+    assert_eq!(status(&string), Some(serde_json::json!("locked")), "the string has not unlocked the hero (S5)");
+    assert_eq!(status(&native), Some(serde_json::json!("unlocked")), "the core unlocks it at the score (51.7)");
+}
+
 #[test]
 fn an_event_window_nobody_can_score_in_closes_without_a_question_like_the_string() {
     let mut state = dictate_policy_table();

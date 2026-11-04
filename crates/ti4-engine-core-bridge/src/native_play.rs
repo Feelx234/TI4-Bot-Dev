@@ -772,6 +772,27 @@ pub const KNOWN_S3: &str = "known string bug S3";
 /// The label of a difference that is the string's S4 (the Yin hero's planets leave out the Wormhole Nexus' planet, which is off the hex grid).
 pub const KNOWN_S4: &str = "known string bug S4";
 
+/// The label of a difference that is the string's S5 (a secret objective scored for the first time does not run the leader unlock check at once).
+pub const KNOWN_S5: &str = "known string bug S5";
+
+/// S5 (`docs/STRING_ENGINE_BUGS.md`): a hero or commander the first score of a secret objective unlocks (51.7) is unlocked by the core at the score and by the string
+/// at its next check (turn start, status bookkeeping, where it also announces `LEADER_UNLOCKED`). Two forms: the event the string announces behind the score and the
+/// core has not (the core unlocked earlier, so its bookkeeping has nothing to announce), and the leader's state while the string has not unlocked it yet.
+fn s5_unlock_differs(d: &Difference) -> bool {
+    let events = d.what == "events" && d.legacy.starts_with("LEADER_UNLOCKED:") && !d.native.starts_with("LEADER_UNLOCKED:");
+    let state = d.what == "state" && d.path.contains(".leaders.") && d.native == "\"unlocked\"" && d.legacy == "\"locked\"";
+    events || state
+}
+
+/// The difference of the events the two sides owe each other, with S5 recognised.
+fn owed_events_difference(step: usize, arms: Vec<String>, at: usize, native: String, legacy: String) -> Difference {
+    let mut found = Difference { step, arms, what: "events", path: format!("[{at}]"), native, legacy, known: None };
+    if s5_unlock_differs(&found) {
+        found.known = Some(KNOWN_S5);
+    }
+    found
+}
+
 /// S3 (`docs/STRING_ENGINE_BUGS.md`): the core records the feat `won_against_a_note_holder` where the string does not -- the note holder's Support for the Throne was
 /// returned by the activation of the free tactical action, which the string's snapshot of "the notes at the start of the tactical action" already leaves out.
 fn s3_feat_differs(d: &Difference) -> bool {
@@ -960,7 +981,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                         eprintln!("  native steps with no legacy step of their own: {arms:?} events {events:?} against the owed legacy events {:?}", owed.legacy);
                     }
                     if let Some((at, n, l)) = owed.settle(events, Vec::new()) {
-                        first_difference = Some(Difference { step: native.steps, arms, what: "events", path: format!("[{at}]"), native: n, legacy: l, known: None });
+                        first_difference = Some(owed_events_difference(native.steps, arms, at, n, l));
                         break End::Finished;
                     }
                     group.clear();
@@ -986,7 +1007,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                     owed.strip_owed();
                     owed.strip_pending(&mut new_legacy);
                     if let Some((at, n, l)) = owed.settle(Vec::new(), new_legacy) {
-                        first_difference = Some(Difference { step: native.steps, arms, what: "events", path: format!("[{at}]"), native: n, legacy: l, known: None });
+                        first_difference = Some(owed_events_difference(native.steps, arms, at, n, l));
                         break;
                     }
                     run = run_legacy(&mut legacy, &group, &ahead);
@@ -1323,7 +1344,11 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
     let at = (0..common).find(|i| native_stream[*i] != legacy_stream[*i]).or_else(|| (strict && !ahead && native_stream.len() != legacy_stream.len()).then_some(common));
     if let Some(at) = at {
         let show = |v: &[String]| v.get(at).map_or_else(|| format!("<end after {}>", v.len()), Clone::clone);
-        return Some(diff("events", format!("[{at}]"), show(&native_stream), show(&legacy_stream)));
+        let mut found = diff("events", format!("[{at}]"), show(&native_stream), show(&legacy_stream));
+        if s5_unlock_differs(&found) {
+            found.known = Some(KNOWN_S5);
+        }
+        return Some(found);
     }
     owed.native = native_stream[common..].to_vec();
     owed.legacy = legacy_stream[common..].to_vec();
@@ -1352,6 +1377,8 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
                     let mut found = diff("state", d.path, d.right, d.left);
                     if s3_feat_differs(&found) {
                         found.known = Some(KNOWN_S3);
+                    } else if s5_unlock_differs(&found) {
+                        found.known = Some(KNOWN_S5);
                     }
                     return Some(found);
                 }
@@ -1996,7 +2023,8 @@ mod tests {
     fn a_wormhole_token_the_game_places_joins_the_map_of_the_core() {
         for (faction, players, seed, steps) in [("sol", 5, 1, 872), ("ghost", 4, 2, 420), ("yin", 4, 4, 950)] {
             let shadowed = shadow_play(&lobby_spec(faction, players, seed), steps, 50).expect("builds");
-            assert!(shadowed.first_difference.is_none(), "{faction} {players}p seed {seed}: {:?}", shadowed.first_difference);
+            // (Yin seed 4 stops at the string's S5 at step 892, before the token of step 943: integration 20, see `s5_stops_a_game_the_guards_of_three_older_tests_ran_through`.)
+            assert!(shadowed.first_difference.as_ref().is_none_or(|d| d.known == Some(KNOWN_S5)), "{faction} {players}p seed {seed}: {:?}", shadowed.first_difference);
         }
     }
 
@@ -2007,7 +2035,8 @@ mod tests {
     #[test]
     fn the_naalu_mech_is_the_printing_of_the_box_and_two_abilities_of_one_event_are_the_known_s1() {
         let shadowed = shadow_play(&lobby_spec("cabal", 6, 4), 950, 50).expect("builds");
-        assert!(shadowed.first_difference.is_none(), "{:?}", shadowed.first_difference);
+        // (Cabal seed 4 stops at the string's S5 at step 729, before step 943: integration 20.)
+        assert!(shadowed.first_difference.as_ref().is_none_or(|d| d.known == Some(KNOWN_S5)), "{:?}", shadowed.first_difference);
         let shadowed = shadow_play(&lobby_spec("yssaril", 6, 2), 1300, 50).expect("builds");
         let difference = shadowed.first_difference.expect("the string orders the two abilities by its seating");
         assert_eq!(difference.known, Some(KNOWN_S1), "{difference}");
@@ -2082,13 +2111,32 @@ mod tests {
         assert!(!s4_nexus_in_error("script wanted \"19|wellon\" but a was offered [\"59|archonvail\", \"decline\"]"), "another planet is a difference of the core");
     }
 
+    /// Integration 20, string bug S5 (a secret scored for the first time unlocks no leader in the string; the core does at the score, 51.7): the three games of the older
+    /// tests stop there (nomad 3 players seed 5: the commander, step 585; yin 4 players seed 4: `mentakhero`, step 892; cabal 6 players seed 4: `naaluhero`, step 729), and
+    /// the recogniser takes the two forms of it (the event, the leader's state) and nothing else.
+    #[test]
+    fn s5_stops_a_game_the_guards_of_three_older_tests_ran_through() {
+        for (faction, players, seed, steps) in [("nomad", 3, 5, 600), ("yin", 4, 4, 900), ("cabal", 6, 4, 740)] {
+            let shadowed = shadow_play(&lobby_spec(faction, players, seed), steps, 50).expect("builds");
+            let difference = shadowed.first_difference.unwrap_or_else(|| panic!("{faction} {players}p seed {seed}: the string differs here"));
+            assert_eq!(difference.known, Some(KNOWN_S5), "{faction} {players}p seed {seed}: {difference}");
+        }
+        let d = |what, path: &str, native: &str, legacy: &str| Difference { step: 1, arms: vec![], what, path: path.to_owned(), native: native.to_owned(), legacy: legacy.to_owned(), known: None };
+        assert!(s5_unlock_differs(&d("events", "[1]", "STATUS_BOOKKEEPING_RESOLVED", "LEADER_UNLOCKED:naaluhero")));
+        assert!(s5_unlock_differs(&d("state", "players[0].leaders.nomadcommander", "\"unlocked\"", "\"locked\"")));
+        assert!(!s5_unlock_differs(&d("events", "[1]", "LEADER_UNLOCKED:a", "LEADER_UNLOCKED:b")), "two unlocks that differ are a difference of the core");
+        assert!(!s5_unlock_differs(&d("state", "players[0].leaders.nomadcommander", "\"locked\"", "\"unlocked\"")), "the string ahead of the core is a difference of the core");
+        assert!(!s5_unlock_differs(&d("state", "players[0].exhausted", "\"unlocked\"", "\"locked\"")), "only a leader's state");
+    }
+
     /// Integration 19: a Nomad mech in the space area is offered as a sustainer (nomad 3 players seed 5, step 832: the string offered `sustain|1` and `sustain|2`); the
     /// War Effort question lists the systems with a SHIP of the seat, not the system of its Floating Factory (nomad 6 players seed 6, step 824).
     #[test]
     fn the_nomad_mech_sustains_in_space_and_war_effort_lists_systems_with_ships() {
         for (faction, players, seed, steps) in [("nomad", 3, 5, 840), ("nomad", 6, 6, 830)] {
             let shadowed = shadow_play(&lobby_spec(faction, players, seed), steps, 50).expect("builds");
-            assert!(shadowed.first_difference.is_none(), "{faction} {players}p seed {seed}: {:?}", shadowed.first_difference);
+            // (Nomad 3 players seed 5 stops at the string's S5 at step 585, before the sustain of step 832: integration 20.)
+            assert!(shadowed.first_difference.as_ref().is_none_or(|d| d.known == Some(KNOWN_S5)), "{faction} {players}p seed {seed}: {:?}", shadowed.first_difference);
         }
     }
 

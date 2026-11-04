@@ -96,6 +96,25 @@ planets and resolve ground combats on those planets."
 * What a fix of the string would need (not done): `hero_spots` over `system_ids()` plus `off_map_system_ids()`; it changes the offered options of recorded games, so behind a
   `RULES_VERSION`.
 
+## S5. A secret objective scored for the first time does not run the leader unlock check at once
+
+Found by integration 20 (merging `core-silent-fix-18`, whose B-X01 fix made the core unlock at the score). Rule 51.7: a leader unlocks the moment its condition is met; a hero
+unlocks with the third scored objective, whatever the kind of the objective.
+
+* What the string does: `objectives::ScoringWindow::select` sends a secret in the scorer's hand to `secrets::award`, which scores it and runs NO unlock check; only a public
+  (or already revealed) objective goes through `objectives::award` and its `award_tail` (`check_unlocks`). The leader is unlocked at the next check: the next turn start
+  (`refresh_commander_unlocks`) or the status bookkeeping, where `LEADER_UNLOCKED:<leader>` is announced. (The silent-gap note SILENT_GAPS_18 B-X01 said the string's
+  `award_tail` always runs; it does not for this one path.)
+* What the core does: `windows/scoring.rs` unlocks for the scorer right after any score (no map, no event, as `award_tail`), a secret scored for the first time included.
+  The `LEADER_UNLOCKED` event is announced only by the turn start and the bookkeeping, so with the core it is not announced at all for that leader (it is unlocked already).
+* Who is right: the core (51.7; the comment of `award_tail` says it: a hero unlocked by the third objective "must not wait for a status phase the game may never reach").
+* The harness recognises it (`s5_unlock_differs`: the string announces `LEADER_UNLOCKED:..` where the core does not, or the leader's state is `unlocked` in the core and `locked`
+  in the string) and reports `(known string bug S5)`. The shadow cannot play on past it.
+* A fix of the string (one line after `secrets::award` in `select`, `leaders::check_unlocks(state, content, sources, None, &player)`) was written and tested
+  (`a_secret_scored_for_the_first_time...` passed) and **not kept**: it moves the recorded legacy games (`golden::tests::the_smoke_subset_reproduces`, g020 step 795:
+  the state at the start of the step differs from the recording). Behind a `RULES_VERSION` it would be one line. The legacy test
+  `status_live_tests::a_secret_scored_for_the_first_time_leaves_the_hero_locked_in_the_string_s5` pins the string's behaviour (remove it with the fix).
+
 ## Harness limits found on the way (the shadow's, not the engines')
 
 * H1. A game the string has not stepped yet carries its galaxy with `hyperlane_lanes` off (`laws::apply_to_galaxy` runs at the start of every step). The core
