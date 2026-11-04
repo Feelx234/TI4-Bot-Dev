@@ -310,6 +310,26 @@ fn a_single_option_question_that_vanishes_is_reported() {
     assert_eq!(v.prompt, "pay 3 more resources");
 }
 
+/// The payment the core collapses (one way left to pay) is told to the payer once: the log of a step the driver runs again holds it again, and
+/// the wrapper takes one note per (question, position) of the committed step (`native_step`).
+#[test]
+fn a_single_way_payment_is_told_once_with_the_reason() {
+    let (state, galaxy, h) = base_history();
+    let mut script: Vec<String> = h.iter().map(|r| r.chosen.clone()).collect();
+    script[63] = "deploy|sol_mech|1".to_owned();
+    let table = Table::with_default(Box::new(Replaying { script, at: 0 }));
+    let mut game = Game::with_table(state.clone(), ContentStore::embedded(), table).with_galaxy(galaxy.clone());
+    let mut notes = Vec::new();
+    while game.table.log.records.len() < 70 {
+        let result = game.step();
+        notes.extend(game.table.take_auto_resolved());
+        assert!(result.error.is_none() && !result.finished, "{:?}", result.error);
+    }
+    let paid: Vec<_> = notes.iter().filter(|n| n.reason == "it was the only way left to pay").collect();
+    assert_eq!(paid.len(), 1, "{notes:?}");
+    assert_eq!((paid[0].prompt.as_str(), paid[0].option_id.as_str()), ("pay 3 more resources", "exhaust|jord"));
+}
+
 // ---- randomness ---------------------------------------------------------------------------
 
 #[test]
