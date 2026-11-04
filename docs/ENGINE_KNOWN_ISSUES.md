@@ -289,7 +289,7 @@ Branch `core-reactions` (cut from `core-integration` 04578c39 with B1, B2, B3 an
 ## E. Process / ops notes
 
 - E1: nightly cron disabled (`#SKIPPED-2026-10-27`); restore with `crontab /root/crontab.backup-2026-10-27`.
-- E2: cron `NIGHTLY_START=23:30` disagrees with CLAUDE.md (20:30 Berlin); reconcile when restoring.
+- E2: cron `NIGHTLY_START=23:30` disagrees with CLAUDE.md (20:30 Berlin); reconcile when restoring.  (Decision 2026-11-04: restore at 22:30 Berlin; see docs/ENGINE_LAYOUT.md "Nightly restore".)
 - E3: alpha-server feedback recovery after the disk-full incident is unconfirmed.
 - E4: agents must delete their private target dirs when stopping.
 - E5: machine contention with 4 agents running; stagger builds.
