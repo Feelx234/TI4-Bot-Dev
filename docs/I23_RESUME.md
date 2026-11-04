@@ -1,0 +1,2 @@
+# I23 resume
+Branch `core-integration-23`, from `core-integration-22`. Read `docs/INTEGRATION23.md`. Not pushed. Merged: d29b-strip, golden45, yin-nexus. Deployed to the public alpha after the fast checks (see INTEGRATION23 section 3); the rest of the gate runs on the deployed commit. Private target `/root/deploytmp/core-i23` (delete at end), logs `/root/deploytmp/i23-logs`, env `/root/deploytmp/i23env.sh`.
