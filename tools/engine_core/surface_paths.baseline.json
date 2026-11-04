@@ -500,6 +500,9 @@
  "starting_tech::open": {
   "status": "native"
  },
+ "strategy::STRATEGIC_ACTION_ID": {
+  "status": "native"
+ },
  "strategy::STRATEGY_KIND": {
   "status": "native"
  },
