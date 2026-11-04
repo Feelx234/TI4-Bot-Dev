@@ -32,9 +32,13 @@ fn round_trip(p: &Position, previous: Option<&GameState>) -> Result<Vec<String>,
     let mut cx = Ctx::of(&p.state).map_err(|e| format!("{e}"))?;
     let src = Sources { galaxy: Some(&p.galaxy), rng: None };
     let mut core = CoreState::with_loaded(SliceSet::EMPTY);
+    // As `Codec::load` does: the core carries the lineage's owner and text tables before the slices fill it (the owner table is
+    // not a slice, so a reload gets it from `attach`; a reference built without it would differ from every reload).
+    cx.attach(&mut core);
     for slice in Slice::ALL {
         Codec::load_slice(&mut cx, &p.state, src, slice, &mut core).map_err(|e| format!("{:?}: {}", e.slice, e.what))?;
     }
+    cx.adopt(&core);
     let mut back = previous.cloned().unwrap_or_else(|| p.state.clone());
     let mut bad = Vec::new();
     for slice in Slice::ALL {
@@ -49,10 +53,27 @@ fn round_trip(p: &Position, previous: Option<&GameState>) -> Result<Vec<String>,
     }
     match Codec::load(&mut cx, &back, src, SliceSet::ALL) {
         Ok(again) if again == core => {}
-        Ok(_) => bad.push(format!("{}: load(store(x)) differs from x", p.label)),
+        Ok(again) => bad.push(format!("{}: load(store(x)) differs from x in {}", p.label, differing_fields(&core, &again))),
         Err(e) => bad.push(format!("{}: reload {e}", p.label)),
     }
     Ok(bad)
+}
+
+/// The names of the top-level fields of two core states that differ (the first thing to read when a round trip fails).
+fn differing_fields(a: &CoreState, b: &CoreState) -> String {
+    let mut out = Vec::new();
+    macro_rules! f {
+        ($($n:ident),*) => {$(if a.$n != b.$n { out.push(format!("{}: {}", stringify!($n), first_line_diff(&format!("{:?}", a.$n), &format!("{:?}", b.$n)))); })*};
+    }
+    f!(meta, seats, players, board, map, decks, cards, objectives, agenda, strategy, explore, trade, marks, transient, pending, rng, ledger, texts, owners, loaded);
+    out.join("; ")
+}
+
+/// A short window around the first character where two debug texts differ.
+fn first_line_diff(a: &str, b: &str) -> String {
+    let at = a.chars().zip(b.chars()).take_while(|(x, y)| x == y).count();
+    let win = |t: &str| t.chars().skip(at.saturating_sub(40)).take(120).collect::<String>();
+    format!("...{} VS ...{}", win(a), win(b))
 }
 
 fn check(positions: &[Position]) -> (usize, usize, Vec<String>) {
@@ -177,9 +198,10 @@ mod leak_scan {
     #[test]
     fn p9_the_rendered_question_names_no_card_that_only_another_seat_holds() {
         let (_, specs) = ti4_engine_core_bridge::workload::specs(GOLDEN_CONFIG).expect("the golden config");
-        let mut game = specs[0].build().expect("a game");
+        // The golden config plays the string engine's rules versions (1..35); the wrapper's game plays 35 only.
+        let mut game = ti4_engine_core_bridge::legacy_game::legacy_game(&specs[0]).expect("a game");
         let seen: Seen = Rc::default();
-        game.table.set_default(Box::new(Capture(seen.clone())));
+        game.table.set_default(Box::new(ti4_engine_core_bridge::legacy_adapter::ThinDecider::new(Box::new(Capture(seen.clone())))));
         let (mut scanned, mut findings) = (0usize, Vec::<String>::new());
         for step in 0..300 {
             if game.state.finished {
