@@ -121,6 +121,9 @@ fn roll_details(core: &CoreState, c: &ti4_engine_core::choice::Choice, rendered:
 /// The most unit types one fight may name (the roll group texts are every subset of them).
 const MAX_TYPES: usize = 10;
 
+/// The most unit kinds ONE seat may field in a fight that names more than `MAX_TYPES` kinds in all (its subsets are the roll groups named: 2^12 - 1).
+const MAX_SIDE_TYPES: usize = 12;
+
 /// The texts of the space combat at `core`: the fixed words, and for the unit types that can be named in the fight in `active_space_combat` (the
 /// types present, with the other form of each dual-form unit) their names and every roll group's. State texts go to the position's table, shown
 /// texts to the render table. A fight with more than ten types names none (the machine then stops at a roll it cannot name).
@@ -193,17 +196,69 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
             t.guns.push((u, state_code(core, id), r.code(id)));
         }
     }
+    // The kinds each seat can field in this fight, with the other form of each (`sides`), and all of them together (`present`).
+    let mut sides: Vec<(ti4_engine_core::ids::Seat, Vec<Unit>)> = Vec::new();
+    let mut add = |sides: &mut Vec<(ti4_engine_core::ids::Seat, Vec<Unit>)>, owner: ti4_engine_core::ids::Seat, unit: Unit| {
+        let at = match sides.iter().position(|(o, _)| *o == owner) {
+            Some(at) => at,
+            None => {
+                sides.push((owner, Vec::new()));
+                sides.len() - 1
+            }
+        };
+        let kinds = &mut sides[at].1;
+        for u in std::iter::once(unit).chain(ti4_engine_core::query::tech::other_form(unit)) {
+            if !kinds.contains(&u) {
+                kinds.push(u);
+            }
+        }
+    };
     let mut present: Vec<Unit> = Vec::new();
     let mut pieces: Vec<Unit> = if let Some((system, _, _)) = core.transient().combat.active_space_combat {
         let cell = core.board().sys(system);
         // (The units in the space area are named only where they can fight as ships too: the infantry and mechs a carrier holds roll no die in a space
         // combat, and each kind named, with its other form, doubles the roll groups: Sol carrying infantry beside a Dreadnought II, Super-Dreadnoughts and
         // an L1Z1X flagship went over `MAX_TYPES` with the two infantry forms, which names none: `CombatUnported`, policy seed 7793 rotation 0.)
-        let mut pieces: Vec<Unit> = cell.units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| p.kind()).collect();
+        let mut owned: Vec<(ti4_engine_core::ids::Seat, Unit)> = cell.units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| (p.owner(), p.kind())).collect();
         // (The units on the planets are named only where they can fight as ships: a ground force or a structure rolls no die in a space combat, and each kind named
         // doubles the roll groups: a fight whose seats also hold infantry, a PDS and a dock on the planets went over `MAX_TYPES`, which names none: `CombatUnported`.)
         for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
-            pieces.extend(core.board().planet(*planet).units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| p.kind()));
+            owned.extend(core.board().planet(*planet).units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| (p.owner(), p.kind())));
+        }
+        let mut pieces: Vec<Unit> = owned.iter().map(|(_, u)| *u).collect();
+        for (owner, unit) in &owned {
+            add(&mut sides, *owner, *unit);
+        }
+        // A seat that owns an upgrade whose units still stand in the older form takes the new form when the combat opens (`technology::apply_unit_upgrades`):
+        // its roll groups are named too, or the machine stands at a roller its texts do not name.
+        let milor_in_play = milor_in_play(core);
+        for (owner, unit) in owned {
+            let Some(p) = core.players().by_seat(owner) else { continue };
+            if let Some(upgrade) = ti4_engine_core::query::tech::unlocked_upgrade(ti4_engine_core::tables::Scope(u32::MAX), unit.data().base_type, p.faction, &p.tech.owned) {
+                pieces.push(upgrade);
+                add(&mut sides, owner, upgrade);
+            }
+            // A seat that can research a unit upgrade while the combat goes on (Reveal Prototype: "at the start of a combat round, spend 4 resources
+            // to research a unit upgrade"; the Nekro's Technological Singularity) may field any form of the base types it has units of: those are named
+            // too, or the machine stands at the roller of the form it researched.
+            // (`owned` holds the units that can fight as ships: a ground force or a structure that rolls no die in a space combat is not in it, and its forms are not
+            // named: a fight that names more than `MAX_TYPES` unit types names none and the machine stood at every roller, `CombatUnported`.)
+            if researches_in_combat(core, owner) {
+                for u in forms_of(unit.data().base_type, p.faction, false) {
+                    pieces.push(u);
+                    add(&mut sides, owner, u);
+                }
+            }
+            // Brother Milor (the Yin agent, or a Ssruu that copies it): "after a player's unit is destroyed during combat: you may exhaust this card to
+            // allow that player to place 2 fighters in the destroyed unit's system". The fighters land in the middle of the fight, for whichever side
+            // lost the ship, in the form that side places: named too, or the machine stands at the roller of the fighters (`CombatUnported`, the Yin
+            // game of the 6-player sweep: two Fighter I of the Yin seat in round 2).
+            if milor_in_play {
+                for u in forms_of(ti4_engine_core::generated::UnitBaseType::Fighter, p.faction, true) {
+                    pieces.push(u);
+                    add(&mut sides, owner, u);
+                }
+            }
         }
         pieces
     } else {
@@ -213,37 +268,7 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
         }
         types
     };
-    // A seat that owns an upgrade whose units still stand in the older form takes the new form when the combat opens (`technology::apply_unit_upgrades`):
-    // its roll groups are named too, or the machine stands at a roller its texts do not name.
-    if let Some((system, _, _)) = core.transient().combat.active_space_combat {
-        let mut owned: Vec<(ti4_engine_core::ids::Seat, Unit)> = core.board().sys(system).units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| (p.owner(), p.kind())).collect();
-        for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
-            owned.extend(core.board().planet(*planet).units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| (p.owner(), p.kind())));
-        }
-        let milor_in_play = milor_in_play(core);
-        for (owner, unit) in owned {
-            let Some(p) = core.players().by_seat(owner) else { continue };
-            if let Some(upgrade) = ti4_engine_core::query::tech::unlocked_upgrade(ti4_engine_core::tables::Scope(u32::MAX), unit.data().base_type, p.faction, &p.tech.owned) {
-                pieces.push(upgrade);
-            }
-            // A seat that can research a unit upgrade while the combat goes on (Reveal Prototype: "at the start of a combat round, spend 4 resources
-            // to research a unit upgrade"; the Nekro's Technological Singularity) may field any form of the base types it has units of: those are named
-            // too, or the machine stands at the roller of the form it researched.
-            // (`owned` holds the units that can fight as ships: a ground force or a structure that rolls no die in a space combat is not in it, and its forms are not
-            // named: a fight that names more than `MAX_TYPES` unit types names none and the machine stood at every roller, `CombatUnported`.)
-            if researches_in_combat(core, owner) {
-                pieces.extend(forms_of(unit.data().base_type, p.faction, false));
-            }
-            // Brother Milor (the Yin agent, or a Ssruu that copies it): "after a player's unit is destroyed during combat: you may exhaust this card to
-            // allow that player to place 2 fighters in the destroyed unit's system". The fighters land in the middle of the fight, for whichever side
-            // lost the ship, in the form that side places: named too, or the machine stands at the roller of the fighters (`CombatUnported`, the Yin
-            // game of the 6-player sweep: two Fighter I of the Yin seat in round 2).
-            if milor_in_play {
-                pieces.extend(forms_of(ti4_engine_core::generated::UnitBaseType::Fighter, p.faction, true));
-            }
-        }
-    }
-    for u in pieces {
+    for u in pieces.drain(..) {
         if !present.contains(&u) {
             present.push(u);
         }
@@ -254,18 +279,34 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
         }
     }
     present.sort_unstable();
-    if present.len() > MAX_TYPES {
+    // Every subset of the kinds is a roll group (the units that roll together are one seat's, so the subsets of ONE seat's kinds are the groups
+    // that can be named). Up to `MAX_TYPES` kinds in all, the subsets of all of them, in the order the first games minted them (their codes
+    // are part of their fingerprints); past it, only the subsets of each seat's own kinds (at most `MAX_SIDE_TYPES` of them), seat by seat.
+    let mut group_sets: Vec<Vec<Unit>> = Vec::new();
+    if present.len() <= MAX_TYPES {
+        group_sets.push(present.clone());
+    } else if sides.is_empty() || sides.iter().any(|(_, kinds)| kinds.len() > MAX_SIDE_TYPES) {
         return t;
+    } else {
+        for (_, mut kinds) in sides {
+            kinds.sort_unstable();
+            group_sets.push(kinds);
+        }
     }
     for u in &present {
         let id = IdStr::as_str(*u);
         t.unit_codes.push((*u, state_code(core, id)));
         t.shown_codes.push((*u, r.code(id)));
     }
-    for mask in 1_u32..(1 << present.len()) {
-        let kinds: Vec<Unit> = present.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0).map(|(_, u)| *u).collect();
-        let joined = kinds.iter().map(|u| IdStr::as_str(*u)).collect::<Vec<_>>().join("+");
-        t.groups.push((kinds, state_code(core, &joined), r.code(&joined)));
+    for set in &group_sets {
+        for mask in 1_u32..(1 << set.len()) {
+            let kinds: Vec<Unit> = set.iter().enumerate().filter(|(i, _)| mask & (1 << i) != 0).map(|(_, u)| *u).collect();
+            if t.groups.iter().any(|(k, _, _)| *k == kinds) {
+                continue;
+            }
+            let joined = kinds.iter().map(|u| IdStr::as_str(*u)).collect::<Vec<_>>().join("+");
+            t.groups.push((kinds, state_code(core, &joined), r.code(&joined)));
+        }
     }
     t
 }
