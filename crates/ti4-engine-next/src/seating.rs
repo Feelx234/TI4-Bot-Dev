@@ -1300,13 +1300,13 @@ mod tests {
         // fleet — which is exactly what Arborec, Argent and the Cabal were doing when the seating
         // took whatever the catalogue listed first.
         for alias in IN_SCOPE_FACTIONS {
-            let leaders = crate::leaders::for_faction(content(), POK, alias);
+            let leaders = ti4_engine_legacy::leaders::for_faction(content(), POK, alias);
             assert!(
                 !leaders.is_empty(),
                 "{alias} is in scope but has no leaders in the corpus"
             );
-            let known = crate::leaders::registered_abilities();
-            let standing = crate::leaders::modifiers();
+            let known = ti4_engine_legacy::leaders::registered_abilities();
+            let standing = ti4_engine_legacy::leaders::modifiers();
             let ported = leaders.iter().filter(|leader| {
                 known.contains(&leader.as_str()) || standing.contains_key(leader.as_str())
             });
@@ -2010,7 +2010,7 @@ mod tests {
         }
         assert_eq!(pok.len(), full.len() - te.len());
         // Every module faction is either on the roster, a Keleres variant, or the Obsidian.
-        for module in crate::factions::MODULES {
+        for module in ti4_engine_legacy::factions::MODULES {
             let alias = module.alias;
             assert!(
                 full.contains(&alias)

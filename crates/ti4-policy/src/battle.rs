@@ -540,7 +540,7 @@ fn faction_shift(seen: &Observed<'_>, version: u32, faction: &str) -> Option<i64
     }
     let seatable = ti4_engine::seating::wide_roster(seen.content(), seen.sources())
         .contains(&faction)
-        || (ti4_engine::factions::keleres::is_keleres_faction(faction)
+        || (ti4_engine_legacy::factions::keleres::is_keleres_faction(faction)
             && ti4_content::factions::get(seen.content(), faction).is_some());
     seatable.then_some(match faction {
         "jolnar" => -1,
@@ -2359,7 +2359,7 @@ mod tests {
                 .into_iter()
                 .filter(|alias| *alias != ti4_engine::seating::KELERES_FAMILY)
                 .collect();
-        aliases.extend(ti4_engine::factions::keleres::VARIANTS);
+        aliases.extend(ti4_engine_legacy::factions::keleres::VARIANTS);
         let outside: Vec<&str> = aliases
             .into_iter()
             .filter(|alias| !FACTIONS.iter().any(|(known, _)| known == alias))
@@ -2418,7 +2418,7 @@ mod tests {
             .into_iter()
             .filter(|alias| *alias != ti4_engine::seating::KELERES_FAMILY)
             .collect();
-        factions.extend(ti4_engine::factions::keleres::VARIANTS);
+        factions.extend(ti4_engine_legacy::factions::keleres::VARIANTS);
         for faction in factions {
             for base in [
                 "fighter",

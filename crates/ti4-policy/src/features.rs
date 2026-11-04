@@ -1598,7 +1598,7 @@ fn diplomacy_decision_features(
     player: &PlayerId,
     features: &mut FeatureVector,
 ) {
-    use ti4_engine::diplomacy::candidates::{CandidateBundle, DealTemplate};
+    use ti4_engine_legacy::diplomacy::candidates::{CandidateBundle, DealTemplate};
     use ti4_model::{DealTerm, TransferAsset};
 
     if !option.kind.starts_with("diplomacy_") && option.kind != "open_diplomacy" {
@@ -1607,7 +1607,7 @@ fn diplomacy_decision_features(
     if let Some(counterparty) = diplomacy_counterparty(seen, choice, option, player) {
         relationship_features(seen, player, &counterparty, "counterparty", features);
     }
-    if option.kind == ti4_engine::diplomacy::window::SIGNAL_KIND {
+    if option.kind == ti4_engine_legacy::diplomacy::window::SIGNAL_KIND {
         for (field, family) in [
             ("signal_kind", "signal-kind"),
             ("signal_statement", "signal-statement"),
@@ -1769,7 +1769,7 @@ fn diplomacy_counterparty(
     match option.kind.as_str() {
         // `component|diplomacy|seat|{seating-order index}`
         "open_diplomacy" => {
-            let index = ti4_engine::diplomacy::candidates::contact_seat_index(&option.id)?;
+            let index = ti4_engine_legacy::diplomacy::candidates::contact_seat_index(&option.id)?;
             seen.players().get(index).map(|seat| (*seat).clone())
         }
         // `component|diplomacy-payment|{deal}|{term}`
@@ -4346,7 +4346,7 @@ mod tests {
     #[test]
     fn diplomacy_bundle_options_read_from_the_deciding_seats_side() {
         use ti4_engine::decision_context::{DecisionContext, DecisionSource, DecisionTarget};
-        use ti4_engine::diplomacy::candidates::{CandidateBundle, CandidateFeatures, DealTemplate};
+        use ti4_engine_legacy::diplomacy::candidates::{CandidateBundle, CandidateFeatures, DealTemplate};
         use ti4_model::state::Phase;
         use ti4_model::{DealRevision, DealTerm, DiplomacyState, TransferAsset};
 
@@ -4450,7 +4450,7 @@ mod tests {
         let seen = Observed::new(&state, content, POK, None);
         let option = ChoiceOption::labelled(
             "diplomacy|signal|will_vote|agenda|for",
-            ti4_engine::diplomacy::window::SIGNAL_KIND,
+            ti4_engine_legacy::diplomacy::window::SIGNAL_KIND,
             "I will vote for",
         )
         .with("signal_kind", "assurance")
@@ -6855,7 +6855,7 @@ mod tests {
             .unwrap()
             .to_owned();
         state.active_system = Some(SystemId::new(&destination));
-        let move_choice: Choice = ti4_engine::from_legacy_wire(&ti4_engine_legacy::tactical::movement_options(
+        let move_choice: Choice = crate::from_legacy_wire(&ti4_engine_legacy::tactical::movement_options(
             &player,
             &[ti4_engine_legacy::tactical::Movable {
                 origin: origin.clone(),

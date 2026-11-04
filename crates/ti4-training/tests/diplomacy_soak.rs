@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use ti4_content::ContentStore;
 use ti4_engine::choice::{Decider, Scripted, SeededRandom};
-use ti4_engine::diplomacy::candidates::{MAX_INITIAL_CANDIDATES, MAX_SIGNAL_CANDIDATES};
+use ti4_engine_legacy::diplomacy::candidates::{MAX_INITIAL_CANDIDATES, MAX_SIGNAL_CANDIDATES};
 use ti4_model::content_types::DEFAULT;
 use ti4_model::id::{FactionId, PlayerId};
 use ti4_model::{DealTerm, DiplomacyEvent};

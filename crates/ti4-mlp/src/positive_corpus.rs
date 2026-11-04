@@ -102,7 +102,7 @@ pub const TACTICAL_ACTION_ID: &str = "tactical";
 /// makes a strategy pick or a setup choice unable to open one by accident.
 /// The prefix of a turn option that opens a transaction rather than taking an action.
 ///
-/// Mirrors `ti4_engine::transactions::OPEN_PREFIX`.
+/// Mirrors `ti4_engine_legacy::transactions::OPEN_PREFIX`.
 pub const TRANSACTION_PREFIX: &str = "component|trade|";
 
 /// How many TI4 actions a seat took.

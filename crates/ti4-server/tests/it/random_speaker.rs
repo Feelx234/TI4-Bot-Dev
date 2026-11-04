@@ -64,7 +64,7 @@ fn a_lobby_game_opens_with_the_seeded_speaker_and_recovery_keeps_it() {
         assert_eq!(state.seating_order, seats);
         // The speaker picks the first strategy card.
         assert_eq!(
-            ti4_engine::phase::next_strategy_picker(&state),
+            ti4_engine_legacy::phase::next_strategy_picker(&state),
             Some(drawn.clone())
         );
         if drawn != seats[0] {

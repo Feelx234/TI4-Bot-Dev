@@ -36,9 +36,9 @@ use std::{
 };
 use ti4_content::ContentStore;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
-use ti4_engine::diplomacy::builder::{CANCEL_ID, DONE_ID, Draft, PROPOSE_ID};
-use ti4_engine::diplomacy::candidates::contact_seat_index;
-use ti4_engine::diplomacy::window::{ACCEPT_ID, DECLINE_ID};
+use ti4_engine_legacy::diplomacy::builder::{CANCEL_ID, DONE_ID, Draft, PROPOSE_ID};
+use ti4_engine_legacy::diplomacy::candidates::contact_seat_index;
+use ti4_engine_legacy::diplomacy::window::{ACCEPT_ID, DECLINE_ID};
 use ti4_mlp::bundle::CriticMode;
 use ti4_model::{
     DealTerm, GameState, PlayerId, TransferAsset, content_types::DEFAULT, id::FactionId,
@@ -305,12 +305,12 @@ fn counted(state: &GameState, holder: &PlayerId, id: &str, n: u8) -> Option<(i32
 fn atoms(
     state: &GameState,
     content: &ContentStore,
-    scope: &ti4_engine::diplomacy::builder::ContactScope,
+    scope: &ti4_engine_legacy::diplomacy::builder::ContactScope,
     draft: &Draft,
     holder: &PlayerId,
 ) -> Vec<(Vec<String>, DealTerm)> {
     let mut out = Vec::new();
-    for option in ti4_engine::diplomacy::builder::item_options(state, content, scope, draft) {
+    for option in ti4_engine_legacy::diplomacy::builder::item_options(state, content, scope, draft) {
         let id = option.id.as_str();
         if let Some(kind) = id.strip_prefix("diplomacy|now|") {
             let held = counted(state, holder, kind, 1).map_or(0, |(held, _)| held);
@@ -378,8 +378,8 @@ fn plan(
     recipient: &PlayerId,
 ) -> PlannedDeal {
     let physical =
-        ti4_engine::transactions::may_transact(state, content, galaxy, proposer, recipient);
-    let context = ti4_engine::diplomacy::candidates::CandidateContext {
+        ti4_engine_legacy::transactions::may_transact(state, content, galaxy, proposer, recipient);
+    let context = ti4_engine_legacy::diplomacy::candidates::CandidateContext {
         state,
         content,
         galaxy,
@@ -387,7 +387,7 @@ fn plan(
         recipient,
         agenda: None,
     };
-    let scope = ti4_engine::diplomacy::candidates::contact_scope(&context, physical);
+    let scope = ti4_engine_legacy::diplomacy::candidates::contact_scope(&context, physical);
     let offering = Draft::new(proposer.clone(), recipient.clone());
     let mut asking = offering.clone();
     asking.asking = true;
@@ -396,7 +396,7 @@ fn plan(
     // the builder offers. A partner's other notes are hidden, so the planner does not ask for them.
     let position = deal_value::Position::of_state(state, content);
     let offered: std::collections::BTreeSet<String> =
-        ti4_engine::diplomacy::builder::item_options(state, content, &scope, &asking)
+        ti4_engine_legacy::diplomacy::builder::item_options(state, content, &scope, &asking)
             .into_iter()
             .map(|option| option.id)
             .collect();

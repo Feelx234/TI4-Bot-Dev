@@ -48,12 +48,14 @@ if [[ "$area" == none ]]; then on=""; off=""; dual=""; else
 # 9 hygiene first: cheap.
 check layers python3 -I tools/engine_core/check_layers.py core
 note "     $(tail -1 "$out/layers.log")"
+check layers-thin python3 -I tools/engine_core/check_layers.py thin
+note "     $(tail -1 "$out/layers-thin.log")"
 check lint-core tools/engine_core/lint_core.sh
 note "     $(tail -1 "$out/lint-core.log")"
-# D2-9 lane 9a (docs/D29A_RESUME.md): the production graph reaches neither legacy nor lend-string. PROD_GRAPH_MODE is `--report`
-# until lane 9b has landed (the thin crate still depends on legacy), then `` (strict); see the doc.
+# D2-9 lane 9a/9b (docs/D29A_RESUME.md, docs/D29B_RESUME.md): the production graph reaches neither legacy nor lend-string. Strict by default
+# since lane 9b; PROD_GRAPH_MODE=--report prints the violations without failing.
 if [[ -x tools/engine_core/check_production_graph.sh ]]; then
-  check prod-graph tools/engine_core/check_production_graph.sh ${PROD_GRAPH_MODE---report}
+  check prod-graph tools/engine_core/check_production_graph.sh ${PROD_GRAPH_MODE-}
   note "     $(tail -1 "$out/prod-graph.log")"
 fi
 # D4-5: the covers gap of the typed core (windows no test drives); notes only, `--check` without --quick is the D4 gate

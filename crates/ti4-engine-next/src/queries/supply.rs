@@ -80,3 +80,16 @@ pub fn remaining(state: &GameState, content: &ContentStore, sources: SourceSet, 
     };
     (limit - held(state, content, sources, player, &base)).max(0)
 }
+
+/// The faction aliases that have a module in the rule set (every faction the printed game plays and the dropped ones): the seats that make
+/// an event worth staging.
+const STAGING_FACTIONS: [&str; 27] = [
+    "arborec", "argent", "bastion", "cabal", "crimson", "deepwrought", "empyrean", "firmament", "ghost", "keleresa", "keleresm", "keleresx", "mahact", "mentak",
+    "muaat", "naalu", "naaz", "nekro", "nomad", "obsidian", "ralnel", "saar", "sardakk", "titans", "winnu", "yin", "yssaril",
+];
+
+/// Whether a seated player's faction has a rules module, i.e. whether anything could react to a staged event.
+#[must_use]
+pub fn staging_enabled(state: &GameState) -> bool {
+    state.seating_order.iter().any(|player| state.player(player).is_some_and(|seat| STAGING_FACTIONS.contains(&seat.faction.as_str())))
+}

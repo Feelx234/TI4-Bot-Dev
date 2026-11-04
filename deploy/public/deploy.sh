@@ -176,11 +176,11 @@ for f in "${WASM_FILES[@]}"; do
   ls -l "$f" "$f.gz" "$f.br"
 done
 
-# D2-9 lane 9a (docs/D29A_RESUME.md): a deploy must never ship a graph with the legacy engine. D29A_MODE is `--report` until
-# lane 9b has landed (set it to "strict" then); only when the scripts exist in the checkout being deployed.
+# D2-9 lane 9a (docs/D29A_RESUME.md): a deploy must never ship a graph with the legacy engine. D29A_MODE is `strict` since
+# lane 9b (D29A_MODE=report only prints); only when the scripts exist in the checkout being deployed.
 if [[ -x "$WT/tools/engine_core/check_production_graph.sh" ]]; then
-  say "Production graph check (no legacy engine, no lend-string)"
-  if [[ "${D29A_MODE:---report}" == strict ]]; then "$WT/tools/engine_core/check_production_graph.sh" || { echo "production graph reaches ti4-engine-legacy: nothing was built" >&2; exit 1; }
+  say "Production graph check (no legacy engine, no dev-tool feature)"
+  if [[ "${D29A_MODE:-strict}" == strict ]]; then "$WT/tools/engine_core/check_production_graph.sh" || { echo "production graph reaches ti4-engine-legacy: nothing was built" >&2; exit 1; }
   else "$WT/tools/engine_core/check_production_graph.sh" --report | tail -1; fi
 fi
 
@@ -190,7 +190,7 @@ cargo build --release -p ti4-server --bin server
 if [[ -x "$WT/tools/engine_core/check_output_probes.sh" ]]; then
   say "Output probes: no legacy literal in the server binary or the wasm"
   probe_args=(); (( ALLOW_LEGACY_PROBE )) && probe_args+=(--allow-legacy-probe)
-  if [[ "${D29A_MODE:---report}" == strict ]]; then
+  if [[ "${D29A_MODE:-strict}" == strict ]]; then
     "$WT/tools/engine_core/check_output_probes.sh" "${probe_args[@]}" "$CARGO_TARGET_DIR/release/server" "${WASM_FILES[@]}" \
       || { echo "legacy literal in the build output: nothing was installed (a known false positive: --allow-legacy-probe)" >&2; exit 1; }
   else "$WT/tools/engine_core/check_output_probes.sh" --allow-legacy-probe "$CARGO_TARGET_DIR/release/server" "${WASM_FILES[@]}" | tail -n 4; fi

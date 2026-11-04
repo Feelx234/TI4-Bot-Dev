@@ -7,7 +7,9 @@ rust-version.workspace = true
 [dependencies]
 ti4-model.workspace = true
 ti4-content.workspace = true
-ti4-engine.workspace = true
+# A research tool: it reads legacy positions (wide rosters, diplomacy) through the dev-tool feature `lend-string`; no production crate is in its tree.
+ti4-engine = { workspace = true, features = ["lend-string"] }
+ti4-engine-legacy.workspace = true
 ti4-policy.workspace = true
 ti4-sim.workspace = true
 ti4-calc.workspace = true
@@ -27,8 +29,6 @@ rayon.workspace = true
 mimalloc.workspace = true
 
 [dev-dependencies]
-# Tests and examples that drive the string windows (oracle only; never in the production tree).
-ti4-engine-legacy.workspace = true
 
 [lints]
 workspace = true

@@ -2036,12 +2036,12 @@ mod tests {
     // to open a OnePerPlayer window before resuming. These tests prove the bot answers every
     // nested offer legally, with no stale state and no duplicate decisions.
 
-    use ti4_engine::from_legacy_wire as thin;
+    use crate::from_legacy_wire as thin;
     use ti4_engine::choice::Table;
     use ti4_engine_legacy::choice::Table as LegacyTable;
     use ti4_engine_legacy::choice::{Resolving, Window};
-    use ti4_engine::objectives::{EventScoreLimit, ScoringWindow};
-    use ti4_engine::secrets::Timing;
+    use ti4_engine_legacy::objectives::{EventScoreLimit, ScoringWindow};
+    use ti4_engine_legacy::secrets::Timing;
     use ti4_model::state::{Feat, GameState};
 
     fn content() -> &'static ContentStore {
@@ -2297,7 +2297,7 @@ mod tests {
         let mut dice = ti4_engine_legacy::dice::Dice::new();
         let mut rng = ti4_engine_legacy::rng::GameRng::new(51);
 
-        let mut window = ti4_engine::combat::CombatWindow::new(&state, content(), POK, &system);
+        let mut window = ti4_engine_legacy::combat::CombatWindow::new(&state, content(), POK, &system);
         let mut ctx = Resolving {
             content: content(),
             sources: POK,

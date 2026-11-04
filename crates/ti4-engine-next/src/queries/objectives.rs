@@ -765,3 +765,16 @@ pub(crate) fn view_of(cell: &OnceCell<Option<Rc<ObjView>>>, state: &GameState, c
     }
     cell.get_or_init(|| ObjView::build(state, sources, galaxy)).clone()
 }
+
+/// The public objectives whose scoring rule is written (the legacy `objectives::requirement_for` is `Some` for exactly these).
+const REGISTERED: [&str; 30] = [
+    "conquer", "intimidate", "outer_rim", "control_borderlands", "push_boundaries", "distant_lands", "engineer_marvel", "supremacy", "expand_borders", "subdue", "corner",
+    "unify_colonies", "research_outposts", "brain_trust", "develop", "revolutionize", "diversify", "master_science", "build_defenses", "massive_cities", "infrastructure",
+    "protect_border", "raise_fleet", "command_armada", "deep_space", "vast_territories", "ancient_monuments", "lost_outposts", "make_history", "become_legend",
+];
+
+/// Whether the objective `alias` has a written scoring rule.
+#[must_use]
+pub fn has_requirement(alias: &ti4_model::id::ObjectiveId) -> bool {
+    REGISTERED.contains(&alias.as_str())
+}

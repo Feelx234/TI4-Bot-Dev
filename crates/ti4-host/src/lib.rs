@@ -8,6 +8,12 @@
 
 #![allow(clippy::missing_panics_doc, clippy::missing_errors_doc)]
 
+/// A wire value of the legacy crate read as the same value of the thin one (one serde shape, `ti4-engine/tests/wire_parity.rs`): test help only.
+#[cfg(test)]
+pub(crate) fn from_legacy_wire<A: serde::Serialize, B: serde::de::DeserializeOwned>(a: &A) -> B {
+    serde_json::from_value(serde_json::to_value(a).expect("a wire value serialises")).expect("the thin crate reads the same wire value")
+}
+
 pub mod batch;
 pub mod clock;
 pub mod disabled;

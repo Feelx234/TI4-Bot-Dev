@@ -581,7 +581,7 @@ fn mid_rows(state: &GameState, seed: u64, round: u32) -> Vec<MidRow> {
                     let dice = kind.combat_dice() as f64;
                     let hits = kind
                         .combat_hits_on()
-                        .map_or(0.0, |on| ti4_policy::fleet_strength::hit_chance(on, 0));
+                        .map_or(0.0, |on| ti4_engine::fleet_strength::hit_chance(on, 0));
                     strength += dice * hits * (1.0 + f64::from(u8::from(kind.sustain_damage())));
                     fleet_cost += kind.cost();
                     if !kind.is_fighter() {

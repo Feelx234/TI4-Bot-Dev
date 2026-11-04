@@ -99,7 +99,7 @@ pub fn eligibility(
     };
     let action = &log[start];
     let named = action.chosen.strip_prefix("strategic|");
-    let strategic = action.chosen == ti4_engine::STRATEGIC_ACTION_ID || named.is_some();
+    let strategic = action.chosen == ti4_engine::strategy::STRATEGIC_ACTION_ID || named.is_some();
     let holds_unexhausted = state.player(primary).is_some_and(|holder| {
         holder.strategy_cards.contains(card) && !holder.exhausted_strategy_cards.contains(card)
     });

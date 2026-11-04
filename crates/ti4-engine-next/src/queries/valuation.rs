@@ -129,7 +129,7 @@ fn objective_pressure(seen: &Observed<'_>, player: &PlayerId) -> f64 {
     let outstanding = seen
         .revealed_objectives()
         .iter()
-        .filter(|alias| crate::objectives::requirement_for(alias).is_some())
+        .filter(|alias| crate::queries::objectives::has_requirement(alias))
         .any(|alias| !scored.contains(alias));
     if !outstanding {
         return 0.0;

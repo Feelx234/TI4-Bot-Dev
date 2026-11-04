@@ -241,7 +241,7 @@ fn a_draw_skips_the_extra_vetos_only_from_the_new_version() {
         state.rules_version = version;
         state.action_card_deck = ["veto3", "sabotage", "veto4", "veto", "bribery"].into_iter().map(ActionCardId::new).collect();
         let mut table = ti4_engine_legacy::choice::Table::with_default(Box::new(ti4_engine_legacy::choice::Scripted::new(Vec::<String>::new())));
-        let drawn = ti4_engine::action_cards::draw(&mut state, ContentStore::embedded(), &mut table, &a, 2).expect("drawn");
+        let drawn = ti4_engine_legacy::action_cards::draw(&mut state, ContentStore::embedded(), &mut table, &a, 2).expect("drawn");
         let drawn: Vec<&str> = drawn.iter().map(ActionCardId::as_str).collect();
         assert_eq!(drawn, expected, "version {version}");
     }

@@ -68,18 +68,17 @@ done
 ids=(); titles=(); cmds=()
 step() { ids+=("$1"); titles+=("$2"); cmds+=("$3"); }
 
-step layers   "layers of the core (check_layers.py core, engine report)" \
-  "python3 -I tools/engine_core/check_layers.py core && { python3 -I tools/engine_core/check_layers.py engine > $out/layers-engine.txt 2>&1 || true; }"
+step layers   "layers of the core (check_layers.py core and thin, engine report)" \
+  "python3 -I tools/engine_core/check_layers.py core && python3 -I tools/engine_core/check_layers.py thin && { python3 -I tools/engine_core/check_layers.py engine > $out/layers-engine.txt 2>&1 || true; }"
 # BASE_REF: the flag/env value, else core-integration-6 (local), else origin/core-integration-6; none of them = the step fails.
-# D2-9 lane 9a (G7 row 9, docs/D29A_RESUME.md): the production graph and the checker's own self-tests; PROD_GRAPH_MODE=--report until lane 9b
-# has landed (then set it empty for strict). Only when the script exists.
-[[ -x tools/engine_core/check_production_graph.sh ]] && step prod-graph "production graph: no legacy / lend-string in any production crate (mode: ${PROD_GRAPH_MODE---report}), self-tests" \
-  "tools/engine_core/check_production_graph.sh --self-test && tools/engine_core/check_output_probes.sh --self-test && tools/engine_core/check_production_graph.sh ${PROD_GRAPH_MODE---report}"
+# D2-9 lane 9a (G7 row 9, docs/D29A_RESUME.md): the production graph and the checker's own self-tests; strict since lane 9b (PROD_GRAPH_MODE=--report only prints the violations). Only when the script exists.
+[[ -x tools/engine_core/check_production_graph.sh ]] && step prod-graph "production graph: no legacy / lend-string in any production crate (mode: ${PROD_GRAPH_MODE:-strict}), self-tests" \
+  "tools/engine_core/check_production_graph.sh --self-test && tools/engine_core/check_output_probes.sh --self-test && tools/engine_core/check_production_graph.sh ${PROD_GRAPH_MODE-}"
 step lint     "core hygiene (lint_core.sh) and the immutable surfaces against ${BASE_REF:-core-integration-6}" \
   "base='$BASE_REF'; if [[ -z \$base ]]; then for r in core-integration-6 origin/core-integration-6; do git rev-parse -q --verify \$r^{commit} >/dev/null && { base=\$r; break; }; done; fi; \
    [[ -n \$base ]] && git rev-parse -q --verify \$base^{commit} >/dev/null || { echo \"lint: no usable base ref (\$base; tried core-integration-6 and origin/core-integration-6): pass --base-ref REF\"; exit 1; }; \
    echo \"lint: immutable surfaces against \$base\"; \
-   tools/engine_core/lint_core.sh && git diff --exit-code \$base -- web/ docs/RULES_VERSION.md crates/ti4-model/src/state.rs"
+   tools/engine_core/lint_core.sh && git diff --exit-code \$base -- web/ crates/ti4-model/src/state.rs ':!docs/RULES_VERSION.md' && { git diff \$base -- docs/RULES_VERSION.md | grep -E '^[-+][^-+]' | grep -v -i refus > /dev/null && { echo \"RULES_VERSION.md: a hunk other than the refusal note changed\"; exit 1; } || true; }"
 step build    "gate-profile binaries (selfplay, every bridge bin)" \
   "cargo build --profile gate -p ti4-selfplay -p ti4-engine-core-bridge --bins && cp $T/gate/selfplay $out/selfplay-new"
 step clippy   "clippy gate (clippy_core.sh): cargo's exit status, no warning anywhere in the core, factions, bridge, test and typed-bot crates, no new one in the engine" \

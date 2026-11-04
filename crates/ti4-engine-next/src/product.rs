@@ -103,7 +103,7 @@ pub fn reproducible(preloaded: bool, sync_pending: bool, seed: u64, state_seed: 
 /// Obsidian and Ral Nel, the dropped Last Bastion and Crimson Rebellion, the fixture faction) is a dev-tool table.
 #[must_use]
 pub fn is_lobby_faction(faction: &str) -> bool {
-    faction == "neutral" || ti4_engine_legacy::seating::LOBBY_FACTIONS.contains(&faction)
+    faction == "neutral" || crate::seating::LOBBY_FACTIONS.contains(&faction)
 }
 
 /// L21: a seat plays `faction`; a faction the lobby never seats is an assertion of the product.
@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn the_lobby_factions_and_the_neutral_owner_are_the_product_tables() {
-        assert!(ti4_engine_legacy::seating::LOBBY_FACTIONS.iter().all(|f| is_lobby_faction(f)));
+        assert!(crate::seating::LOBBY_FACTIONS.iter().all(|f| is_lobby_faction(f)));
         assert!(is_lobby_faction("neutral"));
         for f in ["keleresa", "keleresm", "keleresx", "deepwrought", "firmament", "obsidian", "ralnel", "bastion", "crimson", "generic"] {
             assert!(!is_lobby_faction(f), "{f}");

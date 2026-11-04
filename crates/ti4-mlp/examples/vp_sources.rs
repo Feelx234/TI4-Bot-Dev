@@ -221,7 +221,7 @@ fn play(
                         let side = |terms: &[ti4_model::diplomacy::DealTerm]| {
                             terms
                                 .iter()
-                                .map(ti4_engine::diplomacy::builder::describe)
+                                .map(ti4_engine_legacy::diplomacy::builder::describe)
                                 .collect::<Vec<_>>()
                         };
                         json!({"proposer":faction(a),"recipient":faction(b),"revision":r.number,

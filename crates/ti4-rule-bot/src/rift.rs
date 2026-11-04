@@ -306,15 +306,9 @@ mod tests {
     fn step(state: &GameState, hub: &Hub, centre: &SystemId) -> Choice {
         let seen = ti4_engine_legacy::choice::Observed::new(state, ContentStore::embedded(), POK, Some(&hub.galaxy));
         let choice = ti4_engine_legacy::tactical::movement_options(&me(), &seen.movable_into(&me(), centre));
-        ti4_engine::from_legacy_wire(&ti4_engine_legacy::tactical::preview_moves(
-            state,
-            ContentStore::embedded(),
-            POK,
-            &hub.galaxy,
-            &me(),
-            centre,
-            choice,
-        ))
+        let legacy = ti4_engine_legacy::tactical::preview_moves(state, ContentStore::embedded(), POK, &hub.galaxy, &me(), centre, choice);
+        // One serde shape (`ti4-engine/tests/wire_parity.rs`): the thin crate reads the legacy wire value.
+        serde_json::from_value(serde_json::to_value(&legacy).expect("a wire value serialises")).expect("the thin crate reads the same wire value")
     }
 
     fn origins(choice: &Choice, keep: &Option<Vec<usize>>) -> Vec<String> {

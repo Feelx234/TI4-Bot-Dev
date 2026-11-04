@@ -22,7 +22,7 @@
 //! thread-local forms (`product::with_strict`, `core_sync::unsupported::with_disabled_policy`),
 //! never this function: it sets process-wide switches.
 
-use ti4_engine_legacy::{core_sync, product};
+use crate::{core_sync, product};
 
 /// Turns the strict product policy on for this process. Call it once, from the `main` of a product
 /// binary (or the wasm entry), never from library code.
@@ -30,6 +30,8 @@ pub fn product_init() {
     product::set_strict(true);
     core_sync::unmapped::set_strict(true);
     core_sync::unsupported::set_disabled_policy(core_sync::unsupported::Policy::Panic);
+    #[cfg(feature = "lend-string")]
+    crate::lend_string::product_init_legacy();
 }
 
 #[cfg(test)]

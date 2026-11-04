@@ -2,7 +2,7 @@
 //! through JSON (one serde shape, `tests/wire_parity.rs`), to a decider of the thin crate (the rule bot, the shadow) over a private thin table,
 //! with the thin view of the same position, and answers with the option it picked.
 
-use crate::choice as thin;
+use ti4_engine::choice as thin;
 use ti4_engine_legacy::choice as legacy;
 
 /// A wire value of one crate read as the same value of the other.

@@ -133,3 +133,15 @@ fn standing_in(state: &GameState, content: &ContentStore, sources: SourceSet, pl
         half_weight: s.half_weight,
     })
 }
+
+/// Ships beyond the fleet limit in this system, if any (37.3).
+#[must_use]
+pub fn over_supply(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &ti4_model::id::SystemId) -> usize {
+    usize::try_from(standing(state, content, sources, player, system, None).fleet_excess()).unwrap_or(0)
+}
+
+/// Capacity-consuming units that cannot legally remain in this space area (16.3).
+#[must_use]
+pub fn over_capacity(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, system: &ti4_model::id::SystemId) -> usize {
+    usize::try_from(standing(state, content, sources, player, system, None).capacity_excess).unwrap_or(0)
+}

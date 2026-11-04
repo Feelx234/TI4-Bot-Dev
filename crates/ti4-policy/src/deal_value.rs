@@ -26,7 +26,7 @@ use serde::Serialize;
 use serde_json::Value;
 use ti4_content::ContentStore;
 use ti4_engine::choice::{Choice, Observed};
-use ti4_engine::diplomacy::builder::Draft;
+use ti4_engine_legacy::diplomacy::builder::Draft;
 use ti4_model::{DealTerm, GameState, PlayerId, TransferAsset};
 
 /// How much of the partner's net gain counts against a seat that gains nothing itself
@@ -406,7 +406,7 @@ pub fn deal_facts(observed: &Observed<'_>, choice: &Choice) -> Vec<Vec<(&'static
             .options
             .iter()
             .map(|option| {
-                if option.id != ti4_engine::diplomacy::window::ACCEPT_ID {
+                if option.id != ti4_engine_legacy::diplomacy::window::ACCEPT_ID {
                     return Vec::new();
                 }
                 let Some(revision) = option.payload.get("bundle").and_then(|b| b.get("revision"))
@@ -454,7 +454,7 @@ pub fn deal_facts(observed: &Observed<'_>, choice: &Choice) -> Vec<Vec<(&'static
 
 /// The draft an option would leave, or `None` for an option that ends the build with no deal.
 fn preview(draft: &Draft, id: &str, round: u32) -> Option<Draft> {
-    use ti4_engine::diplomacy::builder::{CANCEL_ID, DONE_ID, EDIT_ID, PROPOSE_ID};
+    use ti4_engine_legacy::diplomacy::builder::{CANCEL_ID, DONE_ID, EDIT_ID, PROPOSE_ID};
     if id == CANCEL_ID || !id.starts_with("diplomacy|") || id.starts_with("diplomacy|signal|") {
         return None;
     }
@@ -462,12 +462,12 @@ fn preview(draft: &Draft, id: &str, round: u32) -> Option<Draft> {
     if id == DONE_ID || id == EDIT_ID || id == PROPOSE_ID {
         return Some(after);
     }
-    if !ti4_engine::diplomacy::builder::apply_item_at(round, &mut after, id) {
+    if !ti4_engine_legacy::diplomacy::builder::apply_item_at(round, &mut after, id) {
         return None;
     }
     // A counted item is only picked here; its amount comes next. Preview one of it.
     if after.pending.is_some() {
-        ti4_engine::diplomacy::builder::apply_item_at(round, &mut after, "diplomacy|amount|1");
+        ti4_engine_legacy::diplomacy::builder::apply_item_at(round, &mut after, "diplomacy|amount|1");
     }
     Some(after)
 }
@@ -502,7 +502,7 @@ pub fn public_asks(position: &Position<'_>, partner: &PlayerId) -> Vec<DealTerm>
         && let Some(faction) = position.factions.get(partner)
     {
         out.push(DealTerm::ImmediateTransfer(TransferAsset::PromissoryNote(
-            ti4_engine::promissory::support(faction),
+            ti4_engine_legacy::promissory::support(faction),
         )));
     }
     out
@@ -658,7 +658,7 @@ mod tests {
         assert!(
             preview(
                 &draft,
-                ti4_engine::diplomacy::builder::CANCEL_ID,
+                ti4_engine_legacy::diplomacy::builder::CANCEL_ID,
                 position.round
             )
             .is_none()

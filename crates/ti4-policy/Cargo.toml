@@ -8,6 +8,9 @@ rust-version.workspace = true
 ti4-model.workspace = true
 ti4-content.workspace = true
 ti4-engine.workspace = true
+# Reads legacy positions (diplomacy, draft, wide rosters). Direct, not through the thin crate's `lend-string`: policy is linked next to the
+# production crates (host, rule bot) by the review/advisor tools, and `lend-string` + `production` must not meet in a release build.
+ti4-engine-legacy.workspace = true
 serde.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
@@ -15,10 +18,6 @@ serde_json.workspace = true
 sha2.workspace = true
 blake2.workspace = true
 thiserror.workspace = true
-
-[dev-dependencies]
-# Tests and examples that drive the string windows (oracle only; never in the production tree).
-ti4-engine-legacy.workspace = true
 
 [lints]
 workspace = true

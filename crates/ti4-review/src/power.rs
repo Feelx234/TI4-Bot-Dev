@@ -781,7 +781,7 @@ mod tests {
         let table = ti4_policy::power_facts::TablePower::of(&seen);
         let mut arriving_somewhere = false;
         for player in &players {
-            let choice = ti4_engine::tactical::activation_options_with(
+            let choice = ti4_engine_legacy::tactical::activation_options_with(
                 &game.state,
                 content,
                 FULL,

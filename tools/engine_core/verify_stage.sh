@@ -25,8 +25,8 @@ fail=0
 note() { echo "$*" | tee -a "$out/summary.txt"; }
 check() { local name="$1"; shift; if "$@" > "$out/$name.log" 2>&1; then note "ok   $name"; else note "FAIL $name (see $out/$name.log)"; fail=1; fi; }
 cd "$repo"
-# D2-9 lane 9a (docs/D29A_RESUME.md): production graph; `--report` until lane 9b has landed, then PROD_GRAPH_MODE= (strict).
-[[ -x tools/engine_core/check_production_graph.sh ]] && check prod-graph tools/engine_core/check_production_graph.sh ${PROD_GRAPH_MODE---report}
+# D2-9 lane 9a (docs/D29A_RESUME.md): production graph; strict since lane 9b (PROD_GRAPH_MODE=--report only prints).
+[[ -x tools/engine_core/check_production_graph.sh ]] && check prod-graph tools/engine_core/check_production_graph.sh ${PROD_GRAPH_MODE-}
 
 check build-on cargo build --release -p ti4-selfplay
 cp "$target/release/selfplay" "$out/selfplay-on"

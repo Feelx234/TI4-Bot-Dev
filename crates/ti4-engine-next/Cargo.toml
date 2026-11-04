@@ -3,11 +3,11 @@ name = "ti4-engine"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "The product-facing engine crate. Facade stage: re-exports ti4-engine-legacy (crates/ti4-engine); docs/todo/D2-7-legacy-split.md."
+description = "The product-facing engine crate: native, independent of ti4-engine-legacy unless the dev-tool feature lend-string is on (docs/D29B_RESUME.md)."
 
 [dependencies]
-# Facade stage: the engine itself. Becomes optional (`lend-string`) in D2-8/D2-9.
-ti4-engine-legacy.workspace = true
+# Dev-tool surface only: reached through the `lend-string` feature (module `lend_string`), never by a production crate.
+ti4-engine-legacy = { workspace = true, optional = true }
 # Lane A (D2-8b): the glue and the wire types copied out of the legacy crate need the same dependencies as the legacy crate.
 ti4-model.workspace = true
 ti4-content.workspace = true
@@ -21,27 +21,35 @@ sha2.workspace = true
 thiserror.workspace = true
 ts-rs = { workspace = true, optional = true }
 
-# New features go on `ti4-engine-legacy` AND are forwarded here (a dependent that uses `--features ti4-engine/x` needs them).
 [features]
-default = ["typed-core"]
-typed-core = ["ti4-engine-legacy/typed-core"]
-ts = ["ti4-engine-legacy/ts", "dep:ts-rs", "ti4-model/ts"]
-observed-count = ["ti4-engine-legacy/observed-count"]
-native-subject = ["ti4-engine-legacy/native-subject"]
-string-movement = ["ti4-engine-legacy/string-movement"]
-string-objectives = ["ti4-engine-legacy/string-objectives"]
-string-factions = ["ti4-engine-legacy/string-factions"]
-string-trade = ["ti4-engine-legacy/string-trade"]
-string-exploration = ["ti4-engine-legacy/string-exploration"]
-string-strategy = ["ti4-engine-legacy/string-strategy"]
-string-action-cards = ["ti4-engine-legacy/string-action-cards"]
-string-agenda = ["ti4-engine-legacy/string-agenda"]
+# No default feature reaches `ti4-engine-legacy` (tools/engine_core/check_production_graph.sh checks it).
+default = []
+ts = ["dep:ts-rs", "ti4-model/ts"]
+# The dev-tool surface: the legacy (string) engine as a dependency, `lend_string` module. Research tools, the bridge and the tests that drive
+# a string window turn it on; no production crate does.
+lend-string = ["dep:ti4-engine-legacy"]
+# The production crates (host, server, wasm, rule-bot) turn this on on their edge; combined with `lend-string` the build stops (lib.rs).
+production = []
+# Legacy knobs, forwarded for the dev tools (each implies `lend-string`).
+typed-core = ["lend-string", "ti4-engine-legacy/typed-core"]
+observed-count = ["lend-string", "ti4-engine-legacy/observed-count"]
+native-subject = ["lend-string", "ti4-engine-legacy/native-subject"]
+string-movement = ["lend-string", "ti4-engine-legacy/string-movement"]
+string-objectives = ["lend-string", "ti4-engine-legacy/string-objectives"]
+string-factions = ["lend-string", "ti4-engine-legacy/string-factions"]
+string-trade = ["lend-string", "ti4-engine-legacy/string-trade"]
+string-exploration = ["lend-string", "ti4-engine-legacy/string-exploration"]
+string-strategy = ["lend-string", "ti4-engine-legacy/string-strategy"]
+string-action-cards = ["lend-string", "ti4-engine-legacy/string-action-cards"]
+string-agenda = ["lend-string", "ti4-engine-legacy/string-agenda"]
 
 [dev-dependencies]
 proptest.workspace = true
 zstd.workspace = true
 # Lane B: the surface parity tests play legacy games on real maps (`ti4_host::map::create_game_with_template`).
 ti4-host.workspace = true
+# The unit tests and the parity tests build legacy positions and compare with the string originals (never linked into a product build).
+ti4-engine-legacy = { workspace = true, features = ["ts"] }
 
 [lints]
 workspace = true

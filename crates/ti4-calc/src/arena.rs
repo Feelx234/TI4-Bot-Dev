@@ -1203,7 +1203,7 @@ mod wide_tests {
             .into_iter()
             .flat_map(|entry| {
                 if entry == ti4_engine::seating::KELERES_FAMILY {
-                    ti4_engine::factions::keleres::VARIANTS.to_vec()
+                    ti4_engine::builders::factions::KELERES_VARIANTS.to_vec()
                 } else {
                     vec![entry]
                 }

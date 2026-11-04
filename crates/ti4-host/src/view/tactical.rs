@@ -1211,7 +1211,7 @@ mod tests {
         let (mut state, galaxy) = game();
         let content = ContentStore::embedded();
         let choice =
-            ti4_engine::from_legacy_wire::<_, Choice>(&activation_options_with(&state, content, POK, &galaxy, &seat()).expect("offered"));
+            crate::from_legacy_wire::<_, Choice>(&activation_options_with(&state, content, POK, &galaxy, &seat()).expect("offered"));
         let Some(TacticalFacts::Activation(facts)) =
             project_tactical_facts(&state, content, POK, &galaxy, &choice)
         else {
@@ -1236,7 +1236,7 @@ mod tests {
     fn reach(state: &GameState, galaxy: &Galaxy, system: &str) -> ReachFact {
         let content = ContentStore::embedded();
         let choice =
-            ti4_engine::from_legacy_wire::<_, Choice>(&activation_options_with(state, content, POK, galaxy, &seat()).expect("offered"));
+            crate::from_legacy_wire::<_, Choice>(&activation_options_with(state, content, POK, galaxy, &seat()).expect("offered"));
         let Some(TacticalFacts::Activation(facts)) =
             project_tactical_facts(state, content, POK, galaxy, &choice)
         else {
