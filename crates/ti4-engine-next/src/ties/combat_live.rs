@@ -198,7 +198,7 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
     }
     // The kinds each seat can field in this fight, with the other form of each (`sides`), and all of them together (`present`).
     let mut sides: Vec<(ti4_engine_core::ids::Seat, Vec<Unit>)> = Vec::new();
-    let mut add = |sides: &mut Vec<(ti4_engine_core::ids::Seat, Vec<Unit>)>, owner: ti4_engine_core::ids::Seat, unit: Unit| {
+    let add = |sides: &mut Vec<(ti4_engine_core::ids::Seat, Vec<Unit>)>, owner: ti4_engine_core::ids::Seat, unit: Unit| {
         let at = match sides.iter().position(|(o, _)| *o == owner) {
             Some(at) => at,
             None => {
