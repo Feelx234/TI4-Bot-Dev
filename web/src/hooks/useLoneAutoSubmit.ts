@@ -85,6 +85,15 @@ export function useLoneAutoSubmit({
   const text = lone?.text ?? null;
   const hidesDialog = lone?.kind === "movement";
 
+  // The dialog stays closed only for the lone movement question itself, which is answered right
+  // away. The nonce alone does not say it is the same question: after an undo or a rewind the
+  // offline host numbers its questions from 1 again, so a later movement question WITH ships to
+  // move can carry the nonce of an earlier lone one (alpha report fb_1793818512: "Why is no move
+  // dialog shown?"). Once the question is another one, the mark goes.
+  useEffect(() => {
+    if (answering !== null && !(nonce === answering && hidesDialog)) setAnswering(null);
+  }, [answering, nonce, hidesDialog]);
+
   useEffect(() => {
     if (!nonce || evaluated.current === nonce) return;
     evaluated.current = nonce;
@@ -106,5 +115,5 @@ export function useLoneAutoSubmit({
     return () => window.clearTimeout(timer);
   }, [nonce, optionId, text, hidesDialog]);
 
-  return { answeringNonce: answering };
+  return { answeringNonce: answering !== null && nonce === answering && hidesDialog ? answering : null };
 }

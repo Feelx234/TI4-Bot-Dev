@@ -149,6 +149,21 @@ describe("useLoneAutoSubmit", () => {
     expect(b.hook.result.current.answeringNonce).toBeNull();
   });
 
+  it("a later movement WITH ships keeps its dialog although it carries the nonce of an earlier lone one (undo renumbers the questions)", () => {
+    // Alpha report fb_1793818512 ("Why is no move dialog shown?"): the offline host numbers the
+    // questions of a run from 1, an undo starts a new run, so the movement of the second try had
+    // the nonce of the lone movement that the client had answered in the first.
+    const { submit, hook, wait } = setup({ choice: null, history: hist(5) });
+    hook.rerender({ choice: movement("6", ["done_moving"]), history: hist(6) });
+    expect(hook.result.current.answeringNonce).toBe("6");
+    wait();
+    expect(submit).toHaveBeenCalledWith("done_moving", "6");
+    // The undo: a new generation, back at the turn menu, then the same count of questions again.
+    hook.rerender({ choice: menu("4", [opt("tactical"), opt("pass")]), history: hist(5, 0, 1) });
+    hook.rerender({ choice: movement("6", ["move|01|0", "done_moving"]), history: hist(6, 0, 1) });
+    expect(hook.result.current.answeringNonce).toBeNull();
+  });
+
   it("asks when several systems can be activated", () => {
     const { submit, hook, wait } = setup({ choice: null, history: hist(5) });
     hook.rerender({ choice: activation("n2", ["33", "34"]), history: hist(6) });
