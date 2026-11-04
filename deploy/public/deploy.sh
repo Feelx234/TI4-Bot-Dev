@@ -36,6 +36,7 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$HOME/.cache/ti4-public-target}"
 REF=""
 PREFLIGHT_ONLY=0
 ALLOW_FAILED=()
+ALLOW_LEGACY_PROBE=0
 MODE=deploy
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -43,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     --ref) REF="${2:?--ref needs a git ref}"; shift 2 ;;
     --allow-failed) ALLOW_FAILED+=("${2:?--allow-failed needs a game id}"); shift 2 ;;
     --preflight-only) PREFLIGHT_ONLY=1; shift ;;
+    --allow-legacy-probe) ALLOW_LEGACY_PROBE=1; shift ;;   # D2-9: accept output-probe hits (a false positive), see docs/D29A_RESUME.md
     -h|--help) sed -n '2,24p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown argument: $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -174,8 +176,25 @@ for f in "${WASM_FILES[@]}"; do
   ls -l "$f" "$f.gz" "$f.br"
 done
 
+# D2-9 lane 9a (docs/D29A_RESUME.md): a deploy must never ship a graph with the legacy engine. D29A_MODE is `--report` until
+# lane 9b has landed (set it to "strict" then); only when the scripts exist in the checkout being deployed.
+if [[ -x "$WT/tools/engine_core/check_production_graph.sh" ]]; then
+  say "Production graph check (no legacy engine, no lend-string)"
+  if [[ "${D29A_MODE:---report}" == strict ]]; then "$WT/tools/engine_core/check_production_graph.sh" || { echo "production graph reaches ti4-engine-legacy: nothing was built" >&2; exit 1; }
+  else "$WT/tools/engine_core/check_production_graph.sh" --report | tail -1; fi
+fi
+
 say "Building the release server"
 cargo build --release -p ti4-server --bin server
+
+if [[ -x "$WT/tools/engine_core/check_output_probes.sh" ]]; then
+  say "Output probes: no legacy literal in the server binary or the wasm"
+  probe_args=(); (( ALLOW_LEGACY_PROBE )) && probe_args+=(--allow-legacy-probe)
+  if [[ "${D29A_MODE:---report}" == strict ]]; then
+    "$WT/tools/engine_core/check_output_probes.sh" "${probe_args[@]}" "$CARGO_TARGET_DIR/release/server" "${WASM_FILES[@]}" \
+      || { echo "legacy literal in the build output: nothing was installed (a known false positive: --allow-legacy-probe)" >&2; exit 1; }
+  else "$WT/tools/engine_core/check_output_probes.sh" --allow-legacy-probe "$CARGO_TARGET_DIR/release/server" "${WASM_FILES[@]}" | tail -n 4; fi
+fi
 
 # ---- 4. Persistence pre-flight on a copy of the live data -------------------------------------
 say "Pre-flight: can the new build load every saved game?"
