@@ -412,6 +412,19 @@ pub(crate) fn card_effects() -> Vec<bool> {
 /// The interned texts the ability table's rules compare by (`AbilityTable::codes`) and the pay kernel: functions of the render
 /// tables alone (package KF2: the live path sets them without a string position).
 pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
+    // The same texts always get the same codes in one `Render`, and the codes are all `set_table_codes_uncached` writes into `table.codes`: after the
+    // first call the table takes them as they were (a hundred lookups in the code table per step otherwise, docs/PERF_WHY.md).
+    if let Some(codes) = r.cached_table_codes() {
+        table.codes = codes;
+        table.facts.pay_kernel = Some(crate::ties::production_view::kernel);
+        table.facts.production_kernel = Some(crate::ties::production_view::kernel_for_core);
+        return;
+    }
+    set_table_codes_uncached(table, r);
+    r.cache_table_codes(table.codes);
+}
+
+fn set_table_codes_uncached(table: &mut AbilityTable, r: &Render) {
         table.codes.ground_combat = r.code("ground_combat");
         table.codes.harrow = r.code("harrow");
         table.codes.self_assembly = r.code("self_assembly_routines");

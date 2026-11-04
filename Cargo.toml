@@ -8,6 +8,7 @@ members = [
     "crates/ti4-engine-core",
     "crates/ti4-engine-core-factions",
     "crates/ti4-engine-core-bridge",
+    "crates/ti4-perf-alloc",
     "crates/ti4-engine-core-tests",
     "crates/ti4-policy",
     "crates/ti4-sim",

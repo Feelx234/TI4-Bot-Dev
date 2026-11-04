@@ -91,12 +91,65 @@ pub struct Render {
     shapes: RefCell<Vec<ChoiceOption>>,
     /// The free-form deals of a transaction window (`Shape::Free(i)`): the id text and the net the partner's accept option reports.
     free: RefCell<Vec<(String, f64)>>,
+    /// The typed ids of the registered abilities by (rule, owner, lender, their factions): the text of an id is a function of those and of this
+    /// `Render`'s tables alone and its code is stable (the code table only grows), so the live loop builds each id once per game instead of
+    /// formatting and interning it again at every step (docs/PERF_WHY.md). A new `Render` (a fork, the rollback of a failed step) starts empty.
+    ability_ids: RefCell<std::collections::HashMap<u64, ti4_engine_core::choice::reaction::AbilityId, std::hash::BuildHasherDefault<KeyMix>>>,
+    /// The values of `AbilityTable::codes` this `Render` gave the table (the same texts always get the same codes).
+    table_codes: std::cell::Cell<Option<ti4_engine_core::kernel::ability::Codes>>,
+}
+
+/// The key of [`Render::ability_id_memo`]: the rule's slot, the owner seat, the lender seat (255: none), the owner's and the lender's faction (255: none), packed.
+#[must_use]
+pub fn ability_key(slot: u16, owner: u8, lender: Option<u8>, owner_faction: Option<ti4_engine_core::generated::Faction>, lender_faction: Option<ti4_engine_core::generated::Faction>) -> u64 {
+    let f = |f: Option<ti4_engine_core::generated::Faction>| f.map_or(u64::MAX >> 56, |f| f as u64);
+    u64::from(slot) | u64::from(owner) << 16 | u64::from(lender.unwrap_or(u8::MAX)) << 24 | f(owner_faction) << 32 | f(lender_faction) << 40
+}
+
+/// A hasher for the packed keys of [`ability_key`] (a multiplication; the std default hashes every key with SipHash, which cost more than the lookup saves).
+#[derive(Default)]
+pub struct KeyMix(u64);
+
+impl std::hash::Hasher for KeyMix {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for b in bytes {
+            self.0 = (self.0 ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    fn write_u64(&mut self, k: u64) {
+        self.0 = (self.0 ^ k).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        self.0 ^= self.0 >> 29;
+    }
 }
 
 impl Render {
     #[must_use]
     pub fn new(seats: Vec<String>) -> Self {
-        Self { seats, factions: Vec::new(), codes: RefCell::new(ti4_engine_core::containers::Interner::default()), position: RefCell::new(None), shapes: RefCell::new(Vec::new()), free: RefCell::new(Vec::new()) }
+        Self { seats, factions: Vec::new(), codes: RefCell::new(ti4_engine_core::containers::Interner::default()), position: RefCell::new(None), shapes: RefCell::new(Vec::new()), free: RefCell::new(Vec::new()), ability_ids: RefCell::new(std::collections::HashMap::default()), table_codes: std::cell::Cell::new(None) }
+    }
+
+    /// The memoized id of a registered ability, or the result of `build` (kept for the next call).
+    pub fn ability_id_memo(&self, key: u64, build: impl FnOnce() -> ti4_engine_core::choice::reaction::AbilityId) -> ti4_engine_core::choice::reaction::AbilityId {
+        if let Some(id) = self.ability_ids.borrow().get(&key) {
+            return *id;
+        }
+        let id = build();
+        self.ability_ids.borrow_mut().insert(key, id);
+        id
+    }
+
+    /// The `AbilityTable::codes` this `Render` computed before, if it did.
+    #[must_use]
+    pub fn cached_table_codes(&self) -> Option<ti4_engine_core::kernel::ability::Codes> {
+        self.table_codes.get()
+    }
+
+    /// Remember the `AbilityTable::codes` computed from this `Render`.
+    pub fn cache_table_codes(&self, codes: ti4_engine_core::kernel::ability::Codes) {
+        self.table_codes.set(Some(codes));
     }
 
     /// [`Self::new`] continuing the code table of a state's lineage (`CoreState::texts.codes`): the codes this `Render` mints

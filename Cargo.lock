@@ -4151,6 +4151,7 @@ dependencies = [
  "ti4-engine-legacy",
  "ti4-host",
  "ti4-model",
+ "ti4-perf-alloc",
  "ti4-rule-bot",
  "ti4-rule-bot-typed",
  "ti4-selfplay",
@@ -4271,6 +4272,13 @@ dependencies = [
  "strum",
  "thiserror 2.0.20",
  "ts-rs",
+]
+
+[[package]]
+name = "ti4-perf-alloc"
+version = "0.1.0"
+dependencies = [
+ "mimalloc",
 ]
 
 [[package]]

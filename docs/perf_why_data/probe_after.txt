@@ -1,0 +1,20 @@
+# perf_why probe 4 1 (AFTER)
+wrapper (Game)                 705.0 ms  steps  1165    605.2 us/step  allocs    3759254 (   3227/step)  bytes    524.2 MB (  450.0 KB/step)
+  probe step_native total                      701.0 ms  calls   1165
+  probe native_step (kernel+asker+env)         596.2 ms  calls   1165
+  probe env_with_plays                          69.0 ms  calls   1165
+  probe mirror materialized                     82.5 ms  calls   1165
+  probe mirror drop old                         15.6 ms  calls   1165
+  probe rolls+secondary+galaxy                   4.2 ms  calls   1165
+  probe asker.ask total                        111.1 ms  calls   1232
+  probe ask: materialize                        87.6 ms  calls   1223
+  probe ask: Observed+table.ask_seeing           7.8 ms  calls   1223
+  probe clone core+codes (before)                2.2 ms  calls   1165
+  probe arm (facts+asks+step_arm)                0.6 ms  calls   1165
+  probe live_step                              467.6 ms  calls   1165
+  probe live_reconcile                          45.0 ms  calls    797
+  probe post live_step (events,paid,sync)       10.0 ms  calls   1165
+  probe drop env + tail                          1.0 ms  calls   1165
+  probe paid auto_resolve                        0.1 ms  calls   1165
+  probe events pushed_since                      2.2 ms  calls   1165
+  probe sync_codes                               5.0 ms  calls   1165

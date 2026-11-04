@@ -993,6 +993,12 @@ impl Table {
         self.window_observer = Some(observer);
     }
 
+    /// Whether [`Table::window_skipped`] would tell anyone (a caller that builds the position for it can skip the work when nobody listens).
+    #[must_use]
+    pub const fn has_window_observer(&self) -> bool {
+        self.window_observer.is_some()
+    }
+
     /// Tell the observer (if any) that `player` is not asked in this window.
     ///
     /// Purely informational: the answer sequence, the log and the game state are untouched.
