@@ -3,6 +3,8 @@
 Rust engine and multiplayer server for Twilight Imperium 4. The historical
 Python repository is read-only context, not an acceptance oracle.
 
+Engine crates, layers and which cargo alias to run: [`docs/ENGINE_LAYOUT.md`](docs/ENGINE_LAYOUT.md).
+
 Start here:
 
 1. [`AGENTS.md`](AGENTS.md) — autonomous execution, review, safety, and context-compaction rules.
