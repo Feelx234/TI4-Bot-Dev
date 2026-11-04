@@ -1,0 +1,9 @@
+# Integration 19 resume (2026-11-04)
+
+Branch `core-integration-19` (cut from `core-integration-18` `1c11e5662`), worktree `/root/wt/core-integration-19`. Not pushed. Everything is in `docs/INTEGRATION19.md`; this is the short state.
+
+* Done: merge of lane S (`core-s-shadow4`, thin copies ported) and lane E (`core-d28e-product`, `lib.rs` joined, `host_create_golden` states the 302 TE rows as refused with the golden file unchanged); the shadow work of the `--seeds 8` Z-gate command: **768 games, 768 finished with zero gaps, 0 differences of the core, 109 known string bugs (S1 73, S2 34, S3 1, S4 1), all four partitions exit 0**.
+* New fixes: the unit texts of a space combat name ships only (plus a Nekro's ground forces); the live kernel lets a Nomad mech sustain (a product bug); War Effort lists systems with ships; the shadow compares the events a reconcile announced by value; S1 for `exhaust`.
+* New string bugs recorded: S3 (free tactical action's note snapshot), S4 (Yin hero's planets without the Nexus). Question Q1 for the user (S4) in `docs/INTEGRATION19.md`.
+* Next: the heavy gates of INTEGRATION18 section 8.4 (golden / wide dual, `board_equivalence`, `core_sync_gate --strict`, `alpha_roundtrip --strict`, benches, census, soak, ratchet, mutation batches for lanes N..S, A, B2, C, E and this round, workspace clippy, `TI4_CORE_STRICT=1`, `cargo wire-web`); lane D (the `Game` wrapper) joins the next integration; the `ObjView::terms` request to the core owner stands.
+* Reproduce one game: `TI4_NATIVE_PLAY_TRACE=1 TI4_NATIVE_PLAY_DUMP=<dir> tools/engine_core/native_play.sh --factions F --players N --first-seed S --seeds 1 --shadow`. To find the line of a `CombatUnported` `None`: `Machine::open_round` has two explicit `return None` sites (`opening_unported`, `barrage_unported`) and the roller test (`every_roller_is_named`); the game's unit texts are `combat_live::combat_texts_in`.

@@ -14,6 +14,60 @@
  "action_cards::name_of": {
   "status": "native"
  },
+ "builders::exploration::gain_fragment": {
+  "status": "native"
+ },
+ "builders::exploration::mark_legacy_device_ids": {
+  "status": "native"
+ },
+ "builders::leaders": {
+  "status": "native"
+ },
+ "builders::movement::MapEdit": {
+  "status": "native"
+ },
+ "builders::movement::recorded_map_edits": {
+  "status": "native"
+ },
+ "builders::movement::replay_map_edits": {
+  "status": "native"
+ },
+ "builders::objectives": {
+  "status": "native"
+ },
+ "builders::objectives::adjust_victory_points": {
+  "status": "native"
+ },
+ "builders::ph": {
+  "status": "native"
+ },
+ "builders::promissory": {
+  "status": "native"
+ },
+ "builders::promissory::deal": {
+  "status": "native"
+ },
+ "builders::promissory::faction_name": {
+  "status": "native"
+ },
+ "builders::promissory::may_receive": {
+  "status": "native"
+ },
+ "builders::promissory::receive": {
+  "status": "native"
+ },
+ "builders::promissory::support": {
+  "status": "native"
+ },
+ "builders::promissory::take": {
+  "status": "native"
+ },
+ "builders::technology": {
+  "status": "native"
+ },
+ "builders::technology::apply_unit_upgrades": {
+  "status": "native"
+ },
  "choice::AlwaysDecline": {
   "status": "pending"
  },
@@ -92,6 +146,12 @@
  "core_sync::guard::ids_supported": {
   "status": "native"
  },
+ "core_sync::unsupported": {
+  "status": "native"
+ },
+ "core_sync::unsupported::find": {
+  "status": "native"
+ },
  "decision_context::CONTEXT_VERSION": {
   "status": "pending"
  },
@@ -120,13 +180,13 @@
   "status": "pending"
  },
  "deck::EXPLORATION_TRAITS": {
-  "status": "legacy"
+  "status": "native"
  },
  "deck::action_deck_len": {
-  "status": "legacy"
+  "status": "native"
  },
  "deck::build_starting_decks": {
-  "status": "legacy"
+  "status": "native"
  },
  "dice::Roll": {
   "status": "pending"
@@ -145,12 +205,6 @@
  },
  "exploration::frontier_systems": {
   "status": "native"
- },
- "exploration::gain_fragment": {
-  "status": "legacy"
- },
- "exploration::mark_legacy_device_ids": {
-  "status": "legacy"
  },
  "exploration::resolution": {
   "status": "native"
@@ -180,10 +234,10 @@
   "status": "legacy"
  },
  "fixtures::game": {
-  "status": "legacy"
+  "status": "native"
  },
  "fixtures::plain_hub": {
-  "status": "legacy"
+  "status": "native"
  },
  "fleet::standing": {
   "status": "native"
@@ -237,21 +291,12 @@
   "status": "native"
  },
  "map_feasibility::apply": {
-  "status": "legacy"
+  "status": "native"
  },
  "movement::Board": {
   "status": "legacy"
  },
- "movement::MapEdit": {
-  "status": "legacy"
- },
  "movement::MovementRules": {
-  "status": "legacy"
- },
- "movement::recorded_map_edits": {
-  "status": "legacy"
- },
- "movement::replay_map_edits": {
   "status": "legacy"
  },
  "objectives::CardProgress": {
@@ -274,9 +319,6 @@
  },
  "objectives::VICTORY_TARGET": {
   "status": "native"
- },
- "objectives::adjust_victory_points": {
-  "status": "legacy"
  },
  "objectives::bought_progress_at": {
   "status": "pending"
@@ -383,21 +425,6 @@
  "promissory::deal": {
   "status": "legacy"
  },
- "promissory::faction_name": {
-  "status": "native"
- },
- "promissory::may_receive": {
-  "status": "native"
- },
- "promissory::receive": {
-  "status": "legacy"
- },
- "promissory::support": {
-  "status": "legacy"
- },
- "promissory::take": {
-  "status": "legacy"
- },
  "reach_query::ReachOrigin": {
   "status": "pending"
  },
@@ -420,19 +447,19 @@
   "status": "pending"
  },
  "seating::LOBBY_FACTIONS": {
-  "status": "legacy"
+  "status": "native"
  },
  "seating::MECATOL": {
-  "status": "legacy"
+  "status": "native"
  },
  "seating::SeatingError": {
-  "status": "legacy"
+  "status": "native"
  },
  "seating::lobby_faction_draw": {
-  "status": "legacy"
+  "status": "native"
  },
  "seating::seat_faction": {
-  "status": "legacy"
+  "status": "native"
  },
  "secondary_preview::MAX_ANSWERS": {
   "status": "native"
@@ -459,13 +486,13 @@
   "status": "pending"
  },
  "setup::start_game_seeded_with_card_set": {
-  "status": "legacy"
+  "status": "native"
  },
  "setup::strategy_card_setup_for_set": {
-  "status": "legacy"
+  "status": "native"
  },
  "starting_tech::open": {
-  "status": "legacy"
+  "status": "native"
  },
  "strategy::STRATEGY_KIND": {
   "status": "native"
@@ -514,9 +541,6 @@
  },
  "technology::active_aliases": {
   "status": "native"
- },
- "technology::apply_unit_upgrades": {
-  "status": "legacy"
  },
  "technology::colour_type": {
   "status": "native"
