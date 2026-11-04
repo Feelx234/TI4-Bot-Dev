@@ -88,7 +88,7 @@ macro_rules! hook_group {
             /// The names of the slots no function is registered in (the census of `silent_census.rs`: an empty slot is
             /// indistinguishable from "not ported" at a call site).
             #[must_use]
-            pub fn empty_slots(&self) -> Vec<&'static str> {
+            pub fn empty_slots(&self) -> Vec<&'static str> { // lint-allow(core): the census of silent_census.rs names the empty slots in its test messages; no game path calls it
                 let mut empty = Vec::new();
                 $( if self.$name.is_empty() { empty.push(stringify!($name)); } )*
                 empty
@@ -327,8 +327,8 @@ impl HookTable {
 
     /// The slots no function is registered in, as `group.slot`.
     #[must_use]
-    pub fn empty_slots(&self) -> Vec<String> {
-        let groups: [(&str, Vec<&'static str>); 8] = [
+    pub fn empty_slots(&self) -> Vec<String> { // lint-allow(core): the census of silent_census.rs names the empty slots in its test messages; no game path calls it
+        let groups: [(&str, Vec<&'static str>); 8] = [ // lint-allow(core): the census of silent_census.rs names the empty slots in its test messages; no game path calls it
             ("general", self.general.empty_slots()),
             ("combat", self.combat.empty_slots()),
             ("ground", self.ground.empty_slots()),
@@ -338,7 +338,7 @@ impl HookTable {
             ("strategy", self.strategy.empty_slots()),
             ("direct", self.direct.empty_slots()),
         ];
-        groups.into_iter().flat_map(|(group, names)| names.into_iter().map(move |name| format!("{group}.{name}"))).collect()
+        groups.into_iter().flat_map(|(group, names)| names.into_iter().map(move |name| format!("{group}.{name}"))).collect() // lint-allow(core): the census of silent_census.rs names the empty slots in its test messages; no game path calls it
     }
 
     /// A copy with the commutative slots (and seams) registered in another order: reverse, or a seeded shuffle.
