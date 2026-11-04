@@ -811,7 +811,7 @@ pub struct WinnuHero {
     child: ErasedChild,
     pub tokens: Option<(System, SmallList<Seat, 8>)>,
     /// The public objective the Imperial primary scored (what the score sets off is the adapter's).
-    pub scored: Option<crate::generated::PublicObjective>,
+    pub scored: Option<crate::state::ObjectiveRef>,
     /// The system of the free tactical action of the Thunder's Edge Warfare primary: the game plays it next (`Ability::FreeTactical`).
     pub free: Option<System>,
     /// What the use of PRODUCTION of the Thunder's Edge Construction primary made, with the system it ran in (the adapter announces it).

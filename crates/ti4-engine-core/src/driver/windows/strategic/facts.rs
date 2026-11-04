@@ -125,7 +125,7 @@ pub fn structure_facts(core: &CoreState, kernel: &Kernel, roster: &UnitRoster, w
     })
 }
 
-/// The public objectives the seat could score for Imperial's primary (`strategy_cards_core::imperial_facts`): `None` where the core cannot
+/// The revealed objectives (public, or a secret a leak moved there) the seat could score for Imperial's primary (`strategy_cards_core::imperial_facts`): `None` where the core cannot
 /// follow (more than sixteen). The payment environment is the production kernel's.
 #[must_use]
 pub fn imperial_facts(core: &CoreState, kernel: &Kernel, who: Seat) -> Option<ImperialFacts> {
@@ -136,8 +136,7 @@ pub fn imperial_facts(core: &CoreState, kernel: &Kernel, who: Seat) -> Option<Im
     }
     let mut options = [None; 16];
     for (slot, objective) in options.iter_mut().zip(scoreable.iter()) {
-        // (A leaked secret scored as a public objective is the string's `scoreable_on` too: not carried.)
-        let ObjectiveRef::Public(objective) = objective else { return None };
+        // (A secret a leak moved into the public area is offered in reveal order beside the public ones, as the string's `scoreable_on` lists it.)
         *slot = Some(*objective);
     }
     Some(ImperialFacts { scoreable: options, env: crate::kernel::fx_pay::PayEnv { scope: reach::scope_of(kernel), blanked: reach::blanked(core) } })

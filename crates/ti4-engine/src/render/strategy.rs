@@ -260,6 +260,7 @@ impl Family for Fam {
                 ChoiceOption::labelled(id, "research_waiver_payment", label)
             }
             Opt::Objective(o) => ChoiceOption::labelled(o.as_str(), "objective", o.as_str()),
+            Opt::LeakedSecret(x) => ChoiceOption::labelled(x.as_str(), "objective", x.as_str()),
             Opt::Card(card) if matches!(a, Ask::ArbiterGive) => ChoiceOption::labelled(card.as_str(), crate::draft::STRATEGY_CARD_KIND, format!("give {}", card.as_str())),
             Opt::Annex(system, planet) => {
                 // `faction_abilities::strategy_resolved`: the planet's id, "annex", the system and the planet as details, and the gain of one planet.
@@ -342,7 +343,7 @@ impl Family for Fam {
                 let (holder, card) = id.split_once('|')?;
                 Some(Opt::Take(r.seat(holder)?, StrategyCard::from_id(card)?))
             }
-            Ask::ImperialScore => PublicObjective::from_id(id).map(Opt::Objective),
+            Ask::ImperialScore => PublicObjective::from_id(id).map(Opt::Objective).or_else(|| ti4_engine_core::generated::SecretObjective::from_id(id).map(Opt::LeakedSecret)),
             Ask::PeaceAccords { .. } => Planet::from_id(id).and_then(|planet| planet.data().system.map(|system| Opt::Annex(system, planet))),
             Ask::ResearchTechnology { .. } => Technology::from_id(id).map(Opt::Research),
             Ask::SucabanOffer { .. } => (id == "yes").then_some(Opt::Exhaust),

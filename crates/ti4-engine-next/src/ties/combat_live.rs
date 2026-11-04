@@ -196,7 +196,10 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
     let mut present: Vec<Unit> = Vec::new();
     let mut pieces: Vec<Unit> = if let Some((system, _, _)) = core.transient().combat.active_space_combat {
         let cell = core.board().sys(system);
-        let mut pieces: Vec<Unit> = cell.units.iter().map(|p| p.kind()).collect();
+        // (The units in the space area are named only where they can fight as ships too: the infantry and mechs a carrier holds roll no die in a space
+        // combat, and each kind named, with its other form, doubles the roll groups: Sol carrying infantry beside a Dreadnought II, Super-Dreadnoughts and
+        // an L1Z1X flagship went over `MAX_TYPES` with the two infantry forms, which names none: `CombatUnported`, policy seed 7793 rotation 0.)
+        let mut pieces: Vec<Unit> = cell.units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| p.kind()).collect();
         // (The units on the planets are named only where they can fight as ships: a ground force or a structure rolls no die in a space combat, and each kind named
         // doubles the roll groups: a fight whose seats also hold infantry, a PDS and a dock on the planets went over `MAX_TYPES`, which names none: `CombatUnported`.)
         for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
@@ -213,7 +216,7 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
     // A seat that owns an upgrade whose units still stand in the older form takes the new form when the combat opens (`technology::apply_unit_upgrades`):
     // its roll groups are named too, or the machine stands at a roller its texts do not name.
     if let Some((system, _, _)) = core.transient().combat.active_space_combat {
-        let mut owned: Vec<(ti4_engine_core::ids::Seat, Unit)> = core.board().sys(system).units.iter().map(|p| (p.owner(), p.kind())).collect();
+        let mut owned: Vec<(ti4_engine_core::ids::Seat, Unit)> = core.board().sys(system).units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| (p.owner(), p.kind())).collect();
         for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
             owned.extend(core.board().planet(*planet).units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| (p.owner(), p.kind())));
         }

@@ -129,6 +129,8 @@ pub enum Opt {
     Alternative,
     /// Imperial: score this public objective.
     Objective(PublicObjective),
+    /// Imperial: score this secret objective a leak moved into the public area (the answer is its id, as for a public one).
+    LeakedSecret(crate::generated::SecretObjective),
     /// Peace Accords: gain control of this planet of this system (the answer is the planet's id).
     Annex(System, Planet),
     /// Thunder's Edge Construction: place a structure (the answer `structure`).

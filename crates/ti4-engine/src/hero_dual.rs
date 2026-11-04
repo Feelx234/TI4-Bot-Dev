@@ -515,7 +515,7 @@ mod real {
         crate::action_cards_view::stage_placed_tokens(gs, &r, tokens.map(|(system, seats)| (system, seats.as_slice().to_vec())));
         // What a public score sets off (leaders unlocking, Yin's breakthrough) and the winner are the string's tail of the primary.
         if let Some(objective) = scored {
-            crate::objectives::award_tail(gs, ti4_content::ContentStore::embedded(), sources.clone(), player.clone(), &ti4_model::id::ObjectiveId::new(objective.as_str()));
+            crate::objectives::award_tail(gs, ti4_content::ContentStore::embedded(), sources.clone(), player.clone(), &ti4_model::id::ObjectiveId::new(crate::strategy_cards_core::objective_ref_id(objective)));
         }
         if chosen.is_some_and(|card| card.data().kind == ti4_engine_core::generated::StrategyCardKind::Imperial) {
             gs.finished = crate::objectives::winner(gs).is_some();

@@ -9,9 +9,9 @@ use crate::choice::combat::Opt as COpt;
 use crate::choice::invasion::Opt as IOpt;
 use crate::choice::{Opt, Pick};
 use crate::containers::SortedMap;
-use crate::generated::{Leader, Planet, Technology, Unit};
+use crate::generated::{Leader, Planet, Technology, Unit, UnitBaseType};
 use crate::ids::Seat;
-use crate::kernel::fx;
+use crate::kernel::{fx, fx_strategy};
 use crate::kernel::stage::{Illegal, Sx, Window};
 use crate::kernel::{Kernel, Next};
 use crate::query::economy::Spend;
@@ -120,18 +120,13 @@ impl InvasionMachine {
 
     /// What the leaf windows of the round do not carry (the gates of the string adapters, read from the position).
     fn round_unported(&self, s: &CoreState, k: &Kernel, defender: Seat) -> Option<Bail> {
-        let sides = [self.p.invader, defender];
-        let owned = |who: Seat, t: Technology| s.players().by_seat(who).is_some_and(|p| p.tech.owned.contains(t));
         let status = |p: &crate::state::Player, card: Leader| p.leaders.status.get(&card).copied();
         let thundarian = s.players().iter().any(|p| status(p, Leader::TheThundarian) == Some(crate::state::LeaderStatus::Readied))
             || s.players().iter().any(|b| b.faction == crate::generated::Faction::TheYssarilTribes && status(b, Leader::Ssruu) == Some(crate::state::LeaderStatus::Readied));
         if thundarian && s.players().iter().any(|p| p.faction == crate::generated::Faction::TheNomad) {
             return Some(Why::Thundarian);
         }
-        if sides.iter().any(|w| owned(*w, Technology::DacxiveAnimators)) {
-            return Some(Why::Dacxive);
-        }
-        let _ = k;
+        let _ = (k, defender);
         None
     }
 
@@ -269,6 +264,20 @@ impl InvasionMachine {
         Ok(())
     }
 
+    /// Dacxive Animators for the winner of a ground combat: the infantry form it builds, placed when the reinforcements hold one.
+    fn dacxive(&self, sx: &mut Sx<'_>, planet: Planet, winner: Seat) -> Result<(), Bail> {
+        if !sx.state.players().by_seat(winner).is_some_and(|p| p.tech.owned.contains(Technology::DacxiveAnimators)) {
+            return Ok(());
+        }
+        let roster = sx.table.facts.roster.or_else(|| sx.table.facts.plays.as_ref().and_then(|p| p.roster)).ok_or(Why::AssimilateRoster)?;
+        let scope = reach::scope_of(sx.kernel);
+        let Some(infantry) = fx_strategy::placed_unit(sx.state, sx.kernel, scope, roster, winner, UnitBaseType::Infantry) else { return Err(Why::AssimilateRoster) };
+        if crate::query::fleet::remaining_all(sx.state, scope, winner, infantry) >= 1 {
+            fx::place_unit(sx.state, winner, self.p.system, Some(planet), infantry);
+        }
+        Ok(())
+    }
+
     /// 42.3: the fight ends when one side has no ground forces left on the planet. Both surviving starts the next round.
     fn finish_ground_round(&mut self, sx: &mut Sx<'_>, planet: Planet, defender: Seat) {
         let IStage::Fighting { planets, index, .. } = self.p.stage.clone() else { return };
@@ -281,7 +290,12 @@ impl InvasionMachine {
         }
         let (winner, loser) = if inv_s { (invader, defender) } else { (defender, invader) };
         // Only a side with forces left has won (both wiped out is nobody's win).
-        // (Dacxive Animators is a gate of the round start.)
+        // Dacxive Animators ("after you win a ground combat, place 1 infantry from your reinforcements on that planet", the string's
+        // `faction_techs::dacxive_animators`): before the temporary commitments return, only for a side with forces left.
+        if owners.contains(winner) {
+            let r = self.dacxive(sx, planet, winner);
+            Self::or_bail(sx, r);
+        }
         self.return_temp_commits(sx, planet);
         let owners_after = self.owners(sx.state, sx.kernel, planet);
         let control_changed = winner == invader && owners.contains(winner) && owners_after.contains(invader) && qboard::control(sx.state, planet) != Some(invader);

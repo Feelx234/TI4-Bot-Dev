@@ -162,7 +162,7 @@ impl TeUses {
 /// score (the string's `objectives::scoreable_on`), up to sixteen, and the environment of the payment of a bought objective.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImperialFacts {
-    pub scoreable: [Option<PublicObjective>; 16],
+    pub scoreable: [Option<crate::state::ObjectiveRef>; 16],
     pub env: crate::kernel::fx_pay::PayEnv,
 }
 
@@ -209,7 +209,7 @@ pub enum Report {
     /// An enforcement finished: how many units it removed.
     Removed(u32),
     /// The Imperial primary finished: the public objective the holder scored, if any (what the score sets off is the adapter's).
-    Scored(Option<PublicObjective>),
+    Scored(Option<crate::state::ObjectiveRef>),
     /// The Thunder's Edge Warfare primary finished: the system of the free tactical action the game plays next (`None`: no system to offer).
     Free(Option<System>),
     /// The Thunder's Edge Construction primary finished: the use of PRODUCTION it ran, the system and what it made (`None`: a structure was chosen).
