@@ -15,6 +15,7 @@ import {
   type ReplayCopyState,
 } from "../presentation/replayCopy.ts";
 import { isRiftRoll, riftSentence } from "../presentation/rollToasts.ts";
+import { friendlyLogLine } from "../presentation/logWording.ts";
 import { followTarget, isPinned, nextUnseen, restoreTarget } from "./eventLogScroll.ts";
 
 export interface EventLogProps {
@@ -477,13 +478,16 @@ export const EventLog: React.FC<EventLogProps> = ({
       const eventNumber = entry.id.match(/-(\d+)$/)?.[1];
       const riftLine =
         roll && isRiftRoll(roll) ? entry.detail?.match(/^(.*?) rolled /)?.[1] : undefined;
-      const text =
+      const rawText =
         (riftLine !== undefined && roll ? `${riftLine} ${riftSentence(roll)}` : undefined) ??
         entry.private_detail ??
         entry.detail ??
         (entry.movement
           ? `${display(entry.movement.actor).label} moved ${entry.movement.unit} from #${entry.movement.origin} to #${entry.movement.destination}`
           : "Decision resolved");
+      // "b resolved offer discard law" reads as what was asked (Committee Formation and the like).
+      const friendly = friendlyLogLine(rawText);
+      const text = friendly?.text ?? rawText;
       return (
         <div
           key={item.id}
@@ -508,7 +512,7 @@ export const EventLog: React.FC<EventLogProps> = ({
           >
             {actor?.symbol ?? "?"}
           </span>
-          <span className="event-log__body">
+          <span className="event-log__body" title={friendly?.title}>
             {parts(text).map((part, index) => {
               const partText = typeof part === "string" ? part : part.label.replace(/ \([●▲■◆★✚⬟◖] Position \d+\)$/, "");
               const actionCardParts = parseActionCardsInText(partText);

@@ -1,0 +1,45 @@
+{
+  "title": "Committee Formation log wording",
+  "description": "Alpha feedback fb_1792737447 asked why there was no second agenda to elect on. The event log said only 'resolved quash' and 'resolved offer discard law' (the host writes '<seat> resolved <question>' because the chosen option may be private). The log now says what was asked: 'was asked whether to discard a law (Committee Formation or a ministry card)', 'was asked whether to use Quash on the agenda', 'chose the elected player with Committee Formation (nobody votes on that agenda)', with the Committee Formation rule as the line's hover title. Display only, done in the web log; the engine and the host's text are unchanged. Reconstructed from the report's agenda phase. Regenerate with npm run screenshots -- HO. The before PNGs were taken with TI4_SHOT_PREFIX=before on the commit without the change.",
+  "tag": "web/e2e/screenshots/HO-committee-log-wording",
+  "shots": [
+    {
+      "heading": "Agenda phase log (desktop)",
+      "caption": "Two votes, then the Xxcha's Quash question, the Committee Formation offer and the elected-player pick.",
+      "images": [
+        {
+          "label": "Before",
+          "file": "before/before-1-log-desktop.png"
+        },
+        {
+          "label": "After",
+          "file": "out/1-log-desktop.png"
+        }
+      ]
+    },
+    {
+      "heading": "Agenda phase log (390x844)",
+      "caption": "Same on a phone (the dock buttons are hidden for the shot so every line shows).",
+      "images": [
+        {
+          "label": "Before",
+          "file": "before/before-1-log-390x844.png"
+        },
+        {
+          "label": "After",
+          "file": "out/1-log-390x844.png"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    {
+      "title": "What the line cannot say",
+      "text": "The host's text does not say whether the law was discarded or the Quash used, only that the question was asked and answered, so the wording says 'was asked'. The agenda result toast and the agenda log still tell what followed. The hover title spells out the Committee Formation rule: its owner may discard it before an Elect Player agenda to choose the elected player, and nobody votes on that agenda."
+    },
+    {
+      "title": "Which lines",
+      "text": "presentation/logWording.ts rewrites the generic '<seat> resolved <question>' line for offer discard law (Committee Formation and the ministry laws share the question), committee elect, quash, use quash, use favor and use secret. Every other line is untouched."
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "title": "Technologies per colour on Diversify Research",
+  "description": "Alpha feedback fb_1793103326 asked for the number of technologies per colour on Diversify Research. The Objectives dialog now shows, for every seat, a chip per colour (Blue, Green, Yellow, Red) with the technologies it owns against the 2 the card needs, a tick when a colour is met, and 'N of 2 colors with 2+ · need 2'. Master the Sciences gets the same row (need 4 colors). The counts come from the owned technologies in the public player view and the technology catalogue (unit upgrades have no colour); the engine's own progress number still decides what is met. On a phone the viewer's row is repeated under the card text because the player columns scroll sideways. Mocked fixtures; regenerate with npm run screenshots -- HM. The before PNGs were taken with TI4_SHOT_PREFIX=before on the commit without the change.",
+  "tag": "web/e2e/screenshots/HM-tech-colour-counts",
+  "shots": [
+    {
+      "heading": "One colour met (desktop)",
+      "caption": "You hold 2 Blue (Propulsion), 1 Green (Biotic) and a unit upgrade, which counts for no colour: Blue 2/2 with a tick, Green 1/2, 1 of 2 colors. Player 2 holds 2 Yellow and 2 Red (met, Ready); Player 3 has 1 of each of four colors (0 of 2).",
+      "images": [
+        {
+          "label": "Before",
+          "file": "before/before-1-diversify-one-colour-desktop.png"
+        },
+        {
+          "label": "After",
+          "file": "out/1-diversify-one-colour-desktop.png"
+        }
+      ]
+    },
+    {
+      "heading": "One colour met (390x844)",
+      "caption": "The phone repeats your row under the card text (You:), for Diversify Research and for Master the Sciences.",
+      "images": [
+        {
+          "label": "Before",
+          "file": "before/before-1-diversify-one-colour-390x844.png"
+        },
+        {
+          "label": "After",
+          "file": "out/1-diversify-one-colour-390x844.png"
+        }
+      ]
+    },
+    {
+      "heading": "Second colour reached (desktop)",
+      "caption": "Two Green technologies join the two Blue: Blue 2/2 and Green 2/2, 2 of 2 colors, and the summary turns green. Master the Sciences still reads 2 of 4.",
+      "images": [
+        {
+          "label": "Before",
+          "file": "before/before-1-diversify-two-colours-desktop.png"
+        },
+        {
+          "label": "After",
+          "file": "out/1-diversify-two-colours-desktop.png"
+        }
+      ]
+    },
+    {
+      "heading": "Second colour reached (390x844)",
+      "caption": "Same on a phone.",
+      "images": [
+        {
+          "label": "Before",
+          "file": "before/before-1-diversify-two-colours-390x844.png"
+        },
+        {
+          "label": "After",
+          "file": "out/1-diversify-two-colours-390x844.png"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    {
+      "title": "Where the numbers come from",
+      "text": "presentation/techColourProgress.ts counts each seat's owned technologies per colour with the technology catalogue (getTechnologyTrack, which also reads the colour of faction technologies). Technologies are public in the player view, so every seat's column gets its row. The engine's progress (have / threshold) is used for the summary when it is there; the chips only show where it comes from. No wire or engine change."
+    },
+    {
+      "title": "Objectives it applies to",
+      "text": "diversify (Diversify Research, 2 colours) and master_science (Master the Sciences, 4 colours), both 'Own 2 technologies in each of N colors'. The row disappears once the seat has scored the objective."
+    }
+  ]
+}

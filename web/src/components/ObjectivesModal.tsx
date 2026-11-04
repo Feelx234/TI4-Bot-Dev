@@ -26,6 +26,7 @@ import {
 import { ValueUnit } from "./PlanetValueIcons.tsx";
 import { SecretObjectiveProgress } from "./SecretObjectiveProgress.tsx";
 import { NeighbourProgress } from "./NeighbourProgress.tsx";
+import { TechColourProgress } from "./TechColourProgress.tsx";
 import { combatCapNote, secretProgressOf } from "../presentation/secretProgress.ts";
 import { homeBlockSentence, lostHomePlanets, lostHomeText } from "../presentation/publicScoringBlock.ts";
 import "./ObjectivesModal.css";
@@ -375,6 +376,16 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
                 heading="You:"
               />
             )}
+            {viewerSeat && !scoredObjectives[viewerSeat]?.includes(objectiveId) && (
+              <TechColourProgress
+                objectiveId={objectiveId}
+                technologies={playerList.find((p) => p.id === viewerSeat)?.technologies}
+                progress={objectiveProgress[viewerSeat]?.[objectiveId]}
+                testId={`${objectiveId}-card`}
+                className="tech-colour-progress--card"
+                heading="You:"
+              />
+            )}
           </div>
         </td>
         {playerList.map((player) => {
@@ -477,6 +488,14 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
               )}
               {!isScored && (
                 <NeighbourProgress progress={progress} testId={`${objectiveId}-${player.id}`} />
+              )}
+              {!isScored && (
+                <TechColourProgress
+                  objectiveId={objectiveId}
+                  technologies={player.technologies}
+                  progress={progress}
+                  testId={`${objectiveId}-${player.id}`}
+                />
               )}
             </td>
           );

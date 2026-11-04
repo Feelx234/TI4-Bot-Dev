@@ -620,3 +620,21 @@ describe("undo last decision (single player)", () => {
     expect(await screen.findByText("Could not undo your last decision.")).toBeInTheDocument();
   });
 });
+
+describe("generic question lines", () => {
+  const open = (stage: string) => ({ round: 1, phase: "action" as const, action_id: "action_1", stage });
+
+  it("words the Committee Formation offer, keeping the seat first", () => {
+    const entry = { ...decision(1, "effects", "p2"), detail: "p2 resolved offer discard law" };
+    render(wrap([entry], { currentPath: open("effects") }));
+    const body = screen.getByTestId("event-log-entry").querySelector(".event-log__body")!;
+    expect(body).toHaveTextContent(/was asked whether to discard a law \(Committee Formation or a ministry card\)/);
+    expect(body).not.toHaveTextContent("resolved offer discard law");
+    expect(body.getAttribute("title")).toContain("Committee Formation");
+  });
+
+  it("leaves other lines without a title", () => {
+    render(wrap([decision(1)], { currentPath: open("movement") }));
+    expect(screen.getByTestId("event-log-entry").querySelector(".event-log__body")).not.toHaveAttribute("title");
+  });
+});
