@@ -1284,12 +1284,18 @@ mod tests {
         let (centre, origin) = (ti4_model::id::SystemId::new(hub.centre.clone()), ti4_model::id::SystemId::new(hub.outer[0].clone()));
         let hero = "leader:muaat:muaathero:MOVEMENT_FINISHED:after";
         let planets: Vec<_> = ti4_content::galaxy::all_systems(ContentStore::embedded(), pok).get(centre.as_str()).map(|s| s.planets().into_iter().map(|p| ti4_model::id::PlanetId::new(p)).collect()).unwrap_or_default();
-        for (rich, answer) in [(false, hero), (true, hero), (true, "decline")] {
+        // (`cargo`: ground forces of the other player carried in the space area, which the string announces with the system id in the
+        // place of a planet: the Nova Seed that the core stopped on with `NovaSeedCargo` before lane botstops.)
+        for (rich, cargo, answer) in [(false, false, hero), (true, false, hero), (true, false, "decline"), (false, true, hero), (true, true, hero), (true, true, "decline")] {
             let mut state = table(&[("a", "muaat"), ("b", "sol")]);
             state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("muaathero"), ti4_model::state::LeaderStatus::Unlocked);
             crate::fixtures::put(&mut state, &origin, "muaat_warsun", &a(), 1);
             crate::fixtures::put(&mut state, &centre, "cruiser", &b(), 2);
             state.system_mut(&centre).place_token(b());
+            if cargo {
+                crate::fixtures::put(&mut state, &centre, "carrier", &b(), 1);
+                crate::fixtures::put(&mut state, &centre, "infantry", &b(), 2);
+            }
             if rich {
                 if let Some(planet) = planets.first() {
                     state.system_mut(&centre).set_control(planet.clone(), b());
@@ -1305,7 +1311,7 @@ mod tests {
             // (Not the rule's: the string's next turn places a frontier token on the empty supernova, and the harness' code tables hold the aftermath's
             // presentation words apart from the renderer's.)
             let diffs: Vec<String> = lockstep(state, &hub.galaxy, &script).into_iter().filter(|d| !d.contains("combat_presentation.phase") && !d.contains("frontier_tokens")).collect();
-            assert!(diffs.is_empty(), "nova seed rich {rich} {answer}: {diffs:#?}");
+            assert!(diffs.is_empty(), "nova seed rich {rich} cargo {cargo} {answer}: {diffs:#?}");
         }
     }
 

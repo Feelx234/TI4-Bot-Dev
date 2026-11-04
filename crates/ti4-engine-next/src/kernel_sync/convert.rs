@@ -77,7 +77,8 @@ pub fn event_rec(r: &Render, event: &Event) -> Option<EventRec> {
         p.set(Key::System, Val::System(System::from_id(s)?));
     }
     if let Some(Value::String(s)) = event.payload.get("planet") {
-        p.set(Key::Planet, Val::Planet(Planet::from_id(s)?));
+        // (A ground force of the space area, Nova Seed's cargo, is announced with the system id in the place of the planet.)
+        p.set(Key::Planet, Planet::from_id(s).map(Val::Planet).or_else(|| System::from_id(s).map(Val::System))?);
     }
     if let Some(h) = event.payload.get("hits") {
         p.set(Key::Hits, Val::Int(h.as_i64()?));

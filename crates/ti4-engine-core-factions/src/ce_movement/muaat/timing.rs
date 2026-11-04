@@ -12,7 +12,7 @@
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
 use ti4_engine_core::generated::{Faction, Leader, Planet, System, UnitBaseType};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Runner, Slot, Spec, TacticalGap, Unknown};
+use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Runner, Slot, Spec};
 use ti4_engine_core::kernel::fx_map::{self, MapEdit};
 use ti4_engine_core::kernel::read::Rd;
 use ti4_engine_core::kernel::resolver::TimingError;
@@ -85,13 +85,7 @@ fn nova_system(s: &CoreState, k: &Kernel, who: Seat, p: &ti4_engine_core::state:
 }
 
 fn nova_when(c: &CondCx<'_>) -> bool {
-    let Some(system) = nova_system(c.state, c.kernel, c.def.owner, &c.event.payload) else { return false };
-    // Another player's ground forces in the space area (cargo): the string announces them with the system in the place of the planet.
-    let others_cargo = board::space_units(c.state, system).iter().any(|p| p.owner() != c.def.owner && fleet::is_ground_force(p.kind()));
-    if others_cargo {
-        return c.unknown(Unknown::UnportedTactical(TacticalGap::NovaSeedCargo));
-    }
-    true
+    nova_system(c.state, c.kernel, c.def.owner, &c.event.payload).is_some()
 }
 
 /// `destroy_others`: every other player's ships (staged as destroyed under the cause `breakthrough:nova_seed`), then their ground forces on
@@ -129,6 +123,12 @@ fn destroy_others(eff: &mut Eff<'_, '_>, me: Seat, system: System) {
             }
         }
     }
+    // Ground forces of other players left in the space area (cargo) are destroyed too and announced like the ones on planets, in list order;
+    // there is no planet, so the system stands in its place (the string's row names the system id there).
+    let cargo: Vec<_> = board::space_units(s, system).iter().copied().filter(|p| p.owner() != me && fleet::is_ground_force(p.kind())).collect();
+    for piece in cargo {
+        ti4_engine_core::kernel::fx_ground::stage_destroyed_in_space(s, system, piece, DestroyReason::NovaSeed);
+    }
     s.board_mut().sys_mut(system).units.retain(|p| p.owner() == me);
 }
 
@@ -161,8 +161,15 @@ fn purge_planets(s: &mut CoreState, system: System) {
 /// `apply_map_edit` for a `Replace`: the contents of the old system (units, command tokens) move to the new one, the frontier token follows, the
 /// wormhole tokens and the ion storm of the old tile are gone; the edit is recorded and applied to the core's map.
 fn replace_tile(s: &mut CoreState, old: System, new: System) -> bool {
+    let planets: Vec<Planet> = board::planets_of(s, old).collect();
     if !fx_map::apply_to_map(s, MapEdit::Replace(old, new)) {
         return false;
+    }
+    // The string removes the old tile's whole board entry, the `purged_planets` of the planets purged just before with it; only
+    // `purged_systems` keeps the tile. The planet cells would otherwise keep a purged flag in a system that is not on the board
+    // any more (the position then could not be shown: "planet entry in an untouched system").
+    for planet in planets {
+        s.board_mut().planet_mut(planet).flags.set(PlanetFlags::PURGED, false);
     }
     let purged = s.board().sys(old).flags.has(SysFlags::PURGED);
     let gone = std::mem::take(s.board_mut().sys_mut(old));
@@ -212,4 +219,55 @@ fn nova_seed(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 pub fn register_abilities(t: &mut AbilityTable) {
     t.add(Spec::new(WAR_SUN_MOVED, AbilityKind::Leader, EventKind::ShipMoved, Relation::After, war_sun_moved).when(arrival_condition));
     t.add(Spec::new(NOVA_SEED, AbilityKind::Leader, EventKind::MovementFinished, Relation::After, nova_seed).optional().when(nova_when));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::testkit::table;
+    use ti4_engine_core::galaxy::CoreGalaxy;
+    use ti4_engine_core::generated::Unit;
+    use ti4_engine_core::hex::Hex;
+    use ti4_engine_core::state::{Piece, PlanetCell};
+
+    /// A table with a map of the tile to replace next to a neighbour, the replaced tile holding another player's planets (controlled, with units).
+    fn replaced_tile() -> (CoreState, System, Vec<Planet>) {
+        static NO_LANES: [Option<&[(u8, u8)]>; System::COUNT] = [None; System::COUNT];
+        let (mut s, _) = table(&[Faction::TheEmbersOfMuaat, Faction::TheFederationOfSol]);
+        let plain: Vec<System> = System::ALL.iter().copied().filter(|x| x.data().planets.len() >= 2 && !x.data().hyperlane && !x.data().home_system).take(2).collect();
+        let old = plain[0];
+        let mut galaxy = CoreGalaxy::new(&NO_LANES);
+        galaxy.place(old, Hex::new(0, 0)).unwrap();
+        galaxy.place(plain[1], Hex::new(1, 0)).unwrap();
+        galaxy.refresh_lane_links();
+        s.map_mut().set_galaxy(galaxy);
+        let planets: Vec<Planet> = board::planets_of(&s, old).collect();
+        for planet in &planets {
+            s.board_mut().planet_mut(*planet).control = Some(Seat(1));
+            s.board_mut().planet_mut(*planet).units.push(Piece::new(Unit::InfantryI, Seat(1)));
+            s.board_mut().planet_mut(*planet).flags.set(PlanetFlags::UNITS_ENTRY, true);
+            s.board_mut().planet_mut(*planet).flags.set(PlanetFlags::EXHAUSTED, true);
+        }
+        s.board_mut().sys_mut(old).flags.set(SysFlags::TOUCHED, true);
+        s.board_mut().sys_mut(old).units.push(Piece::new(Unit::WarSun, Seat(0)));
+        (s, old, planets)
+    }
+
+    /// Found by the rule bot's games (4p seed 5, 5p seed 5, 6p seeds 3 to 5): after Nova Seed the position could not be shown ("planet entry in an
+    /// untouched system"): the replaced tile's planets kept their `PURGED` flag while the tile's board entry was gone. The string removes the whole
+    /// entry (`purged_planets` with it); only `purged_systems` keeps the tile.
+    #[test]
+    fn a_replaced_tile_leaves_no_planet_entry_behind_and_the_position_still_shows() {
+        let (mut s, old, planets) = replaced_tile();
+        purge_planets(&mut s, old);
+        assert!(planets.iter().all(|p| s.board().planet(*p).flags.has(PlanetFlags::PURGED)), "purged by the card, until the tile goes");
+        assert!(replace_tile(&mut s, old, System::NovaSeed));
+        for planet in &planets {
+            assert_eq!(s.board().planet(*planet), &PlanetCell::default(), "{planet:?}");
+        }
+        let gone = s.board().sys(old);
+        assert!(gone.flags.has(SysFlags::PURGED) && !gone.flags.has(SysFlags::TOUCHED) && gone.units.is_empty(), "only purged_systems keeps the tile");
+        let new = s.board().sys(System::NovaSeed);
+        assert!(new.flags.has(SysFlags::TOUCHED) && new.units.iter().any(|p| p.kind() == Unit::WarSun), "the war sun moved to the supernova");
+    }
 }

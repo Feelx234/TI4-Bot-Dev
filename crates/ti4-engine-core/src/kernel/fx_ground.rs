@@ -37,6 +37,25 @@ pub fn stage_destroyed(core: &mut CoreState, system: System, planet: Planet, pie
     core.marks_mut().tail.edit().insert(key, MarkVal::Rec(fields));
 }
 
+/// `hooks_ground::stage_ground_force_destroyed` for a ground force of the SPACE area (Nova Seed's cargo): there is no planet, so the string's row
+/// names the system where the planet goes (`muaat::destroy_others`). The typed row carries the system atom in the planet's place.
+pub fn stage_destroyed_in_space(core: &mut CoreState, system: System, piece: Piece, reason: DestroyReason) {
+    let key = MarkKey::PrivateStagedGround(next_ground(core));
+    let mut fields = vec![
+        MarkVal::Atom(Atom::Word(Word::Destroyed)),
+        MarkVal::Atom(Atom::System(system)),
+        MarkVal::Atom(Atom::System(system)),
+        MarkVal::Atom(Atom::Seat(piece.owner())),
+        MarkVal::Atom(Atom::Unit(piece.kind())),
+        MarkVal::Atom(Atom::Word(if piece.sustained() { Word::True } else { Word::False })),
+        MarkVal::Atom(Atom::Destroy(reason)),
+    ];
+    if piece.galvanized() {
+        fields.push(MarkVal::Atom(Atom::Word(Word::Galvanized)));
+    }
+    core.marks_mut().tail.edit().insert(key, MarkVal::Rec(fields));
+}
+
 /// `action_cards::destroy_on_planet`: remove the first `limit` units of `base` from the planet (anyone's, in list
 /// order), stage every ground force that fell, and return how many were destroyed.
 pub fn destroy_on_planet(

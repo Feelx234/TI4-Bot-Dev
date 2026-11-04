@@ -29,11 +29,17 @@ fn staged(sx: &Sx<'_>) -> Vec<(MarkKey, Payload)> {
     for (key, value) in core.marks().tail.iter() {
         let MarkKey::PrivateStagedGround(n) = key else { continue };
         let MarkVal::Rec(f) = value else { continue };
-        let [MarkVal::Atom(Atom::Word(Word::Destroyed)), MarkVal::Atom(Atom::System(system)), MarkVal::Atom(Atom::Planet(planet)), MarkVal::Atom(Atom::Seat(owner)), MarkVal::Atom(Atom::Unit(unit)), MarkVal::Atom(Atom::Word(damaged)), MarkVal::Atom(Atom::Destroy(reason)), rest @ ..] = f.as_slice() else { continue };
+        let [MarkVal::Atom(Atom::Word(Word::Destroyed)), MarkVal::Atom(Atom::System(system)), at, MarkVal::Atom(Atom::Seat(owner)), MarkVal::Atom(Atom::Unit(unit)), MarkVal::Atom(Atom::Word(damaged)), MarkVal::Atom(Atom::Destroy(reason)), rest @ ..] = f.as_slice() else { continue };
+        // The planet's place holds the system for a ground force of the space area (Nova Seed's cargo; the string writes the system id there).
+        let at = match at {
+            MarkVal::Atom(Atom::Planet(planet)) => Val::Planet(*planet),
+            MarkVal::Atom(Atom::System(space)) => Val::System(*space),
+            _ => continue,
+        };
         let Some(cause) = cause_code(&codes, *reason) else { continue };
         let mut payload = Payload::new()
             .with(Key::System, Val::System(*system))
-            .with(Key::Planet, Val::Planet(*planet))
+            .with(Key::Planet, at)
             .with(Key::Player, Val::Seat(*owner))
             .with(Key::Unit, Val::Unit(*unit))
             .with(Key::Damaged, Val::Flag(*damaged == Word::True));

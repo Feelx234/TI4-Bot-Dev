@@ -12,7 +12,6 @@ pub const fn gap_text(gap: TacticalGap) -> &'static str {
         TacticalGap::NoProgress => "the tactical action made no progress (a stage that neither asks nor moves on)",
         TacticalGap::ActivationHook => "a hook of the activation that the native chain does not carry",
         TacticalGap::NovaSeed => "Nova Seed replaced a tile while the movement step closed",
-        TacticalGap::NovaSeedCargo => "Nova Seed would destroy another player's ground forces carried in the space area (the string announces them with the system in the place of a planet)",
         TacticalGap::CannonHits => "a hit of the space cannon offense that needs a question",
         TacticalGap::ExplorationAtTheEnd => "the Crown of Emphidia or Dark Energy Tap explores at the end of the action (no native planet exploration window yet)",
         TacticalGap::NoGalaxy => "the map slice holds no galaxy",

@@ -89,9 +89,17 @@ fn salvage_options(s: &CoreState, f: &AdapterFacts, owner: Seat, p: &Payload) ->
         Some(ti4_engine_core::state::List::Units(units)) => units.iter().filter(|(_, u)| u.data().ship).map(|(_, u)| u.data().base_type).collect(),
         _ => Vec::new(),
     };
-    let buildable = f.buildable(owner).ok_or(())?;
     let k = f.pay_kernel.ok_or(())?();
     let scope = ti4_engine_core::tables::Scope(u32::from(k.sources.0));
+    // The string side lends the list (`production::buildable_for`, `AdapterFacts::set_buildable`); a native table lends none, so the core's own
+    // reading of the same rule answers (same bases, same order, the same form overrides).
+    let buildable: Vec<Unit> = match f.buildable(owner) {
+        Some(list) => list.to_vec(),
+        None => {
+            let roster = f.roster.copied().unwrap_or_else(|| crate::cd_registry::yin::timing::roster(scope));
+            ti4_engine_core::rules::production::home::buildable_for(s, k, scope, &roster, owner).ok_or(())?.into_iter().flatten().collect()
+        }
+    };
     let env = fx_pay::PayEnv { scope, blanked: ti4_engine_core::query::reach::blanked(s) };
     let facts = fx_pay::pay_facts(s, k, env, owner);
     if facts.terms.oceans {
@@ -328,6 +336,24 @@ mod tests {
         assert_eq!(salvage_options(&s, &AdapterFacts::default(), Seat(0), &p), Err(()), "no buildable list or payment kernel lent");
         s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.remove(Technology::SalvageOperations);
         assert_eq!(salvage_options(&s, &f, Seat(0), &p), Ok(Vec::new()), "without the technology");
+    }
+
+    /// A native table lends no buildable list (only the string side's adapter fills `AdapterFacts::set_buildable`): the offer must not be
+    /// "unknown" then (the rule bot's games stopped with `aftermath: MissingFact` at the first Mentak win with Salvage Operations in a
+    /// native game); the core reads the same list from the position, in the same order as the string.
+    #[test]
+    fn salvage_reads_the_buildable_list_from_the_position_when_no_adapter_lends_one() {
+        let (mut s, lent, p) = setup();
+        let mut native = AdapterFacts::default();
+        native.pay_kernel = Some(plain_kernel);
+        assert_eq!(native.buildable(Seat(0)), None);
+        for goods in [6, 2, 0] {
+            s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = goods;
+            assert_eq!(salvage_options(&s, &native, Seat(0), &p), salvage_options(&s, &lent, Seat(0), &p), "{goods} trade goods");
+        }
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = 6;
+        assert_eq!(salvage_options(&s, &native, Seat(0), &p), Ok(vec![(Unit::DestroyerI, 1), (Unit::DreadnoughtI, 4)]));
+        assert_eq!(salvage_options(&s, &AdapterFacts::default(), Seat(0), &p), Err(()), "still no payment kernel: unknown");
     }
 
     #[test]
