@@ -951,7 +951,11 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 // (its events were owed to this one); there is no legacy step to compare it with, its events are owed to the next.
                 if group.iter().all(|p| p.asked.is_empty()) && !owed.legacy.is_empty() && legacy.options().is_some() {
                     let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
-                    let events: Vec<String> = group.iter().flat_map(|p| p.events.iter().cloned()).collect();
+                    let mut events: Vec<String> = group.iter().flat_map(|p| p.events.iter().cloned()).collect();
+                    if owed.native.is_empty() {
+                        owed.take_announced(&mut events, &announce_marks(&group, 0));
+                    }
+                    owed.strip_owed();
                     if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
                         eprintln!("  native steps with no legacy step of their own: {arms:?} events {events:?} against the owed legacy events {:?}", owed.legacy);
                     }
@@ -978,7 +982,10 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 while run.records.is_empty() && (!owed.native.is_empty() || run.events.is_empty() || events_lead(&owed.native, &group, &run.events)) && run.info.error.is_none() && (!group.iter().all(|p| p.asked.is_empty()) || steps_idle(&run, &group)) && catch_up_allowed(catch_up) {
                     let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
                     let _ = (legacy.decisions_since(), legacy.events_since());
-                    if let Some((at, n, l)) = owed.settle(Vec::new(), run.events.clone()) {
+                    let mut new_legacy = run.events.clone();
+                    owed.strip_owed();
+                    owed.strip_pending(&mut new_legacy);
+                    if let Some((at, n, l)) = owed.settle(Vec::new(), new_legacy) {
                         first_difference = Some(Difference { step: native.steps, arms, what: "events", path: format!("[{at}]"), native: n, legacy: l, known: None });
                         break;
                     }
@@ -1071,19 +1078,24 @@ fn steps_idle(run: &LegacyRun, group: &[Played]) -> bool {
     run.events.is_empty() && group.iter().any(|p| !p.events.is_empty())
 }
 
-/// The native step announces what the step before staged FIRST (its reconcile), then begins its arm; the string's step before ended with the arm's first events
-/// (`INVASION_BEGAN`, the commit question behind it) and announces what it staged at the start of the NEXT step, i.e. AFTER them. A product session splits at the
-/// question and meets the string's order; the shadow's native step holds the question and its answer, so the reconcile cannot run between them. The events of the
-/// head that the string already pushed (`owed`) are moved in front of the `announced` ones (naalu 4p seed 8, ghost 4p seed 6: Foresight's strategy token).
-fn announced_behind_owed(mut events: Vec<String>, announced: usize, owed_legacy: &[String]) -> Vec<String> {
-    if announced == 0 || owed_legacy.is_empty() || events.len() < announced {
-        return events;
-    }
-    let same = events[announced..].iter().zip(owed_legacy).take_while(|(n, l)| n == l).count();
-    if same > 0 {
-        events[..announced + same].rotate_left(announced);
-    }
-    events
+/// A native step announces what the step before staged FIRST (its reconcile), then begins its arm; the string's step before ended with the arm's first events
+/// (`INVASION_BEGAN`, the commit question behind it) and announces what it staged at the start of the NEXT step, i.e. AFTER them, or after the end of the whole action
+/// when the aftermath asks nothing. A product session splits at every question and meets the string's order; the shadow's native step holds the question and its
+/// answer, so its reconcile cannot run between them. The events a reconcile announced are therefore compared by value, not by position ([`Owed::take_announced`] /
+/// [`Owed::strip_pending`]: the string must push each of them, wherever its step boundary falls; everything else is compared in order). Foresight's strategy token
+/// (naalu 4p seed 8, ghost 4p seed 6, 14 more games of the Z-gate command), the trade goods of a staged gain.
+///
+/// The `(index, count)` marks for the steps of a group whose events open at `offset` of the native stream.
+fn announce_marks(group: &[Played], offset: usize) -> Vec<(usize, usize)> {
+    let mut at = offset;
+    group
+        .iter()
+        .map(|p| {
+            let mark = (at, p.announced);
+            at += p.events.len();
+            mark
+        })
+        .collect()
 }
 
 /// The events one side has pushed that the other has not, yet (a native step and a legacy step end in different places inside one arm's close).
@@ -1093,9 +1105,41 @@ struct Owed {
     legacy: Vec<String>,
     /// Pushed by the native steps, to be matched by the next legacy ones.
     native: Vec<String>,
+    /// Announced by a native step's reconcile and not yet seen among the string's events.
+    announced: Vec<String>,
 }
 
 impl Owed {
+    /// Take the events the reconcile of each step of a group announced (`marks`, see [`announce_marks`]) out of `events` into the pending list.
+    fn take_announced(&mut self, events: &mut Vec<String>, marks: &[(usize, usize)]) {
+        let mut taken: Vec<String> = Vec::new();
+        for &(start, count) in marks.iter().rev() {
+            if count > 0 && start + count <= events.len() {
+                let part: Vec<String> = events.drain(start..start + count).collect();
+                taken.splice(0..0, part);
+            }
+        }
+        self.announced.extend(taken);
+    }
+
+    /// Cross the pending announced events off a stream of the string's events (the first equal one each).
+    fn strip_pending(&mut self, legacy: &mut Vec<String>) {
+        self.announced.retain(|x| match legacy.iter().position(|l| l == x) {
+            Some(i) => {
+                legacy.remove(i);
+                false
+            }
+            None => true,
+        });
+    }
+
+    /// [`Self::strip_pending`] on the events the string already pushed and the native steps owe.
+    fn strip_owed(&mut self) {
+        let mut owed = std::mem::take(&mut self.legacy);
+        self.strip_pending(&mut owed);
+        self.legacy = owed;
+    }
+
     /// New events of either side with no step of the other to meet: matched against what the other side pushed ahead. `Some((index, native, legacy))`
     /// at the first line that differs.
     fn settle(&mut self, native_new: Vec<String>, legacy_new: Vec<String>) -> Option<(usize, String, String)> {
@@ -1269,12 +1313,12 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
     // The events are two streams: what one side pushed beyond the other's end of step is matched by the other's next step. A step that ends an
     // arm the string's close goes on after (non-strict) may leave either side ahead; a strict step must end level, unless the group was cut in two
     // (`ahead`): the string's events beyond the head are the later half's (a reaction asked inside the step, the question after it in the same native step).
-    let mut group_events: Vec<String> = group.iter().flat_map(|p| p.events.iter().cloned()).collect();
-    if owed.native.is_empty() && let Some(first) = group.first() {
-        group_events = announced_behind_owed(group_events, first.announced, &owed.legacy);
-    }
-    let native_stream: Vec<String> = owed.native.drain(..).chain(group_events).collect();
-    let legacy_stream: Vec<String> = owed.legacy.drain(..).chain(events.iter().cloned()).collect();
+    let marks = announce_marks(group, owed.native.len());
+    let mut native_stream: Vec<String> = owed.native.drain(..).chain(group.iter().flat_map(|p| p.events.iter().cloned())).collect();
+    owed.take_announced(&mut native_stream, &marks);
+    owed.strip_owed();
+    let mut legacy_stream: Vec<String> = owed.legacy.drain(..).chain(events.iter().cloned()).collect();
+    owed.strip_pending(&mut legacy_stream);
     let common = native_stream.len().min(legacy_stream.len());
     let at = (0..common).find(|i| native_stream[*i] != legacy_stream[*i]).or_else(|| (strict && !ahead && native_stream.len() != legacy_stream.len()).then_some(common));
     if let Some(at) = at {
@@ -1289,6 +1333,13 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
         let mut legacy_state = legacy.state_json();
         let legacy_staged = crate::native_subject::strip_staged(&mut legacy_state);
         let native_staged: Vec<String> = native.core.pending().staged.iter().map(|e| ti4_engine::kernel_sync::text::event_text(&native.render, e.kind)).collect();
+        // (What a native reconcile announced and the string still holds staged is announced by the string's next step: it is in `owed.announced` until then.)
+        let mut legacy_staged = legacy_staged;
+        for pending in &owed.announced {
+            if let Some(i) = legacy_staged.iter().position(|l| l == pending) {
+                legacy_staged.remove(i);
+            }
+        }
         if legacy_staged != native_staged {
             return Some(diff("staged", "pending.staged".to_owned(), format!("{native_staged:?}"), format!("{legacy_staged:?}")));
         }
@@ -1984,10 +2035,21 @@ mod tests {
             assert!(shadowed.first_difference.is_none(), "{faction} seed {seed}: {:?}", shadowed.first_difference);
         }
         let e = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-        assert_eq!(announced_behind_owed(e(&["TOKEN", "BEGAN", "DONE"]), 1, &e(&["BEGAN"])), e(&["BEGAN", "TOKEN", "DONE"]));
-        assert_eq!(announced_behind_owed(e(&["TOKEN", "OTHER", "DONE"]), 1, &e(&["BEGAN"])), e(&["TOKEN", "OTHER", "DONE"]), "events the string did not push stay where they are");
-        assert_eq!(announced_behind_owed(e(&["BEGAN", "DONE"]), 0, &e(&["BEGAN"])), e(&["BEGAN", "DONE"]), "nothing announced, nothing moves");
-        assert_eq!(announced_behind_owed(e(&["A", "B", "BEGAN", "DONE"]), 2, &e(&["BEGAN"])), e(&["BEGAN", "A", "B", "DONE"]));
+        let mut owed = Owed::default();
+        let mut native = e(&["TOKEN", "BEGAN", "DONE"]);
+        owed.take_announced(&mut native, &[(0, 1)]);
+        assert_eq!((native, owed.announced.clone()), (e(&["BEGAN", "DONE"]), e(&["TOKEN"])), "the announced event leaves the stream and waits for the string's");
+        let mut legacy = e(&["BEGAN", "TOKEN", "DONE"]);
+        owed.strip_pending(&mut legacy);
+        assert_eq!((legacy, owed.announced.clone()), (e(&["BEGAN", "DONE"]), Vec::<String>::new()), "the string pushed it behind BEGAN: crossed off");
+        let mut legacy = e(&["BEGAN", "DONE"]);
+        owed.announced = e(&["TOKEN"]);
+        owed.strip_pending(&mut legacy);
+        assert_eq!((legacy, owed.announced), (e(&["BEGAN", "DONE"]), e(&["TOKEN"])), "the string has not pushed it yet: it stays pending");
+        let mut native = e(&["X", "A", "B", "DONE"]);
+        let mut owed = Owed::default();
+        owed.take_announced(&mut native, &[(0, 0), (1, 2)]);
+        assert_eq!((native, owed.announced), (e(&["X", "DONE"]), e(&["A", "B"])), "a step later in the group");
     }
 
     /// Integration 19, found by the Z-gate command (`--seeds 8`): a fight whose seats also hold ground forces and structures on the planets named more than ten unit
