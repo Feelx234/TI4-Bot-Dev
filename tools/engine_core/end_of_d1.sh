@@ -10,10 +10,11 @@
 #           --from ID       start at this step (a resumed run)
 #           --base-ref REF  the ref the `lint` step compares the immutable surfaces against (also env BASE_REF)
 #           --dry-run       as above
+# Env (core-integration-24): CORPUS_SKIP (default 1: decision_corpus verify skipped with a recorded reason), BENCH_FINAL_RV (default 36: the rules version the configs carry after the baselines were recorded at BENCH_RECORD_RV)
 # Env (heavy-prep 2026-11-04): ALPHA_SKIP (default 1: alpha step skipped with a recorded reason), BENCH_RECORD=1 + BENCH_RECORD_BIN=<legacy selfplay> (re-record the bench baselines at rules version BENCH_RECORD_RV, default 35, instead of only comparing)
 # Env:      ZERO_BAIL (report|enforce, the zero-bail step), CARGO_TARGET_DIR (required except for --dry-run: private, gate/lockstep/dev profiles are built into it),
 #           SHARDS (default 3: two gates fit on 8 cores), WORKERS (benches, default 6), GAMES (golden dual games, default 20),
-#           ALPHA_SRC (default /var/lib/ti4-public), SOAK_GAMES (default 40), BASE_REF (immutable-surface check; default the tag deployed-int23-54a15dba = the deployed int-23 line, else core-integration-23, else origin/core-integration-23, else the step FAILS and says so)
+#           ALPHA_SRC (default /var/lib/ti4-public), SOAK_GAMES (default 40), BASE_REF (immutable-surface check; default the tag heavy-base-int24 = the tip of core-integration-24 (rules version 36), else core-integration-24, else origin/core-integration-24, else the step FAILS and says so)
 #
 # The lane: the script re-executes itself under /root/heavy2.sh (the two-slot lock) and holds it for the whole run. Never start it
 # outside a quiet window and never together with another gate that holds both slots. Nothing here edits the checkout; the
@@ -71,17 +72,18 @@ step() { ids+=("$1"); titles+=("$2"); cmds+=("$3"); }
 
 step layers   "layers of the core (check_layers.py core and thin, engine report)" \
   "python3 -I tools/engine_core/check_layers.py core && python3 -I tools/engine_core/check_layers.py thin && { python3 -I tools/engine_core/check_layers.py engine > $out/layers-engine.txt 2>&1 || true; }"
-# BASE_REF: the flag/env value, else the tag deployed-int23-54a15dba (the deployed int-23 line: web/ and state.rs as they ship), else
-# core-integration-23, else origin/core-integration-23; none of them = the step fails. Why not the live branch tip: the P1 commits of the
+# BASE_REF: the flag/env value, else the tag heavy-base-int24 (the tip of core-integration-24: web/ and state.rs as the rules-version-36 line has them), else
+# core-integration-24, else origin/core-integration-24; none of them = the step fails. Why not the live branch tip: the P1 commits of the
 # flip legitimately changed web/ (Thunder's Edge switch gone, screenshots) and state.rs (version handling), so a diff against
-# nightly-fixes-2026-10-26 is never empty; the lint step now guards that the heavy run's tip did not touch those surfaces AFTER the
-# deployed int-23 (docs/HEAVY_RUN_PLAN.md).
+# nightly-fixes-2026-10-26 is never empty; the lint step guards that the heavy run's tip did not touch those surfaces AFTER
+# core-integration-24 (which carries rules version 36 and the web feedback UI; the older base deployed-int23-54a15dba is stale since
+# those two changed web/ and state.rs on purpose; docs/HEAVY_RUN_PLAN.md).
 # D2-9 lane 9a (G7 row 9, docs/D29A_RESUME.md): the production graph and the checker's own self-tests; strict since lane 9b (PROD_GRAPH_MODE=--report only prints the violations). Only when the script exists.
 [[ -x tools/engine_core/check_production_graph.sh ]] && step prod-graph "production graph: no legacy / lend-string in any production crate (mode: ${PROD_GRAPH_MODE:-strict}), self-tests" \
   "tools/engine_core/check_production_graph.sh --self-test && tools/engine_core/check_output_probes.sh --self-test && tools/engine_core/check_production_graph.sh ${PROD_GRAPH_MODE-}"
-step lint     "core hygiene (lint_core.sh) and the immutable surfaces against ${BASE_REF:-deployed-int23-54a15dba}" \
-  "base='$BASE_REF'; if [[ -z \$base ]]; then for r in deployed-int23-54a15dba core-integration-23 origin/core-integration-23; do git rev-parse -q --verify \$r^{commit} >/dev/null && { base=\$r; break; }; done; fi; \
-   [[ -n \$base ]] && git rev-parse -q --verify \$base^{commit} >/dev/null || { echo \"lint: no usable base ref (\$base; tried deployed-int23-54a15dba, core-integration-23, origin/core-integration-23): pass --base-ref REF\"; exit 1; }; \
+step lint     "core hygiene (lint_core.sh) and the immutable surfaces against ${BASE_REF:-heavy-base-int24}" \
+  "base='$BASE_REF'; if [[ -z \$base ]]; then for r in heavy-base-int24 core-integration-24 origin/core-integration-24; do git rev-parse -q --verify \$r^{commit} >/dev/null && { base=\$r; break; }; done; fi; \
+   [[ -n \$base ]] && git rev-parse -q --verify \$base^{commit} >/dev/null || { echo \"lint: no usable base ref (\$base; tried heavy-base-int24, core-integration-24, origin/core-integration-24): pass --base-ref REF\"; exit 1; }; \
    echo \"lint: immutable surfaces against \$base\"; \
    tools/engine_core/lint_core.sh && git diff --exit-code \$base -- web/ crates/ti4-model/src/state.rs ':!docs/RULES_VERSION.md' && { git diff \$base -- docs/RULES_VERSION.md | grep -E '^[-+][^-+]' | grep -v -i refus > /dev/null && { echo \"RULES_VERSION.md: a hunk other than the refusal note changed\"; exit 1; } || true; }"
 step build    "gate-profile binaries (selfplay, every bridge bin)" \
@@ -123,7 +125,7 @@ for mode in off resolver state resolver,state; do
   if [[ $mode == off && "${BENCH_RECORD:-0}" == 1 ]]; then
     # BENCH_RECORD=1: re-record the six baselines first (rules version 35, the frozen legacy engine = BENCH_RECORD_BIN, a selfplay built at
     # core-integration-20), then verify the fresh selfplay-new against them. The new files are left uncommitted in tools/rulebot.
-    rec="[[ -x '${BENCH_RECORD_BIN:-}' ]] || { echo 'BENCH_RECORD=1 needs BENCH_RECORD_BIN=<legacy-built selfplay> (docs/HEAVY_RUN_PLAN.md)'; exit 1; }; tools/engine_profile/record_benches.sh '${BENCH_RECORD_BIN:-}' $WORKERS ${BENCH_RECORD_RV:-35} > $out/bench-record.txt 2>&1; cat $out/bench-record.txt; [[ \$(grep -c ': recorded' $out/bench-record.txt) == 6 ]] || exit 1; "
+    rec="[[ -x '${BENCH_RECORD_BIN:-}' ]] || { echo 'BENCH_RECORD=1 needs BENCH_RECORD_BIN=<legacy-built selfplay> (docs/HEAVY_RUN_PLAN.md)'; exit 1; }; FINAL_RV=${BENCH_FINAL_RV:-36} tools/engine_profile/record_benches.sh '${BENCH_RECORD_BIN:-}' $WORKERS ${BENCH_RECORD_RV:-35} > $out/bench-record.txt 2>&1; cat $out/bench-record.txt; [[ \$(grep -c ': recorded' $out/bench-record.txt) == 6 ]] || exit 1; "
   fi
   step "$id" "benches bench, bench-v1..v5 (200/200 identical x6) with TI4_CHURN=$mode${rec:+ -- RE-RECORDED first (BENCH_RECORD=1)}" \
     "${rec}$env VERIFY_OUT=$out/$id tools/engine_profile/verify_benches.sh $out/selfplay-new $WORKERS > $out/$id.txt 2>&1; cat $out/$id.txt; [[ \$(grep -c '200 identical, 0 different' $out/$id.txt) == 6 ]]"
@@ -135,8 +137,13 @@ step census   "golden lent census: the labels the core bails at (bail probe merg
 # The recorded decision corpus (X2): the sources are played again with the current engine and compared line by line (state hash, the
 # Choice, V1/V2 hashes of every decision). The golden check above replays the same games from the golden sets; this is the old
 # corpus the D4 golden sets were imported from, kept until D4-8 removes it.
-step corpus "decision_corpus verify: the recorded corpus (golden20, benches, templates, TE tables, fixtures) played again" \
-  "$T/gate/decision_corpus verify tools/engine_core/decision_corpus --workers 4"
+# CORPUS_SKIP (default 1, decision of core-integration-24): the corpus sources were recorded at rules versions 11, 18, 23 and 35, the
+# core plays only the newest ("rules version 23 is not supported"; the TE sources need Thunder's Edge, which is off), so `verify` fails
+# on 9 of 10 sources by construction (measured 2026-11-04) and the `fixtures` source is stale since I22 regenerated the wire fixtures.
+# The same games replay from the golden sets (legacy-sources/*) on the string engine at their own versions in the `census` step.
+# CORPUS_SKIP=0 runs the step.
+step corpus "decision_corpus verify: the recorded corpus played again (CORPUS_SKIP=${CORPUS_SKIP:-1}: skipped by default)" \
+  "if [[ '${CORPUS_SKIP:-1}' == 1 ]]; then echo 'SKIPPED: the core plays only rules version 36; the corpus sources are versions 11, 18, 23, 35 (and TE), verify fails on them by construction; the golden sets replay the same games on the string engine in the census step. Decision of core-integration-24; CORPUS_SKIP=0 runs the step.'; exit 0; fi; $T/gate/decision_corpus verify tools/engine_core/decision_corpus --workers 4"
 # The zero-bail acceptance (user rule: a whole game plays in the new engine without a bail, on the agreed content: everything except
 # Thunder's Edge and the dropped factions). Counts every bail and gate by cause in the reports of dual-all and dual-lent (every area on
 # Dual, gate binaries under unsupported::Policy::Panic and strict unmapped mode). ZERO_BAIL=report (default for now: the starting list of

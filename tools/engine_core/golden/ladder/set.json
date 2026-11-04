@@ -294,12 +294,20 @@
       "decisions_hash": "91513473062ce7a7",
       "bytes": 8539,
       "sha256": "084106f55fbede00243cb8f5ba7641d4488d6788fb065fe0e5f75cd63bf82694"
+    },
+    {
+      "file": "g036.tsv.zst",
+      "steps": 400,
+      "decisions": 400,
+      "decisions_hash": "42e1f7567c9ec20e",
+      "bytes": 7086,
+      "sha256": "d15610d6667e5fd441e7736181db65085c3c2ce7c21ec6471141f58c899b4ece"
     }
   ],
   "smoke": [
-    "g001.tsv.zst",
     "g006.tsv.zst",
     "g008.tsv.zst",
-    "g022.tsv.zst"
+    "g022.tsv.zst",
+    "g036.tsv.zst"
   ]
 }

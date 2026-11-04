@@ -218,27 +218,84 @@ impl Decider for Recorded {
     }
 }
 
+/// The two engines a golden game can replay on: the string engine (frozen rules versions) and the wrapper `Game` (the newest version).
+trait Replay {
+    fn seat(&mut self, decider: Box<dyn Decider>);
+    fn finished(&self) -> bool;
+    fn state_hash(&self) -> String;
+    /// One step; `Some(message)` when it failed.
+    fn step(&mut self) -> Option<String>;
+    fn log_hash(&self) -> String;
+}
+
+impl Replay for ti4_engine_legacy::game::Game<'static> {
+    fn seat(&mut self, decider: Box<dyn Decider>) {
+        self.table.set_default(Box::new(crate::legacy_adapter::ThinDecider::new(decider)));
+    }
+    fn finished(&self) -> bool {
+        self.state.finished
+    }
+    fn state_hash(&self) -> String {
+        state_hash(&self.state)
+    }
+    fn step(&mut self) -> Option<String> {
+        ti4_engine_legacy::game::Game::step(self).error.map(|e| e.to_string())
+    }
+    fn log_hash(&self) -> String {
+        ti4_wasm::host_session::decisions_hash(&crate::legacy_adapter::thin_records(&self.table.log.records))
+    }
+}
+
+impl Replay for ti4_engine::game::Game<'static> {
+    fn seat(&mut self, decider: Box<dyn Decider>) {
+        self.table.set_default(decider);
+    }
+    fn finished(&self) -> bool {
+        self.state.finished
+    }
+    fn state_hash(&self) -> String {
+        state_hash(&self.state)
+    }
+    fn step(&mut self) -> Option<String> {
+        ti4_engine::game::Game::step(self).error.map(|e| e.to_string())
+    }
+    fn log_hash(&self) -> String {
+        ti4_wasm::host_session::decisions_hash(&self.table.log.records)
+    }
+}
+
 /// Replay one recorded game by its answers on the current thread's mask. `Ok(None)`: it reproduced.
+///
+/// The sets of an older rules version replay on the STRING engine (frozen: the wrapper plays the latest version only); a game recorded
+/// at the newest version replays on the wrapper it was recorded on (the core splits steps the string glues, so the step numbers differ).
 ///
 /// # Errors
 /// A game that cannot be built.
 pub fn replay_game(g: &GameFile) -> Result<Option<Divergence>, String> {
     let Some(spec) = &g.header.spec else { return Ok(static_lines(g)) };
-    // (The frozen sets replay on the STRING engine, whatever rules version they were recorded at: the wrapper plays the latest version only.)
-    let mut game = crate::legacy_game::legacy_game(spec)?;
+    if g.header.rules_version == Some(ti4_model::state::RULES_VERSION) {
+        let mut game = spec.build()?;
+        replay_on(g, &mut game)
+    } else {
+        let mut game = crate::legacy_game::legacy_game(spec)?;
+        replay_on(g, &mut game)
+    }
+}
+
+fn replay_on(g: &GameFile, game: &mut impl Replay) -> Result<Option<Divergence>, String> {
     let rec = Rc::new(RefCell::new(Rec::default()));
-    game.table.set_default(Box::new(crate::legacy_adapter::ThinDecider::new(Box::new(Recorded(rec.clone())))));
+    game.seat(Box::new(Recorded(rec.clone())));
     let checks = g.state_checks();
     let mut next_check = 0usize;
     let mut cursor = 0usize;
     for step in 0..g.header.steps {
-        if game.state.finished {
+        if game.finished() {
             return Ok(Some(Divergence::plain(step, DivKind::EarlyFinish, format!("the game ended after {step} of {} recorded steps", g.header.steps))));
         }
         if checks.get(next_check).is_some_and(|(s, _)| *s == step) {
             let want = checks[next_check].1;
             next_check += 1;
-            let have = state_hash(&game.state);
+            let have = game.state_hash();
             if have != want {
                 let mut d = Divergence::plain(step, DivKind::State, "the state at the start of the step differs from the recording".to_owned());
                 d.recorded_v2 = Some(want.to_owned());
@@ -256,13 +313,13 @@ pub fn replay_game(g: &GameFile) -> Result<Option<Divergence>, String> {
                 cursor += 1;
             }
         }
-        let result = game.step();
+        let error = game.step();
         let mut r = rec.borrow_mut();
         if let Some(d) = r.diverged.take() {
             return Ok(Some(d));
         }
-        if let Some(e) = result.error {
-            return Ok(Some(Divergence::plain(step, DivKind::EngineError, e.to_string())));
+        if let Some(e) = error {
+            return Ok(Some(Divergence::plain(step, DivKind::EngineError, e)));
         }
         if let Some(missing) = r.queue.front() {
             let mut d = Divergence::plain(step, DivKind::Missing, format!("{} recorded question(s) were not asked", r.queue.len()));
@@ -273,11 +330,11 @@ pub fn replay_game(g: &GameFile) -> Result<Option<Divergence>, String> {
         }
     }
     let end = g.header.steps;
-    if game.state.finished != g.header.finished {
-        return Ok(Some(Divergence::plain(end, DivKind::End, format!("finished is {} now, {} recorded", game.state.finished, g.header.finished))));
+    if game.finished() != g.header.finished {
+        return Ok(Some(Divergence::plain(end, DivKind::End, format!("finished is {} now, {} recorded", game.finished(), g.header.finished))));
     }
     if let Some(want) = &g.header.end_state {
-        let have = state_hash(&game.state);
+        let have = game.state_hash();
         if &have != want {
             let mut d = Divergence::plain(end, DivKind::End, "the state after the last step differs".to_owned());
             d.recorded_v2 = Some(want.clone());
@@ -285,7 +342,7 @@ pub fn replay_game(g: &GameFile) -> Result<Option<Divergence>, String> {
             return Ok(Some(d));
         }
     }
-    let hash = ti4_wasm::host_session::decisions_hash(&crate::legacy_adapter::thin_records(&game.table.log.records));
+    let hash = game.log_hash();
     if hash != g.header.decisions_hash {
         return Ok(Some(Divergence::plain(end, DivKind::End, format!("decision-log hash {hash} now, {} recorded", g.header.decisions_hash))));
     }

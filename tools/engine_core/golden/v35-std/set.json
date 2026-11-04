@@ -2,7 +2,7 @@
   "name": "v35-std",
   "tier": "slim",
   "rules_version": 35,
-  "frozen": false,
+  "frozen": true,
   "source": "tools/engine_profile/soak/std-100.json",
   "note": "seed set: 4 games of the soak std lane (3p, 4p, 5p, 6p), dual-clean; D4-7 extends it to >= 200 games after int-5",
   "games": [

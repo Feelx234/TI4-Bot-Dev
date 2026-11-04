@@ -1,6 +1,13 @@
-# Heavy run plan (prepared 2026-11-04 by lane core-heavy-prep)
+# Heavy run plan (prepared 2026-11-04 by lane core-heavy-prep; brought to RULES_VERSION 36 by core-integration-24)
 
-Base: `core-integration-23` (6d66acab5; deployed 54a15dba). Nothing in this document was run except the cheap
+**Updated for `core-integration-24` (rules version 36).** Candidate: the tip of branch `core-integration-24` (= `core-rv36` + `web-feedback-ui-1` + this
+plan; see `docs/INTEGRATION24.md`). What changed against the first version of this file: the version is 36 (the core plays 36 only; `MIN_SUPPORTED_RULES_VERSION`
+follows), the golden set `v36-std` and the ladder game 36 are recorded (v35-std, te and templates are frozen), the `lint` base is the new tag
+`heavy-base-int24`, the `corpus` step is skipped with a recorded reason (section 5), and the bench baselines are re-recorded in a different way (section 4:
+the string recorder is at 35, the engine under test at 36, and the games that play a Parley or an Ixthian Artifact (For) differ by design). Section 12 says
+how to start run A.
+
+Original base: `core-integration-23` (6d66acab5; deployed 54a15dba). Nothing in this document was run except the cheap
 checks named as "measured"; no heavy step has been started. Start only on the user's go, on a quiet machine (the perf A/B
 lane must be finished), and never in the hour before a nightly sweep (20:30 Berlin; the nightly cron is currently
 disabled, restore at 22:30 Berlin is a separate task; check `TZ=Europe/Berlin date`).
@@ -19,11 +26,12 @@ disabled, restore at 22:30 Berlin is a separate task; check `TZ=Europe/Berlin da
 | item | result |
 |---|---|
 | disk | 38 GB free at start; 127 GB free now (301 GB disk, 57 % used). Freed about 90 GB, see section 8 |
-| wasm (cargo `wasm-release` + binaryen 123 via `web-shared/scripts/build-wasm.mjs`) | 6 432 131 raw / 2 041 438 gzip / 1 469 073 brotli; old budget 7.0 / 2.4 / 1.8 MB: within; `size-budget.json` ratcheted to 6.63 / 2.11 / 1.52 MB (real +3 %); wasm-opt 7.83 -> 6.43 MB; build 2 min 17 s, 1.94 GB RSS |
-| `lint` step | base retargeted (section 4); passes in 1 s; negative control (base = live tip `nightly-fixes-2026-10-26`) fails as it must |
-| `alpha` step | skipped by default (`ALPHA_SKIP=1`), logged `SKIPPED: ...`, shown as `skip alpha` in `summary.txt` |
+| wasm (cargo `wasm-release` + binaryen 123 via `web-shared/scripts/build-wasm.mjs`) | int-23: 6 432 131 raw / 2 041 438 gzip / 1 469 073 brotli; `size-budget.json` ratcheted to 6.63 / 2.11 / 1.52 MB (real +3 %). **int-24 (version 36), measured: 6 441 691 / 2 044 587 / 1 471 798, all within the budget (the version 36 code adds 9.5 KB raw); budget unchanged**; wasm-opt 7.85 -> 6.44 MB; build 1 min 27 s |
+| `lint` step | base retargeted (section 2; int-24: the tag `heavy-base-int24`); passes in 1 s; negative control (base = live tip `nightly-fixes-2026-10-26`) fails as it must |
+| `alpha` step | skipped by default (`ALPHA_SKIP=1`), logged `SKIPPED: ...`, shown as `skip alpha` in `summary.txt` (the `corpus` step likewise: `skip corpus`) |
 | bench baselines | re-record plan and flag in section 5 (`BENCH_RECORD=1`); not run |
-| `end_of_d1.sh --dry-run` | 25 steps, ids below; ok |
+| `end_of_d1.sh --dry-run` | 25 steps, ids below; ok (int-24: re-checked) |
+| golden (int-24) | `v36-std` (4 games, 7,896 decisions) and ladder game 36 recorded under the heavy lock; `golden check` of all 200 games / 147,781 decisions green under the default mask, `all=core` and `all=string`; `every_version_has_a_set` green |
 | locks | `/root/.ti4-heavy.lock` and `.lock.2` both free at 20:03 Berlin (probe with `flock -n`) |
 
 wasm-opt: it is the `binaryen` devDependency of `web/` (123.0.0); `cd web && npm ci --ignore-scripts` installs it, and
@@ -36,11 +44,15 @@ fresh worktree needs the same `npm ci`; `deploy.sh` runs it). Without it the raw
 (plus the "only the refusal note may change" rule for `docs/RULES_VERSION.md`; this is the wording of G7 row 2 in
 `docs/D29A_RESUME.md`). The old default base `core-integration-6` is hopelessly stale (42 files of `web/` differ), and the
 live tip `nightly-fixes-2026-10-26` cannot be the base either: the P1 commits of the flip changed `web/` (50 files vs the live
-tip) and `state.rs` (+65 lines) on purpose. Decision: the base is the immutable surface of the deployed int-23, the local tag
-**`deployed-int23-54a15dba`** (commit 54a15dba; the tip of int-23 differs from it only in `docs/`). Fallbacks: branch
-`core-integration-23`, then `origin/core-integration-23`; `--base-ref REF` / `BASE_REF` override. Meaning: after the deployed
-int-23 nobody may touch `web/` or `state.rs` through the heavy-run tip (a fix that must, needs `--base-ref` and a note).
-The tag is local (not pushed).
+tip) and `state.rs` (+65 lines) on purpose.
+
+**Int-24 decision:** the base is the local tag **`heavy-base-int24`**, created on the tip commit of `core-integration-24` (the commit that
+contains the three web files of `web-feedback-ui-1` and the version 36 `state.rs`). The first version of this plan used the tag
+`deployed-int23-54a15dba`; against it the `lint` step is red by construction since rules version 36 changed `state.rs` and the web feedback UI
+changed `web/` (both on purpose, both after the deploy). Fallbacks: branch `core-integration-24`, then `origin/core-integration-24`; `--base-ref REF` /
+`BASE_REF` override. Meaning: after int-24 nobody may touch `web/` or `state.rs` through the heavy-run tip (a fix that must, needs `--base-ref` and a
+note). The tag is local (not pushed). If a commit lands on `core-integration-24` after the tag (only docs/tools/golden may), move the tag only
+with a diff showing that no file under `web/` or `state.rs` changed.
 
 ## 3. Before the go: the exact preflight (cheap)
 
@@ -50,19 +62,32 @@ TZ=Europe/Berlin date; df -h /root | tail -1                      # >= 60 GB fre
 for f in /root/.ti4-heavy.lock /root/.ti4-heavy.lock.2; do flock -n $f true && echo free $f || echo BUSY $f; done
 uptime; ps aux | grep -E 'cargo|rustc|perf_ab' | grep -v grep     # nothing heavy running
 tools/engine_core/end_of_d1.sh --dry-run                          # 25 steps
+git rev-parse heavy-base-int24 && git diff --stat heavy-base-int24 -- web/ crates/ti4-model/src/state.rs   # empty
 ```
 
-## 4. Bench baselines at rules version 35 (do this BEFORE run A, or let run A do it with `BENCH_RECORD=1`)
+## 4. Bench baselines for rules version 36 (do this BEFORE run A, or let run A do it with `BENCH_RECORD=1`)
 
 What the benches are: `tools/rulebot/selfplay.sh bench, bench-v1 ... bench-v5` = 6 configs x 200 games (4p and 6p, seeds 1..100
 on two maps each), rule bots version 4 (`bench`, golden.json), 5, 4, 1, 2, 3, compared hash by hash with
 `tools/rulebot/baseline{,-v1..v5}.json`. The configs pin the rules version: golden.json 23, golden-v5.json 18, golden-v2.json and
-golden-v4.json 11. The native engine only plays 35, so the stored baselines can no longer be verified; they must be re-recorded
-by the frozen string engine at 35, then the native selfplay must reproduce them 200/200 (this is precondition 10 of the FLIP
-runbook and R5 of D2-8). The `completion*` baselines are another tool and are not touched.
+golden-v4.json 11. The native engine plays only the newest version (36), so the stored baselines can no longer be verified; they must be
+re-recorded (precondition 10 of the FLIP runbook, R5 of D2-8). The `completion*` baselines are another tool and are not touched.
 
-The frozen recorder is a `selfplay` built at **`core-integration-20`** (the last line before the atomic swap of I21; there
-`ti4-engine` is still the string engine, `RULES_VERSION` is 35).
+**What version 36 changes for this procedure (int-24).** The frozen recorder is the string engine and plays 35 (its Ixthian Artifact (For) and its
+Parley are the documented string bugs S6 and S7). The engine under test plays 36 and does what the cards print. Measured on the stored bench streams
+(`tools/engine_core/decision_corpus`, 4 games per bench): **3 of the 4 games of every bench play a Parley** (for example `bench`: games 20, 120, 121) and one
+reaches the Ixthian Artifact; so roughly half the games of every bench change course at the first Parley, and the literal criterion "200 identical x6
+against a string recording" cannot hold any more. It is not a core bug: it is S7/S6 by design. The procedure therefore has two stages:
+
+1. **String recording at 35** (independent reference). `record_benches.sh` writes the six baselines with the frozen recorder and, with `FINAL_RV=36`
+   (the default of `end_of_d1.sh` through `BENCH_FINAL_RV`), sets the four configs to rules version 36 afterwards, because the native selfplay refuses 35.
+   The hashes do not contain the rules version.
+2. **Native verify.** `verify_benches.sh` (step `bench-off`) plays the six benches natively against that recording. Expected: games without a Parley play and without
+   an Ixthian For identical, the others different. For every differing game replay it (`selfplay replay`, flags in the bench log) and confirm the
+   first difference is at a Parley play (`reaction:...:UNITS_COMMITTED:after` with the card parley chosen) or at the agenda Ixthian Artifact (For), i.e. the
+   `known string bug S6/S7` the shadow of `native_play` names. A difference at any other step is a core-vs-string bug (R5) and gets fixed, never
+   re-recorded. Only then re-record the six baselines with the NATIVE `selfplay-new` (the committed baselines are the version 36 ones) and commit
+   configs + baselines in ONE commit; the native verify of the new files is then identical by construction and the bench steps pass from then on.
 
 ```sh
 # 1. recorder (one release-class build, selfplay only; about 10-15 min at 2 jobs; private target ~6-8 GB, delete afterwards)
@@ -70,21 +95,22 @@ git worktree add --detach /root/deploytmp/core-rec core-integration-20
 cd /root/deploytmp/core-rec && CARGO_TARGET_DIR=/root/deploytmp/core-rec-target CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0 \
   cargo build --profile gate -p ti4-selfplay --bin selfplay
 REC=/root/deploytmp/core-rec-target/gate/selfplay
-# 2. record (in the candidate worktree): sets rules_version 35 in the 4 configs, writes the 6 baselines; JOBS=3 benches at a time,
-#    6 workers in total; expected 15-30 min wall (same cost as one verify pass, plus game-play on the string engine)
-cd <candidate worktree> && tools/engine_profile/record_benches.sh $REC 6 35
-# 3. verify with the native binary (the step bench-off of the run does this); then commit configs + baselines in ONE commit:
-git add tools/rulebot && git commit -m "bench baselines re-recorded at rules version 35 by the string engine (core-integration-20)"
+# 2. record at 35 (in the candidate worktree); the configs come back at rules version 36; JOBS=3 benches at a time, 6 workers in total;
+#    expected 15-30 min wall
+cd <candidate worktree> && FINAL_RV=36 tools/engine_profile/record_benches.sh $REC 6 35
+# 3. native verify: run `tools/engine_core/end_of_d1.sh --only build bench-off ...` (or verify_benches.sh with the new selfplay), list the differing
+#    games per bench, replay each, classify (Parley / Ixthian For = by design, anything else = bug)
+# 4. native re-record of the six baselines (the same script, the native binary as recorder, the version the binary plays):
+#    tools/engine_profile/record_benches.sh $CARGO_TARGET_DIR/gate/selfplay 6 36
+git add tools/rulebot && git commit -m "bench baselines re-recorded for rules version 36 (string reference at 35 classified, native recording)"
 ```
 
-Alternatively one command: `BENCH_RECORD=1 BENCH_RECORD_BIN=$REC tools/engine_core/end_of_d1.sh ...`; the step `bench-off`
-then records first (`bench-record.txt` in the out dir), then verifies the fresh `selfplay-new` against the new baselines; the other
-three bench steps (`TI4_CHURN` resolver / state / both) only verify. In that case run `bench-off` before the long steps if
-the baselines are wanted early: `--only build bench-off`. The new files stay uncommitted in the worktree: commit them
-before the tag of the run. Expected: the native engine reproduces them 200/200 x6. A difference is a core-vs-string bug
-(first debug with `selfplay replay`), never a reason to edit hashes (R5).
-Reasons a hash may legitimately differ: none planned. The plain `selfplay.sh bench` of int-23 is red until this is done
-(rules version 23 cannot be played natively).
+Alternatively stage 1 inside the run: `BENCH_RECORD=1 BENCH_RECORD_BIN=$REC tools/engine_core/end_of_d1.sh ...` (records at `BENCH_RECORD_RV`, default 35, sets
+the configs to `BENCH_FINAL_RV`, default 36, then `bench-off` verifies the fresh `selfplay-new`; `bench-record.txt` and `bench-off.txt` of the out dir are
+the evidence for the classification). The other three bench steps (`TI4_CHURN` resolver / state / both) only verify. In that case run `bench-off` before
+the long steps if the baselines are wanted early: `--only build bench-off`. The new files stay uncommitted in the worktree: commit them before the tag of the
+run. Reasons a hash may legitimately differ: Parley and Ixthian Artifact (For) only (S7, S6), the two cards version 36 changed. The plain
+`selfplay.sh bench` of int-23 is red until this is done.
 
 ## 5. Run A: everything but the ratchet
 
@@ -121,15 +147,15 @@ with the numbers in `summary.txt`). Total A: about 12-20 h; start in the evening
 | 14 | alpha | SKIPPED (reason logged) | 0 |
 | 15-18 | bench-off, bench-resolver, bench-state, bench-resolver+state | 6 benches x 200 identical, per churn mode | 15-30 min each; +15-30 min for the record in `bench-off` if `BENCH_RECORD=1` |
 | 19 | census | bail table + golden check core / string | 15-30 min |
-| 20 | corpus | `decision_corpus verify` | 15-40 min |
+| 20 | corpus | SKIPPED by default (`CORPUS_SKIP=1`, reason logged): `decision_corpus verify` fails on 9 of 10 sources by construction (the core plays only version 36; sources are versions 11/18/23/35 and TE) and `fixtures` is stale since I22; the same games replay from the golden sets in the `census` step | 0 |
 | 21 | zero-bail | `zero_bail.py --enforce` | 1 min |
 | 22 | strict | `TI4_CORE_STRICT=1` golden + driver dual | 60-100 min |
 | 23 | soak | one round, 40 games per slice | 60-120 min |
 | 24 | d4gate | cheap D4 steps | 5 min |
 | 25 | ratchet | skipped in A | - |
 
-Pass criteria: `summary.txt` ends `END OF D1 RUN OK (24 steps)`, every line `ok` or `skip alpha`; each bench log has six
-`200 identical, 0 different`; `zero-bail.txt` has no cause; `golden check` core vs string identical.
+Pass criteria: `summary.txt` ends `END OF D1 RUN OK (24 steps)`, every line `ok` or `skip alpha` / `skip corpus` (the skip lines are not failures; the end line counts steps); each bench log has six
+`200 identical, 0 different` (after the native re-recording of section 4); `zero-bail.txt` has no cause; `golden check` core vs string identical.
 Disk: the private target grows to 15-25 GB (gate + lockstep profiles), logs and shard outputs a few GB; peak use of run A
 about 30-40 GB; run B (ratchet scratch) adds 5-10 GB. 127 GB free is enough for both.
 

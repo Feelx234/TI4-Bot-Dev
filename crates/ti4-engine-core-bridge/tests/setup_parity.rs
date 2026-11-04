@@ -1418,7 +1418,9 @@ fn the_native_modules_name_only_native_modules_and_the_listed_joins() {
     let mut bad = vec![];
     for file in files {
         let text = std::fs::read_to_string(&file).unwrap();
-        assert!(!text.contains("ti4_engine_legacy"), "{file:?} names the legacy crate");
+        // (Test modules may use the legacy crate as the oracle, like the `crate::` scan below: only the production part is checked.)
+        let production = text.split("#[cfg(test)]").next().unwrap_or(&text);
+        assert!(!production.contains("ti4_engine_legacy"), "{file:?} names the legacy crate");
         for (number, line) in text.lines().enumerate() {
             let code = line.split("//").next().unwrap_or("");
             for part in code.split("crate::").skip(1) {

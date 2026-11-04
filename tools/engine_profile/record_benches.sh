@@ -10,7 +10,7 @@
 # What it does: sets "rules_version" in golden.json / golden-v2.json / golden-v4.json / golden-v5.json, runs the six benches with the
 # same arguments as verify_benches.sh but `--out tools/rulebot/baseline*.json` instead of `--verify`, JOBS (default 3) at a time.
 # Output files are written to a temp name and moved into place only when the run exits 0. Nothing is committed.
-# Env: JOBS, BENCH_WORKERS, RB_DIR (a copy of tools/rulebot, tests), RECORD_OUT (logs).
+# Env: FINAL_RV (set the four configs to this rules version after the run), JOBS, BENCH_WORKERS, RB_DIR (a copy of tools/rulebot, tests), RECORD_OUT (logs).
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 rb="${RB_DIR:-$here/../rulebot}"
@@ -46,6 +46,9 @@ for n in "${names[@]}"; do
   running=$((running + 1))
 done
 wait
+# FINAL_RV: the rules version the committed configs must carry afterwards. The recorder is the frozen string engine (rules version 35),
+# the engine under test plays only the newest one (36): the configs are set back to FINAL_RV so that verify_benches.sh can run them.
+[[ -n "${FINAL_RV:-}" ]] && for c in golden golden-v2 golden-v4 golden-v5; do sed -i -E "s/\"rules_version\": [0-9]+/\"rules_version\": $FINAL_RV/" "$rb/$c.json"; done
 bad=0
 for n in "${names[@]}"; do cat "$out/$n.line" 2>/dev/null || { echo "$n: no result"; bad=1; }; done
 grep -q FAILED "$out"/*.line 2>/dev/null && bad=1

@@ -27,6 +27,10 @@ legacy-sources/<source>/   the X2 sources (bench*, te, templates, fixtures) spli
 ladder/              one short slim game per rules version 0..=RULES_VERSION (each header pins its own version)
 ```
 
+Replay engine (since the flip): a game recorded at the newest `RULES_VERSION` replays on the wrapper `Game` it was recorded on (the core splits steps
+the string glues, so the step numbers differ); a game of an older version replays on the frozen STRING engine at its own version. A new set recorded
+by `bless-new` therefore replays on the core, and `golden check` fails at step 0 if the two are mixed up (found when v36-std was recorded).
+
 Full states are never stored (hidden information, size): hashes and rendered per-actor Choices only. Every header pins the
 rules version the game was played at (T7); a set has exactly one (the ladder is the one exception).
 

@@ -1,0 +1,48 @@
+{
+  "name": "v36-std",
+  "tier": "slim",
+  "rules_version": 36,
+  "frozen": false,
+  "source": "tools/engine_profile/soak/std-100.json",
+  "note": "seed set: 4 games of the soak std lane (3p, 4p, 5p, 6p), dual-clean, rules version 36",
+  "games": [
+    {
+      "file": "g000.tsv.zst",
+      "steps": 839,
+      "decisions": 933,
+      "decisions_hash": "0cea10a576aa59ea",
+      "bytes": 14935,
+      "sha256": "b626b42697ccaee89fe91c2e8ae012591407f9f36bccc5683711ed83d86e4353"
+    },
+    {
+      "file": "g012.tsv.zst",
+      "steps": 1875,
+      "decisions": 2265,
+      "decisions_hash": "44ce31650dbee8ad",
+      "bytes": 31999,
+      "sha256": "9acb0841cb1ea9a741cbd2984f5205a6ccc7fe31eb7140678f777573569c3b95"
+    },
+    {
+      "file": "g040.tsv.zst",
+      "steps": 2015,
+      "decisions": 2242,
+      "decisions_hash": "f4ad11022a2622a2",
+      "bytes": 33953,
+      "sha256": "49a89f15a308c3ae301bf1791b9fd46d2a8a4031578ae213e864a3a43df781b8"
+    },
+    {
+      "file": "g055.tsv.zst",
+      "steps": 2145,
+      "decisions": 2456,
+      "decisions_hash": "b74295194cd4e353",
+      "bytes": 35803,
+      "sha256": "6f87189eced400c15a045dd58625d9741ad9194ccbb328fac018a68dd3d68266"
+    }
+  ],
+  "smoke": [
+    "g000.tsv.zst",
+    "g012.tsv.zst",
+    "g040.tsv.zst",
+    "g055.tsv.zst"
+  ]
+}

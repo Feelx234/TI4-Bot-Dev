@@ -6,8 +6,8 @@
     "rules_version": null,
     "frozen": false,
     "source": "golden ladder",
-    "games": 36,
-    "decisions": 19060,
+    "games": 37,
+    "decisions": 19460,
     "pure_share_at_record": 133
   },
   {
@@ -92,7 +92,7 @@
     "dir": "legacy-sources/te",
     "tier": "full",
     "rules_version": 35,
-    "frozen": false,
+    "frozen": true,
     "source": "x2:te",
     "games": 4,
     "decisions": 9944,
@@ -103,7 +103,7 @@
     "dir": "legacy-sources/templates",
     "tier": "full",
     "rules_version": 35,
-    "frozen": false,
+    "frozen": true,
     "source": "x2:templates",
     "games": 100,
     "decisions": 8017,
@@ -125,10 +125,21 @@
     "dir": "v35-std",
     "tier": "slim",
     "rules_version": 35,
-    "frozen": false,
+    "frozen": true,
     "source": "tools/engine_profile/soak/std-100.json",
     "games": 3,
     "decisions": 5771,
     "pure_share_at_record": 126
+  },
+  {
+    "name": "v36-std",
+    "dir": "v36-std",
+    "tier": "slim",
+    "rules_version": 36,
+    "frozen": false,
+    "source": "tools/engine_profile/soak/std-100.json",
+    "games": 4,
+    "decisions": 7896,
+    "pure_share_at_record": null
   }
 ]

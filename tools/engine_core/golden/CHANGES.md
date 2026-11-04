@@ -6,3 +6,7 @@ Append-only, written by `golden bless` / `golden bless-new`. Every changed subty
 - tier Slim, rules version Some(35), 3 games
 - reason: new set
 
+## 2026-11-04 23:27 Berlin  commit 8b014915e  NEW set v36-std
+- tier Slim, rules version Some(36), 4 games
+- reason: new set
+

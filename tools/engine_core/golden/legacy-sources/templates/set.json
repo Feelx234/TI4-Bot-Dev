@@ -2,7 +2,7 @@
   "name": "legacy-templates",
   "tier": "full",
   "rules_version": 35,
-  "frozen": false,
+  "frozen": true,
   "source": "x2:templates",
   "note": "imported from tools/engine_core/decision_corpus, lines byte-identical (rules version = the effective one at import for specs that did not pin it)",
   "games": [
