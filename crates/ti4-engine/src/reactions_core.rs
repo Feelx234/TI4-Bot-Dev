@@ -229,7 +229,8 @@ fn card_name_key(card: ti4_engine_core::generated::ActionCard) -> u32 {
             .collect()
     });
     let mine = &names[card as usize];
-    u32::try_from(names.iter().position(|n| n == mine).unwrap_or(0)).unwrap_or(0)
+    let at = names.iter().position(|n| n == mine);
+    u32::try_from(at.unwrap_or(0)).unwrap_or(0) // mutants:skip (the card's own name is in the list and the index fits: both defaults are unreachable)
 }
 
 thread_local! {
@@ -400,7 +401,7 @@ impl Recording {
     pub fn unported(&self, table: &AbilityTable) -> Option<String> {
         for id in &self.eligible {
             let known = slot_of(id).and_then(|s| table.of_slot(s));
-            let ran = self.effects.iter().any(|e| e == id);
+            let ran = self.effects.iter().any(|e| e == id); // mutants:skip (every rule of the table ports its effect, so `ran` is read for no spec; kept for `eligibility_only` rules)
             if known.is_some_and(|spec| spec.effect_ported || !ran) {
                 continue;
             }
@@ -618,7 +619,8 @@ fn seat_more(gs: &GameState, player: &ti4_model::id::PlayerId, sources: &ti4_mod
         ),
         pds: one(crate::action_cards_view::placed(gs, player, sources, "pds")?),
         spacedock: one(crate::action_cards_view::placed(gs, player, sources, "spacedock")?),
-        agent_offered: gs.player(player).is_some_and(|p| p.commodities > 0) && crate::factions::keleres::agent_could_grant(gs, player),
+        // mutants:skip on the next line: `agent_could_grant` reads the commodities itself, so `> 0` is only the cheap half of the gate
+        agent_offered: gs.player(player).is_some_and(|p| p.commodities > 0) && crate::factions::keleres::agent_could_grant(gs, player), // mutants:skip
         holder_deepwrought: faction == "deepwrought",
     })
 }
@@ -690,7 +692,7 @@ fn phase_of(p: ti4_model::state::Phase) -> ti4_engine_core::state::Phase {
 #[must_use]
 pub fn resolver_of(r: &Render, cfg: &ResolverCfg) -> Option<Resolver> {
     let seats = |v: &[String]| -> Option<Vec<Seat>> { v.iter().map(|s| r.seat(s)).collect() };
-    let state = crate::resolver_sync::cfg_state(r, cfg, 1)?;
+    let state = crate::resolver_sync::cfg_state(r, cfg, 1)?; // mutants:skip (`next_id` is replaced by the caller's `into_state(next_id)`: not read from this resolver)
     let mut core = Resolver::from_state(&state, ti4_engine_core::containers::Cow::new(ti4_engine_core::kernel::Registry::default()));
     core.set_active_player(cfg.active.as_deref().and_then(|s| r.seat(s)));
     core.set_phase(phase_of(cfg.phase));
@@ -749,7 +751,7 @@ impl Follow {
                 let player = ti4_model::id::PlayerId::new(r.seat_text(seat.who));
                 if !crate::strategy_cards_core::research_hooks_agree(core, gs, content, self.sources.clone(), &player, seat.who) {
                     seat.reveal = None;
-                    seat.reveal_payable = false;
+                    seat.reveal_payable = false; // mutants:skip (reached only where the hooks of the string and the core disagree: no seated faction does)
                 }
             }
         }
@@ -1105,4 +1107,296 @@ mod tests {
         ("unit:*:keleres_flagship:SYSTEM_ACTIVATED:when", Status::Dropped("Keleres")),
     ];
     include!("reactions_core_g3_tests.rs");
+
+    // ---- mutation debt (core-mutdebt-20): the helpers and the replay-side adapters ----
+
+    fn pid(s: &str) -> ti4_model::id::PlayerId {
+        ti4_model::id::PlayerId::new(s)
+    }
+
+    fn cfg_of(phase: ti4_model::state::Phase, active: Option<&str>, speaker: Option<&str>) -> crate::dual_window::ResolverCfg {
+        let seats = || vec!["a".to_owned(), "b".to_owned(), "c".to_owned()];
+        crate::dual_window::ResolverCfg {
+            initiative: seats(),
+            seating: seats(),
+            active: active.map(str::to_owned),
+            speaker: speaker.map(str::to_owned),
+            phase,
+            round: 1,
+            turn: 1,
+            max_depth: 8,
+            used: Vec::new(),
+            sources: ti4_model::content_types::POK,
+            stack: Vec::new(),
+        }
+    }
+
+    fn three() -> (GameState, Render) {
+        (
+            crate::fixtures::seated_game(&[("a", "hacan"), ("b", "sol"), ("c", "arborec")], ti4_model::content_types::POK),
+            Render::new(vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]),
+        )
+    }
+
+    fn order_of(r: &Render, cfg: &crate::dual_window::ResolverCfg) -> Vec<u8> {
+        resolver_of(r, cfg).expect("a resolver").player_order().as_slice().iter().map(|s| s.0).collect()
+    }
+
+    #[test]
+    fn a_reaction_slot_is_one_of_the_hundred_after_the_base() {
+        let base = ti4_engine_core::rules::action_cards::reaction_slot::SLOT_BASE;
+        assert!(is_reaction_slot(Slot(base)));
+        assert!(is_reaction_slot(Slot(base + 99)));
+        assert!(!is_reaction_slot(Slot(base + 100)));
+        assert!(!is_reaction_slot(Slot(base - 1)));
+    }
+
+    #[test]
+    fn the_printed_name_groups_and_effect_flags_cover_every_card_and_name_the_first_copy() {
+        use crate::generated::IdStr;
+        let content = ti4_content::ContentStore::embedded();
+        let cards = ti4_engine_core::generated::ActionCard::ALL;
+        let names: Vec<String> = cards.iter().map(|c| crate::action_cards::name_of(content, &ti4_model::id::ActionCardId::new(c.as_str()))).collect();
+        let (groups, effects) = (card_groups(), card_effects());
+        assert_eq!((groups.len(), effects.len()), (cards.len(), cards.len()));
+        assert!(effects.iter().any(|e| *e), "some cards have a string effect");
+        for (i, card) in cards.iter().enumerate() {
+            let first = names.iter().position(|n| *n == names[i]).unwrap();
+            assert_eq!(usize::from(groups[i]), first, "{}", card.as_str());
+            assert_eq!(usize::try_from(card_name_key(*card)).unwrap(), first, "{}", card.as_str());
+        }
+        assert!(groups.iter().enumerate().any(|(i, g)| usize::from(*g) != i), "some name is printed on several copies");
+        assert!(groups.iter().enumerate().any(|(i, g)| usize::from(*g) == i && i > 0), "and a card is the first of its own name");
+        let linked = linked_table();
+        assert_eq!(linked.facts.card_groups, groups, "the linked table carries the groups");
+    }
+
+    #[test]
+    fn an_ability_id_with_the_owner_left_out_keeps_short_ids_whole() {
+        assert_eq!(anonymous("a:b"), "a:b");
+        assert_eq!(anonymous("a:b:c"), "a:*:c");
+        assert_eq!(anonymous("technology:hacan:inf2:X:after"), "technology:*:inf2:X:after");
+    }
+
+    #[test]
+    fn the_id_of_a_ssruu_copy_names_its_slot_only_with_the_right_style_agent_event_and_relation() {
+        let t = table();
+        let r = Render::new(Vec::new());
+        for (slot, agent, style) in PAIRS {
+            let spec = t.of_slot(*slot).expect("a pair is in the table");
+            let lender = Some(("yssaril".to_owned(), "b".to_owned()));
+            let id = id_text(&r, spec, "hacan", "a", lender.as_ref());
+            assert_eq!(slot_of(&id), Some(*slot), "{id}");
+            let parts: Vec<&str> = id.split(':').collect();
+            let (ev, rel) = (parts[parts.len() - 2], parts[parts.len() - 1]);
+            let mut wrong_rel = parts.clone();
+            let flipped = if rel == "after" { "when" } else { "after" };
+            *wrong_rel.last_mut().unwrap() = flipped;
+            assert_eq!(slot_of(&wrong_rel.join(":")), None, "the relation is part of the identity: {id}");
+            let mut wrong_event = parts.clone();
+            let n = wrong_event.len();
+            wrong_event[n - 2] = if ev == "TURN_BEGAN" { "TURN_ENDED" } else { "TURN_BEGAN" };
+            assert_eq!(slot_of(&wrong_event.join(":")), None, "the event is part of the identity: {id}");
+            // Another agent's name in the agent place names no slot of this pair.
+            let at = match style {
+                PairStyle::A => 4,
+                PairStyle::B => 3,
+                PairStyle::C => 5,
+            };
+            let mut wrong_agent = parts.clone();
+            wrong_agent[at] = "noagent";
+            assert_eq!(slot_of(&wrong_agent.join(":")), None, "the agent is part of the identity: {id}");
+            // Every pair of another style with the same agent name is not this one.
+            for other in PAIRS.iter().filter(|o| o.2 != *style && o.1 == *agent) {
+                assert_ne!(slot_of(&id), Some(other.0));
+            }
+        }
+        // The event and relation of any OTHER rule in the table do not name this pair either.
+        let all = specs();
+        for (slot, _, _) in PAIRS {
+            let own = t.of_slot(*slot).unwrap();
+            let lender = Some(("yssaril".to_owned(), "b".to_owned()));
+            for other in all.iter().filter(|o| (event_text(&r, o.event), relation_text(o.relation)) != (event_text(&r, own.event), relation_text(own.relation))) {
+                let mut forged = own.clone();
+                forged.event = other.event;
+                forged.relation = other.relation;
+                // (another pair of the same agent and style may own that event)
+                assert_ne!(slot_of(&id_text(&r, &forged, "hacan", "a", lender.as_ref())), Some(*slot));
+            }
+        }
+        // A copy-shaped id that is not a leader's.
+        let sol = PAIRS.iter().find(|p| p.1 == "solagent").unwrap();
+        let id = id_text(&r, t.of_slot(sol.0).unwrap(), "hacan", "a", Some(&("yssaril".to_owned(), "b".to_owned())));
+        assert_eq!(slot_of(&id.replacen("leader", "other", 1)), None, "seven parts, the right copy, not a leader");
+        assert_eq!(slot_of("leader:a:b:c:d:e"), None, "six parts");
+        // Wrong shapes.
+        assert_eq!(slot_of("reaction:hacan:HITS_TO_ASSIGN"), None);
+        assert_eq!(slot_of("other:hacan:HITS_TO_ASSIGN:when"), None, "four parts that are not a reaction");
+        assert_eq!(slot_of("reaction:hacan:NOPE:when"), None);
+        assert!(slot_of("reaction:hacan:HITS_TO_ASSIGN:when").is_some());
+        assert_eq!(slot_of("leader:a:b:yssarilagent:c:d:EVENT:rel:extra"), None, "nine parts");
+        // The seven-part forms with a leader that is not a copy.
+        assert_eq!(slot_of("x:ssruu-copy:a:sol_agent:b:GROUND_COMBAT_ROUND_STARTED:after"), None, "seven parts that are not a leader");
+        assert_eq!(slot_of("leader:hacan:a:nobody:solagent:GROUND_COMBAT_ROUND_STARTED:after"), None);
+    }
+
+    #[test]
+    fn an_eligible_ability_whose_effect_the_core_does_not_port_is_named_only_when_it_ran() {
+        let t = table();
+        let r = Render::new(Vec::new());
+        let Some(spec) = NAMED.iter().find_map(|n| t.of_slot(n.slot).filter(|s| !s.effect_ported)) else { return };
+        let id = id_text(&r, spec, "hacan", "a", None);
+        assert_eq!(rec(&[&id], &[]).unported(&t), None, "offered and not taken: the core follows the offer");
+        assert_eq!(rec(&[&id], &["something:else"]).unported(&t), None, "another effect ran, not this one");
+        assert!(rec(&[&id], &[&id]).unported(&t).is_some(), "taken: the effect is the string's");
+    }
+
+    #[test]
+    fn a_nested_window_is_followed_with_the_seats_the_resolver_and_the_salvage_units() {
+        use ti4_model::state::Phase;
+        let (mut gs, r) = three();
+        gs.player_mut(&pid("a")).unwrap().technologies.insert(ti4_model::id::TechnologyId::new("so"));
+        let mut script = rec(&[], &[]);
+        script.cfg = Some(cfg_of(Phase::Action, Some("b"), Some("a")));
+        let followed = follow(&r, &gs, &script).expect("followed").expect("a nested window");
+        let plays = followed.table.facts.plays.as_ref().expect("the play facts");
+        assert_eq!(plays.seats.iter().map(|s| s.who.0).collect::<Vec<_>>(), vec![0, 1, 2]);
+        assert!(followed.table.facts.buildable(Seat(0)).is_some(), "the seat with Salvage Operations");
+        assert!(followed.table.facts.buildable(Seat(1)).is_none());
+        assert!(followed.table.facts.buildable(Seat(2)).is_none());
+        assert_eq!(followed.resolver.player_order().as_slice().iter().map(|s| s.0).collect::<Vec<_>>(), vec![1, 2, 0], "the active seat first, then the initiative list rotated to it");
+        // No nested activity: nothing to follow.
+        let mut quiet = rec(&[], &[]);
+        quiet.nested = false;
+        assert!(follow(&r, &gs, &quiet).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_nested_window_without_a_resolver_or_with_a_diplomacy_promise_or_a_data_skimmer_is_refused() {
+        let (mut gs, r) = three();
+        let solagent = "leader:sol:b:solagent:GROUND_COMBAT_ROUND_STARTED:after";
+        let letnevagent = "leader:letnev:b:letnevagent:GROUND_COMBAT_ROUND_STARTED:after";
+        let reaction = "reaction:hacan:HITS_TO_ASSIGN:when";
+        // Diplomacy off: the use of a round agent is followed, and only the missing resolver is the reason.
+        for effect in [solagent, letnevagent] {
+            let script = rec(&[], &[effect]);
+            assert_eq!(follow(&r, &gs, &script).err().as_deref(), Some("nested activity without a resolver"), "{effect}");
+        }
+        gs.diplomacy.enabled = true;
+        for effect in [solagent, letnevagent] {
+            let script = rec(&[], &[effect]);
+            let why = follow(&r, &gs, &script).err().unwrap_or_default();
+            assert!(why.ends_with("(diplomacy promises on a leader's use)"), "{effect}: {why}");
+        }
+        // Not a leader's use: the promises do not look at it.
+        let script = rec(&[], &["reaction:sol:b:solagent:letnevagent"]);
+        assert_eq!(follow(&r, &gs, &script).err().as_deref(), Some("nested activity without a resolver"));
+        let script = rec(&[], &["leader:sol:b:plainagent:GROUND_COMBAT_ROUND_STARTED:after"]);
+        assert_eq!(follow(&r, &gs, &script).err().as_deref(), Some("nested activity without a resolver"));
+        gs.diplomacy.enabled = false;
+        // A play of a card without a Ral Nel seat at the table: not a Data Skimmer.
+        let script = rec(&[reaction], &[reaction]);
+        assert_eq!(follow(&r, &gs, &script).err().as_deref(), Some("nested activity without a resolver"));
+    }
+
+    #[test]
+    fn the_resolver_of_a_window_offers_the_seats_in_the_order_of_its_phase() {
+        use ti4_model::state::Phase;
+        let (_, r) = three();
+        // Action phase: the active seat first, then the initiative list rotated to start at it.
+        assert_eq!(order_of(&r, &cfg_of(Phase::Action, Some("b"), Some("a"))), vec![1, 2, 0]);
+        assert_eq!(order_of(&r, &cfg_of(Phase::Action, Some("c"), None)), vec![2, 0, 1]);
+        // Nobody active in the action phase: the initiative list as it is.
+        assert_eq!(order_of(&r, &cfg_of(Phase::Action, None, Some("b"))), vec![0, 1, 2]);
+        // Strategy phase: from the speaker clockwise (the speaker is not replaced by the last seat).
+        assert_eq!(order_of(&r, &cfg_of(Phase::Strategy, None, Some("b"))), vec![1, 2, 0]);
+        assert_eq!(order_of(&r, &cfg_of(Phase::Agenda, Some("a"), Some("c"))), vec![2, 0, 1]);
+        // Status phase, nobody active: the string's list as it is, the core is handed its last seat as the speaker.
+        assert_eq!(order_of(&r, &cfg_of(Phase::Status, None, Some("a"))), vec![0, 1, 2]);
+        assert_eq!(order_of(&r, &cfg_of(Phase::Status, None, None)), vec![0, 1, 2]);
+        // Status phase with an active seat: the active seat first.
+        assert_eq!(order_of(&r, &cfg_of(Phase::Status, Some("b"), Some("a"))), vec![1, 2, 0]);
+        // A seat the render does not know, or too long a list: no resolver.
+        let mut bad = cfg_of(Phase::Action, Some("b"), None);
+        bad.seating.push("zz".to_owned());
+        assert!(resolver_of(&r, &bad).is_none());
+    }
+
+    #[test]
+    fn the_armed_follow_reads_the_sources_of_the_table_and_the_play_facts_of_the_position() {
+        let (mut gs, r) = three();
+        let resolver = Resolver::new(&[Seat(0), Seat(1), Seat(2)], None);
+        let armed = Follow::armed(&r, &gs, resolver.clone());
+        assert_eq!(armed.sources, ti4_model::content_types::POK);
+        assert_eq!(armed.table.facts.plays.as_ref().map(|p| p.seats.len()), Some(3));
+        gs.thunders_edge = true;
+        assert_eq!(Follow::armed(&r, &gs, resolver).sources, ti4_model::content_types::FULL);
+    }
+
+    #[test]
+    fn arming_a_follow_registers_the_abilities_of_every_seat_and_keeps_the_research_the_hooks_agree_on() {
+        use crate::core_sync::{CoreView, Sources};
+        let mut gs = crate::fixtures::seated_dealt(&[("a", "hacan"), ("b", "sol")], ti4_model::content_types::POK);
+        gs.rules_version = ti4_model::state::RULES_TECH_PAYMENT_CHOICE;
+        let (mut cx, r) = crate::dual_window::tables_for_tests(&gs).expect("tables");
+        let reads: Vec<ti4_engine_core::state::Slice> = ti4_engine_core::state::Slice::ALL.iter().copied().filter(|s| *s != ti4_engine_core::state::Slice::Map && *s != ti4_engine_core::state::Slice::Rng).collect();
+        let view = CoreView::of(&gs, &mut cx, Sources { galaxy: None, rng: None }, ti4_engine_core::state::SliceSet::of(&reads)).expect("a position the codecs carry");
+        let core = view.into_state();
+        let mut followed = Follow::armed(&r, &gs, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))));
+        assert!(followed.resolver.registry().is_empty(), "nothing is registered before the arm");
+        followed.arm(&r, &gs, &core);
+        let both = followed.resolver.registry().len();
+        assert!(both > 0, "the abilities of the seats are registered");
+        assert!(followed.table.facts.plays.as_ref().unwrap().seats.iter().all(|s| s.reveal.is_some()), "the hooks agree: the reveal sets stay");
+        assert!(followed.table.codes.ground_combat == r.code("ground_combat") && followed.table.codes.harrow == r.code("harrow"), "the codes are set");
+        assert_ne!(r.code("ground_combat"), r.code("harrow"));
+        assert!(followed.table.facts.pay_kernel.is_some());
+        // One seat fewer, fewer abilities: the first seat is part of the registry.
+        let r1 = Render::new(vec!["a".to_owned()]);
+        let mut one = Follow::armed(&r1, &gs, Resolver::new(&[Seat(0)], Some(Seat(0))));
+        one.arm(&r1, &gs, &core);
+        assert!(one.resolver.registry().len() > 0 && one.resolver.registry().len() < both, "the first seat is registered, and so is the second");
+    }
+
+    #[test]
+    fn the_play_facts_of_the_string_carry_each_seat_its_forms_and_the_reveal_prototype_payment() {
+        let (mut gs, r) = two_seats_game("naaz", "deepwrought");
+        let sources = ti4_model::content_types::POK;
+        let facts = string_play_facts(&r, &gs, &sources).expect("facts");
+        assert_eq!(facts.seats.len(), 2);
+        assert_eq!(facts.seats.iter().map(|s| s.who.0).collect::<Vec<_>>(), vec![0, 1]);
+        assert_eq!(facts.seats[0].more.mech.0, Some(ti4_engine_core::generated::Unit::Eidolon), "a Naaz mech");
+        assert_ne!(facts.seats[1].more.mech.0, Some(ti4_engine_core::generated::Unit::Eidolon));
+        assert!(!facts.seats[0].more.holder_deepwrought && facts.seats[1].more.holder_deepwrought);
+        assert!(facts.seats.iter().all(|s| !s.more.agent_offered), "no Keleres agent at the table");
+        // Commodities alone do not offer an agent nobody holds.
+        gs.player_mut(&pid("a")).unwrap().commodities = 3;
+        gs.player_mut(&pid("b")).unwrap().commodities = 1;
+        let facts = string_play_facts(&r, &gs, &sources).unwrap();
+        assert!(facts.seats.iter().all(|s| !s.more.agent_offered));
+        // A readied Keleres agent is offered to a seat that holds commodities (one is enough), and to nobody that holds none.
+        let (mut gs, r) = two_seats_game("keleresa", "hacan");
+        gs.player_mut(&pid("b")).unwrap().commodities = 1;
+        let facts = string_play_facts(&r, &gs, &sources).unwrap();
+        assert!(facts.seats[1].more.agent_offered, "one commodity and a readied Keleres agent");
+        gs.player_mut(&pid("b")).unwrap().commodities = 0;
+        assert!(!string_play_facts(&r, &gs, &sources).unwrap().seats[1].more.agent_offered, "no commodities");
+        // Reveal Prototype: payable only with the card in hand, from the technology payment choice, when the seat can pay.
+        let (mut gs, r) = two_seats_game("hacan", "sol");
+        gs.rules_version = ti4_model::state::RULES_TECH_PAYMENT_CHOICE;
+        gs.player_mut(&pid("a")).unwrap().trade_goods = 12;
+        let none = string_play_facts(&r, &gs, &sources).unwrap();
+        assert!(none.seats.iter().all(|s| !s.reveal_payable), "no card");
+        gs.player_mut(&pid("a")).unwrap().action_cards.push(ti4_model::id::ActionCardId::new("reveal_prototype"));
+        let held = string_play_facts(&r, &gs, &sources).unwrap();
+        assert!(held.seats[0].reveal.is_some());
+        assert!(held.seats[0].reveal_payable || !crate::action_cards::cost_is_payable_text(&gs, ti4_content::ContentStore::embedded(), sources, &pid("a"), &ti4_model::id::ActionCardId::new("reveal_prototype")));
+        assert!(!held.seats[1].reveal_payable, "the card is a's");
+        gs.player_mut(&pid("b")).unwrap().action_cards.push(ti4_model::id::ActionCardId::new("sabotage"));
+        assert!(!string_play_facts(&r, &gs, &sources).unwrap().seats[1].reveal_payable, "another card in hand is not the prototype");
+    }
+
+    fn two_seats_game(a: &str, b: &str) -> (GameState, Render) {
+        (crate::fixtures::seated_game(&[("a", a), ("b", b)], ti4_model::content_types::POK), Render::new(vec!["a".to_owned(), "b".to_owned()]))
+    }
 }

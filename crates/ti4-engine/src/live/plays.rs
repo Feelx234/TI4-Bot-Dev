@@ -488,4 +488,57 @@ mod tests {
         assert!(new.seats.iter().all(|s| s.reveal.is_some()));
         assert!(new.seats.iter().all(|s| s.fighter_on_card == 0));
     }
+
+    /// Reveal Prototype is payable only with the card in hand, four resources and a unit upgrade open to research; each term alone is not enough.
+    #[test]
+    fn reveal_prototype_is_payable_only_with_the_card_four_resources_and_an_open_upgrade() {
+        let (mut core, r) = two_seats(Faction::TheEmbersOfMuaat, Faction::TheNaazRokhaAlliance);
+        let texts = Texts::new(&r, POK);
+        let kernel = crate::live::kernel::kernel_for(POK);
+        core.meta_mut().rules_version = ti4_model::state::RULES_TECH_PAYMENT_CHOICE;
+        core.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(ActionCard::RevealPrototype);
+        // The resources the seat has without trade goods (its planets), so that the money can be set to an exact total.
+        let resources = |core: &CoreState| {
+            let scope = ti4_engine_core::query::reach::scope_of(kernel);
+            let cx = ProdCx::new(core, kernel, scope, ti4_engine_core::query::reach::blanked(core));
+            prod::available(&cx, Seat(0), Spend::Resources, &Held::of(&cx, Seat(0)).extras())
+        };
+        let total = |core: &mut CoreState, want: i64| {
+            // The trade goods that bring the seat to exactly `want` resources (the planets count too).
+            let found = (0..=40_i64).any(|tg| {
+                core.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = tg.try_into().unwrap();
+                i64::from(resources(core)) == want
+            });
+            assert!(found, "no amount of trade goods gives {want} resources");
+        };
+        // No unit upgrade is open (no prerequisites yet): enough money and the card are not enough.
+        total(&mut core, 12);
+        assert!(!reveal_payable(&core, kernel, Seat(0)), "no upgrade is open to research");
+        // Give the seat every prerequisite colour so that a unit upgrade is researchable.
+        for t in ti4_engine_core::generated::Technology::ALL.iter().copied().filter(|t| !tech::is_unit_upgrade(*t)) {
+            core.players_mut().by_seat_mut(Seat(0)).unwrap().tech.owned.insert(t);
+        }
+        total(&mut core, 12);
+        assert!(reveal_payable(&core, kernel, Seat(0)), "card, money and an open upgrade");
+        assert!(play_facts(&core, kernel, &texts).unwrap().seats[0].reveal_payable);
+        total(&mut core, 4);
+        assert!(reveal_payable(&core, kernel, Seat(0)), "exactly four resources");
+        // Exhaust the planets: the trade goods alone must bring the seat to the bill, below the bill and then exactly on it (a trade good is worth two here).
+        for (_, planet) in ti4_engine_core::query::board::controlled_planets(&core, Seat(0)).as_slice().to_vec() {
+            core.board_mut().planet_mut(planet).flags.set(ti4_engine_core::state::PlanetFlags::EXHAUSTED, true);
+        }
+        total(&mut core, 2);
+        assert!(!reveal_payable(&core, kernel, Seat(0)), "two resources, an open upgrade");
+        total(&mut core, 4);
+        assert!(reveal_payable(&core, kernel, Seat(0)), "exactly four resources of trade goods");
+        // The card must be in hand.
+        total(&mut core, 12);
+        core.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.clear();
+        assert!(!reveal_payable(&core, kernel, Seat(0)), "no card");
+        core.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand.push(ActionCard::RevealPrototype);
+        // Below the technology payment choice the facts carry nothing, however payable the card is.
+        core.meta_mut().rules_version = ti4_model::state::RULES_TECH_PAYMENT_CHOICE - 1;
+        assert!(reveal_payable(&core, kernel, Seat(0)));
+        assert!(!play_facts(&core, kernel, &texts).unwrap().seats[0].reveal_payable);
+    }
 }
