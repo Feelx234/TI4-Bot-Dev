@@ -313,6 +313,23 @@ impl Shadow {
         let owners = Owners::new((0..16u8).map_while(|i| owned.player(Seat(i))).collect());
         let view = SeenView::new(&typed, &owners, obs.content(), obs.sources(), obs.galaxy());
         let answer = ti4_rule_bot::choose_explained_view(choice, Some(&view), self.seed, seat, index);
+        // The float forecasts, bit for bit, at every `seen_stride`-th call (a pick that does not flip hides a one-ulp difference).
+        if self.parity_stride > 0 && self.calls % self.parity_stride == 0 {
+            let me = seen.bound_seat();
+            let memory = ti4_rule_bot::backward::memory();
+            let (a, b) = (
+                ti4_rule_bot_typed::probe::forecast_bits(seen, me),
+                ti4_rule_bot_typed::probe::forecast_bits(&view, me),
+            );
+            ti4_rule_bot::backward::set_memory(memory);
+            let p = &mut self.report.parity;
+            p.positions += 1;
+            p.compared += a.len() as u64;
+            if a != b {
+                let rows = a.iter().zip(&b).filter(|(x, y)| x != y).take(3).map(|(x, y)| format!("{}: {:#x} vs {:#x}", x.0, x.1, y.1)).collect::<Vec<_>>();
+                p.mismatches.push(format!("game {} decision {index} ({}): forecast bits differ ({} vs {} rows): {}", self.game, subtype_of(choice), a.len(), b.len(), rows.join("; ")));
+            }
+        }
         if view.bails() > 0 {
             *self.report.parity.skipped.entry("view bails (typed side could not answer)").or_default() += u64::from(view.bails());
         }

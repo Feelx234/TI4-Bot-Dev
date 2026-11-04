@@ -15,6 +15,7 @@
 //! the position of the random stream.
 
 pub mod seen_view;
+pub mod probe;
 
 use rand_chacha::ChaCha8Rng;
 use ti4_engine::choice::{Choice, SeatObservation};
