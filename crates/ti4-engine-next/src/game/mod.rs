@@ -757,37 +757,6 @@ impl<'a> Game<'a> {
     #[must_use]
     pub fn step(&mut self) -> StepResult {
         self.table.begin_step();
-        // A step ends at a question, as the string's did: the native arms that ask nothing (the hand-over to the next action, the reconcile
-        // hooks of a step, the close of an action) are run on into the next question, up to a bound. `steps()` still counts the native steps.
-        // The position, events, rolls and journal before the step: a failure in a later native step takes the earlier ones back too.
-        let kept = self.native.as_ref().map(|n| (NativeSnapshot::of(n), self.state.clone(), self.events.len(), self.rolls.clone(), self.secondary.clone(), self.table.log.records.len(), self.steps));
-        let mut result = self.step_once();
-        for _ in 0..8 {
-            if result.error.is_some() || result.finished || result.resolved_choice || self.blocked.is_some() {
-                break;
-            }
-            let before = self.steps;
-            result = self.step_once();
-            if self.steps == before {
-                break;
-            }
-        }
-        if result.error.is_some()
-            && let Some((native, state, events, rolls, secondary, log_len, steps)) = kept
-            && self.steps > steps
-        {
-            self.native = Some(native.open(self.sources));
-            self.state = state;
-            self.events.truncate(events);
-            self.rolls = rolls;
-            self.secondary = secondary;
-            self.table.log.records.truncate(log_len);
-            self.steps = steps;
-        }
-        result
-    }
-
-    fn step_once(&mut self) -> StepResult {
         if let Err(error) = self.try_load() {
             return self.result(false, Some(error));
         }
