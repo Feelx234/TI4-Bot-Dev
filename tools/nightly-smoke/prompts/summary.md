@@ -1,5 +1,5 @@
 You are reviewing the results of last night's automated UI smoke sweep of a Twilight Imperium 4
-web client (React/TypeScript frontend in `web/`, Rust engine in `crates/ti4-engine`, server in
+web client (React/TypeScript frontend in `web/`, Rust engine in `crates/ti4-engine-next` (thin package `ti4-engine`; the old string engine, package `ti4-engine-legacy`, stays in `crates/ti4-engine` until D4) and `crates/ti4-engine-core*` (typed core; see docs/ENGINE_LAYOUT.md), server in
 `crates/ti4-server`). Sonnet proctors ran random-click playthroughs (random seeds) until round
 {{STOP_ROUND}} and appended one entry per run to the night report.
 
