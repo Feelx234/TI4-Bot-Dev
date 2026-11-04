@@ -9,6 +9,8 @@
 // RATCHET (docs/ENGINE_CORE_STATE.md 6.3): gzip 2.4 MB / brotli 1.8 MB (was 1.8 / 1.3, already exceeded at
 // 8f2d03e3) while the string and the core engine coexist in the binary. Lower both in the commit that deletes
 // a string-engine area, down to the real size plus ~3%; the end state is below the old 1.8 / 1.3 MB.
+// 2026-11-04 (heavy-prep, int-23 line, binaryen 123 wasm-opt): shipped file 6 432 131 / 2 041 438 / 1 469 073
+// (raw/gzip/brotli); budget set to real +3% rounded up: 6.63 / 2.11 / 1.52 MB (was 7.0 / 2.4 / 1.8).
 import { readFileSync, appendFileSync } from "node:fs";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 
