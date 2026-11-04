@@ -780,3 +780,26 @@ fn a_readied_thundarian_in_a_ground_combat_is_offered_at_the_end_of_the_roll_ste
     }
     assert!(used_somewhere);
 }
+
+#[test]
+fn the_thundarians_replay_rolls_the_ground_step_again_without_assigning_its_hits() {
+    covers!("driver::windows::invasion::InvasionMachine");
+    // One infantry each (both hit on 8). Declined, a fight that ends in its first round recorded two ground dice; with the card the first
+    // roll is thrown away and the step is rolled again, so the same fight records at least two dice more, and the card is spent.
+    let (mut seen_one_round, mut replayed) = (0, 0);
+    for seed in 0..24_u64 {
+        let (declined, _, end) = thundarian_run(1, 1, seed, false);
+        assert_eq!(end, Ok(()), "seed {seed}");
+        let dice = |s: &CoreState| s.ledger.dice.iter().count();
+        if dice(&declined) != 2 {
+            continue;
+        }
+        seen_one_round += 1;
+        let (used, _, end) = thundarian_run(1, 1, seed, true);
+        assert_eq!(end, Ok(()), "seed {seed}");
+        assert!(dice(&used) >= dice(&declined) + 2, "seed {seed}: the discarded roll and the roll again: {} against {}", dice(&used), dice(&declined));
+        replayed += 1;
+    }
+    assert!(seen_one_round > 0 && replayed == seen_one_round, "some seed ends in the first round: {seen_one_round}");
+}
+
