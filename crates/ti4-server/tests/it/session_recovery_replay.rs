@@ -53,7 +53,7 @@ fn recovery_replay_produces_identical_canonical_hashes_and_event_logs() {
 
     // P1 submits choice
     let accepted_1 = session
-        .submit_choice(&p1, &pending_1.nonce, 2, chosen_1)
+        .submit_choice(&p1, &pending_1.nonce, pending_1.game_version, chosen_1)
         .expect("submit p1");
     assert_eq!(&accepted_1.option_id, chosen_1);
 

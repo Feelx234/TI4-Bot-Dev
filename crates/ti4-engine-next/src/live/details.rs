@@ -15,7 +15,15 @@ pub fn complete(core: &CoreState, kernel: &Kernel, choice: &CoreChoice, rendered
     match choice.ask {
         Ask::Tactical(_) => crate::ties::tactical_live::complete(core, kernel, choice, rendered),
         Ask::Combat(_) => crate::ties::combat_live::complete(core, kernel, choice, rendered),
-        Ask::Strategy(SAsk::GainPool { left }) => pool_details(core, choice.actor, "gain", Some(usize::from(left)), rendered),
+        Ask::Strategy(SAsk::GainPool { left }) => {
+            pool_details(core, choice.actor, "gain", Some(usize::from(left)), rendered);
+            // Leadership's primary tells the client that a purchase loop follows (`gain_tokens_offering(.., announce_purchase)`): the seat in turn
+            // holds Leadership.
+            let leadership = core.players().by_seat(choice.actor).is_some_and(|p| p.strat.as_slice().iter().any(|c| c.data().kind == ti4_engine_core::generated::StrategyCardKind::Leadership));
+            if leadership && core.meta().active == Some(choice.actor) && let Some(purchase) = super::strategic::purchase_details(core, kernel, choice.actor) {
+                rendered.details.insert("purchase".to_owned(), purchase);
+            }
+        }
         // 81.5: the whole sheet is rearranged (`tokens::with_pool_details(.., "redistribute", None)`).
         Ask::Strategy(SAsk::StatusRedistribute { .. }) => pool_details(core, choice.actor, "redistribute", None, rendered),
         // Warfare's redistributions: the whole sheet is rearranged.
