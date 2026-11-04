@@ -47,3 +47,46 @@ The legacy engine is reachable from tests/oracles only: `ti4-engine-legacy` is a
 * `Game::try_*` return `GameError::Disabled` for what `core_sync::unsupported::find` refuses (diplomacy, deck reserve, the dropped factions); lane E's `ti4_host::disabled::check_playable` should call the same function and add the version and Thunder's Edge checks. `lib.rs` lane D section is self-contained (`native` module path attribute, `game` shell, `choice` shell, root `pub use` block, `from_legacy_wire`, `oracle_adapter`, `trigger`).
 * D2-9 (strip): `ti4_engine::oracle_adapter` and `from_legacy_wire` are the only production-visible legacy contacts of the thin crate besides the glob shells; both are for tests/oracles.
 * D3 (typed bot): `TableAsker` builds `Observed` per question; a typed decider should read the core directly (`Question.core` is the live core). `Stop::Asker` carries the decider's error.
+
+
+---
+
+# Round 2 (same branch): red tests, side channels, server
+
+## Red unit tests: before -> after
+
+| suite | before | after | remaining |
+|---|---:|---:|---|
+| `ti4-rule-bot --lib` | 51 of 190 | **1** | `tests::later_drafts_take_imperial_only_with_mecatol_rex_else_the_most_trade_goods` (round 3, no Mecatol, no goods: `picked` is `Some(0)` where it expects `None` on a table of real factions; not diagnosed: the old `generic` table answered neutral, check the legacy string engine on the same position before touching it) |
+| `ti4-policy --lib` | 15 of 287 | **2** | `projection::tests::the_public_surface_carries_timing_economy_strategy_and_board_state` (`scoreable-secret` still `None`: the fixture's 4 PDS on a planet / the `eap` secret, the typed read is not diagnosed) and `bot::tests::scored_games_stay_legal_and_deterministic_across_nested_windows` (see "core gap" below) |
+| `ti4-host --lib` | 6 of 299 | **0** | |
+| `ti4-wasm --lib` | 1 of 9 | **0** | |
+
+Causes found and fixed (each failed before):
+* `generic` fixtures: new `fixtures::loadable_game(players)` (real lobby factions, notes dealt, NOT deployed) in the thin crate; used by rule-bot (the shared `game` import of every test module), policy (`watched_hub`, critic, reachability), host projection tests (`seated_dealt`). Fake ids replaced by real ones where the core refuses unknown ids (action cards, technologies `ac2`/`so2`, laws `travel_ban`..., strategy card `pok8imperial`, a real second planet).
+* **Scenario defect** (`ti4-host/src/view/scenario/three_seats.rs`): the three-seat scenarios dealt the invented strategy card ids `leadership`/`trade`/`warfare`; the real ids are `pok1leadership`/`pok5trade`/`pok6warfare` (the string engine tolerated the aliases, and left the real cards also unclaimed). The core refuses them; fixed in the scenarios. Guard: `ti4-wasm` `tests::the_scenarios_run_with_random_deciders` (failed with `Players: strategy card "trade"`).
+* The four `planning::draft` failures were three wrapper gaps, each now fixed: the hidden-information latch fired on the internal `private:#moved:` mark (now: `cards:reveal:`/`cards:staged:`/insider-peek marks, deck lengths changing, and questions that show cards); the participation filter was not enforced (now: an optional reaction question of a kept-out seat is declined without a question or journal entry, and `Table::window_skipped` is told); the native `load` and `commit` options carried no preview (`CapacityFree`, `GroundForcesOnPlanet`), which the planner's audit requires (`render/tactical.rs`, `render/invasion.rs`). Guards: the four host tests.
+
+## Done in round 2 (items 4 and 5 of the list)
+
+* Participation enforced (above). Hidden-information latch (above); NOT yet checked against the server undo tests (the `it` suite did not finish, see below).
+* `window_skipped`: the core resolver now logs the seats a reaction window passed by (`AbilityTable::skipped`, `RulesHost::window_skipped`: a 10-line change in `ti4-engine-core/src/kernel/ability.rs`, requested from the core owner here), the wrapper tells `Table::window_skipped` once per (event, seat, relation) after the step. Guard: the 11 `bluff_reaction` tests of `ti4-server` (they failed with "no hold began" before, pass now).
+* Production payment note: a payment question with one option is told with `table.auto_resolve("it was the only way left to pay")` and not journaled (`game/asker.rs`); the quick game fingerprint is unchanged and a test asserts no single-way payment is journaled.
+* `GameError::Disabled` also for Thunder's Edge content (`ti4_host::disabled::check_playable` refuses the table switch): `the_wrapper_refuses_what_check_playable_refuses_with_disabled` (failed for TE before). The version check is `RULES_VERSION` equality (the lane E constant `MIN_SUPPORTED_RULES_VERSION` is not on this branch; with lane E merged, use it).
+* `rolls()` `outcome` / ability `reason`: NOT done (the core's `RollRec` does not keep them; adding them is a core change).
+
+## Server `tests/it`
+
+Compiled; run once without the `slow_` tests, one named binary (`it-*`), killed after the first hours-long hang. Findings:
+* `ti4_server::fixtures::create_sample_game` is a hand-built table with invented ids (kept: the wire fixtures hash it). A running session on it never produced a decision. New `fixtures::create_playable_sample_game` (same seats and economy, real ids, deployed); the session tests that step now use it: `session_deterministic_replay` passes.
+* **Open**: `crash_recovery::durable_event_failure_stops_the_session` still hangs (the session starts and offers a decision, so the hang is after the storage fault: probably the worker `return`s on the persist error while `submit_choice` waits). `crash_recovery` also contains tests that were not run. `batch_commit_resume::*` is very slow in the dev profile.
+* `batch_after_redo`, `batch_fork_differential` (both `slow_`, turn redo): fail as expected, turn redo is refused by lane E (they should be deleted or ignored when lane E merges).
+* The remaining ~60 binaries of `it` were NOT run: that is the first job of the next round (run each module with `timeout 120`, one at a time).
+
+## Core gap found by the wrapper (needs the core owner)
+
+`bot::tests::scored_games_stay_legal_and_deterministic_across_nested_windows` (policy, `ScoredBot`, 6 seats, seed 7793, rotation 0) stops with `the core stopped: aftermath: MissingFact` (`LiveError::Driver(MissingFact)` in the `Aftermath` arm). Reproduce with `cargo test -p ti4-policy --lib scored_games_stay` (about 3 minutes in the dev profile). `product::gap_count()` counts it. Not diagnosed.
+
+## Still legacy (item 3, NOT done; exact names)
+
+`laws::apply_to_galaxy` (also called by `Game::with_galaxy` and after each step), `action_cards::apply_movement_effects`, `movement::{Board, MovementRules}`, `tactical::ship_routes`, `transit::{CargoWindow, rifts_exited}`, `reactions::window_table`, `thunders_edge::breakthrough_for`, `promissory::deal`, and `secondary_preview::preview_secondary` (JSON bridge to the string flow in `queries/secondary_preview.rs`). All are pure functions over `GameState` / the map reached through the facade glob. Port order that costs least: `apply_to_galaxy` (needs `laws::{wormholes_suppressed, wormholes_all_connected, nexus_wormholes_suppressed}`, `faction_techs::spatial_conduit_links`, `factions::hooks_movement::apply_extra_wormholes`, `seating::LOCKED_NEXUS`), then `window_table` (a table of constants), then `breakthrough_for` (delete: Thunder's Edge content is refused), `promissory::deal` (the thin `builders::promissory::deal` already exists: re-export it), then `Board`/`MovementRules`/`ship_routes`/`CargoWindow`, then the preview on the core (`prepare_hypothetical_secondary` + a scripted table).
