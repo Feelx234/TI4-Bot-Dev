@@ -19,12 +19,13 @@
 //!
 //! Own-seat view only (the seat's faction, technologies and units, all public), deterministic.
 
+use crate::view::View;
 use crate::tuning;
 use std::collections::BTreeMap;
 
 use ti4_content::StrategyCardKind;
 use ti4_content::units::UnitType;
-use ti4_engine::choice::{Choice, Observed};
+use ti4_engine::choice::Choice;
 use ti4_model::id::{PlayerId, TechnologyId};
 
 /// The opening's fleet size: below this many non-fighter ships a dock is worth activating to
@@ -664,7 +665,7 @@ pub fn plan_for(faction: &str) -> Option<&'static Plan> {
     PLANS.iter().find(|plan| plan.factions.contains(&faction))
 }
 
-fn seat_plan(seen: &Observed<'_>, me: &PlayerId) -> Option<&'static Plan> {
+fn seat_plan(seen: &dyn View, me: &PlayerId) -> Option<&'static Plan> {
     if !tuning::faction_plans_enabled() {
         return None;
     }
@@ -696,7 +697,7 @@ fn phase(round: u32) -> Option<usize> {
 // -- research ------------------------------------------------------------------------------------
 
 /// Colours this seat owns technologies of, counted.
-fn owned_colours(seen: &Observed<'_>, me: &PlayerId) -> BTreeMap<&'static str, usize> {
+fn owned_colours(seen: &dyn View, me: &PlayerId) -> BTreeMap<&'static str, usize> {
     let mut held = BTreeMap::new();
     if let Some(seat) = seen.seat(me) {
         for alias in seat.technologies {
@@ -710,7 +711,7 @@ fn owned_colours(seen: &Observed<'_>, me: &PlayerId) -> BTreeMap<&'static str, u
 
 /// Colours `alias`'s prerequisites still lack, given what the seat owns.
 fn missing_colours(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     held: &BTreeMap<&'static str, usize>,
     alias: &str,
 ) -> Vec<&'static str> {
@@ -721,7 +722,7 @@ fn missing_colours(
         .collect()
 }
 
-fn prerequisite_count(seen: &Observed<'_>, alias: &str) -> usize {
+fn prerequisite_count(seen: &dyn View, alias: &str) -> usize {
     ti4_engine::technology::prerequisites(seen.content(), &TechnologyId::new(alias))
         .values()
         .sum()
@@ -731,7 +732,7 @@ fn prerequisite_count(seen: &Observed<'_>, alias: &str) -> usize {
 /// or has an offered step toward it (see the module docs). `None` when nothing on either list
 /// is offered or approachable, which keeps the random pick.
 #[must_use]
-pub fn research_pick(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+pub fn research_pick(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let offered: BTreeMap<&str, usize> = choice
         .options
         .iter()
@@ -789,7 +790,7 @@ pub fn research_pick(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opt
 /// The starting technology (bot version 3): the offered technology that comes first in the
 /// faction's plan, then in [`GENERAL`]; a technology on neither list comes last, by id.
 #[must_use]
-pub fn starting_tech_pick(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+pub fn starting_tech_pick(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let own_list = seat_plan(seen, me).map_or(&[][..], |plan| plan.techs);
     let order: Vec<&str> = own_list.iter().chain(GENERAL).copied().collect();
     let rank = |alias: &str| {
@@ -812,7 +813,7 @@ pub fn starting_tech_pick(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -
 /// `candidates` are `(option index, technology alias)`.
 #[must_use]
 pub fn best_technology(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     candidates: &[(usize, &str)],
 ) -> Option<usize> {
@@ -835,7 +836,7 @@ pub fn best_technology(
 // -- production ----------------------------------------------------------------------------------
 
 /// How many of the seat's units of `base` type are on the board (ships and ground forces).
-fn count_of(seen: &Observed<'_>, me: &PlayerId, base: &str) -> usize {
+fn count_of(seen: &dyn View, me: &PlayerId, base: &str) -> usize {
     seen.board()
         .values()
         .flat_map(|system| {
@@ -856,7 +857,7 @@ fn count_of(seen: &Observed<'_>, me: &PlayerId, base: &str) -> usize {
 /// seat has fewer than the plan wants ([`SHORT_BONUS`]), a little more for an upgraded unit
 /// ([`UPGRADED_BONUS`]). 1.0 in the opening rounds and for a faction without a plan.
 #[must_use]
-pub fn unit_weight(seen: &Observed<'_>, me: &PlayerId, kind: UnitType<'_>) -> f64 {
+pub fn unit_weight(seen: &dyn View, me: &PlayerId, kind: UnitType<'_>) -> f64 {
     let Some(phase) = phase(seen.round()) else {
         return 1.0;
     };
@@ -885,7 +886,7 @@ pub fn unit_weight(seen: &Observed<'_>, me: &PlayerId, kind: UnitType<'_>) -> f6
 /// Non-fighter ships the seat builds toward: [`OPENING_SHIPS`] in the opening or without a
 /// plan, the plan's mid- or late-game fleet size after.
 #[must_use]
-pub fn ships_wanted(seen: &Observed<'_>, me: &PlayerId) -> usize {
+pub fn ships_wanted(seen: &dyn View, me: &PlayerId) -> usize {
     match (phase(seen.round()), seat_plan(seen, me)) {
         (Some(phase), Some(plan)) => plan.ships[phase],
         _ => OPENING_SHIPS,
@@ -897,7 +898,7 @@ pub fn ships_wanted(seen: &Observed<'_>, me: &PlayerId) -> usize {
 /// From round 3, the first card of the plan's [`Plan::cards`] on offer; `None` in the opening,
 /// without a plan or with none of its cards on offer.
 #[must_use]
-pub fn preferred_card(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+pub fn preferred_card(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     phase(seen.round())?;
     let plan = seat_plan(seen, me)?;
     plan.cards.iter().find_map(|kind| {
@@ -910,6 +911,7 @@ pub fn preferred_card(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Op
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_engine::choice::Observed;
     use ti4_content::ContentStore;
     use ti4_engine::choice::ChoiceOption;
     use ti4_engine::fixtures::{Hub, game, hub_from, plain_systems, put};
@@ -946,7 +948,7 @@ mod tests {
         )
     }
 
-    fn picked<'c>(choice: &'c Choice, seen: &Observed<'_>) -> Option<&'c str> {
+    fn picked<'c>(choice: &'c Choice, seen: &dyn View) -> Option<&'c str> {
         research_pick(choice, seen, &me()).map(|i| choice.options[i].id.as_str())
     }
 

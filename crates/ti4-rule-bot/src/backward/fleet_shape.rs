@@ -38,7 +38,7 @@
 //! ground pile; the technology preps do not apply (no fight or reach to improve beyond the
 //! activation itself).
 
-use ti4_engine::choice::{Observed, SeatObservation};
+use crate::view::{View, SeatView};
 use ti4_model::id::{PlayerId, SystemId};
 
 use super::prep::{self, PrepInfo, PrepKind, SysCase};
@@ -67,7 +67,7 @@ impl ObjectivePlanner for FleetShape {
         ]
     }
 
-    fn plan(&self, obs: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
+    fn plan(&self, obs: &dyn SeatView, ctx: &PlanCtx) -> Option<Plan> {
         let seen = obs.observed();
         let threshold = usize::try_from(ctx.goal.threshold.max(0.0) as i64).unwrap_or(0);
         match ctx.goal.family.as_str() {
@@ -94,7 +94,7 @@ fn plan_of(ctx: &PlanCtx, probability: f64, cost: Cost, steer: Steer, reason: St
 }
 
 fn non_fighter_ships(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     units: &[ti4_model::units::Unit],
     me: &PlayerId,
 ) -> usize {
@@ -109,7 +109,7 @@ fn non_fighter_ships(
 }
 
 /// Non-fighter ships in `system` once it is activated: those there and those that can reach it.
-fn fleet_after(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> usize {
+fn fleet_after(seen: &dyn View, me: &PlayerId, system: &SystemId) -> usize {
     let here = non_fighter_ships(seen, &seen.system(system).units, me);
     let coming = seen
         .movable_into(me, system)
@@ -122,14 +122,14 @@ fn fleet_after(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> usize {
     here + coming
 }
 
-fn cheapest_ship<'a>(seen: &Observed<'a>) -> Option<ti4_content::units::UnitType<'a>> {
+fn cheapest_ship<'a>(seen: &'a dyn View) -> Option<ti4_content::units::UnitType<'a>> {
     ["destroyer", "cruiser", "carrier"]
         .into_iter()
         .filter_map(|id| crate::unit_type(seen, id))
         .min_by(|a, b| a.cost().total_cmp(&b.cost()))
 }
 
-fn fleet_in_one_system(seen: &Observed<'_>, ctx: &PlanCtx, n: usize) -> Option<Plan> {
+fn fleet_in_one_system(seen: &dyn View, ctx: &PlanCtx, n: usize) -> Option<Plan> {
     let galaxy = seen.galaxy()?;
     let me = &ctx.me;
     let tokened = seen.systems_with_token(me);
@@ -245,7 +245,7 @@ fn fleet_in_one_system(seen: &Observed<'_>, ctx: &PlanCtx, n: usize) -> Option<P
 }
 
 /// The seat's flagship type id.
-fn flagship_id(seen: &Observed<'_>, me: &PlayerId) -> Option<String> {
+fn flagship_id(seen: &dyn View, me: &PlayerId) -> Option<String> {
     let faction = crate::faction(seen, me);
     ti4_content::units::catalogue(seen.content(), seen.sources())
         .values()
@@ -254,7 +254,7 @@ fn flagship_id(seen: &Observed<'_>, me: &PlayerId) -> Option<String> {
 }
 
 /// Build a flagship at home: (units, cost, slots ok, prep info).
-fn build_flagship(seen: &Observed<'_>, ctx: &PlanCtx) -> Option<(String, f64, PrepInfo, f64)> {
+fn build_flagship(seen: &dyn View, ctx: &PlanCtx) -> Option<(String, f64, PrepInfo, f64)> {
     if !tuning::bw_prep_build() {
         return None;
     }
@@ -308,7 +308,7 @@ fn build_flagship(seen: &Observed<'_>, ctx: &PlanCtx) -> Option<(String, f64, Pr
     ))
 }
 
-fn engineer(seen: &Observed<'_>, ctx: &PlanCtx) -> Option<Plan> {
+fn engineer(seen: &dyn View, ctx: &PlanCtx) -> Option<Plan> {
     let (_, _, prep, odds) = build_flagship(seen, ctx)?;
     Some(plan_of(
         ctx,
@@ -329,7 +329,7 @@ fn engineer(seen: &Observed<'_>, ctx: &PlanCtx) -> Option<Plan> {
     ))
 }
 
-fn supremacy(seen: &Observed<'_>, ctx: &PlanCtx) -> Option<Plan> {
+fn supremacy(seen: &dyn View, ctx: &PlanCtx) -> Option<Plan> {
     let galaxy = seen.galaxy()?;
     let me = &ctx.me;
     let tokened = seen.systems_with_token(me);
@@ -436,7 +436,7 @@ fn supremacy(seen: &Observed<'_>, ctx: &PlanCtx) -> Option<Plan> {
     ))
 }
 
-fn ground_pile(seen: &Observed<'_>, ctx: &PlanCtx, n: usize) -> Option<Plan> {
+fn ground_pile(seen: &dyn View, ctx: &PlanCtx, n: usize) -> Option<Plan> {
     let galaxy = seen.galaxy()?;
     let me = &ctx.me;
     let tokened = seen.systems_with_token(me);

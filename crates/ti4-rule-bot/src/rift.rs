@@ -13,7 +13,8 @@
 //! activation (what can come), the movement step (which move options are offered) and the fight
 //! check, so the three cannot disagree.
 
-use ti4_engine::choice::{Choice, Observed};
+use crate::view::View;
+use ti4_engine::choice::Choice;
 use ti4_engine::tactical::Movable;
 use ti4_model::id::{PlayerId, SystemId};
 
@@ -31,12 +32,12 @@ pub fn p_destroy(exits: usize) -> f64 {
     1.0 - (1.0 - exit_p()).powi(i32::try_from(exits).unwrap_or(i32::MAX))
 }
 
-fn cost_of(seen: &Observed<'_>, type_id: &str) -> f64 {
+fn cost_of(seen: &dyn View, type_id: &str) -> f64 {
     unit_type(seen, type_id).map_or(1.0, |t| t.cost())
 }
 
 /// Resource value of the ship, a flagship or war sun weighted up (there is one of each).
-fn ship_value(seen: &Observed<'_>, type_id: &str) -> f64 {
+fn ship_value(seen: &dyn View, type_id: &str) -> f64 {
     let base = cost_of(seen, type_id);
     if type_id.contains("flagship") || type_id.contains("warsun") {
         base * tuning::rift_flagship_weight()
@@ -47,7 +48,7 @@ fn ship_value(seen: &Observed<'_>, type_id: &str) -> f64 {
 
 /// Resources aboard when the ship sails: ground forces (and fighters for a fight) it could take
 /// from its origin, as many as it has room for.
-fn cargo_value(seen: &Observed<'_>, me: &PlayerId, m: &Movable, contested: bool) -> f64 {
+fn cargo_value(seen: &dyn View, me: &PlayerId, m: &Movable, contested: bool) -> f64 {
     let room = usize::try_from(m.capacity).unwrap_or(0);
     if room == 0 {
         return 0.0;
@@ -62,12 +63,12 @@ fn cargo_value(seen: &Observed<'_>, me: &PlayerId, m: &Movable, contested: bool)
     cargo.into_iter().take(room).sum()
 }
 
-fn fighter(seen: &Observed<'_>, unit: &ti4_model::units::Unit) -> bool {
+fn fighter(seen: &dyn View, unit: &ti4_model::units::Unit) -> bool {
     unit_type(seen, unit.type_id.as_str()).is_some_and(|t| t.is_fighter())
 }
 
 /// Rift exits on the way of `m` into `dest`.
-fn exits(seen: &Observed<'_>, me: &PlayerId, m: &Movable, dest: &SystemId) -> usize {
+fn exits(seen: &dyn View, me: &PlayerId, m: &Movable, dest: &SystemId) -> usize {
     seen.rift_exits_into(
         me,
         &m.origin,
@@ -80,7 +81,7 @@ fn exits(seen: &Observed<'_>, me: &PlayerId, m: &Movable, dest: &SystemId) -> us
 /// The expected loss of sending `m` with `exits` rift exits: chance of destruction times the
 /// ship and its cargo.
 fn expected_loss(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     m: &Movable,
     exits: usize,
@@ -93,7 +94,7 @@ fn expected_loss(
 /// `movable` less the ships whose rift risk the worth they add does not cover (see the module).
 /// Unchanged without the knob or when no ship exits a rift.
 pub(crate) fn prune(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     dest: &SystemId,
     movable: Vec<Movable>,
@@ -161,7 +162,7 @@ pub(crate) fn prune(
 /// `dest`, in activation-worth points (loss divided by [`tuning::rift_gain_scale`]): taken off the
 /// system's worth so that a target behind no rift beats an equal one behind a rift.
 pub(crate) fn penalty(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     dest: &SystemId,
     movable: &[Movable],
@@ -181,7 +182,7 @@ pub(crate) fn penalty(
 
 /// The movement-step options to keep: every move that exits no rift, and the risky ones the
 /// pruned set still includes. `None` when the knob is off or nothing is dropped.
-pub(crate) fn keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<Vec<usize>> {
+pub(crate) fn keep(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<Vec<usize>> {
     if !tuning::rift_risk() {
         return None;
     }
@@ -224,6 +225,7 @@ pub(crate) fn keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_engine::choice::Observed;
     use crate::tuning::{self, Tuning};
     use ti4_content::ContentStore;
     use ti4_engine::fixtures::{Hub, a_system_where, game, hub_from, plain_systems, put};

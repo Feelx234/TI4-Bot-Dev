@@ -1,6 +1,7 @@
 //! The rule bot as an engine [`Decider`], without a session around it: for headless benchmarks
 //! and the replayer, which seat deciders directly on an engine `Table`.
 
+use crate::view::SeatView;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
 
 /// Same picks as a `BotSmart` seat ([`crate::choose`]), no think delay. `seat` is the seat's place
@@ -25,7 +26,7 @@ impl RuleBotDecider {
     fn answer(
         &mut self,
         choice: &Choice,
-        seen: Option<&SeatObservation<'_>>,
+        seen: Option<&dyn SeatView>,
     ) -> Result<ChoiceOption, IllegalChoice> {
         if choice.options.is_empty() {
             return Err(IllegalChoice::NoOptions {

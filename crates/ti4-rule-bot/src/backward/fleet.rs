@@ -39,7 +39,7 @@
 //! | `dfat` | Defy Space and Time | `units_in_nexus` |
 //! | `btgk` | Become the Gatekeeper | `wormhole_kinds` |
 
-use ti4_engine::choice::SeatObservation;
+use crate::view::SeatView;
 
 use super::{ObjectivePlanner, Plan, PlanCtx};
 
@@ -64,7 +64,7 @@ impl ObjectivePlanner for Fleet {
         ]
     }
 
-    fn plan(&self, obs: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
+    fn plan(&self, obs: &dyn SeatView, ctx: &PlanCtx) -> Option<Plan> {
         ctx.route_plan(obs, 3, |step| step.ship, "put a ship in")
     }
 }

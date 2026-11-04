@@ -19,7 +19,7 @@
 //! | `fwp` | Fight with Precision | secret | 1 | none (event) |
 //! | `mew` | Make an Example of Their World | secret | 1 | none (event) |
 
-use ti4_engine::choice::{Observed, SeatObservation};
+use crate::view::{View, SeatView};
 use ti4_model::id::{PlayerId, SystemId};
 use ti4_model::units::Unit;
 
@@ -38,7 +38,7 @@ pub const FLAGSHIP_SURVIVES: f64 = 0.75;
 
 /// The held event secrets of the group, as goals.
 #[must_use]
-pub fn event_goals(seen: &SeatObservation<'_>) -> Vec<Goal> {
+pub fn event_goals(seen: &dyn SeatView) -> Vec<Goal> {
     super::combat::event_goals_of(seen, IDS)
 }
 
@@ -82,7 +82,7 @@ pub fn die(hits_on: i64) -> f64 {
 }
 
 /// The seat's units in `system` and the ones that could move there.
-fn own_units(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<Unit> {
+fn own_units(seen: &dyn View, me: &PlayerId, system: &SystemId) -> Vec<Unit> {
     let mut out: Vec<Unit> = seen
         .system(system)
         .units
@@ -94,14 +94,14 @@ fn own_units(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<Unit>
     out
 }
 
-fn flagship_present(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool {
+fn flagship_present(seen: &dyn View, me: &PlayerId, system: &SystemId) -> bool {
     own_units(seen, me, system)
         .iter()
         .any(|u| u.type_id.as_str().contains("flagship"))
 }
 
 /// Owners of the rival promissory notes the seat holds faceup.
-fn note_issuers(seen: &Observed<'_>, me: &PlayerId) -> Vec<PlayerId> {
+fn note_issuers(seen: &dyn View, me: &PlayerId) -> Vec<PlayerId> {
     seen.promissory_notes()
         .into_iter()
         .filter(|(_, holder)| holder == me)
@@ -110,7 +110,7 @@ fn note_issuers(seen: &Observed<'_>, me: &PlayerId) -> Vec<PlayerId> {
         .collect()
 }
 
-fn fwp_factor(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Option<f64> {
+fn fwp_factor(seen: &dyn View, me: &PlayerId, system: &SystemId) -> Option<f64> {
     let hostile: Vec<Unit> = seen
         .system(system)
         .units
@@ -145,7 +145,7 @@ fn fwp_factor(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Option<f
     (chance > 0.0).then_some(chance)
 }
 
-fn mew_factor(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Option<f64> {
+fn mew_factor(seen: &dyn View, me: &PlayerId, system: &SystemId) -> Option<f64> {
     let board = seen.system(system);
     let mut dice = 0usize;
     let mut hit = 0.0_f64;
@@ -183,7 +183,7 @@ fn mew_factor(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Option<f
 }
 
 /// The factor by which `step` stages the secret `alias`, if it does.
-fn factor(seen: &Observed<'_>, me: &PlayerId, alias: &str, step: &Step) -> Option<f64> {
+fn factor(seen: &dyn View, me: &PlayerId, alias: &str, step: &Step) -> Option<f64> {
     let system = &step.system;
     match alias {
         "uf" => (hostile_ships(seen, me, system) && flagship_present(seen, me, system))
@@ -209,7 +209,7 @@ impl ObjectivePlanner for Abilities {
         IDS
     }
 
-    fn plan(&self, obs: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
+    fn plan(&self, obs: &dyn SeatView, ctx: &PlanCtx) -> Option<Plan> {
         stage_plan(obs, ctx, factor)
     }
 }

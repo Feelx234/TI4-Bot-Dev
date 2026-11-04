@@ -22,7 +22,7 @@
 //! | `btv` | Brave the Void | secret | 1 | none (event) |
 //! | `dyp` | Demonstrate Your Power | secret | 1 | none (event) |
 
-use ti4_engine::choice::{Observed, SeatObservation};
+use crate::view::{View, SeatView};
 use ti4_model::id::{PlayerId, SystemId};
 
 use super::{ObjectivePlanner, Plan, PlanCtx, Route, Step};
@@ -42,13 +42,13 @@ pub const THREE_SHIPS: f64 = 0.8;
 /// framework to plan: the engine gives them no progress, so they are not in
 /// [`crate::objectives::goals`].
 #[must_use]
-pub fn event_goals(seen: &SeatObservation<'_>) -> Vec<Goal> {
+pub fn event_goals(seen: &dyn SeatView) -> Vec<Goal> {
     event_goals_of(seen, IDS)
 }
 
 /// The held secrets among `ids` as event goals (see [`event_goals`]).
 #[must_use]
-pub fn event_goals_of(seen: &SeatObservation<'_>, ids: &[&str]) -> Vec<Goal> {
+pub fn event_goals_of(seen: &dyn SeatView, ids: &[&str]) -> Vec<Goal> {
     seen.held_secrets()
         .iter()
         .map(ti4_model::id::SecretObjectiveId::as_str)
@@ -66,7 +66,7 @@ pub fn event_goals_of(seen: &SeatObservation<'_>, ids: &[&str]) -> Vec<Goal> {
         .collect()
 }
 
-pub(crate) fn others_in(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<PlayerId> {
+pub(crate) fn others_in(seen: &dyn View, me: &PlayerId, system: &SystemId) -> Vec<PlayerId> {
     let board = seen.system(system);
     let mut out: Vec<PlayerId> = board
         .units
@@ -81,7 +81,7 @@ pub(crate) fn others_in(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
 }
 
 /// The unique rival with the most points, if there is one and it is ahead of the seat.
-fn leader(seen: &Observed<'_>, me: &PlayerId) -> Option<PlayerId> {
+fn leader(seen: &dyn View, me: &PlayerId) -> Option<PlayerId> {
     let mine = seen.seat(me)?.victory_points;
     let mut rivals: Vec<(i32, PlayerId)> = seen
         .players()
@@ -98,7 +98,7 @@ fn leader(seen: &Observed<'_>, me: &PlayerId) -> Option<PlayerId> {
     }
 }
 
-pub(crate) fn hostile_ships(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool {
+pub(crate) fn hostile_ships(seen: &dyn View, me: &PlayerId, system: &SystemId) -> bool {
     seen.system(system)
         .units
         .iter()
@@ -106,7 +106,7 @@ pub(crate) fn hostile_ships(seen: &Observed<'_>, me: &PlayerId, system: &SystemI
 }
 
 /// The factor by which `step` stages the secret `alias`, if it does.
-fn factor(seen: &Observed<'_>, me: &PlayerId, alias: &str, step: &Step) -> Option<f64> {
+fn factor(seen: &dyn View, me: &PlayerId, alias: &str, step: &Step) -> Option<f64> {
     let system = &step.system;
     let others = others_in(seen, me, system);
     if others.is_empty() {
@@ -161,7 +161,7 @@ fn factor(seen: &Observed<'_>, me: &PlayerId, alias: &str, step: &Step) -> Optio
     }
 }
 
-fn is_fighter(seen: &Observed<'_>, unit: &ti4_model::units::Unit) -> bool {
+fn is_fighter(seen: &dyn View, unit: &ti4_model::units::Unit) -> bool {
     crate::unit_type(seen, unit.type_id.as_str()).is_some_and(|t| t.is_fighter())
 }
 
@@ -187,7 +187,7 @@ impl ObjectivePlanner for Combat {
         IDS
     }
 
-    fn plan(&self, obs: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
+    fn plan(&self, obs: &dyn SeatView, ctx: &PlanCtx) -> Option<Plan> {
         stage_plan(obs, ctx, factor)
     }
 }
@@ -196,9 +196,9 @@ impl ObjectivePlanner for Combat {
 /// event with the best `success x factor`, where `factor` says whether and how well a step
 /// stages the goal's alias.
 pub fn stage_plan(
-    obs: &SeatObservation<'_>,
+    obs: &dyn SeatView,
     ctx: &PlanCtx,
-    factor: impl Fn(&Observed<'_>, &PlayerId, &str, &Step) -> Option<f64>,
+    factor: impl Fn(&dyn View, &PlayerId, &str, &Step) -> Option<f64>,
 ) -> Option<Plan> {
     let observed = obs.observed();
     let alias = ctx.goal.alias.as_str();
@@ -225,6 +225,7 @@ pub fn stage_plan(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_engine::choice::SeatObservation;
     use ti4_content::ContentStore;
     use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice};
     use ti4_engine::fixtures::{a_system_where, game, hub_with_centre, put};

@@ -27,7 +27,7 @@
 //! | `galvanize` | Galvanize the People | public | 2 | `cost_tokens` |
 //! | `vast_reserves` | Hold Vast Reserves | public | 2 | `cost_all_three` |
 
-use ti4_engine::choice::SeatObservation;
+use crate::view::SeatView;
 use ti4_engine::objectives::Cost as Price;
 use ti4_model::id::ObjectiveId;
 
@@ -138,7 +138,7 @@ impl ObjectivePlanner for Payment {
         IDS
     }
 
-    fn plan(&self, _obs: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
+    fn plan(&self, _obs: &dyn SeatView, ctx: &PlanCtx) -> Option<Plan> {
         plan_for(&ctx.goal)
     }
 }

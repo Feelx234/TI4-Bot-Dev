@@ -21,9 +21,10 @@
     clippy::many_single_char_names
 )]
 
+use crate::view::{View, SeatView};
 use std::collections::BTreeMap;
 
-use ti4_engine::choice::{Choice, ChoiceOption, Observed};
+use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_model::id::{PlanetId, PlayerId};
 
 use crate::tuning;
@@ -106,7 +107,7 @@ impl Seat {
 }
 
 struct Ctx<'a> {
-    seen: &'a Observed<'a>,
+    seen: &'a dyn View,
     me: usize,
     seats: Vec<Seat>,
     /// Technologies owned, per seat (aliases).
@@ -128,7 +129,7 @@ fn vp_gain(vp_now: i32, gain: i32) -> f64 {
 }
 
 impl<'a> Ctx<'a> {
-    fn build(seen: &'a Observed<'a>, me: &PlayerId) -> Option<Self> {
+    fn build(seen: &'a dyn View, me: &PlayerId) -> Option<Self> {
         let players = seen.players();
         let me_idx = players.iter().position(|p| *p == me)?;
         let content = seen.content();
@@ -1078,7 +1079,7 @@ impl Verdict {
 pub fn evaluate(
     agenda: &str,
     outcomes: &[&str],
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
 ) -> Option<Verdict> {
     let ctx = Ctx::build(seen, me)?;
@@ -1106,7 +1107,7 @@ fn evaluate_in(ctx: &Ctx<'_>, agenda: &str, outcomes: &[&str]) -> Option<Verdict
 pub fn preferred(
     agenda: &str,
     outcomes: &[&str],
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
 ) -> Option<String> {
     let verdict = evaluate(agenda, outcomes, seen, me)?;
@@ -1163,7 +1164,7 @@ impl Ballot {
     }
 }
 
-fn voting_order_after_me(seen: &Observed<'_>, me: &PlayerId) -> Vec<PlayerId> {
+fn voting_order_after_me(seen: &dyn View, me: &PlayerId) -> Vec<PlayerId> {
     let players = seen.players();
     let speaker = seen.speaker();
     let Some(s) = players.iter().position(|p| *p == speaker) else {
@@ -1201,7 +1202,7 @@ fn ballot_for(
     outcomes: &[String],
     tally: &BTreeMap<String, f64>,
     after: &[PlayerId],
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
 ) -> Ballot {
     let refs: Vec<&str> = outcomes.iter().map(String::as_str).collect();
@@ -1246,7 +1247,7 @@ fn ballot_for(
     }
 }
 
-fn influence_ready_of(seen: &Observed<'_>, player: &PlayerId) -> f64 {
+fn influence_ready_of(seen: &dyn View, player: &PlayerId) -> f64 {
     seen.controlled_planets(player)
         .into_iter()
         .filter(|(_, p)| seen.planet_is_ready(p))
@@ -1257,7 +1258,7 @@ fn influence_ready_of(seen: &Observed<'_>, player: &PlayerId) -> f64 {
         .sum::<i64>() as f64
 }
 
-fn my_planet_influences(seen: &Observed<'_>, me: &PlayerId) -> Vec<i64> {
+fn my_planet_influences(seen: &dyn View, me: &PlayerId) -> Vec<i64> {
     seen.controlled_planets(me)
         .into_iter()
         .filter(|(_, p)| seen.planet_is_ready(p))
@@ -1272,11 +1273,11 @@ fn my_planet_influences(seen: &Observed<'_>, me: &PlayerId) -> Vec<i64> {
 // -- target agenda targets ---------------------------------------------------------------------
 
 /// The outcomes an agenda would offer, from its printed target (as the engine reads it).
-pub fn outcomes_for(seen: &Observed<'_>, agenda: &str) -> Vec<String> {
+pub fn outcomes_for(seen: &dyn View, agenda: &str) -> Vec<String> {
     outcomes_of(seen, agenda)
 }
 
-fn outcomes_of(seen: &Observed<'_>, agenda: &str) -> Vec<String> {
+fn outcomes_of(seen: &dyn View, agenda: &str) -> Vec<String> {
     use ti4_content::ElectType;
     let Some((_, elects)) = crate::backward::agenda::agenda_kind(seen, agenda) else {
         return vec!["for".to_owned(), "against".to_owned()];
@@ -1325,7 +1326,7 @@ pub struct Cast {
 /// planet decisions follow. `None` when the knobs do not apply (the old table decides).
 pub fn plan_vote(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     agenda: &str,
     old: Option<String>,
@@ -1522,7 +1523,7 @@ pub fn plan_vote(
 /// Append a line to the file named by `AGENDA_VOTE_LOG` (experiments only).
 #[allow(clippy::too_many_arguments)]
 fn log_vote(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     agenda: &str,
     round: u32,
@@ -1578,7 +1579,7 @@ fn votes_of(option: &ChoiceOption) -> i64 {
 /// What holding a vote back costs: the price of one vote on the first agenda of a round, where
 /// the influence is also wanted on the second (the budget knob). The second agenda is never
 /// known (both are drawn before the first is voted), so the prior stands for its stake.
-fn second_agenda_price(seen: &Observed<'_>, me: &PlayerId, budget: bool, second: bool) -> f64 {
+fn second_agenda_price(seen: &dyn View, me: &PlayerId, budget: bool, second: bool) -> f64 {
     if !budget || second {
         return 0.0;
     }
@@ -1599,7 +1600,7 @@ fn second_agenda_price(seen: &Observed<'_>, me: &PlayerId, budget: bool, second:
 /// reached. `None`: no plan for this decision (the old logic answers).
 pub fn pick_planet(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     agenda: &str,
     outcome: &str,
@@ -1856,7 +1857,7 @@ struct RiderView {
     freed: f64,
 }
 
-fn rider_view(seen: &Observed<'_>, me: &PlayerId, agenda: &str) -> Option<RiderView> {
+fn rider_view(seen: &dyn View, me: &PlayerId, agenda: &str) -> Option<RiderView> {
     let outcomes = outcomes_of(seen, agenda);
     if outcomes.len() < 2 {
         return None;
@@ -1910,7 +1911,7 @@ fn rider_view(seen: &Observed<'_>, me: &PlayerId, agenda: &str) -> Option<RiderV
 /// questions that follow). `None`: not a rider decision.
 pub fn rider_pick(
     choice: &Choice,
-    seat: &ti4_engine::choice::SeatObservation<'_>,
+    seat: &dyn SeatView,
 ) -> Option<usize> {
     if !tuning::agenda_riders() {
         return None;
@@ -1989,7 +1990,7 @@ pub fn rider_pick(
 
 /// Which rider card (alias) to play on this agenda, if any: the best expected net value.
 fn rider_decision(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     agenda: &str,
     round: u32,
@@ -2019,7 +2020,7 @@ fn rider_decision(
 }
 
 fn log_rider(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     agenda: &str,
     round: u32,
@@ -2057,6 +2058,7 @@ fn log_rider(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_engine::choice::Observed;
     use ti4_content::ContentStore;
     use ti4_engine::fixtures::{put, put_on_planet, seated_game};
     use ti4_model::POK;

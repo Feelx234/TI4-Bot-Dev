@@ -25,9 +25,9 @@
 //! ([`super::mecatol_two_step`]). Planners with their own logic (payment, technology, combat,
 //! structures) read `ctx.steps` themselves if they want the prepared steps.
 
+use crate::view::View;
 use std::collections::BTreeMap;
 
-use ti4_engine::choice::Observed;
 use ti4_engine::fleet_strength::{Descriptors, descriptors, matchup};
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
 
@@ -100,7 +100,7 @@ pub struct Outcome {
 
 impl SysCase {
     #[must_use]
-    pub fn new(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Self {
+    pub fn new(seen: &dyn View, me: &PlayerId, system: &SystemId) -> Self {
         let (ships, ground) = crate::objectives::reach(seen, me, system);
         let movable = seen.movable_into(me, system);
         let board = seen.system(system);
@@ -126,7 +126,7 @@ impl SysCase {
 
     /// The strength matchup of the fleet `own` against the defence (infinite without one).
     #[must_use]
-    pub fn matchup_of(&self, seen: &Observed<'_>, own: &[(String, usize)]) -> f64 {
+    pub fn matchup_of(&self, seen: &dyn View, own: &[(String, usize)]) -> f64 {
         if !self.hostile {
             return f64::INFINITY;
         }
@@ -153,7 +153,7 @@ impl SysCase {
     #[must_use]
     pub fn outcome(
         &self,
-        seen: &Observed<'_>,
+        seen: &dyn View,
         ground: usize,
         own: &[(String, usize)],
         reachable: bool,
@@ -184,7 +184,7 @@ impl SysCase {
 
     /// The activation as it stands.
     #[must_use]
-    pub fn plain(&self, seen: &Observed<'_>) -> Option<Outcome> {
+    pub fn plain(&self, seen: &dyn View) -> Option<Outcome> {
         self.outcome(seen, self.ground, &self.own, self.ships)
     }
 }
@@ -199,7 +199,7 @@ pub(super) fn with_added(fleet: &[(String, usize)], id: &str, n: usize) -> Vec<(
 }
 
 /// Production slots of the home system (docks' production values, as the engine counts them).
-pub(super) fn home_slots(seen: &Observed<'_>, me: &PlayerId, home: &SystemId) -> i64 {
+pub(super) fn home_slots(seen: &dyn View, me: &PlayerId, home: &SystemId) -> i64 {
     seen.system(home)
         .planet_units
         .iter()
@@ -246,7 +246,7 @@ impl Source {
 
 /// The ways to get a production, as (source, tactic tokens, strategy tokens, odds).
 pub(super) fn sources(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     ctx: &PlanCtx,
 ) -> Vec<(Source, i32, i32, f64)> {
@@ -287,7 +287,7 @@ pub(super) fn sources(
 
 /// Build prep for `case`: what a production at home adds, if it makes the activation do more.
 fn build_prep(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     ctx: &PlanCtx,
     case: &SysCase,
@@ -437,7 +437,7 @@ pub struct WarfareAccess {
 
 /// The seat's Warfare options.
 #[must_use]
-pub fn warfare(seen: &Observed<'_>, me: &PlayerId) -> WarfareAccess {
+pub fn warfare(seen: &dyn View, me: &PlayerId) -> WarfareAccess {
     let own = crate::ready_card(seen, me, ti4_content::StrategyCardKind::Warfare);
     let extra_activation = own
         .as_ref()
@@ -452,7 +452,7 @@ pub fn warfare(seen: &Observed<'_>, me: &PlayerId) -> WarfareAccess {
 /// Ground and fleet the seat has at `case.system` after gathering at `gather` (an activation next
 /// to it): the ships that could reach `gather` join those that reach the system.
 pub(super) fn gathered(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     case: &SysCase,
     gather: &SystemId,
@@ -498,7 +498,7 @@ pub(super) fn gathered(
 
 /// Warfare prep: gather beside the target (Warfare's extra activation if tokens are short).
 fn warfare_prep(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     ctx: &PlanCtx,
     case: &SysCase,
@@ -563,7 +563,7 @@ fn warfare_prep(
 /// The prepared steps for every system the seat could activate (own-token systems left out), for
 /// the kinds switched on. A prepared step is kept only where it does more than the plain step.
 #[must_use]
-pub fn prepared(seen: &Observed<'_>, me: &PlayerId, ctx: &PlanCtx) -> Vec<Step> {
+pub fn prepared(seen: &dyn View, me: &PlayerId, ctx: &PlanCtx) -> Vec<Step> {
     let any = tuning::bw_prep_build()
         || tuning::bw_prep_warfare()
         || tuning::bw_prep_tech_range()
@@ -632,7 +632,7 @@ struct Upgrade {
 }
 
 /// Colours of the seat's owned technologies (printed prerequisites only).
-fn owned_colours(seen: &Observed<'_>, me: &PlayerId) -> [usize; 4] {
+fn owned_colours(seen: &dyn View, me: &PlayerId) -> [usize; 4] {
     let mut have = [0usize; 4];
     let Some(seat) = seen.seat(me) else {
         return have;
@@ -650,7 +650,7 @@ fn owned_colours(seen: &Observed<'_>, me: &PlayerId) -> [usize; 4] {
 }
 
 /// Whether the seat can research `alias` now: not owned, its faction's, prerequisites met.
-fn researchable(seen: &Observed<'_>, me: &PlayerId, alias: &str) -> bool {
+fn researchable(seen: &dyn View, me: &PlayerId, alias: &str) -> bool {
     let Some(seat) = seen.seat(me) else {
         return false;
     };
@@ -672,7 +672,7 @@ fn researchable(seen: &Observed<'_>, me: &PlayerId, alias: &str) -> bool {
 }
 
 /// The unit upgrades the seat could research, for unit types it owns.
-fn upgrades(seen: &Observed<'_>, me: &PlayerId) -> Vec<Upgrade> {
+fn upgrades(seen: &dyn View, me: &PlayerId) -> Vec<Upgrade> {
     let mut kinds: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for board in seen.board().values() {
         for u in board.units.iter().filter(|u| &u.owner == me) {
@@ -693,7 +693,7 @@ fn upgrades(seen: &Observed<'_>, me: &PlayerId) -> Vec<Upgrade> {
 
 /// The best research open to the seat before the status phase (B's technology model: own card
 /// 95 percent, a rival's secondary 70 percent for a strategy token and four resources).
-fn research_source(seen: &Observed<'_>, me: &PlayerId) -> Option<super::technology::Source> {
+fn research_source(seen: &dyn View, me: &PlayerId) -> Option<super::technology::Source> {
     let seat = seen.seat(me)?;
     let is_tech = |c: &ti4_model::id::StrategyCardId| {
         ti4_engine::strategy_cards::card_kind(seen.content(), c.as_str())
@@ -740,7 +740,7 @@ fn replaced(fleet: &[(String, usize)], from: &str, to: &str) -> Vec<(String, usi
 /// Ships that could reach `case.system` if the technology gave them move `mv(type)`: those not
 /// reaching it now, as (origin, type id, count).
 fn newly_in_range(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     case: &SysCase,
     mv: impl Fn(&str) -> Option<i32>,
@@ -778,7 +778,7 @@ fn newly_in_range(
 
 /// Ground the carriers reaching `case.system` bring once `extra` ships (origin, type, count) join.
 fn ground_with(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     case: &SysCase,
     extra: &[(SystemId, String, usize)],
@@ -822,7 +822,7 @@ fn ground_with(
 
 /// Technology preps for `case`: a movement technology (range) or a unit upgrade (strength).
 fn tech_preps(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     ctx: &PlanCtx,
     case: &SysCase,

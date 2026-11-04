@@ -40,7 +40,7 @@
 //! | `eh` | Establish Hegemony | `combined_value_influence` |
 //! | `hrm` | Hoard Raw Materials | `combined_value_resources` |
 
-use ti4_engine::choice::SeatObservation;
+use crate::view::SeatView;
 
 use super::{ObjectivePlanner, Plan, PlanCtx};
 
@@ -67,7 +67,7 @@ impl ObjectivePlanner for Territory {
         ]
     }
 
-    fn plan(&self, obs: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
+    fn plan(&self, obs: &dyn SeatView, ctx: &PlanCtx) -> Option<Plan> {
         // A bought-cost goal never reaches here; a goal already within one planet is cheapest.
         ctx.route_plan(obs, 3, |step| !step.planets.is_empty(), "take planets")
     }

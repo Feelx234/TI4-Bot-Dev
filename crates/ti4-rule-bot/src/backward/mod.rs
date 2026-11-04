@@ -35,9 +35,9 @@
 //! `bw_steer x expected VP` extra worth, [`Verdict::bonus`]) and the strategy-card choice
 //! (Imperial). Nothing here ever picks an option that is not offered.
 
+use crate::view::{View, SeatView};
 use std::collections::BTreeMap;
 
-use ti4_engine::choice::{Observed, SeatObservation};
 use ti4_engine::fleet_strength::matchup;
 use ti4_engine::objectives::Imagined;
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
@@ -180,7 +180,7 @@ pub trait ObjectivePlanner {
     fn objective_ids(&self) -> &[&str];
     /// The plan for `ctx.goal`, or `None` when the group has nothing to propose (met already,
     /// out of reach, no way to steer).
-    fn plan(&self, obs: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan>;
+    fn plan(&self, obs: &dyn SeatView, ctx: &PlanCtx) -> Option<Plan>;
 }
 
 /// Every planner. Agent B registers its groups here, one line each.
@@ -235,7 +235,7 @@ impl Goal {
 impl PlanCtx {
     /// Build the context for the seat.
     #[must_use]
-    pub fn new(seen: &SeatObservation<'_>, me: &PlayerId) -> Self {
+    pub fn new(seen: &dyn SeatView, me: &PlayerId) -> Self {
         let observed = seen.observed();
         let seat = observed.seat(me);
         let mecatol = mecatol::state(observed, me);
@@ -316,7 +316,7 @@ impl PlanCtx {
     /// requirement functions on the imagined position.
     pub fn route(
         &self,
-        seen: &SeatObservation<'_>,
+        seen: &dyn SeatView,
         alias: &str,
         max_steps: usize,
         useful: impl Fn(&Step) -> bool,
@@ -396,7 +396,7 @@ impl PlanCtx {
 
     /// Whether goal `alias` is met after the steps `combo` all happened.
     #[must_use]
-    pub fn meets(&self, seen: &SeatObservation<'_>, alias: &str, combo: &[usize]) -> bool {
+    pub fn meets(&self, seen: &dyn SeatView, alias: &str, combo: &[usize]) -> bool {
         let planets: Vec<PlanetId> = combo
             .iter()
             .flat_map(|&i| self.steps[i].planets.iter().cloned())
@@ -484,7 +484,7 @@ fn combinations(pool: &[usize], size: usize) -> Vec<Vec<usize>> {
 }
 
 /// Probability that a fleet wins the fight in `system` (1 when nobody is there to fight).
-fn fight_probability(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> f64 {
+fn fight_probability(seen: &dyn View, me: &PlayerId, system: &SystemId) -> f64 {
     if !crate::has_hostile_ships(seen, me, system) {
         return 1.0;
     }
@@ -504,7 +504,7 @@ fn fight_probability(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> f
 }
 
 /// Every activation the seat could make this turn that does something, with its odds.
-fn steps(seen: &SeatObservation<'_>, me: &PlayerId) -> Vec<Step> {
+fn steps(seen: &dyn SeatView, me: &PlayerId) -> Vec<Step> {
     let observed = seen.observed();
     let Some(galaxy) = observed.galaxy() else {
         return Vec::new();
@@ -748,7 +748,7 @@ pub fn piling(system: &SystemId) -> bool {
 
 /// Plan the seat's turn. `None` when the layer is off or it is too early.
 #[must_use]
-pub fn verdict(seen: &SeatObservation<'_>, me: &PlayerId) -> Option<Verdict> {
+pub fn verdict(seen: &dyn SeatView, me: &PlayerId) -> Option<Verdict> {
     if !tuning::bw_enabled() || seen.observed().round() < tuning::bw_round() {
         return None;
     }
@@ -804,7 +804,7 @@ impl PlanCtx {
     /// steps `useful` accepts, or `None` when there is none (nothing reachable this turn).
     pub fn route_plan(
         &self,
-        seen: &SeatObservation<'_>,
+        seen: &dyn SeatView,
         max_steps: usize,
         useful: impl Fn(&Step) -> bool,
         what: &str,
@@ -825,6 +825,7 @@ impl PlanCtx {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_engine::choice::SeatObservation;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
     use ti4_content::ContentStore;

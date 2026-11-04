@@ -26,10 +26,11 @@
 //! | `ans` | Adapt New Strategies | secret | 1 | `faction_technologies` |
 //! | `mlp` | Master the Laws of Physics | secret | 1 | `same_colour_technologies` |
 
+use crate::view::{View, SeatView};
 use std::collections::BTreeSet;
 
 use ti4_content::ContentStore;
-use ti4_engine::choice::{Choice, Observed, SeatObservation};
+use ti4_engine::choice::Choice;
 use ti4_model::content_types::ContentType;
 use ti4_model::id::{PlayerId, TechnologyId};
 
@@ -299,7 +300,7 @@ fn tech_of(content: &ContentStore, alias: &str) -> Tech {
 /// The seat's technologies and those it may still research (faction and replacement rules; the
 /// prerequisites are the route's business).
 #[must_use]
-pub fn model(seen: &Observed<'_>, me: &PlayerId) -> Option<(Vec<Tech>, Vec<Tech>)> {
+pub fn model(seen: &dyn View, me: &PlayerId) -> Option<(Vec<Tech>, Vec<Tech>)> {
     let seat = seen.seat(me)?;
     let content = seen.content();
     let owned: Vec<Tech> = seat
@@ -327,13 +328,13 @@ pub fn model(seen: &Observed<'_>, me: &PlayerId) -> Option<(Vec<Tech>, Vec<Tech>
     Some((owned, cands))
 }
 
-fn technology_card(seen: &Observed<'_>, card: &ti4_model::id::StrategyCardId) -> bool {
+fn technology_card(seen: &dyn View, card: &ti4_model::id::StrategyCardId) -> bool {
     ti4_engine::strategy_cards::card_kind(seen.content(), card.as_str())
         == Some(ti4_content::StrategyCardKind::Technology)
 }
 
 /// The researches before the status phase for the seat.
-pub fn seat_sources(seen: &Observed<'_>, me: &PlayerId) -> Vec<Source> {
+pub fn seat_sources(seen: &dyn View, me: &PlayerId) -> Vec<Source> {
     let Some(seat) = seen.seat(me) else {
         return Vec::new();
     };
@@ -367,7 +368,7 @@ pub fn seat_sources(seen: &Observed<'_>, me: &PlayerId) -> Vec<Source> {
 /// it owns them all, `None` when out of reach before the status phase.
 #[must_use]
 pub fn reach_by_research(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     wanted: &[&str],
 ) -> Option<(usize, f64, Cost)> {
@@ -458,7 +459,7 @@ impl ObjectivePlanner for Technology {
         IDS
     }
 
-    fn plan(&self, obs: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
+    fn plan(&self, obs: &dyn SeatView, ctx: &PlanCtx) -> Option<Plan> {
         let observed = obs.observed();
         let metric = Metric::of(&ctx.goal.family)?;
         let (owned, cands) = model(observed, &ctx.me)?;
@@ -501,7 +502,7 @@ impl ObjectivePlanner for Technology {
 /// no offered technology is on a route.
 pub fn research_pick(
     choice: &Choice,
-    seen: &SeatObservation<'_>,
+    seen: &dyn SeatView,
     me: &PlayerId,
     goals: &[Goal],
     tie: impl Fn(&Choice) -> Option<usize>,

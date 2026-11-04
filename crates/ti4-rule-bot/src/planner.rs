@@ -8,8 +8,8 @@
 //! forces for the secrets that count them. Bought objectives and met ones are left out. It reads
 //! only the seat's own observation.
 
+use crate::view::SeatView;
 use ti4_content::units::UnitType;
-use ti4_engine::choice::SeatObservation;
 use ti4_engine::objectives::Imagined;
 use ti4_model::id::PlayerId;
 
@@ -32,7 +32,7 @@ pub struct Bias {
 impl Bias {
     /// The seat's weights now; none before the objective round or with the planner off.
     #[must_use]
-    pub fn of(seen: &SeatObservation<'_>, me: &PlayerId) -> Self {
+    pub fn of(seen: &dyn SeatView, me: &PlayerId) -> Self {
         let w = tuning::planner_weight();
         let observed = seen.observed();
         let steered = crate::backward::verdict(seen, me)

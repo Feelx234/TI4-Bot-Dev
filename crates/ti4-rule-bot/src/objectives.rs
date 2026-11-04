@@ -40,13 +40,14 @@
 //! - **Research** and **structure placement**: the option that moves an objective most.
 //! - **Secret objectives**: over the hand limit, the secret furthest from done goes back.
 
+use crate::view::{View, SeatView};
 use crate::tuning;
 use std::collections::BTreeSet;
 
 use rand::Rng;
 use rand_chacha::ChaCha8Rng;
 use ti4_content::StrategyCardKind;
-use ti4_engine::choice::{Choice, ChoiceOption, Observed, SeatObservation};
+use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_engine::objectives::{CardProgress, Imagined};
 use ti4_engine::production::Spend;
 use ti4_model::id::{ObjectiveId, PlanetId, PlayerId, SystemId};
@@ -98,14 +99,14 @@ fn enabled_for(seat: &PlayerId) -> bool {
 }
 
 /// Whether the objective layer plays this decision.
-fn active(seen: &Observed<'_>) -> bool {
+fn active(seen: &dyn View) -> bool {
     seen.round() >= tuning::objective_round()
 }
 
 /// The objective layer's answer to `choice`, or `None` to leave it to the rule bot.
 pub fn pick(
     choice: &Choice,
-    seen: &SeatObservation<'_>,
+    seen: &dyn SeatView,
     me: &PlayerId,
     rng: &mut ChaCha8Rng,
 ) -> Option<usize> {
@@ -211,13 +212,13 @@ impl Goal {
     }
 }
 
-fn points_of(seen: &Observed<'_>, alias: &str) -> f64 {
+fn points_of(seen: &dyn View, alias: &str) -> f64 {
     f64::from(
         ti4_engine::objectives::points_for(seen.content(), &ObjectiveId::new(alias)).unwrap_or(1),
     )
 }
 
-fn goal_of(seen: &Observed<'_>, card: CardProgress, secret: bool) -> Goal {
+fn goal_of(seen: &dyn View, card: CardProgress, secret: bool) -> Goal {
     let bought = ti4_engine::objectives::cost_of(&ObjectiveId::new(&card.alias)).is_some();
     Goal {
         points: if secret {
@@ -237,7 +238,7 @@ fn goal_of(seen: &Observed<'_>, card: CardProgress, secret: bool) -> Goal {
 
 /// Every objective the seat can still score, as it would stand after `imagined`.
 #[must_use]
-pub fn goals(seen: &SeatObservation<'_>, me: &PlayerId, imagined: &Imagined<'_>) -> Vec<Goal> {
+pub fn goals(seen: &dyn SeatView, me: &PlayerId, imagined: &Imagined<'_>) -> Vec<Goal> {
     let observed = seen.observed();
     let scored = observed.scored_by(me);
     let mut out: Vec<Goal> = observed
@@ -362,7 +363,7 @@ impl Reserve {
     /// The seat's reserve now: in the action phase from round three, for the bought public
     /// objective it can afford with the most points, when no met requirement is worth as much.
     #[must_use]
-    pub fn of(seen: &SeatObservation<'_>, me: &PlayerId) -> Self {
+    pub fn of(seen: &dyn SeatView, me: &PlayerId) -> Self {
         let observed = seen.observed();
         if !active(observed) || observed.phase() != ti4_model::state::Phase::Action {
             return Self::default();
@@ -402,7 +403,7 @@ fn cost_rank(cost: ti4_engine::objectives::Cost) -> u8 {
 }
 
 /// A ready planet's (resources, influence).
-pub(crate) fn ready_planets(seen: &Observed<'_>, me: &PlayerId) -> Vec<(i64, i64)> {
+pub(crate) fn ready_planets(seen: &dyn View, me: &PlayerId) -> Vec<(i64, i64)> {
     seen.controlled_planets(me)
         .into_iter()
         .filter(|(_, planet)| seen.planet_is_ready(planet))
@@ -462,11 +463,11 @@ fn spare_after_influence(
     (rest, trade_goods - reserve.trade_goods - need.max(0))
 }
 
-pub(crate) fn trade_goods(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+pub(crate) fn trade_goods(seen: &dyn View, me: &PlayerId) -> i64 {
     seen.seat(me).map_or(0, |seat| i64::from(seat.trade_goods))
 }
 
-pub(crate) fn pool_tokens(seen: &Observed<'_>, me: &PlayerId) -> i32 {
+pub(crate) fn pool_tokens(seen: &dyn View, me: &PlayerId) -> i32 {
     seen.seat(me)
         .map_or(0, |seat| seat.tactic_tokens + seat.strategic_tokens)
 }
@@ -475,7 +476,7 @@ pub(crate) fn pool_tokens(seen: &Observed<'_>, me: &PlayerId) -> i32 {
 /// stop.
 fn pick_produce(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     reserve: &Reserve,
     bias: &crate::planner::Bias,
@@ -508,7 +509,7 @@ fn pick_produce(
 
 /// Payment keeping the reserve: a planet's value of the other kind counts in full while the
 /// reserve needs that kind, and trade goods are spent last while it needs them.
-fn pick_pay(choice: &Choice, seen: &Observed<'_>, reserve: &Reserve) -> Option<usize> {
+fn pick_pay(choice: &Choice, seen: &dyn View, reserve: &Reserve) -> Option<usize> {
     let resources = choice
         .options
         .iter()
@@ -555,7 +556,7 @@ fn pick_pay(choice: &Choice, seen: &Observed<'_>, reserve: &Reserve) -> Option<u
 /// Secondaries that would spend what the reserve keeps: declined.
 fn pick_secondary(
     choice: &Choice,
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     reserve: &Reserve,
 ) -> Option<usize> {
@@ -589,7 +590,7 @@ fn pick_secondary(
 
 /// The order objectives are scored in: points, then a requirement before a bought objective,
 /// then the cheapest price.
-fn score_rank(seen: &Observed<'_>, alias: &str) -> (i64, u8) {
+fn score_rank(seen: &dyn View, alias: &str) -> (i64, u8) {
     let id = ObjectiveId::new(alias);
     #[expect(clippy::cast_possible_truncation, reason = "printed points")]
     let points = points_of(seen, alias) as i64;
@@ -597,7 +598,7 @@ fn score_rank(seen: &Observed<'_>, alias: &str) -> (i64, u8) {
     (points, price)
 }
 
-fn pick_score(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
+fn pick_score(choice: &Choice, seen: &dyn View) -> Option<usize> {
     choice
         .options
         .iter()
@@ -613,7 +614,7 @@ fn pick_score(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
 
 /// Over the secret hand limit: the secret furthest from done goes back (one whose progress the
 /// engine cannot count, an event secret, counts as a quarter done).
-fn pick_secret_return(choice: &Choice, seen: &SeatObservation<'_>) -> Option<usize> {
+fn pick_secret_return(choice: &Choice, seen: &dyn SeatView) -> Option<usize> {
     let progress = seen.held_secret_progress();
     choice
         .options
@@ -634,7 +635,7 @@ fn pick_secret_return(choice: &Choice, seen: &SeatObservation<'_>) -> Option<usi
 
 /// Ground forces the seat could have in `system` after activating it, and whether a ship could
 /// get there (the same reach as [`activation_value`]).
-pub(crate) fn reach(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> (bool, usize) {
+pub(crate) fn reach(seen: &dyn View, me: &PlayerId, system: &SystemId) -> (bool, usize) {
     let movable = crate::movable_for(seen, me, system);
     let ships = movable.iter().any(|m| is_ship(seen, &m.unit));
     let capacity: i64 = movable
@@ -670,7 +671,7 @@ pub(crate) fn reach(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> (b
 
 /// The planets an activation of `system` would take, greedily as [`super::takeable_value`] does.
 pub(crate) fn taken_planets(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     system: &SystemId,
     ground: usize,
@@ -687,7 +688,7 @@ pub(crate) fn taken_planets(
 }
 
 /// A rival this close to winning, with its points.
-fn rivals_about_to_win(seen: &Observed<'_>, me: &PlayerId) -> Vec<PlayerId> {
+fn rivals_about_to_win(seen: &dyn View, me: &PlayerId) -> Vec<PlayerId> {
     seen.players()
         .into_iter()
         .filter(|p| *p != me)
@@ -701,7 +702,7 @@ fn rivals_about_to_win(seen: &Observed<'_>, me: &PlayerId) -> Vec<PlayerId> {
 
 /// Whether the seat has planets in `system` or it neighbours its home: a hostile fleet there is a
 /// threat worth fighting.
-fn threatens_own(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool {
+fn threatens_own(seen: &dyn View, me: &PlayerId, system: &SystemId) -> bool {
     if seen
         .system(system)
         .planet_control
@@ -723,7 +724,7 @@ fn threatens_own(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool 
 /// One system's worth to activate from round three: the rule bot's value, plus what it does for
 /// the objectives, plus planets taken from a rival about to win; minus a fight that wins nothing.
 fn system_value(
-    seen: &SeatObservation<'_>,
+    seen: &dyn SeatView,
     me: &PlayerId,
     system: &SystemId,
     before: &[Goal],
@@ -789,7 +790,7 @@ fn system_value(
 
 /// Every system the seat could activate (no token of its own), valued by [`system_value`].
 fn values<'s>(
-    seen: &SeatObservation<'_>,
+    seen: &dyn SeatView,
     me: &PlayerId,
     systems: impl IntoIterator<Item = &'s SystemId>,
 ) -> Vec<(SystemId, f64)> {
@@ -811,7 +812,7 @@ fn values<'s>(
         .collect()
 }
 
-fn pick_activation(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_activation(choice: &Choice, seen: &dyn SeatView, me: &PlayerId) -> Option<usize> {
     seen.galaxy()?;
     let ids: Vec<SystemId> = choice
         .options
@@ -842,7 +843,7 @@ fn pick_activation(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -
 /// tokens at stake only for a system worth [`EAGER_WORTH`]; otherwise the card or a pass.
 fn pick_action(
     choice: &Choice,
-    seen: &SeatObservation<'_>,
+    seen: &dyn SeatView,
     me: &PlayerId,
     rng: &mut ChaCha8Rng,
 ) -> Option<usize> {
@@ -927,7 +928,7 @@ const SHAPED: [(&str, bool); 3] = [
 /// the last ship anywhere while Command the Seas style "ships in N systems" is just met and the
 /// active system already has a ship of its own (so the count would drop).
 fn breaks_a_met_objective(
-    seen: &Observed<'_>,
+    seen: &dyn View,
     me: &PlayerId,
     origin: &SystemId,
     active: &SystemId,
@@ -1010,7 +1011,7 @@ fn protected(goals: &[Goal]) -> Vec<&Goal> {
 /// Movement from round three: never the ship that holds a met objective
 /// ([`breaks_a_met_objective`]); into a system activated for a presence objective, the cheapest
 /// ship ([`pick_presence_move`]); otherwise the rule bot's movement among the moves left.
-fn pick_move(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_move(choice: &Choice, seen: &dyn SeatView, me: &PlayerId) -> Option<usize> {
     let observed = seen.observed();
     let active = observed.active_system()?.clone();
     let goals = goals(seen, me, &Imagined::NONE);
@@ -1049,7 +1050,7 @@ fn pick_move(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Opti
 
 /// Movement into a system activated for a presence objective (no planet to take, no fight, no
 /// dock, no ship of its own there yet): the cheapest ship whose origin keeps another ship.
-fn pick_presence_move(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_presence_move(choice: &Choice, seen: &dyn SeatView, me: &PlayerId) -> Option<usize> {
     let observed = seen.observed();
     let active = observed.active_system()?.clone();
     let board = observed.system(&active);
@@ -1129,7 +1130,7 @@ fn card_families(card: Option<StrategyCardKind>) -> &'static [&'static str] {
 /// What a strategy card is worth from round three: Imperial when it scores (Mecatol Rex held or
 /// takeable, or a public objective met or affordable now, to score one at once and another in the
 /// status phase), a card that serves an objective within two steps, and trade goods on the card.
-fn card_score(seen: &SeatObservation<'_>, me: &PlayerId, card: &str, goals: &[Goal]) -> f64 {
+fn card_score(seen: &dyn SeatView, me: &PlayerId, card: &str, goals: &[Goal]) -> f64 {
     let observed = seen.observed();
     let kind = ti4_engine::strategy_cards::card_kind(observed.content(), card);
     let goods = f64::from(super::card_goods(observed, card));
@@ -1154,7 +1155,7 @@ fn card_score(seen: &SeatObservation<'_>, me: &PlayerId, card: &str, goals: &[Go
     score
 }
 
-fn pick_strategy_card(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_strategy_card(choice: &Choice, seen: &dyn SeatView, me: &PlayerId) -> Option<usize> {
     let goals = goals(seen, me, &Imagined::NONE);
     let verdict = crate::backward::verdict(seen, me);
     let imperial_wanted = verdict.as_ref().is_some_and(|v| v.imperial);
@@ -1192,7 +1193,7 @@ fn pick_strategy_card(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId
 /// Research: declined when it costs what the reserve keeps (the Technology primary's second
 /// research, paid from planets the engine picks); otherwise the technology that moves an
 /// objective most; none, no opinion.
-fn pick_research(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Option<usize> {
+fn pick_research(choice: &Choice, seen: &dyn SeatView, me: &PlayerId) -> Option<usize> {
     let observed = seen.observed();
     let reserve = Reserve::of(seen, me);
     if !reserve.is_empty()
@@ -1261,7 +1262,7 @@ fn pick_research(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> 
 
 /// Structure placement (`kind|system|planet`): the one that moves an objective most, a PDS or a
 /// dock counted for secrets that count them; none, no opinion.
-fn pick_structure(choice: &Choice, seen: &SeatObservation<'_>) -> Option<usize> {
+fn pick_structure(choice: &Choice, seen: &dyn SeatView) -> Option<usize> {
     let me = seen.bound_seat().clone();
     // Turn Their Fleets to Dust (backward/ttfd.rs): a PDS that covers Mecatol Rex first.
     if let Some(index) = crate::backward::ttfd::placement(choice, seen, &me) {
@@ -1304,6 +1305,7 @@ fn pick_structure(choice: &Choice, seen: &SeatObservation<'_>) -> Option<usize> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_engine::choice::{Observed, SeatObservation};
     use rand::SeedableRng;
     use ti4_content::ContentStore;
     use ti4_engine::choice::{Decider, IllegalChoice};

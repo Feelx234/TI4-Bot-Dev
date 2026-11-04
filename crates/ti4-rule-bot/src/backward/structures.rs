@@ -21,7 +21,7 @@
 //! | `eap` | Establish a Perimeter | secret | 1 | `units_pds` |
 //! | `fwm` | Fuel the War Machine | secret | 1 | `units_spacedock` |
 
-use ti4_engine::choice::{Observed, SeatObservation};
+use crate::view::{View, SeatView};
 use ti4_model::id::PlayerId;
 
 use super::{Cost, ObjectivePlanner, Plan, PlanCtx, Steer};
@@ -100,7 +100,7 @@ pub fn capacity(family: &str, room: Room) -> usize {
     }
 }
 
-fn room_of(seen: &Observed<'_>, me: &PlayerId) -> Room {
+fn room_of(seen: &dyn View, me: &PlayerId) -> Room {
     let home = crate::home_system(seen, me);
     let mut room = Room::default();
     for (system, record) in seen.board() {
@@ -138,7 +138,7 @@ fn room_of(seen: &Observed<'_>, me: &PlayerId) -> Room {
     room
 }
 
-pub fn construction_open(seen: &Observed<'_>, seat: &ti4_engine::choice::PublicSeat<'_>) -> bool {
+pub fn construction_open(seen: &dyn View, seat: &ti4_engine::choice::PublicSeat<'_>) -> bool {
     seat.strategy_cards.iter().any(|c| {
         !seat.exhausted_strategy_cards.contains(c)
             && ti4_engine::strategy_cards::card_kind(seen.content(), c.as_str())
@@ -164,7 +164,7 @@ impl ObjectivePlanner for Structures {
         IDS
     }
 
-    fn plan(&self, obs: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
+    fn plan(&self, obs: &dyn SeatView, ctx: &PlanCtx) -> Option<Plan> {
         let observed = obs.observed();
         let gap = ctx.goal.gap();
         if gap <= 0.0 {
