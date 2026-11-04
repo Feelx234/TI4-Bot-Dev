@@ -224,9 +224,10 @@ impl Decider for Recorded {
 /// A game that cannot be built.
 pub fn replay_game(g: &GameFile) -> Result<Option<Divergence>, String> {
     let Some(spec) = &g.header.spec else { return Ok(static_lines(g)) };
-    let mut game = spec.build()?;
+    // (The frozen sets replay on the STRING engine, whatever rules version they were recorded at: the wrapper plays the latest version only.)
+    let mut game = crate::legacy_game::legacy_game(spec)?;
     let rec = Rc::new(RefCell::new(Rec::default()));
-    game.table.set_default(Box::new(Recorded(rec.clone())));
+    game.table.set_default(Box::new(crate::legacy_adapter::ThinDecider::new(Box::new(Recorded(rec.clone())))));
     let checks = g.state_checks();
     let mut next_check = 0usize;
     let mut cursor = 0usize;
@@ -284,7 +285,7 @@ pub fn replay_game(g: &GameFile) -> Result<Option<Divergence>, String> {
             return Ok(Some(d));
         }
     }
-    let hash = ti4_wasm::host_session::decisions_hash(&game.table.log.records);
+    let hash = ti4_wasm::host_session::decisions_hash(&crate::legacy_adapter::thin_records(&game.table.log.records));
     if hash != g.header.decisions_hash {
         return Ok(Some(Divergence::plain(end, DivKind::End, format!("decision-log hash {hash} now, {} recorded", g.header.decisions_hash))));
     }

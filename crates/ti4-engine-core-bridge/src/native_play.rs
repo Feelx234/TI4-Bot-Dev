@@ -1552,8 +1552,10 @@ mod tests {
     fn a_core_loaded_from_an_unstepped_game_knows_the_printed_lanes_of_the_hyperlane_map() {
         let spec = lobby_spec("xxcha", 4, 1);
         assert_eq!(spec.map, "4pHyperlanes");
-        let legacy = spec.build().expect("builds");
-        assert!(!legacy.galaxy().expect("a galaxy").hyperlane_lanes, "the string has not applied its laws to the galaxy yet");
+        // (Integration 21: the premise changed. `spec.build()` is the wrapper's game, which applies the rules version to its galaxy when it takes the map
+        // (`Game::with_galaxy`), so the position no longer comes unapplied; what the test guards is that the core loaded from the game holds the lanes.)
+        let built = spec.build().expect("builds");
+        assert!(built.galaxy().expect("a galaxy").hyperlane_lanes, "the wrapper's game holds the printed lanes from the start");
         let g = game("xxcha", 4, 1);
         assert!(g.core.galaxy().expect("a map").hyperlane_lanes, "the core's map holds the lanes");
     }
