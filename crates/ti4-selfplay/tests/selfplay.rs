@@ -139,8 +139,11 @@ fn expedition_usage(s: &ti4_selfplay::stats::Summary) -> (f64, f64) {
     (sum(":offers"), sum(":claims"))
 }
 
+/// Was: a Thunder's Edge table offers the expedition and the rule bots claim slices. Thunder's Edge content is switched off (`ti4_host::disabled`,
+/// docs/DISABLE_XF123.md; the one thing the core port leaves out): the wrapper refuses such a table at its first step, so a run reports it as a
+/// problem with no decision played, and the table without the switch is the ordinary game.
 #[test]
-fn thunders_edge_tables_offer_the_expedition_and_default_tables_never_do() {
+fn thunders_edge_tables_are_refused_and_default_tables_never_offer_the_expedition() {
     let mut table = setup(4, vec![3]);
     let mut matrix = Matrix {
         setups: vec![table.clone()],
@@ -165,15 +168,6 @@ fn thunders_edge_tables_offer_the_expedition_and_default_tables_never_do() {
     table.thunders_edge = true;
     matrix.setups = vec![table];
     let (with, _) = run_matrix(&matrix, 1, false, false, None).unwrap();
-    let (offers, claims) = expedition_usage(&with);
-    assert!(
-        offers > 0.0,
-        "a Thunder's Edge table offers a slice at the end of a turn"
-    );
-    assert!(
-        claims > 0.0,
-        "the rule bots take slices (by the random pick under the rules)"
-    );
     assert!(
         with.games[0].spec.thunders_edge
             && with.games[0]
@@ -181,10 +175,19 @@ fn thunders_edge_tables_offer_the_expedition_and_default_tables_never_do() {
                 .command_line()
                 .contains("--thunders-edge")
     );
-    assert_ne!(plain.games[0].hash, with.games[0].hash);
-    // The switch is part of the spec, so the same seed replays to the same game.
-    let (again, _) = run_matrix(&matrix, 1, false, false, None).unwrap();
-    assert_eq!(with.games[0].hash, again.games[0].hash);
+    // The refusal: no decision, an engine error that says why.
+    assert_eq!(with.games[0].decisions, 0);
+    assert_eq!(with.games[0].termination, "engine_error");
+    assert_eq!(with.problems.len(), 1, "{:?}", with.problems);
+    assert!(
+        with.problems[0]
+            .detail
+            .as_deref()
+            .is_some_and(|d| d.contains("Thunder's Edge content is switched off")),
+        "{:?}",
+        with.problems
+    );
+    assert_eq!(expedition_usage(&with), (0.0, 0.0));
 }
 
 #[test]
