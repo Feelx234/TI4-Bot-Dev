@@ -127,7 +127,7 @@ impl Asker for TableAsker<'_> {
         {
             if let Some(trigger) = &context.trigger {
                 let relation = if trigger.relation == "after" { crate::ties::timing::Relation::After } else { crate::ties::timing::Relation::When };
-                if let Ok(state) = materialize::materialize(q.asking.nested.as_ref().map(|(_, at)| &**at).or(q.asking.at.as_deref()).unwrap_or(q.core), self.cx, self.base) {
+                if let Ok(state) = materialize::materialize(q.asking.nested.as_ref().map(|(_, at)| &**at).unwrap_or(q.core), self.cx, self.base) {
                     self.table.window_skipped(&rendered.player, &trigger.event_type, relation, &state);
                 }
             }
@@ -148,7 +148,7 @@ impl Asker for TableAsker<'_> {
             return Ok(only.id);
         }
         // The position the question is asked in: a nested question's own, else the live core.
-        let at = q.asking.nested.as_ref().map(|(_, at)| &**at).or(q.asking.at.as_deref()).unwrap_or(q.core);
+        let at = q.asking.nested.as_ref().map(|(_, at)| &**at).unwrap_or(q.core);
         let state = match materialize::materialize(at, self.cx, self.base) {
             Ok(state) => state,
             Err(e) => {

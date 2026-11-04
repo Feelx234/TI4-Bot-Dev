@@ -19,7 +19,12 @@ fn the_lone_last_card_is_taken_for_its_picker_and_only_that_seat_hears_of_it() {
         .iter()
         .map(|id| PlayerId::new(*id))
         .collect();
-    let state = start_game_seeded(ContentStore::embedded(), &ids, POK, None, 42).expect("game");
+    let mut state = start_game_seeded(ContentStore::embedded(), &ids, POK, None, 42).expect("game");
+    // Real factions and their notes: the typed core refuses the placeholder.
+    for (seat, faction) in state.players.iter_mut().zip(ti4_engine::seating::LOBBY_FACTIONS) {
+        seat.faction = ti4_model::id::FactionId::new(faction);
+    }
+    ti4_engine::fixtures::redeal_notes(&mut state, POK);
     let mut config = SessionConfig::new("draft_last_card", state);
     for id in &ids {
         config = config.with_seat(id.clone(), SeatController::Human);
