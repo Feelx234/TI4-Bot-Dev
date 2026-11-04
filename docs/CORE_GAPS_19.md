@@ -34,3 +34,11 @@ Tests (`rules/production/pay.rs`): `a_single_way_payment_is_logged_with_its_ques
 
 * More than `MAX_TYPES` ship kinds in one fight names none (a counted `CombatUnported`); a real fix names only the subsets that can share a combat value.
 * Second `MissingFact` producers (`pay_in` without a `pay_kernel`, `produce_in` without production facts, the action-card `unsupported()` site) are not exercised by any of the 51 policy games; no change.
+
+## Gate results (binary of commit c8d34d8e3; later commits are test-only)
+
+* Quick game `sol 4p seed 1 --shadow`: 1165 steps, fingerprint `74d5675ac754ac81` (unchanged), zero gaps.
+* Z-gate `native_play --factions all --players N --seeds 8 --shadow`, partitions 3, 4 (two at a time), then 5, 6: each 192 games, 192 finished with zero gaps, 0 differences of the core; known string bugs 7 / 28 / 27 / 47; all four exit 0.
+* Core and factions lib tests pass (479 + 154); `strategy_primaries`, `hero_windows`, `invasion_composer`, legacy `combat_live` tests pass; `ti4-server` `smart_bots` (5 tests) passes on `a726b4277` plus these fixes.
+* Mutations: Dacxive `owners.contains(winner)` -> `true` is caught; `remaining_all >= 1` is equivalent (infantry has no plastic limit, `UNCAPPED`); dropping the `note_auto_paid` call in `PayStep` is caught.
+* Not run: the 10-minute `scored_games_stay...` itself, the heavy gates, the full mutation batch.
