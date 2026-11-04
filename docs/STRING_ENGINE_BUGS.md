@@ -81,19 +81,20 @@ promissory note you had in your play area at the start of your tactical action."
 * What a fix of the string would need (not done, user rule): snapshot before `spend_support_on_activation` in the free path; it changes a recorded game's scoring, so behind a
   `RULES_VERSION`.
 
-## S4. The Yin hero's list of planets leaves out the Wormhole Nexus' planet
+## S4. The Yin hero's list of planets leaves out the OPEN Wormhole Nexus' planet
 
-Found by integration 19 (yin 4 players seed 8, step 927). Dannel of the Tenth (Quantum Dissemination): "Commit up to 3 infantry from your reinforcements to any non-home
-planets and resolve ground combats on those planets."
+Found by integration 19 (yin 4 players seed 8, step 927); rewritten after the user ruling of 2026-11-04. Dannel of the Tenth (Quantum Dissemination): "Commit up to 3 infantry
+from your reinforcements to any non-home planets and resolve ground combats on those planets."
 
-* What the string does: `yin::hero_spots` walks `Galaxy::system_ids()`, the systems on the hex grid. The Wormhole Nexus (`82a`, planet `lockedmallice`, or `82b` /
-  `mallice` once open) sits beside the board: it is in play but has no hex, so its planet is never offered.
-* What the core does: every planet of the systems in play that is not a home system (`driver/turn/hero.rs::yin_spots`, `galaxy.in_play()`), the Nexus' planet included.
-* Who is right: the core by the card text (Mallice is a planet, not a home planet, and it can be controlled and invaded like any other: the same game shows the Yin seat using
-  `lockedmallice`'s legendary ability). **A reading the user may overrule** (if the Nexus is not meant to be a target while off the board, the core's list needs the
-  same exclusion): listed as question Q1 in `docs/INTEGRATION19.md`.
-* The harness recognises it (`s4_nexus_in_error`: the script wants `82a|..` and the string's offer has no `82a|..` entry) and reports `(known string bug S4)`.
-* What a fix of the string would need (not done): `hero_spots` over `system_ids()` plus `off_map_system_ids()`; it changes the offered options of recorded games, so behind a
+* Ruling: the LOCKED Mallice (`lockedmallice`, tile `82a`) may not be targeted; the unlocked Mallice (`mallice`, once the Wormhole Nexus is open) may.
+* What the string does: `yin::hero_spots` walks `Galaxy::system_ids()`, the systems on the hex grid. The Nexus sits beside the board: it has no hex, so no planet of it is
+  ever offered. Right for the locked face; **wrong for the open one** (the string bug that remains).
+* What the core does (`driver/turn/hero.rs::yin_spots`, since the fix of 2026-11-04): the planets of the systems on the hex grid in the order of the hexes (as the string),
+  never `lockedmallice`, and `mallice` last once the Nexus is open (`NEXUS_UNLOCKED`) and in play. (The first version of the core listed the systems in the order of the
+  system table, which differs from the string's hex order: found by the same game once S4 stopped hiding it, fixed in the same change.)
+* The harness still recognises the open case (`s4_nexus_in_error`: the script wants `82a|mallice` and the string's offer has no `82a|..` entry) and reports
+  `(known string bug S4)`. No shadow game of the Z-gate reaches it.
+* What a fix of the string would need (not done): `hero_spots` over `system_ids()` plus the open Nexus' planet; it changes the offered options of recorded games, so behind a
   `RULES_VERSION`.
 
 ## S5. A secret objective scored for the first time does not run the leader unlock check at once

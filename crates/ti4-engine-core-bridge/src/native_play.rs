@@ -811,7 +811,7 @@ fn s3_feat_differs(d: &Difference) -> bool {
 }
 
 /// S4: the string's list of planets for the Yin hero (Dannel of the Tenth: "any non-home planets") walks the hex grid, and the Wormhole Nexus sits beside it; the
-/// core's list holds `82a|lockedmallice` (or `82a|mallice`), the script wants it and the string does not offer it.
+/// core's list holds `82a|mallice` once the Nexus is open (the locked planet is never offered since the ruling of 2026-11-04), the script wants it and the string does not offer it.
 fn s4_nexus_in_error(error: &str) -> bool {
     let Some(wanted) = error.split("script wanted \"").nth(1).and_then(|r| r.split('"').next()) else { return false };
     let Some(offered) = error.split(" was offered ").nth(1) else { return false };
@@ -2106,10 +2106,11 @@ mod tests {
 
     /// Integration 19, the three string bugs it adds to `docs/STRING_ENGINE_BUGS.md` and the harness' own S1 case: (S1) the Mentak seat's Suffi An question is the ability's
     /// own prompt, whose answer `exhaust` is no reaction id (yssaril 3 players seed 5); (S3) the free tactical action's note snapshot (empyrean 6 players seed 5); (S4) the Yin
-    /// hero's planets without the Nexus (yin 4 players seed 8).
+    /// hero's planets without the OPEN Nexus (recognised by text only: yin 4 players seed 8 no longer reaches it, the core excludes the locked planet since the
+    /// ruling of 2026-11-04 and the game plays clean, see `yin_four_players_seed_eight_plays_clean_through_the_hero`).
     #[test]
     fn the_string_bugs_of_integration_19_are_recognised_and_nothing_else_is() {
-        for (faction, players, seed, steps, known) in [("yssaril", 3, 5, 720, KNOWN_S1), ("empyrean", 6, 5, 1070, KNOWN_S3), ("yin", 4, 8, 935, KNOWN_S4)] {
+        for (faction, players, seed, steps, known) in [("yssaril", 3, 5, 720, KNOWN_S1), ("empyrean", 6, 5, 1070, KNOWN_S3)] {
             let shadowed = shadow_play(&lobby_spec(faction, players, seed), steps, 50).expect("builds");
             let difference = shadowed.first_difference.unwrap_or_else(|| panic!("{faction} {players}p seed {seed}: the string differs here"));
             assert_eq!(difference.known, Some(known), "{faction} {players}p seed {seed}: {difference}");
@@ -2118,9 +2119,17 @@ mod tests {
         assert!(s3_feat_differs(&d("state", "players[4].event_feats[1]", "[\"won_against_a_note_holder\",26]", "<absent>")));
         assert!(!s3_feat_differs(&d("state", "players[4].event_feats[1]", "[\"won_in_an_anomaly\",26]", "<absent>")), "another feat is a difference of the core");
         assert!(!s3_feat_differs(&d("state", "players[4].event_feats[1]", "[\"won_against_a_note_holder\",26]", "[\"won_against_a_note_holder\",25]")), "a feat the string has too is not S3");
-        assert!(s4_nexus_in_error("script wanted \"82a|lockedmallice\" but a was offered [\"19|wellon\", \"decline\"]"));
-        assert!(!s4_nexus_in_error("script wanted \"82a|lockedmallice\" but a was offered [\"82a|lockedmallice\", \"decline\"]"), "offered: no difference");
+        assert!(s4_nexus_in_error("script wanted \"82a|mallice\" but a was offered [\"19|wellon\", \"decline\"]"));
+        assert!(!s4_nexus_in_error("script wanted \"82a|mallice\" but a was offered [\"82a|mallice\", \"decline\"]"), "offered: no difference");
         assert!(!s4_nexus_in_error("script wanted \"19|wellon\" but a was offered [\"59|archonvail\", \"decline\"]"), "another planet is a difference of the core");
+    }
+
+    /// The Yin hero's planets (user ruling 2026-11-04: the locked Mallice is no target, the open one is; the order is that of the hexes): yin 4 players seed 8, the game
+    /// that stopped at S4 (and then at the order of the list), plays through the card with the string.
+    #[test]
+    fn yin_four_players_seed_eight_plays_clean_through_the_hero() {
+        let shadowed = shadow_play(&lobby_spec("yin", 4, 8), 1000, 50).expect("builds");
+        assert!(shadowed.first_difference.is_none(), "{:?}", shadowed.first_difference);
     }
 
     /// Integration 20, string bug S5 (a secret scored for the first time unlocks no leader in the string; the core does at the score, 51.7): the three games of the older
