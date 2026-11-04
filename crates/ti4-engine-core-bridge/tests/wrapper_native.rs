@@ -66,6 +66,11 @@ fn the_wrapper_plays_the_quick_game_of_the_native_playthrough_to_the_same_finger
     }
     assert_eq!(game.steps(), 1165, "the steps of the native playthrough");
     assert_eq!(game.step().error, None, "a finished game stops quietly");
+    // The one way left to pay is told, not asked and not journaled (`production::pay_step` of the string).
+    assert!(
+        game.table.log.records.iter().all(|r| !(r.offered.len() == 1 && r.offered[0].starts_with("pay"))),
+        "a payment with a single way was put to the table"
+    );
     assert_eq!(fingerprint(&game), "74d5675ac754ac81");
     // And the NativeGame of the bridge gives the same (the pin of its own test).
     let mut native = NativeGame::from_spec(&lobby_spec("sol", 4, 1)).unwrap();

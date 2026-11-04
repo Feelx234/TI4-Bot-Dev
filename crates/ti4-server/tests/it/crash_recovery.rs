@@ -287,7 +287,7 @@ fn storage_rejects_tampered_envelopes_and_missing_player_order() {
     ));
     let store = Arc::new(FileGameStore::new(&temp_dir).expect("create file store"));
     let game_id = "enveloped_game";
-    let state = ti4_server::fixtures::create_sample_game();
+    let state = ti4_server::fixtures::create_playable_sample_game();
     let registry = GameRegistry::new().with_store(store.clone());
     let missing_order = SessionConfig::new(game_id, state.clone())
         .with_seat(PlayerId::new("seat_a"), SeatController::Human);
@@ -337,7 +337,7 @@ fn durable_event_failure_stops_the_session() {
     let store = Arc::new(FileGameStore::new(&temp_dir).expect("create file store"));
     let game_id = "event_failure";
     let seat = PlayerId::new("seat_a");
-    let config = SessionConfig::new(game_id, ti4_server::fixtures::create_sample_game())
+    let config = SessionConfig::new(game_id, ti4_server::fixtures::create_playable_sample_game())
         .with_store(store.clone())
         .with_seat(seat.clone(), SeatController::Human);
     let session = GameSession::start(config);

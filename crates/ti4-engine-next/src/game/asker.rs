@@ -133,6 +133,13 @@ impl Asker for TableAsker<'_> {
             }
             return Ok(decline.id.clone());
         }
+        // The one way left to pay is not a choice either (`production::pay_step` of the string): the payer is told, nothing is journaled.
+        if rendered.options.len() == 1
+            && rendered.context.as_ref().is_some_and(|c| c.subtype == "pay_resources")
+            && let Some(only) = self.table.auto_resolve(rendered, "it was the only way left to pay")
+        {
+            return Ok(only.id);
+        }
         // The last card of the draft is not a choice: the picker takes it and is told so (never journaled).
         if q.asking.choice.ask == ti4_engine_core::choice::Ask::Strategy(ti4_engine_core::choice::strategy::Ask::Draft)
             && rendered.options.len() == 1
