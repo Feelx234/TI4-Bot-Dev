@@ -890,7 +890,18 @@ fn compare_resolver<W: Window>(r: &Render, driver: &Driver<W>, core: &mut CoreSt
     // than the string does without any key or event differing. Where ids are observable they are in the keys (`Trigger(n)`),
     // which the `used` list compares; the counter itself only matters to the next window, which would show a drift there.
     let Some(string) = crate::resolver_sync::cfg_state(r, after, core_side.next_id) else { return };
-    crate::dual::compare_value(crate::dual::Area::Driver, "resolver.state", &format!("{string:?}"), &format!("{core_side:?}"));
+    // The ORDER of the initiative list is not compared (string bug S1, docs/STRING_ENGINE_BUGS.md, user ruling 2026-11-01): the string builds its
+    // resolver once at `Game::new`, when nobody holds a strategy card, and never refreshes it, so its list is the seating order; the core's list is the
+    // position's initiative order. The seats of the list are compared (as a set); who is offered first is compared where it is observable, in the
+    // questions the windows ask.
+    let sorted = |state: &ti4_engine_core::state::ResolverState| {
+        let mut state = state.clone();
+        let mut seats: Vec<_> = state.initiative.iter().copied().collect();
+        seats.sort();
+        state.initiative = seats.into_iter().collect();
+        format!("{state:?}")
+    };
+    crate::dual::compare_value(crate::dual::Area::Driver, "resolver.state", &sorted(&string), &sorted(&core_side));
 }
 
 /// The dice the abilities of the string run rolled, against the ones the core abilities rolled (the ledger rows
@@ -5132,6 +5143,24 @@ mod resolver_state_tests {
     #[test]
     fn a_window_that_leaves_the_resolver_as_the_string_did_agrees() {
         assert_eq!(run(true, &[]), (0, 5), "same keys, same initiative, the counter where the string left it; stored in the state");
+    }
+
+    #[test]
+    fn the_order_of_the_initiative_list_is_not_compared_the_seats_are_s1() {
+        // The string's list is the seating order of `Game::new` (S1); the core's is the position's initiative order: the same seats, another order.
+        let _serial = crate::dual::tests::serial();
+        crate::dual::take_report();
+        let r = Render::new(vec!["a".into(), "b".into()]);
+        let driver = Driver::new(Idle, Resolver::new(&[Seat(1), Seat(0)], Some(Seat(0))), AbilityTable::default(), 5);
+        let mut core = CoreState::all_loaded();
+        let script = Recording { nested: true, cfg: Some(cfg(&[])), after: Some(cfg(&[])), first_event_id: Some(5), finished: 0, ..Recording::default() };
+        compare_resolver(&r, &driver, &mut core, &script);
+        assert_eq!(crate::dual::take_report().differences.len(), 0, "[a, b] against [b, a] is no difference");
+        // A seat missing from the list still is one.
+        let driver = Driver::new(Idle, Resolver::new(&[Seat(1)], Some(Seat(0))), AbilityTable::default(), 5);
+        let mut core = CoreState::all_loaded();
+        compare_resolver(&r, &driver, &mut core, &script);
+        assert_eq!(crate::dual::take_report().differences.len(), 1);
     }
 
     #[test]
