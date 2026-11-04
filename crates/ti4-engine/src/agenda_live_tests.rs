@@ -185,6 +185,11 @@ fn sweep(prefer: Policy) -> Vec<String> {
         if GAPS.contains(&alias) {
             continue;
         }
+        // Ixthian Artifact, For (the first option) is the printed card in the core since rules version 36 and the string's effect is the known bug S6
+        // (docs/STRING_ENGINE_BUGS.md): the two are not the same game by design; `ti4-engine-core-tests/tests/agenda_crater.rs` pins the core's. Against is compared.
+        if alias == "artifact" && prefer.is_empty() {
+            continue;
+        }
         let state = rich_table(alias);
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let (string, native) = both_preferring(&state, &[], prefer);

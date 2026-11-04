@@ -656,7 +656,7 @@ impl Window for TitanBuild {
 
 // -- Technology ------------------------------------------------------------------------------------------
 
-use crate::generated::{Faction, PromissoryNote, StrategyCard, Technology};
+use crate::generated::{Agenda, Faction, PromissoryNote, StrategyCard, Technology};
 use crate::kernel::{fx_pay, fx_strategy};
 use crate::query::tech::{self, Colours, ResearchCtx, ResearchHooks, UnitRoster};
 use crate::state::NoteKey;
@@ -787,6 +787,10 @@ pub struct Research {
     /// Technology Rider (package W4; `strategy_cards::offer_free_research`): one free research asked as the card's own question,
     /// and nothing after it (no paid second research).
     rider: bool,
+    /// An agenda's free research (Ixthian Artifact, rules version 36): the agenda is the source of the question, the research may be declined,
+    /// and `again` more free researches follow each one that lands.
+    agenda: Option<Agenda>,
+    again: u8,
     /// Doctor Sucaban, the sources of the paid research's offer in the order the string asks them ([`sucaban_sources`]) and the one asked now.
     sucaban: SmallList<SucabanSource, 4>,
     offer_at: usize,
@@ -872,7 +876,7 @@ impl Research {
     /// `cost`: the resources the paid research costs (6 for the primary's second, 4 for the secondary).
     #[must_use]
     pub const fn new(who: Seat, primary: bool, cost: i64, scope: Scope) -> Self {
-        Self { who, primary, cost, scope, roster: None, stage: RStage::Start, pay: None, chosen: None, failed: false, researched: SmallList::new(), rider: false, sucaban: SmallList::new(), offer_at: 0, checkpoint: None, declined: SmallList::new(), waiving: None, before: None, waiver_required: false }
+        Self { who, primary, cost, scope, roster: None, stage: RStage::Start, pay: None, chosen: None, failed: false, researched: SmallList::new(), rider: false, agenda: None, again: 0, sucaban: SmallList::new(), offer_at: 0, checkpoint: None, declined: SmallList::new(), waiving: None, before: None, waiver_required: false }
     }
 
     /// Technology Rider ("research 1 technology", `strategy_cards::offer_free_research`): the Technology primary's free research,
@@ -881,6 +885,17 @@ impl Research {
     pub const fn rider(who: Seat, scope: Scope) -> Self {
         let mut window = Self::new(who, true, 0, scope);
         window.rider = true;
+        window
+    }
+
+    /// An agenda's "each player may research `times` technologies" for one player (Ixthian Artifact): free researches, prerequisites apply, each one
+    /// asked as the agenda's question and declinable; a decline ends the rest.
+    #[must_use]
+    pub const fn agenda(who: Seat, scope: Scope, agenda: Agenda, times: u8) -> Self {
+        let mut window = Self::new(who, true, 0, scope);
+        window.rider = true;
+        window.agenda = Some(agenda);
+        window.again = times.saturating_sub(1);
         window
     }
 
@@ -946,6 +961,16 @@ impl Research {
             *s = *before;
         }
         self.stage = RStage::Done;
+    }
+
+    /// A free research landed: the next one of an agenda's research is asked (the stage stays `Free`), else the window is over.
+    fn next_free(&mut self) {
+        if self.again > 0 {
+            self.again -= 1;
+            self.stage = RStage::Free;
+        } else {
+            self.stage = RStage::Done;
+        }
     }
 
     fn pay_step(&self, paid: i64) -> PayStep {
@@ -1148,9 +1173,13 @@ impl Research {
         self.waiving = None;
         let paid = self.before.take().is_some();
         self.complete(sx.state, sx.kernel, waiving.tech);
-        if paid || self.rider {
+        if paid {
             // (A landed technology: a Ssruu's checkpoint of the Sucaban offer is dropped without a restore.)
             self.end_paid(sx.state, true);
+        } else if self.rider {
+            self.checkpoint = None;
+            self.declined = SmallList::new();
+            self.next_free();
         } else {
             self.declined = SmallList::new();
             self.begin_paid(sx.state, sx.kernel);
@@ -1221,7 +1250,9 @@ impl Research {
         }
         let cost = if decline { u8::try_from(self.cost).unwrap_or(u8::MAX) } else { 0 };
         let mut ctx = crate::choice::strategy::ctx(StrategyCard::Technology, decline, SSub::ResearchTechnology);
-        if self.rider {
+        if let Some(agenda) = self.agenda {
+            ctx.origin = Origin::Agenda(agenda);
+        } else if self.rider {
             ctx.origin = Origin::ActionCard(crate::generated::ActionCard::TechnologyRider);
         }
         Choice { actor: self.who, ask: ask(SAsk::ResearchTechnology { cost, owned, decline }), ctx, opts: options }
@@ -1295,7 +1326,7 @@ impl Window for Research {
                             self.begin_paid(sx.state, sx.kernel);
                         }
                     } else {
-                        return Next::Continue(self.research_choice(sx.state, sx.kernel, false).ask);
+                        return Next::Continue(self.research_choice(sx.state, sx.kernel, self.agenda.is_some()).ask);
                     }
                 }
                 RStage::Offer => match self.offer_choice() {
@@ -1341,7 +1372,7 @@ impl Window for Research {
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         match self.stage {
-            RStage::Free => Some(self.research_choice(s, k, false)),
+            RStage::Free => Some(self.research_choice(s, k, self.agenda.is_some())),
             RStage::Offer => self.offer_choice(),
             RStage::Trade => Some(self.trade_choice(s)),
             RStage::Choose => Some(self.research_choice(s, k, true)),
@@ -1392,11 +1423,13 @@ impl Window for Research {
             }
             (RStage::WaivePay, Opt::Strategy(SOpt::ResearchPayment(payment))) => self.waive_and_pay(sx, payment)?,
             (RStage::Choose, Opt::Decline) => self.end_paid(sx.state, false),
+            // An agenda's research may be declined: no more of its researches.
+            (RStage::Free, Opt::Decline) if self.agenda.is_some() => self.stage = RStage::Done,
             (RStage::Free, Opt::Strategy(SOpt::Research(t))) => match self.try_settle(sx.state, sx.kernel, t) {
                 Settled::Landed => {
                     self.declined = SmallList::new();
                     if self.rider {
-                        self.stage = RStage::Done;
+                        self.next_free();
                     } else {
                         self.begin_paid(sx.state, sx.kernel);
                     }

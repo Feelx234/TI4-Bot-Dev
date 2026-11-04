@@ -35,6 +35,7 @@ use crate::state::{CoreState, ObjectiveRef, SysFlags};
 use super::table_effects::{EffectFacts, Table};
 
 pub(crate) mod placements;
+mod crater;
 mod questions;
 
 pub use crate::kernel::fx::VICTORY_TARGET;
@@ -80,8 +81,8 @@ pub enum Kind {
     Mechs,
     /// Colonial Redistribution: the planet is wiped, then settled by one of the trailing seats.
     Settle(Planet),
-    /// Ixthian Artifact, For: a die; a 6 is a windfall that needs a payer (deferred), anything else destroys every ship that
-    /// cannot sustain damage.
+    /// Ixthian Artifact, For: a die; 6-10 lets each player research two technologies, 1-5 destroys everything in the Mecatol Rex system and three
+    /// units of each player in every system beside it (`crater`).
     Crater,
 }
 
@@ -124,8 +125,10 @@ pub struct Resolve {
     cursor: u8,
     /// The faces of the dice the effect rolled, in order (Executive Sanctions, Ixthian Artifact).
     faces: SmallList<u32, 16>,
-    /// Unconventional Measures: the draw of the voter being served.
+    /// Unconventional Measures, Ixthian Artifact: the draw (or research) of the voter being served.
     draw: ErasedChild,
+    /// Ixthian Artifact: where the destruction beside Mecatol Rex stands.
+    crater_at: crater::At,
 }
 
 impl Resolve {
@@ -182,7 +185,7 @@ impl Resolve {
             ) => Kind::Nothing,
             _ => return None,
         };
-        Some(Self { kind, stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle() })
+        Some(Self { kind, stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle(), crater_at: crater::At::START })
     }
 
     /// [`Resolve::of`], then the table effects: `facts` carries the ballot and everything the table reads.
@@ -205,11 +208,11 @@ impl Resolve {
             _ => None,
         };
         if let Some(kind) = special {
-            return Some(Self { kind, stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle() });
+            return Some(Self { kind, stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle(), crater_at: crater::At::START });
         }
         let (table, deferred) = Table::of(agenda, outcome, facts.has_galaxy)?;
         let done = if deferred { Done::Deferred } else { Done::Resolved };
-        Some(Self { kind: Kind::Table(table), stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle() })
+        Some(Self { kind: Kind::Table(table), stage: Stage::Apply, repealed: false, done, drawn: 0, checking: false, facts: Some(facts.clone()), unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle(), crater_at: crater::At::START })
     }
 
     /// Whether the table effect met a position it does not express (its result is not to be compared).
@@ -221,7 +224,7 @@ impl Resolve {
     /// `laws::repeal` of `law`.
     #[must_use]
     pub const fn repeal(law: Agenda) -> Self {
-        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle() }
+        Self { kind: Kind::Repeal(law), stage: Stage::Apply, repealed: false, done: Done::Resolved, drawn: 0, checking: false, facts: None, unsupported: false, tied: SmallList::new(), cursor: 0, faces: SmallList::new(), draw: ErasedChild::idle(), crater_at: crater::At::START }
     }
 
     /// Whether the effect rolls dice (it needs the random streams of the state).
@@ -239,7 +242,7 @@ impl Resolve {
     /// Whether the table effect reads the map slice.
     #[must_use]
     pub const fn needs_map(&self) -> bool {
-        matches!(self.kind, Kind::Table(t) if t.needs_map())
+        matches!(self.kind, Kind::Crater) || matches!(self.kind, Kind::Table(t) if t.needs_map())
     }
 
     /// Whether the effect turns a card of a deck, as a draw does.
@@ -258,19 +261,6 @@ impl Resolve {
     #[must_use]
     pub const fn done(&self) -> Done {
         self.done
-    }
-
-    /// Ixthian Artifact's crater: every ship that cannot sustain damage leaves every system.
-    fn crater(core: &mut CoreState, scope: crate::tables::Scope) {
-        let doomed = |p: &crate::state::Piece| {
-            let d = p.kind().data();
-            d.ship && !d.sustain_damage && scope.0 & crate::tables::source_bit(d.source) != 0
-        };
-        for system in System::ALL {
-            if core.board().sys(system).units.as_slice().iter().any(doomed) {
-                core.board_mut().sys_mut(system).units.retain(|p| !doomed(p));
-            }
-        }
     }
 
     /// `laws::repeal`: the law leaves play; Political Censure's holder loses its point.
@@ -380,6 +370,7 @@ impl Window for Resolve {
             Kind::Arm => return self.arm(sx),
             Kind::Mechs => return self.mechs(sx),
             Kind::Settle(planet) => return self.settle(sx, planet),
+            Kind::Crater => return self.crater(sx),
             _ => {}
         }
         if self.stage == Stage::Apply {
@@ -429,18 +420,7 @@ impl Window for Resolve {
                         }
                     }
                 }
-                Kind::Crater => {
-                    let face = sx.die(crate::state::RngDomain::Dice, DIE_SIDES);
-                    self.faces.push(face);
-                    if face >= 6 {
-                        self.done = Done::Deferred;
-                    } else if let Some(facts) = &self.facts {
-                        Self::crater(sx.state, facts.scope);
-                    } else {
-                        self.unsupported = true;
-                    }
-                }
-                Kind::Nothing | Kind::Draw(..) | Kind::Cards | Kind::Seed(..) | Kind::Defense | Kind::Arm | Kind::Mechs | Kind::Settle(_) => {}
+                Kind::Nothing | Kind::Draw(..) | Kind::Cards | Kind::Seed(..) | Kind::Defense | Kind::Arm | Kind::Mechs | Kind::Settle(_) | Kind::Crater => {}
                 Kind::Table(table) => {
                     if let Some(facts) = &self.facts {
                         table.apply(sx.state, facts);
@@ -465,6 +445,8 @@ impl Window for Resolve {
             Kind::Defense => return self.defense_question(s),
             Kind::Settle(planet) => return self.settle_question(s, planet),
             Kind::Cards => return self.draw.ask_of(s, k),
+            Kind::Crater if self.stage == Stage::Drawing => return self.draw.ask_of(s, k),
+            Kind::Crater => return self.crater_question(s),
             _ => {}
         }
         let Kind::Draw(who, _) = self.kind else { return None };
@@ -483,6 +465,8 @@ impl Window for Resolve {
             Kind::Defense => return self.defense_answer(sx, pick),
             Kind::Settle(planet) => return self.settle_answer(sx, planet, pick),
             Kind::Cards => return self.draw.answer(sx, pick),
+            Kind::Crater if self.stage == Stage::Drawing => return self.draw.answer(sx, pick),
+            Kind::Crater => return self.crater_answer(sx, pick),
             _ => {}
         }
         let Kind::Draw(who, _) = self.kind else { return Err(Illegal) };
@@ -517,7 +501,7 @@ mod tests {
     // -- the card, relic and dice effects (package B9c-2) ----------------------------------------------------------
 
     use crate::driver::Driver;
-    use crate::generated::{ActionCard, Faction, Relic, Unit};
+    use crate::generated::{ActionCard, Faction, Relic};
     use crate::kernel::stage::AbilityTable;
     use crate::kernel::Resolver;
     use crate::state::{Code, Player, Players, Seats};
@@ -700,34 +684,28 @@ mod tests {
         assert!(!w.rolls());
     }
 
+    /// Ixthian Artifact (rules version 36) is tested in `ti4-engine-core-tests/tests/agenda_crater.rs` (the rolls, the researches, the craters beside Mecatol Rex);
+    /// here: the window rolls once, only for the For outcome, and a 6-10 without the unit roster is the string's (the researches cannot be followed).
     #[test]
-    fn ixthian_artifact_for_destroys_ships_that_cannot_sustain_unless_a_six_or_more_is_rolled() {
+    fn ixthian_artifact_for_rolls_one_die_and_a_research_needs_the_roster() {
         let f = facts(&[]);
-        let (mut deferred, mut cratered) = (0, 0);
+        assert!(!Resolve::of_facts(Agenda::IxthianArtifact, Outcome::Against, &f).unwrap().rolls());
+        let (mut researched, mut cratered) = (0, 0);
         for seed in 0..40 {
             let mut s = table(2);
-            let (home, far) = (System::ALL[3], System::ALL[4]);
-            for unit in [Unit::CarrierI, Unit::DreadnoughtI, Unit::FighterI] {
-                fx::place_unit(&mut s, Seat(0), home, None, unit);
-            }
-            fx::place_unit(&mut s, Seat(1), far, None, Unit::WarSun);
-            fx::place_unit(&mut s, Seat(1), far, Some(Planet::ALL[3]), Unit::InfantryI);
             let w = Resolve::of_facts(Agenda::IxthianArtifact, Outcome::For, &f).unwrap();
+            assert!(w.rolls() && w.needs_map());
             let d = run(w, &mut s, seed);
             assert_eq!(d.window.faces().len(), 1);
-            let ships = s.board().sys(home).units.len();
             if d.window.faces()[0] >= 6 {
-                deferred += 1;
-                assert_eq!((d.window.done(), ships), (Done::Deferred, 3));
+                researched += 1;
+                assert!(d.window.unsupported(), "no roster: the unit upgrades of a research could not be applied");
             } else {
                 cratered += 1;
-                assert_eq!((d.window.done(), ships), (Done::Resolved, 1), "only the dreadnought sustains");
-                assert_eq!(s.board().sys(home).units.as_slice()[0].kind(), Unit::DreadnoughtI);
-                assert_eq!(s.board().sys(far).units.len(), 1, "the war sun sustains");
-                assert_eq!(s.board().planet(Planet::ALL[3]).units.len(), 1, "ground forces are not ships");
+                assert!(!d.window.unsupported(), "no map beside Mecatol Rex: nothing more to destroy");
+                assert_eq!(d.window.done(), Done::Resolved);
             }
         }
-        assert!(deferred > 0 && cratered > 0, "{deferred} deferred, {cratered} cratered");
-        assert!(!Resolve::of_facts(Agenda::IxthianArtifact, Outcome::Against, &f).unwrap().rolls());
+        assert!(researched > 0 && cratered > 0, "{researched} researched, {cratered} cratered");
     }
 }

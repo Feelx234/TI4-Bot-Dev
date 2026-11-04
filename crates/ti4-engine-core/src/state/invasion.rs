@@ -142,6 +142,9 @@ pub struct Invasion {
     pub extra_commits: Vec<CommitOrigin>,
     /// Units committed as ground forces for the moment (Matriarch's fighters), by landing planet.
     pub temp_commits: Vec<(Planet, Vec<Piece>)>,
+    /// Every unit this commit step has landed so far, by planet (rules version 36): the units a Parley returns together ("the committed units"),
+    /// not only the last one. Filled by the commit answer, never read after the step ends.
+    pub step_commits: Vec<(Planet, Piece)>,
     /// Already committed hero combats leave invasion/control continuations to their caller.
     pub combat_only: bool,
     /// The round in progress was numbered by a copied round agent when it began (the Sol agent, readied or lent): decided once at the start of
@@ -164,6 +167,7 @@ impl Invasion {
             bombard: IBombard::default(),
             extra_commits: Vec::new(),
             temp_commits: Vec::new(),
+            step_commits: Vec::new(),
             combat_only: false,
             round_copied: false,
         }

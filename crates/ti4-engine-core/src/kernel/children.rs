@@ -13,7 +13,7 @@
 use crate::choice::explore::{Opt as EOpt, Step as EStep};
 use crate::choice::{Choice, Pick};
 use crate::containers::SmallList;
-use crate::generated::{ActionCard, Planet, StrategyCard, System, Technology, Unit};
+use crate::generated::{ActionCard, Agenda, Planet, StrategyCard, System, Technology, Unit};
 use crate::ids::Seat;
 use crate::kernel::stage::{Illegal, Ran, Sx, Window};
 use crate::kernel::{Kernel, Next};
@@ -356,6 +356,10 @@ pub enum Spawn {
     /// The Technology Rider's free research (`production::strategy_cards::Research::rider`): reports [`Report::Left`] when an answer
     /// left the plain path (a technology only a faction waiver opens).
     RiderResearch { who: Seat, scope: Scope, roster: &'static UnitRoster },
+    /// An agenda's "each player may research `times` technologies" for `who` (`production::strategy_cards::Research::agenda`, Ixthian Artifact): free,
+    /// declinable, the agenda is the source of the question; reports [`Report::Left`] when an answer left the plain path (a technology only a faction
+    /// waiver opens that cannot be followed).
+    AgendaResearch { who: Seat, scope: Scope, roster: &'static UnitRoster, agenda: Agenda, times: u8 },
     /// The Leadership ability.
     Leadership { who: Seat, primary: bool },
     /// The Construction ability.

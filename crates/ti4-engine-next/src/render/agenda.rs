@@ -93,6 +93,7 @@ impl Family for Fam {
             Ask::RiderTarget { rider: Rider::Diplomacy } => "Diplomacy Rider: choose a system".to_owned(),
             Ask::RiderTarget { rider: Rider::Warfare } => "Warfare Rider: place a dreadnought in which system".to_owned(),
             Ask::Structure => "destroy one of your structures".to_owned(),
+            Ask::Crater { system, left } => format!("Ixthian Artifact: destroy {left} of your units in system {} (your choice)", system.as_str()),
             Ask::DiscardLaw { prompt, .. } => r.code_text(*prompt),
             Ask::Committee { agenda } => format!("{}: elect which player", agenda.as_str()),
             Ask::UseOnAgenda { source: UseSource::Quash, .. } => {
@@ -120,6 +121,7 @@ impl Family for Fam {
             Subtype::ElectTiebreak => "agenda_elect_tiebreak",
             Subtype::SettleTrailing => "redistribution_choose_settler",
             Subtype::DefenseStructure => "defense_act_choose_pds",
+            Subtype::CraterUnit => "ixthian_artifact_destroy_unit",
             Subtype::OfferDiscardLaw => "offer_discard_law",
             Subtype::UseQuash => "quash",
             Subtype::UseFavor => "favor",
@@ -145,6 +147,28 @@ impl Family for Fam {
                 ChoiceOption::labelled(index.to_string(), "scuttle", format!("destroy the one on {}", planet.as_str()))
                     .with_planet(planet.as_str(), Some(system.as_str()))
             }
+            (Ask::Crater { system, .. }, Opt::Unit { planet, piece }) => {
+                let place = planet.map_or("space", |p| p.as_str());
+                let mut id = format!("{place}|{}", piece.kind().as_str());
+                let mut label = format!("destroy a {}", piece.kind().as_str());
+                if piece.sustained() {
+                    id.push_str("|damaged");
+                    label.push_str(" (damaged)");
+                }
+                if piece.galvanized() {
+                    id.push_str("|galvanized");
+                    label.push_str(" (galvanized)");
+                }
+                label.push_str(&match planet {
+                    Some(p) => format!(" on {}", p.as_str()),
+                    None => " in the space area".to_owned(),
+                });
+                let option = ChoiceOption::labelled(id, "unit", label).with("unit", piece.kind().as_str());
+                match planet {
+                    Some(p) => option.with_planet(p.as_str(), Some(system.as_str())),
+                    None => option,
+                }
+            }
             (Ask::DiscardLaw { law, .. }, Opt::DiscardLaw) => ChoiceOption::labelled("discard", "law", format!("discard {}", law.as_str())),
             (Ask::UseOnAgenda { source, .. }, Opt::UseCard) => {
                 let alias = match source {
@@ -162,7 +186,7 @@ impl Family for Fam {
         match a {
             Ask::NameTied | Ask::Settler | Ask::Committee { .. } => r.seat(id).map(Opt::Elect),
             // The planet and the system are the position's: the pick is matched against the offered options.
-            Ask::Structure | Ask::RiderTarget { .. } => None,
+            Ask::Structure | Ask::Crater { .. } | Ask::RiderTarget { .. } => None,
             Ask::DiscardLaw { .. } => (id == "discard").then_some(Opt::DiscardLaw),
             Ask::UseOnAgenda { .. } => (id == "use").then_some(Opt::UseCard),
             _ => Self::parse_vote(r, a, id),
@@ -287,7 +311,7 @@ impl Fam {
                 "tribute|token" => Some(Opt::TributeToken),
                 _ => None,
             },
-            Ask::NameTied | Ask::Settler | Ask::Structure | Ask::DiscardLaw { .. } | Ask::UseOnAgenda { .. } | Ask::Committee { .. } | Ask::RiderTarget { .. } => None,
+            Ask::NameTied | Ask::Settler | Ask::Structure | Ask::Crater { .. } | Ask::DiscardLaw { .. } | Ask::UseOnAgenda { .. } | Ask::Committee { .. } | Ask::RiderTarget { .. } => None,
         }
     }
 

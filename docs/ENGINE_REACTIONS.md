@@ -399,7 +399,8 @@ Cards in the table now: Sabotage (nothing; see below), Intercept, Parley, Direct
   plays in that window (the Empyrean mech's Watcher is an ability, not a card, and stays string).
 * **Intercept**: every other combatant of the active system gets `retreat_barred_round` = this round.
 * **Parley**: the unit in `last_committed_unit` goes from its planet back to space; a Naaz mech (the other form flips) is a
-  documented bail (`UnportedCard`).
+  documented bail (`UnportedCard`). Since rules version 36 (S7): the card also flags the landing as cancelled and the invasion machine returns every
+  unit the commit step landed on that planet and ends the step (`commit::parley`, `InvasionMachine::cancel_landings`).
 * **Direct Hit.** The string reads the `combat:sustain_target` blob mark (the exact sustained unit, written when the unit
   sustains) and removes that unit without the ship-lost observers; it destroys the first sustained ship of the type when there
   is no mark and (below `supply::staging_enabled`) the first ship of the type. The mark is now typed (`Sh::SustainTarget`:

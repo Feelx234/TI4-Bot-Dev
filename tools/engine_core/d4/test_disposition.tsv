@@ -4763,7 +4763,7 @@ ti4-engine-core	crates/ti4-engine-core/src/rules/agenda/committee.rs	a_pick_that
 ti4-engine-core	crates/ti4-engine-core/src/rules/agenda/committee.rs	the_election_queues_the_resolution_and_a_law_enactment_as_plain_events	K	rules	0	0	0
 ti4-engine-core	crates/ti4-engine-core/src/rules/agenda/committee.rs	the_owner_names_a_player_and_a_law_is_listed_and_enacted	K	rules	0	0	0
 ti4-engine-core	crates/ti4-engine-core/src/rules/agenda/effects.rs	executive_sanctions_against_discards_the_card_a_die_picks_from_each_hand	K	rules	0	0	0
-ti4-engine-core	crates/ti4-engine-core/src/rules/agenda/effects.rs	ixthian_artifact_for_destroys_ships_that_cannot_sustain_unless_a_six_or_more_is_rolled	K	rules	0	0	0
+ti4-engine-core	crates/ti4-engine-core/src/rules/agenda/effects.rs	ixthian_artifact_for_rolls_one_die_and_a_research_needs_the_roster	K	rules	0	0	0
 ti4-engine-core	crates/ti4-engine-core/src/rules/agenda/effects.rs	minister_of_antiquities_gives_the_elected_seat_the_top_relic	K	rules	0	0	0
 ti4-engine-core	crates/ti4-engine-core/src/rules/agenda/effects.rs	only_the_ported_effects_open_a_window	K	rules	0	0	0
 ti4-engine-core	crates/ti4-engine-core/src/rules/agenda/effects.rs	unconventional_measures_for_draws_two_cards_for_each_for_voter	K	rules	0	0	0
@@ -4901,6 +4901,7 @@ ti4-engine-core-factions	crates/ti4-engine-core-factions/src/cards/mod.rs	direct
 ti4-engine-core-factions	crates/ti4-engine-core-factions/src/cards/mod.rs	intercept_bars_the_retreat_of_the_other_combatants_for_this_round	K	cards	0	0	0
 ti4-engine-core-factions	crates/ti4-engine-core-factions/src/cards/mod.rs	intercept_fizzles_for_a_seat_that_is_not_in_the_fight	K	cards	0	0	0
 ti4-engine-core-factions	crates/ti4-engine-core-factions/src/cards/mod.rs	parley_returns_the_committed_unit_to_space	K	cards	0	0	0
+ti4-engine-core-factions	crates/ti4-engine-core-factions/src/cards/mod.rs	parley_returns_a_naaz_mech_recorded_in_its_ship_form	K	cards	0	0	0
 ti4-engine-core-factions	crates/ti4-engine-core-factions/src/cards/mod.rs	skilled_retreat_asks_when_there_are_several_destinations	K	cards	0	0	0
 ti4-engine-core-factions	crates/ti4-engine-core-factions/src/cards/mod.rs	skilled_retreat_moves_the_fleet_to_the_only_destination_and_draws_the_combat	K	cards	0	0	0
 ti4-engine-core-factions	crates/ti4-engine-core-factions/src/cards/mod.rs	skilled_retreat_strands_what_does_not_fit_and_stages_the_loss_only_with_staging	K	cards	0	0	0

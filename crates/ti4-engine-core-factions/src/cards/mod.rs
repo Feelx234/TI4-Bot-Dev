@@ -5,7 +5,7 @@
 //!
 //! * Sabotage: the effect is empty (the cancel is the slot's, in the window of `ACTION_CARD_PLAYED`);
 //! * Intercept: the opponents of the holder in the active system cannot retreat in this round;
-//! * Parley: the unit just committed goes back to the space area.
+//! * Parley: the units committed to the planet go back to the space area and the invader cannot land again (rules version 36).
 
 use ti4_engine_core::generated::{ActionCard, Faction, System};
 use ti4_engine_core::kernel::stage::Sx;
@@ -329,29 +329,12 @@ fn combatants(host: &RulesHost<'_>, system: System) -> Vec<Seat> {
     combat::combatants(rd, system).as_slice().to_vec()
 }
 
-/// `action_cards::parley`: the unit the commit step just placed goes back to the space area of its system.
+/// `action_cards::parley` (rules version 36): the committed units go back to the space area and the landing is cancelled. The card returns the
+/// unit of the landing it answers; the invasion that drives the commit step returns the others it landed on that planet and ends the step
+/// (`ti4_engine_core::rules::invasion::commit::parley`). The string card returned the last unit only, and the invader landed again (S7).
 fn parley(host: &mut RulesHost<'_>, _: &mut Resolver, _: Seat, _: ActionCard) -> Result<(), TimingError> {
-    let Some((owner, system, planet, unit)) = host.state.transient_mut().combat.last_committed_unit.take() else { return Ok(()) };
-    if unit.owner() != owner {
-        return Ok(());
-    }
-    let standing = host.state.board().planet(planet).units.contains(&unit);
-    if !standing {
-        // An earlier window in the same emission took the unit from the planet.
-        return Ok(());
-    }
-    let units = &mut host.state.board_mut().planet_mut(planet).units;
-    if let Some(at) = units.iter().position(|u| *u == unit) {
-        units.remove(at);
-    }
-    host.state.board_mut().sys_mut(system).units.push(unit);
-    // A dual-form unit that landed as its ground form goes back to space in its ship form (the string's `flip_form`
-    // on the first unit of that owner and kind in the space area): the ground form is never in a space area.
     let scope = ti4_engine_core::tables::Scope(u32::from(host.kernel.sources.0));
-    let ship = |u: ti4_engine_core::generated::Unit| scope.unit(u).is_some_and(|d| d.ship);
-    if !ship(unit.kind()) && ti4_engine_core::query::tech::other_form(unit.kind()).is_some_and(ship) {
-        ti4_engine_core::kernel::fx_strategy::flip_form(host.state, scope, owner, system, None, unit.kind());
-    }
+    ti4_engine_core::rules::invasion::commit::parley(host.state, scope);
     Ok(())
 }
 
@@ -432,6 +415,7 @@ mod tests {
         assert!(s.board().planet(planet).units.is_empty(), "the unit left the planet");
         assert_eq!(s.board().sys(system).units.as_slice(), &[piece], "and stands in space");
         assert!(s.transient().combat.last_committed_unit.is_none(), "the handoff is spent");
+        assert_eq!(s.transient().combat.parley_cancel, Some((Seat(0), system, planet)), "the landing is cancelled: the invasion ends the commit step");
         // Played again with nothing to return: nothing changes.
         assert_eq!(run(&mut s, &registered(), ActionCard::Parley, Seat(1), false), Ok(None));
         assert_eq!(s.board().sys(system).units.len(), 1);
@@ -906,6 +890,19 @@ mod tests {
         s.transient_mut().combat.last_committed_unit = Some((Seat(0), system, planet, piece));
         assert_eq!(run(&mut s, &registered(), ActionCard::Parley, Seat(1), false), Ok(None));
         assert_eq!(s.board().sys(system).units.iter().map(|p| p.kind()).collect::<Vec<_>>(), [Unit::InfantryI]);
+    }
+
+    /// The commit step records the unit as it stood in space (its ship form) and lands it in its ground form: the card finds it by either form.
+    #[test]
+    fn parley_returns_a_naaz_mech_recorded_in_its_ship_form() {
+        let (mut s, _) = table(&[Faction::TheNaazRokhaAlliance, Faction::TheEmiratesOfHacan]);
+        let system = System::ALL[0];
+        let planet = ti4_engine_core::generated::Planet::ALL[0];
+        s.board_mut().planet_mut(planet).units.push(Piece::new(Unit::Eidolon, Seat(0)));
+        s.transient_mut().combat.last_committed_unit = Some((Seat(0), system, planet, Piece::new(Unit::ZGravEidolonNaazMechSpace, Seat(0))));
+        assert_eq!(run(&mut s, &registered(), ActionCard::Parley, Seat(1), false), Ok(None));
+        assert_eq!(s.board().planet(planet).units.len(), 0, "left the planet");
+        assert_eq!(s.board().sys(system).units.iter().map(|p| p.kind()).collect::<Vec<_>>(), [Unit::ZGravEidolonNaazMechSpace]);
     }
 
     #[test]

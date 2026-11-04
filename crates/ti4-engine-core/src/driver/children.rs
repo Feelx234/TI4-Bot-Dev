@@ -81,6 +81,9 @@ fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
         Spawn::RiderResearch { who, scope, roster } => {
             Erased::boxed(Research::rider(*who, *scope).with_roster(**roster), |w| if w.failed { Report::Left } else { Report::Nothing })
         }
+        Spawn::AgendaResearch { who, scope, roster, agenda, times } => {
+            Erased::boxed(Research::agenda(*who, *scope, *agenda, *times).with_roster(**roster), |w| if w.failed { Report::Left } else { Report::Nothing })
+        }
         Spawn::Leadership { who, primary } => Erased::boxed(Leadership::new(*who, *primary), |_| Report::Nothing),
         Spawn::Construction { who, primary, facts } => Erased::boxed(Construction::new(*who, *primary, *facts), |w| if w.unsupported { Report::Left } else { Report::Produced(w.produced.clone()) }),
         Spawn::TitanBuild { who, facts, goods } => Erased::boxed(TitanBuild::new(*who, *facts, *goods), |w| Report::Built(w.built)),
@@ -215,6 +218,7 @@ mod tests {
             Spawn::Reward { who, step: crate::choice::explore::Step::MerchantStation, options: crate::containers::SmallList::new(), skip_single: true },
             Spawn::Research { who, primary: false, cost: 4, scope: crate::tables::Scope(u32::MAX), roster: Box::leak(Box::default()) },
             Spawn::RiderResearch { who, scope: crate::tables::Scope(u32::MAX), roster: Box::leak(Box::default()) },
+            Spawn::AgendaResearch { who, scope: crate::tables::Scope(u32::MAX), roster: Box::leak(Box::default()), agenda: crate::generated::Agenda::IxthianArtifact, times: 2 },
             Spawn::Leadership { who, primary: true },
             Spawn::Construction { who, primary: false, facts: crate::kernel::children::StructureFacts { pds: None, dock: None, source: crate::state::Code(0), alt: None } },
             Spawn::Politics { who, primary: true, official: true },

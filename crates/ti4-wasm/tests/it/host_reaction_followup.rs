@@ -71,7 +71,7 @@ fn save_at_destination_and_resume(reaction: &str) {
 }
 
 #[test]
-#[ignore = "the fixture is a save of rules version 18; only version 35 is played (docs/D28E_RESUME.md): re-record the position at 35"]
+#[ignore = "the fixture is a save of rules version 18; only version 36 is played (docs/D28E_RESUME.md): re-record the position at 36"]
 fn a_save_at_the_destination_of_skilled_retreat_plays_back() {
     let _serial = crate::common::serial();
     // The reaction window opens again after the card; the person plays its ability (the window
@@ -80,7 +80,7 @@ fn a_save_at_the_destination_of_skilled_retreat_plays_back() {
 }
 
 #[test]
-#[ignore = "the fixture is a save of rules version 18; only version 35 is played (docs/D28E_RESUME.md): re-record the position at 35"]
+#[ignore = "the fixture is a save of rules version 18; only version 36 is played (docs/D28E_RESUME.md): re-record the position at 36"]
 fn a_save_at_the_destination_after_declining_the_window_plays_back() {
     let _serial = crate::common::serial();
     // ... or declines it.

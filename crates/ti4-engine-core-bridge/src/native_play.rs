@@ -786,6 +786,27 @@ pub const KNOWN_S4: &str = "known string bug S4";
 /// The label of a difference that is the string's S5 (a secret objective scored for the first time does not run the leader unlock check at once).
 pub const KNOWN_S5: &str = "known string bug S5";
 
+/// The label of a difference that is the string's S6 (Ixthian Artifact: the string's crater destroys every ship that cannot sustain damage everywhere, and a 6-10
+/// is deferred; the printed card researches for each player or destroys what stands in and beside Mecatol Rex).
+pub const KNOWN_S6: &str = "known string bug S6";
+
+/// The label of a difference that is the string's S7 (Parley returns the last committed unit only; the invader lands again).
+pub const KNOWN_S7: &str = "known string bug S7";
+
+/// S6 and S7 (`docs/STRING_ENGINE_BUGS.md`, rules version 36): the step the shadow compares ran an effect the core plays as printed and the string does not.
+/// S6: the string's events of the step announce the Ixthian Artifact's effect (`AGENDA_EFFECT_RESOLVED:artifact` / `AGENDA_EFFECT_DEFERRED:artifact`), after which the two
+/// sides differ in questions (the core asks the researches or the units to destroy), events and state (the board). S7: the group answered a Parley, after which the string
+/// asks the invader to commit again and the core has ended the commit step.
+fn effect_bug(answered: &[&Asked], legacy_events: &[String]) -> Option<&'static str> {
+    if legacy_events.iter().any(|e| e == "AGENDA_EFFECT_RESOLVED:artifact" || e == "AGENDA_EFFECT_DEFERRED:artifact") {
+        Some(KNOWN_S6)
+    } else if answered.iter().any(|a| a.chosen == "parley") {
+        Some(KNOWN_S7)
+    } else {
+        None
+    }
+}
+
 /// S5 (`docs/STRING_ENGINE_BUGS.md`): a hero or commander the first score of a secret objective unlocks (51.7) is unlocked by the core at the score and by the string
 /// at its next check (turn start, status bookkeeping, where it also announces `LEADER_UNLOCKED`). Two forms: the event the string announces behind the score and the
 /// core has not (the core unlocked earlier, so its bookkeeping has nothing to announce), and the leader's state while the string has not unlocked it yet.
@@ -1306,6 +1327,7 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
         } else {
             (flips_a_phase(&d.arms) && order_in_error(s2_orders_differ(&legacy.game().state), error)).then_some(KNOWN_S2)
         };
+        d.known = d.known.or_else(|| effect_bug(&asked, events));
         return Some(d);
     }
     if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
@@ -1339,7 +1361,7 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
             (flips_a_phase(&arms) && order_in_questions(s2_orders_differ(&legacy.game().state), &d.path, &n, &l)).then_some(KNOWN_S2)
         };
         let mut found = diff("questions", d.path, d.right, d.left);
-        found.known = known;
+        found.known = known.or_else(|| effect_bug(&asked, events));
         return Some(found);
     }
     // The events are two streams: what one side pushed beyond the other's end of step is matched by the other's next step. A step that ends an
@@ -1359,6 +1381,7 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
         if s5_unlock_differs(&found) {
             found.known = Some(KNOWN_S5);
         }
+        found.known = found.known.or_else(|| effect_bug(&asked, events));
         return Some(found);
     }
     owed.native = native_stream[common..].to_vec();
@@ -1391,6 +1414,7 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
                     } else if s5_unlock_differs(&found) {
                         found.known = Some(KNOWN_S5);
                     }
+                    found.known = found.known.or_else(|| effect_bug(&asked, events));
                     return Some(found);
                 }
             }
@@ -1662,7 +1686,8 @@ mod tests {
         // Machine's 5, the marks are abilities of a window: another game, 1,165.)
         assert_eq!((played.rounds, played.steps), (9, 1165), "nine rounds of the table");
         assert!(native.get("tokens").copied().unwrap_or(0) >= 8 && native.get("status").copied().unwrap_or(0) >= 8, "the status phases ran natively, their close included: {native:?}");
-        assert_eq!(played.fingerprint, "74d5675ac754ac81");
+        // (Rules version 36 moved the pin from `74d5675ac754ac81`: the hashed position carries `rules_version` 36; the game is the same, see `tests/wrapper_native.rs`.)
+        assert_eq!(played.fingerprint, "538dc68f23dddcc9");
         assert_eq!(g.step(), Step::Finished, "a finished game stops the loop");
     }
 
@@ -2200,6 +2225,19 @@ mod tests {
         assert!(!s5_unlock_differs(&d("events", "[1]", "LEADER_UNLOCKED:a", "LEADER_UNLOCKED:b")), "two unlocks that differ are a difference of the core");
         assert!(!s5_unlock_differs(&d("state", "players[0].leaders.nomadcommander", "\"locked\"", "\"unlocked\"")), "the string ahead of the core is a difference of the core");
         assert!(!s5_unlock_differs(&d("state", "players[0].exhausted", "\"unlocked\"", "\"locked\"")), "only a leader's state");
+    }
+
+    /// Rules version 36, string bugs S6 (Ixthian Artifact) and S7 (Parley): the step that ran the effect is the one the shadow recognises, nothing else.
+    #[test]
+    fn s6_and_s7_are_recognised_by_the_step_that_ran_the_effect() {
+        let asked = |chosen: &str| Asked { player: "a".to_owned(), prompt: "p".to_owned(), options: vec![], chosen: chosen.to_owned() };
+        let (parley, decline) = (asked("parley"), asked("decline"));
+        assert_eq!(effect_bug(&[&parley], &[]), Some(KNOWN_S7));
+        for event in ["AGENDA_EFFECT_RESOLVED:artifact", "AGENDA_EFFECT_DEFERRED:artifact"] {
+            assert_eq!(effect_bug(&[&decline], &[event.to_owned()]), Some(KNOWN_S6), "{event}");
+        }
+        assert_eq!(effect_bug(&[&decline], &["AGENDA_EFFECT_RESOLVED:checks".to_owned()]), None);
+        assert_eq!(effect_bug(&[&decline], &[]), None);
     }
 
     /// Integration 19: a Nomad mech in the space area is offered as a sustainer (nomad 3 players seed 5, step 832: the string offered `sustain|1` and `sustain|2`); the

@@ -66,7 +66,7 @@ fn setup(seed: u64) -> (GameState, Galaxy) {
     let (mut state, galaxy) =
         ti4_host::map::create_game_with_template(ContentStore::embedded(), &players, seed, None)
             .unwrap();
-    // (The fixtures were tuned at rules version 3 with factionless notes; the core plays version 35 only, so the decision indices below
+    // (The fixtures were tuned at rules version 3 with factionless notes; the core plays version 36 only, so the decision indices below
     // were chosen again on this game: `base_history()` is the first 400 decisions of seed 7 under the Lcg decider at the newest version.)
     (state, galaxy)
 }

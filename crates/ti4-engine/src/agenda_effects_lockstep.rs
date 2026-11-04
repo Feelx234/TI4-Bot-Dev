@@ -341,7 +341,8 @@ fn run_seeded(state: &mut GameState, agenda: &str, outcome: &str, seed: u64) -> 
 
 /// Executive Sanctions (Against) discards a random card of each hand and Ixthian Artifact (For) either pays out
 /// (a 6, deferred: it needs a payer) or destroys every ship that cannot sustain damage, from the game's seeded dice:
-/// the core window draws from its copy of the streams and the faces and positions are compared.
+/// the core window draws from its copy of the streams and the faces and positions are compared. (Ixthian Artifact, For is not compared since rules
+/// version 36: the core plays the printed card and the string's effect is the known bug S6; its dice are still the string's here.)
 #[test]
 fn the_dice_effects_run_as_core_windows_in_lockstep() {
     let (compared, bailed) = counted(|| {
@@ -379,7 +380,8 @@ fn the_dice_effects_run_as_core_windows_in_lockstep() {
         }
         assert!(deferred > 0 && cratered > 0, "both branches ran: {deferred} deferred, {cratered} cratered");
     });
-    assert!(compared >= 24 * 4 && bailed == 0, "{compared} compared, {bailed} bailed");
+    // (Ixthian Artifact, For is the core's printed card since rules version 36: the string's crater is the known bug S6 and is not compared: one bail a seed.)
+    assert!(compared >= 24 * 3 && bailed == 24, "{compared} compared, {bailed} bailed");
 }
 
 /// The streams are copied at the position the string's stood at, not at the start.

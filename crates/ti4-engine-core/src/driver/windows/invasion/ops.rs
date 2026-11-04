@@ -455,9 +455,12 @@ impl InvasionMachine {
         let pool = self.commit_pool(sx.state, sx.kernel);
         let mut w = LandOne::new(self.p.invader, self.p.system, true).with_pool(pool);
         let _ = w.step(sx);
+        // (A cancellation left by a play outside this step is not this landing's.)
+        sx.state.transient_mut().combat.parley_cancel = None;
         w.answer(sx, pick)?;
         if let Some(t) = w.landed {
             if let Pick::Opt(Opt::Invasion(IOpt::Commit { planet, .. })) = pick {
+                self.p.step_commits.push((planet, t.piece));
                 if t.temporary {
                     match self.p.temp_commits.iter_mut().find(|(p, _)| *p == planet) {
                         Some((_, v)) => v.push(t.piece),
@@ -472,11 +475,33 @@ impl InvasionMachine {
                 }
             }
         }
+        // Parley, played in the reaction window of this landing: the units committed to its planet go back and the commit step is over.
+        if let Some((_, _, planet)) = sx.state.transient_mut().combat.parley_cancel.take() {
+            self.cancel_landings(sx, planet);
+            return Ok(());
+        }
         // Committing settles when nothing is left to land.
         if matches!(self.p.stage, IStage::Committing) && self.commit_pool(sx.state, sx.kernel).is_empty() {
             self.finish_committing(sx);
         }
         Ok(())
+    }
+
+    /// Parley (rules version 36): every unit this step landed on `planet` returns to the space area, the planet is no longer committed to, and the
+    /// commit step ends (what was landed on other planets stays). The card's own effect has returned the unit of the landing it answered.
+    fn cancel_landings(&mut self, sx: &mut Sx<'_>, planet: Planet) {
+        let scope = crate::tables::Scope(u32::from(sx.kernel.sources.0));
+        let (invader, system) = (self.p.invader, self.p.system);
+        let landed: Vec<Piece> = self.p.step_commits.iter().filter(|(p, _)| *p == planet).map(|(_, piece)| *piece).collect();
+        for piece in landed {
+            crate::rules::invasion::commit::return_to_space(sx.state, scope, invader, system, planet, piece);
+        }
+        self.p.step_commits.retain(|(p, _)| *p != planet);
+        self.p.report.committed.retain(|p| *p != planet);
+        self.p.temp_commits.retain(|(p, _)| *p != planet);
+        if matches!(self.p.stage, IStage::Committing) {
+            self.finish_committing(sx);
+        }
     }
 
     // -- answers --------------------------------------------------------------------------------------------------------

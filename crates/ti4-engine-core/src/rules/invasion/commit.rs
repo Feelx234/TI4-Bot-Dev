@@ -158,6 +158,38 @@ impl Window for CommitGround {
     }
 }
 
+/// A unit that landed goes back to the space area of its system: `piece` as it was committed, or its other form (a dual-form unit, the Naaz
+/// Eidolon, lands in its ground form and returns in its ship form). `false`, nothing changed, when it no longer stands on the planet.
+pub fn return_to_space(core: &mut CoreState, scope: crate::tables::Scope, owner: Seat, system: System, planet: Planet, piece: Piece) -> bool {
+    let units = &mut core.board_mut().planet_mut(planet).units;
+    let twin = crate::query::tech::other_form(piece.kind()).map(|t| piece.with_kind(t));
+    let Some(at) = units.iter().position(|u| *u == piece).or_else(|| twin.and_then(|t| units.iter().position(|u| *u == t))) else { return false };
+    let landed = units.remove(at);
+    core.board_mut().sys_mut(system).units.push(landed);
+    // A dual-form unit that landed as its ground form goes back to space in its ship form (the string's `flip_form` on the first unit of that
+    // owner and kind in the space area): the ground form is never in a space area.
+    let ship = |u: Unit| scope.unit(u).is_some_and(|d| d.ship);
+    if !ship(landed.kind()) && crate::query::tech::other_form(landed.kind()).is_some_and(ship) {
+        crate::kernel::fx_strategy::flip_form(core, scope, owner, system, None, landed.kind());
+    }
+    true
+}
+
+/// Parley (rules version 36), the effect on the state: the unit the commit step just placed goes back to the space area, and the commit step of
+/// that landing is cancelled -- `parley_cancel` names the planet, and the invasion that is driving the step returns everything else it landed on
+/// the planet in this step and ends the step ("return the committed units": the units are committed together, so a cancelled landing cannot be
+/// made again). Before version 36 the card returned the last unit only and the invader landed again.
+pub fn parley(core: &mut CoreState, scope: crate::tables::Scope) {
+    let Some((owner, system, planet, piece)) = core.transient_mut().combat.last_committed_unit.take() else { return };
+    if piece.owner() != owner {
+        return;
+    }
+    // (An earlier window in the same emission may have taken the unit from the planet: then there is nothing to return, and the landing still counts
+    // as cancelled.)
+    return_to_space(core, scope, owner, system, planet, piece);
+    core.transient_mut().combat.parley_cancel = Some((owner, system, planet));
+}
+
 /// One landing of the commit step: the answer `commit|<index>|<planet>` of the string
 /// `InvasionWindow::commit_one` for an ordinary candidate (a ground force standing in the space area, no toll,
 /// no faction origin). The window asks the commit question, lands the chosen unit, records it as the last

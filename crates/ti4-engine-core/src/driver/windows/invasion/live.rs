@@ -29,6 +29,7 @@ pub fn open_invasion(core: &mut CoreState, invader: Seat, system: System, notes:
         bombard: IBombard::default(),
         extra_commits: Vec::new(),
         temp_commits: Vec::new(),
+        step_commits: Vec::new(),
         combat_only: false,
         round_copied: false,
     });
@@ -52,6 +53,7 @@ pub fn open_at_commit(core: &mut CoreState, invader: Seat, system: System, notes
         bombard: IBombard { plan: Vec::new(), index: 0, occurrence, announced: true, cursor: None, walked: true, walk: None },
         extra_commits: Vec::new(),
         temp_commits: Vec::new(),
+        step_commits: Vec::new(),
         combat_only: false,
         round_copied: false,
     });

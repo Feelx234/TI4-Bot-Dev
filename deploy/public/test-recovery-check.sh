@@ -11,7 +11,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 # --- parse ---------------------------------------------------------------------------------
 cat >"$tmp/log" <<'L'
-Durable storage: refused 'game_a1' (session replay): Game cannot be loaded: this game was saved with an older version of the rules (version 0); only games of version 35 or newer can be played, so it cannot be opened
+Durable storage: refused 'game_a1' (session replay): Game cannot be loaded: this game was saved with an older version of the rules (version 0); only games of version 36 or newer can be played, so it cannot be opened
 Durable storage: could not recover 'game_b2' (session replay): Snapshot mismatch
 Durable storage: refused 'game_c3' (session replay): Game cannot be loaded: Thunder's Edge content is switched off in this version
 Durable storage: recovered 4 game(s); 1 failed; 2 refused (saved files retained)

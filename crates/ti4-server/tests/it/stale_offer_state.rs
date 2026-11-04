@@ -44,7 +44,7 @@ fn the_movement_facts_route_on_the_map_the_engine_has() {
     ));
     let deadline = Instant::now() + Duration::from_secs(60);
     // The stored game was played at an older rules version, which the core refuses (only the newest version is played): the session says so
-    // instead of offering a question. Re-record the position at version 35 to run the checks below again.
+    // instead of offering a question. Re-record the position at version 36 to run the checks below again.
     if source.state.rules_version != ti4_model::state::RULES_VERSION {
         let error = loop {
             if let Some(error) = session.error() {

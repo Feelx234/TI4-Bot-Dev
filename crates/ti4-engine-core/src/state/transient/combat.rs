@@ -76,6 +76,10 @@ pub struct CombatScratch {
     pub last_reroll_player: Option<Seat>,
     /// `last_committed_unit`: (player, system, planet, unit).
     pub last_committed_unit: Option<(Seat, System, Planet, Piece)>,
+    /// Parley (rules version 36): the planet whose landing was cancelled and the seat that committed. Written by the card's effect inside
+    /// the commit step's emission, taken (and cleared) by the invasion in the same call, which then returns what else it landed on the planet
+    /// in this step and ends the step. Never outlives that call, so the legacy codecs do not carry it.
+    pub parley_cancel: Option<(Seat, System, Planet)>,
     /// `last_sustain`: (system, owner, unit type, producer, flag).
     pub last_sustain: Option<(System, Seat, Unit, Seat, bool)>,
     pub pending_destructions: SmallList<PendingDestruction, 2>,

@@ -18,6 +18,9 @@ use ti4_model::id::PlayerId;
 
 const GOLDEN: &str = include_str!("host_create.golden");
 
+/// The rules version the golden file was recorded at.
+const RECORDED_RULES_VERSION: u32 = 35;
+
 const PRESETS: [&str; 17] = [
     "combat", "cards", "agenda", "relics", "invasion", "techs", "leaders", "endgame", "siege",
     "bombard", "capture", "explore", "notes", "expedition", "research", "research_nopa", "world",
@@ -77,6 +80,9 @@ fn digest_with(setup: &TableSetup, aliases: bool) -> String {
             if aliases {
                 as_the_legacy_scenario_dealt(&mut state);
             }
+            // The golden was recorded at rules version 35; the host makes the games at the newest version (36 since Ixthian Artifact and Parley, `docs/RV36_RESUME.md`),
+            // which is the only field of a created game that a bump changes. The version is put back to the recorded one before the digest, as the aliases are.
+            state.rules_version = RECORDED_RULES_VERSION;
             let json = serde_json::to_string(&state).expect("serialises");
             format!("{json}\n{state:?}\n{galaxy:?}")
         })

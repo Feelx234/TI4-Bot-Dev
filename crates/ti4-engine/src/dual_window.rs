@@ -1331,6 +1331,12 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
     let (mut cx, r) = tables(gs).why(crate::dual::reason::NO_TABLES)?;
     // An outcome that does not parse is still fine for the arms that do nothing; every other arm needs it.
     let outcome = cx.keys.parse_outcome(outcome, Some(agenda.data().elects)).unwrap_or(ti4_engine_core::keys::Outcome::Empty);
+    // Ixthian Artifact (For) is played as printed from rules version 36: the researches and the craters beside Mecatol Rex. The string effect (every ship without
+    // Sustain Damage destroyed everywhere, the research deferred) is a known string bug (S6, docs/STRING_ENGINE_BUGS.md) the core does not copy, so there is nothing to compare.
+    if agenda == Agenda::IxthianArtifact && outcome == ti4_engine_core::keys::Outcome::For {
+        crate::dual::note_bail_here("known string bug S6: Ixthian Artifact (For) is played as printed by the core");
+        return None;
+    }
     let seats = |ids: &[PlayerId]| -> Option<ti4_engine_core::containers::SmallList<ti4_engine_core::Seat, 8>> {
         let seats = ids.iter().map(|p| r.seat(p.as_str())).collect::<Option<Vec<_>>>().why(crate::dual::reason::NO_SEAT)?;
         (seats.len() <= 8).then(|| ti4_engine_core::containers::SmallList::from_slice(&seats))

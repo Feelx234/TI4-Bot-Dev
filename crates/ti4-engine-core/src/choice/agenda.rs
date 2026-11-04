@@ -9,7 +9,7 @@
 use crate::generated::{Agenda, Planet, System};
 use crate::ids::Seat;
 use crate::keys::Outcome;
-use crate::state::Code;
+use crate::state::{Code, Piece};
 
 /// Numbers an option shows that the position derives (the running tally of an outcome, the votes a planet
 /// casts, the system a planet sits in). Two options are equal when they name the same thing: `Shown`
@@ -122,6 +122,9 @@ pub enum Ask {
     Settler,
     /// Homeland Defense Act, Against: the seat destroys one of its PDS.
     Structure,
+    /// Ixthian Artifact (rules version 36), a roll of 1-5: the seat destroys one of its units in `system` (a system beside Mecatol Rex), `left` more
+    /// including this one.
+    Crater { system: System, left: u8 },
     /// `laws::offer_discard`: the owner of `law` may discard it (the caller's `prompt`, interned, is the text).
     DiscardLaw { law: Agenda, prompt: Code },
     /// `Game::ask_to_use_note`: the holder of a card or ability (`source`) may use it on the agenda just revealed
@@ -168,7 +171,7 @@ impl Ask {
             | Self::Recombine { frame, .. }
             | Self::Tribute { frame, .. }
             | Self::Tiebreak { frame } => Some(frame),
-            Self::NameTied | Self::Settler | Self::Structure | Self::DiscardLaw { .. } | Self::UseOnAgenda { .. } | Self::Committee { .. } | Self::RiderTarget { .. } => None,
+            Self::NameTied | Self::Settler | Self::Structure | Self::Crater { .. } | Self::DiscardLaw { .. } | Self::UseOnAgenda { .. } | Self::Committee { .. } | Self::RiderTarget { .. } => None,
         }
     }
 }
@@ -201,6 +204,8 @@ pub enum Opt {
     Elect(Seat),
     /// `Structure`: the PDS in position `index` of the planet's units (the option id), on this planet.
     Structure { index: u8, planet: Planet, system: System },
+    /// `Crater`: destroy this unit (`planet`: where it stands, `None` in the space area).
+    Unit { planet: Option<Planet>, piece: Piece },
     /// `DiscardLaw`: discard the law.
     DiscardLaw,
     /// `UseOnAgenda`: use the card or ability.
@@ -222,6 +227,7 @@ pub enum Subtype {
     ElectTiebreak,
     SettleTrailing,
     DefenseStructure,
+    CraterUnit,
     OfferDiscardLaw,
     UseQuash,
     UseFavor,
@@ -245,6 +251,7 @@ impl Ask {
             Self::NameTied => Subtype::ElectTiebreak,
             Self::Settler => Subtype::SettleTrailing,
             Self::Structure => Subtype::DefenseStructure,
+            Self::Crater { .. } => Subtype::CraterUnit,
             Self::DiscardLaw { .. } => Subtype::OfferDiscardLaw,
             Self::UseOnAgenda { source: UseSource::Quash, .. } => Subtype::UseQuash,
             Self::UseOnAgenda { source: UseSource::Favor, .. } => Subtype::UseFavor,

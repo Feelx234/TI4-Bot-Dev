@@ -116,6 +116,43 @@ unlocks with the third scored objective, whatever the kind of the objective.
   the state at the start of the step differs from the recording). Behind a `RULES_VERSION` it would be one line. The legacy test
   `status_live_tests::a_secret_scored_for_the_first_time_leaves_the_hero_locked_in_the_string_s5` pins the string's behaviour (remove it with the fix).
 
+## S6. Ixthian Artifact, For: the string destroys every ship without Sustain Damage everywhere and defers the research
+
+Alpha report fb_1793193205 ("the artifact which was resolved in the agenda phase did nothing"; rules version 29 game, a roll of 6-10: the effect was announced as deferred and
+changed nothing). Printed card: "The speaker rolls 1 die. If the result is 6-10, each player may research 2 technologies. If the result is 1-5, destroy all units in Mecatol Rex's
+system, and each player with units in systems adjacent to Mecatol Rex's system destroys 3 of their own units in each of those systems."
+
+* What the string does (`agenda_effects::effect_artifact`): a 6-10 returns `Effect::Deferred` ("the windfall researches two technologies each, which needs a payer") and nothing
+  happens; a 1-5 removes every ship that cannot sustain damage from EVERY system of the board and touches no ground force, no structure and no ship that sustains.
+* What the core does (rules version 36, `rules/agenda/effects/crater.rs`): 6-10, each player in speaker order may research up to two technologies for free (a child `Research::agenda`
+  window; prerequisites apply; the question carries the agenda as its source and can be declined); 1-5, every unit in the Mecatol Rex system is destroyed (ships, ground forces,
+  structures, whoever owns them) and, system by system (system order) and player by player (speaker order), a player with more than 3 units in a system beside Mecatol Rex chooses
+  the 3 that are destroyed (`Ask::Crater`, one question each; a choice among units that are all alike is not asked), a player with 3 or fewer loses them all. The effect is
+  always `Resolved`.
+* Who is right: the core (the card text above).
+* The harness: the dual window (`dual_window::agenda_effect`) bails on Ixthian Artifact, For and counts it as a known string bug S6, so the lockstep and the dual runs do not compare
+  it; the whole-game shadow reports a difference in the step that announced `AGENDA_EFFECT_RESOLVED:artifact` / `AGENDA_EFFECT_DEFERRED:artifact` as `(known string bug S6)`
+  (`native_play::effect_bug`) and cannot play on past it.
+* What a fix of the string would need (not done, user rule): the research as a child question, the crater question, and the Mecatol Rex system; it changes the questions of
+  recorded games, so it is behind a `RULES_VERSION` (36, `RULES_CRATER_PARLEY`).
+
+## S7. Parley returns the last committed unit only; the invader lands again
+
+Alpha report fb_1792786598 ("Why did I lose Lodor even though I played Parley"; rules version 26 game). Printed card: "After another player commits units to land on a planet you
+control: Return the committed units to the space area."
+
+* What the string does (`action_cards::parley`, `invasion.rs::commit_one`): the engine commits ground forces ONE per decision and announces `UNITS_COMMITTED` after each; Parley
+  reads `GameState::last_committed_unit` and returns that single unit. The invader is asked to commit again and lands the rest, so the card cancels nothing when more than one unit
+  is committed (and a dual-form unit, recorded in its ship form and landed in its ground form, is not found on the planet at all).
+* What the core does (rules version 36, `rules::invasion::commit::parley` and the invasion machine's `cancel_landings`): the card returns the unit of the landing it answers (found
+  in either of its forms) and flags the landing as cancelled; the machine then returns every unit it landed on that planet in this commit step (`Invasion::step_commits`), drops the
+  planet from the committed ones and ENDS the commit step (the units are committed together, so a cancelled landing cannot be made again; what was landed on other planets stays and
+  fights). The holder plays it at the landing of his choice, a decline of one window leaves the next landing's window open as before.
+* Who is right: the core (the units are committed simultaneously; "the committed units" are all of them).
+* The harness: the whole-game shadow reports a difference in a step that answered `parley` as `(known string bug S7)` (`native_play::effect_bug`).
+* What a fix of the string would need (not done, user rule): the per-step list of landed units and the end of the commit step in `InvasionWindow`; behind a `RULES_VERSION`
+  (36, `RULES_CRATER_PARLEY`).
+
 ## Harness limits found on the way (the shadow's, not the engines')
 
 * H1. A game the string has not stepped yet carries its galaxy with `hyperlane_lanes` off (`laws::apply_to_galaxy` runs at the start of every step). The core

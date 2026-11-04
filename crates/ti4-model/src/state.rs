@@ -1229,7 +1229,13 @@ pub const RULES_DMZ_EXPLORATION: u32 = 34;
 /// does. Version 35.
 pub const RULES_BASE_DIPLOMACY: u32 = 35;
 
-pub const RULES_VERSION: u32 = 35;
+/// The first rules version in which Ixthian Artifact and Parley play as printed. Ixthian Artifact (For): a roll of 6-10 lets each player research two
+/// technologies; a roll of 1-5 destroys every unit in the Mecatol Rex system and three units (their choice) of each player in every system beside it.
+/// Below, the effect destroyed every ship that cannot sustain damage everywhere and left the 6-10 unresolved. Parley: "return the committed units" cancels
+/// the whole landing; below, only the last unit returned and the invader could land again. Version 36.
+pub const RULES_CRATER_PARLEY: u32 = 36;
+
+pub const RULES_VERSION: u32 = 36;
 
 /// The oldest rules version the product plays (owner decision 2026-11-03: only the newest). A game
 /// of an older version is refused at creation, load, recovery, replay and resume, with its files

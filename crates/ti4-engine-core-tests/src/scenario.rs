@@ -12,8 +12,8 @@ use ti4_engine_core::tables::{LaneTable, SYSTEM_COUNT};
 
 use crate::kernel::kernel_all;
 
-/// The rules version a scenario plays by unless told otherwise (`RULES_VERSION` of `ti4-model`, 35 when this was written).
-pub const LATEST_RULES: u32 = 35;
+/// The rules version a scenario plays by unless told otherwise (`RULES_VERSION` of `ti4-model`, 36 when this was written).
+pub const LATEST_RULES: u32 = 36;
 
 /// The 24 lobby factions, in the order of the generated enum (Thunder's Edge and the dropped factions are not in the list).
 pub const LOBBY: [Faction; 24] = [

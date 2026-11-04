@@ -111,7 +111,7 @@ deploy/public/check-headers.sh --bin <server>              # CSP / wasm / cache 
   `refused 'ID'` with the reason, `docs/D28E_RESUME.md`) is not a failure and needs no
   `--allow-failed`; the pre-flight prints `REFUSED_IDS` and requires every refusal to name its reason.
   All stored alpha games are version 0 and are refused this way, so the pre-flight no longer proves
-  that old saves load: the recovery proof comes from the rules-version-35 tests of the server
+  that old saves load: the recovery proof comes from the rules-version-36 tests of the server
   (`ti4-server/tests/it/refusals.rs`, the session recovery tests) and `test-recovery-check.sh`. Lesson: a checksum change once made all 22
   saved games unrecoverable and it was noticed only after the restart. (Failed games keep their
   files on disk; the server never deletes them.)
