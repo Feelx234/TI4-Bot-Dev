@@ -1,7 +1,5 @@
 use std::thread;
 use std::time::Duration;
-use ti4_content::ContentStore;
-use ti4_engine::setup::start_game_seeded;
 use ti4_host::protocol::server::ServerMessage;
 use ti4_host::protocol::status::ViewerRole;
 use ti4_model::POK;
@@ -16,8 +14,9 @@ fn slow_scripted_end_to_end_game_handles_draft_action_and_nested_secondary_choic
     let p3 = PlayerId::new("p3");
     let players = [p1.clone(), p2.clone(), p3.clone()];
 
-    let state = start_game_seeded(ContentStore::embedded(), &players, POK, None, 42)
-        .expect("start game seeded");
+    // (Real factions: `start_game_seeded` seats the invented `generic` faction, which the core refuses.)
+    let mut state = ti4_engine::fixtures::seated_dealt(&[("p1", "sol"), ("p2", "hacan"), ("p3", "letnev")], POK);
+    state.speaker = p1.clone();
 
     // p1 and p2 are Human seats; p3 is an automated bot
     let config = SessionConfig::new("game_e2e_test", state)

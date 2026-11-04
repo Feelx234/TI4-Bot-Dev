@@ -201,6 +201,10 @@ impl GameRegistry {
         seat: Option<&str>,
         turns: Option<u8>,
     ) -> Result<InitialSnapshotMsg, HistoryError> {
+        // Switched off by decision (`ti4_host::disabled`, docs/DISABLE_XF123.md): the route refuses first, and this guards every other caller.
+        if !ti4_host::disabled::TURN_REDO_ENABLED {
+            return Err(HistoryError::Forbidden(ti4_host::disabled::TURN_REDO_OFF.to_owned()));
+        }
         let gate = self.game_gate(game_id);
         let _reservation = gate.lock().expect("game gate lock");
         let state = self.state.lock().expect("registry lock");

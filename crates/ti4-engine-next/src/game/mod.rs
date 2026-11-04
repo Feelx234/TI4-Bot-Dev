@@ -944,7 +944,7 @@ fn native_step(
     let skipped = Arc::new(std::sync::Mutex::new(Vec::new()));
     env.table.skipped = Some(Arc::clone(&skipped));
     // The payments with one way left to pay the core collapsed without a question (`AbilityTable::auto_paid`): the payer is told below.
-    let auto_paid = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let auto_paid: Arc<std::sync::Mutex<Vec<ti4_engine_core::kernel::ability::AutoPaid>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
     env.table.auto_paid = Some(Arc::clone(&auto_paid));
     let lcx = live::Cx::new(&n.render, &env);
     let from = n.core.ledger.events.len();
