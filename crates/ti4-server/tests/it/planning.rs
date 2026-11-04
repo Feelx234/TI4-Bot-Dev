@@ -283,7 +283,7 @@ fn replay_handles_nested_choices_and_reports_exhaustion_inside_a_step() {
         assert_eq!(checkpoint.step().error, None);
     }
     let follower = PlayerId::new("b");
-    checkpoint.state.player_mut(&follower).unwrap().trade_goods = 3;
+    checkpoint.edit_position(|state| state.player_mut(&follower).unwrap().trade_goods = 3).unwrap();
     // Leadership primary (a native step can end before the follower is asked: the steps go on until the follower's question stands).
     for _ in 0..8 {
         assert_eq!(checkpoint.step().error, None);
@@ -340,7 +340,9 @@ fn replay_handles_nested_choices_and_reports_exhaustion_inside_a_step() {
         Some(ReplayStopReason::Exhausted)
     );
     assert_eq!(progress.lock().unwrap().consumed(), 1);
-    assert_eq!(interrupted.table.log.len(), 1);
+    // (A step that fails is taken back whole -- core, code table and journal -- so the answer it had consumed is not journaled; the string kept
+    // the half-applied step. The replay's own latch above still says one decision was consumed.)
+    assert_eq!(interrupted.table.log.len(), 0);
     drop(interrupted);
     assert_eq!(
         serde_json::to_value(&checkpoint.state).unwrap(),

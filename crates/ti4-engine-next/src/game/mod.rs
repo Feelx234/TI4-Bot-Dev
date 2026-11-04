@@ -499,6 +499,23 @@ impl<'a> Game<'a> {
         Ok(())
     }
 
+    /// Change the position by hand and load the core again from it (a test or a scenario setting up a situation between two steps). The
+    /// windows and jobs that stand open are dropped, as the string position never held them: call it at a boundary where none matters. `state`
+    /// is a mirror after the first step, so a plain write to it would be ignored by the core.
+    ///
+    /// # Errors
+    /// [`GameError::Unmapped`] / [`GameError::Disabled`] when the edited position cannot be played (the game is then unchanged).
+    pub fn edit_position(&mut self, edit: impl FnOnce(&mut GameState)) -> Result<(), GameError> {
+        let positions = self.rng_positions();
+        let mut state = self.state.clone();
+        edit(&mut state);
+        let loaded = Native::load(&state, self.galaxy.as_ref(), &positions, self.sources)?;
+        self.state = state;
+        self.secondary = secondary_view(&loaded.core, &loaded.cx);
+        self.native = Some(loaded);
+        Ok(())
+    }
+
     fn reset_for_hypothetical(&mut self, player: &PlayerId) -> Result<(), GameError> {
         if self.state.finished || !matches!(self.state.phase, Phase::Strategy | Phase::Action) {
             return Err(GameError::InvalidHypotheticalTurn("the game must be in an unfinished strategy or action phase"));
