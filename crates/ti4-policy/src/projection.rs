@@ -1079,7 +1079,7 @@ fn public_game_state_facts(seen: &Observed<'_>, player: &PlayerId) -> Vec<(Strin
         f64::from(u8::from(supports.contains_key(player))),
     );
 
-    let mecatol = ti4_model::id::PlanetId::new("mecatol_rex");
+    let mecatol = ti4_model::id::PlanetId::new("mr");
     let mecatol_controller = players.iter().find(|candidate| {
         seen.controlled_planets(candidate)
             .iter()
@@ -2336,7 +2336,7 @@ mod tests {
         state.promissory_faceup = loadable.promissory_faceup.clone();
         let opponent = PlayerId::new("b");
         let system = ti4_model::id::SystemId::new("18");
-        let mecatol = ti4_model::id::PlanetId::new("mecatol_rex");
+        let mecatol = ti4_model::id::PlanetId::new("mr");
         state.phase = ti4_model::state::Phase::Action;
         state.active = Some(player.clone());
         state.speaker = opponent.clone();
