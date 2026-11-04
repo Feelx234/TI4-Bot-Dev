@@ -567,8 +567,10 @@ impl<'a> Game<'a> {
         self.galaxy.as_ref()
     }
 
-    /// Replace the table (the server hands a worker's deciders to a game it built elsewhere).
-    pub fn install_table(&mut self, table: Table) {
+    /// Replace the game's table (its deciders and callbacks), carrying over the current table's decision log and counters.
+    pub fn install_table(&mut self, mut table: Table) {
+        // The log and the counters of the table it replaces carry over: a forked game wired to a session's deciders keeps going.
+        table.restore_state(self.table.state());
         self.table = table;
     }
 

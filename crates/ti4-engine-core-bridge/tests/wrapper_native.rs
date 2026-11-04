@@ -267,3 +267,17 @@ fn the_wrapper_refuses_what_check_playable_refuses_with_disabled() {
     let mut game = Game::new(state, ContentStore::embedded());
     assert!(matches!(game.step().error, Some(GameError::Disabled(_))));
 }
+
+/// Regression (server crash recovery hung): `install_table` carries the decision log of the table it replaces over to the new one, as the string
+/// engine's did; a resumed session wires its deciders into a forked game and must keep the log the fork had.
+#[test]
+fn installing_a_table_keeps_the_decision_log_of_the_game() {
+    let mut game = wrapper("sol", 4, 1);
+    for _ in 0..40 {
+        assert_eq!(game.step().error, None);
+    }
+    let logged = game.table.log.records.len();
+    assert!(logged > 0, "the first steps asked questions");
+    game.install_table(Table::new());
+    assert_eq!(game.table.log.records.len(), logged);
+}
