@@ -67,7 +67,7 @@ fn the_passive_relics_answer_for_their_holder_only() {
 
 #[test]
 fn only_the_action_relics_have_an_action_and_each_has_its_own_arm() {
-    let actions = [Relic::BookOfLatvinia, Relic::TheCodex, Relic::DynamisCore, Relic::EnigmaticDevice, Relic::MawOfWorlds, Relic::StellarConverter, Relic::JRXS455O, Relic::TheSilverFlame];
+    let actions = [Relic::BookOfLatvinia, Relic::TheCodex, Relic::DynamisCore, Relic::EnigmaticDevice, Relic::MawOfWorlds, Relic::StellarConverter, Relic::JRXS455O, Relic::TheSilverFlame, Relic::NanoForge];
     for r in Relic::ALL {
         assert_eq!(relic::has_action(r), actions.contains(&r), "{r:?}");
     }

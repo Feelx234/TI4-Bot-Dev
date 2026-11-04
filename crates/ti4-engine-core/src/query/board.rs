@@ -221,6 +221,12 @@ pub fn adjacency(core: &CoreState) -> Option<Adjacency> {
     core.galaxy().map(|g| g.adjacency())
 }
 
+/// Whether the planet is legendary now: printed so, or made so by the Nano-Forge attached to it.
+#[must_use]
+pub fn is_legendary(core: &CoreState, planet: Planet) -> bool {
+    planet.data().legendary || core.board().planet(planet).attach.as_slice().contains(&crate::generated::Attachment::Nanoforge)
+}
+
 /// The attachments on a planet, in list order (`GameState::planet_attachments`).
 #[must_use]
 pub fn attachments(core: &CoreState, planet: Planet) -> &SmallList<crate::generated::Attachment, 3> {

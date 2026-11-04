@@ -117,6 +117,7 @@ pub const fn has_action(relic: Relic) -> bool {
             | Relic::StellarConverter
             | Relic::JRXS455O
             | Relic::TheSilverFlame
+            | Relic::NanoForge
     )
 }
 
@@ -151,6 +152,7 @@ pub fn action_relics(core: &CoreState, seat: Seat, enigmatic_resolvable: bool, s
         let resolvable = match relic {
             Relic::EnigmaticDevice => enigmatic_resolvable,
             Relic::StellarConverter => stellar_resolvable,
+            Relic::NanoForge => !nano_targets(core, seat).is_empty(),
             _ => true,
         };
         if has_action(*relic) && resolvable {
@@ -158,4 +160,22 @@ pub fn action_relics(core: &CoreState, seat: Seat, enigmatic_resolvable: bool, s
         }
     }
     out
+}
+
+/// The planets the Nano-Forge may be attached to: "a non-legendary, non-home planet you control". A home planet is a printed homeworld or the
+/// home planet of any seated player; a planet the Stellar Converter destroyed is gone. Mecatol Rex qualifies (the card does not exclude it).
+#[must_use]
+pub fn nano_targets(core: &CoreState, seat: Seat) -> Vec<(crate::generated::System, crate::generated::Planet)> {
+    let seated_home = |planet: crate::generated::Planet| core.players().iter().any(|p| p.home_planets.as_slice().contains(&planet));
+    super::board::controlled_planets(core, seat)
+        .as_slice()
+        .iter()
+        .copied()
+        .filter(|(_, planet)| {
+            planet.data().homeworld_of.is_none()
+                && !seated_home(*planet)
+                && !super::board::is_legendary(core, *planet)
+                && !core.board().planet(*planet).flags.has(crate::state::PlanetFlags::PURGED)
+        })
+        .collect()
 }

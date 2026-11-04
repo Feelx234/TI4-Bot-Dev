@@ -3,7 +3,7 @@
 //! Owner: package B5 (docs/ENGINE_CORE_STATE.md 4.4). Ported: the Dominus Orb's purge offer, the Crown of
 //! Emphidia's choice of a planet to explore, the Neuraloop's relic to purge, the Codex's action cards, the
 //! Titan Prototype's builder, the Stellar Converter's target and the technology of the Enigmatic Device and the
-//! Maw of Worlds. The adapter side is `ti4-engine/src/render/relic.rs`.
+//! Maw of Worlds, and the Nano-Forge's target planet. The adapter side is `ti4-engine/src/render/relic.rs`.
 
 use super::agenda::Shown;
 use crate::generated::{ActionCard, Explore, Planet, PublicObjective, Relic, Technology};
@@ -36,6 +36,8 @@ pub enum Ask {
     FragmentType { count: u8 },
     /// Fabrication: which command pool gains the token.
     TokenPool,
+    /// "Nano-Forge: attach it to which planet".
+    NanoForge,
 }
 
 /// One answer the area offers (not stored in the state).
@@ -59,6 +61,8 @@ pub enum Opt {
     Fragment(crate::generated::ExploreType),
     /// A command pool to gain a token in.
     Pool(super::strategy::Pool),
+    /// A planet to attach the Nano-Forge to, with the system the map shows it in.
+    Attach(Planet, Shown),
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -80,4 +84,5 @@ pub enum Subtype {
     FragmentType,
     /// `token_pool`.
     TokenPool,
+    NanoForgeChooseTarget,
 }

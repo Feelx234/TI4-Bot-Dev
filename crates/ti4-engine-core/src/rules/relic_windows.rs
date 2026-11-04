@@ -384,6 +384,69 @@ impl Window for StellarConverter {
     }
 }
 
+// -- the Nano-Forge ------------------------------------------------------------------------------------
+
+/// The Nano-Forge's ACTION: "Attach this card to a non-legendary, non-home planet you control": the owner picks one of the planets in range and the
+/// attachment (+2 resources, +2 influence, legendary) is put on it. The card leaves the hand when the caller concludes the use (no ability can
+/// attach it twice: once attached it is no relic in hand).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NanoForge {
+    pub who: Seat,
+    targets: Vec<(System, Planet)>,
+    stage: XStage,
+    pub attached: Option<Planet>,
+    inv: Option<u64>,
+}
+
+impl NanoForge {
+    #[must_use]
+    pub fn new(who: Seat, targets: &[(System, Planet)]) -> Self {
+        Self { who, targets: targets.to_vec(), stage: XStage::Start, attached: None, inv: None }
+    }
+
+    const ASK: Ask = Ask::Relic(RAsk::NanoForge);
+}
+
+impl Window for NanoForge {
+    type Stage = XStage;
+
+    fn stage(&self) -> XStage {
+        self.stage
+    }
+
+    fn step(&mut self, _: &mut Sx<'_>) -> Next {
+        if self.stage == XStage::Start {
+            self.stage = if self.targets.is_empty() { XStage::Done } else { XStage::Asking };
+        }
+        if self.stage == XStage::Asking { Next::Continue(Self::ASK) } else { Next::Done }
+    }
+
+    fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
+        (self.stage == XStage::Asking).then(|| {
+            choice(
+                self.who,
+                RAsk::NanoForge,
+                Relic::NanoForge,
+                RSub::NanoForgeChooseTarget,
+                self.inv,
+                opts(self.targets.iter().map(|(system, planet)| ROpt::Attach(*planet, Shown { votes: 0, system: Some(*system) }))),
+            )
+        })
+    }
+
+    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
+        match (self.stage, pick) {
+            (XStage::Asking, Pick::Opt(Opt::Relic(ROpt::Attach(planet, _)))) if self.targets.iter().any(|(_, p)| *p == planet) => {
+                explore::attach(sx.state, planet, crate::generated::Attachment::Nanoforge);
+                self.attached = Some(planet);
+                self.stage = XStage::Done;
+                Ok(())
+            }
+            _ => Err(Illegal),
+        }
+    }
+}
+
 // -- the technology of the Enigmatic Device and the Maw of Worlds -------------------------------------
 
 /// `relics::ask_technology`: "gain which technology", from the list the string side computed (what the seat does
@@ -691,7 +754,7 @@ impl Window for Fabrication {
     }
 }
 
-in_invasion!(Neuraloop, Codex, TitanPrototype, StellarConverter, GainTechnology);
+in_invasion!(Neuraloop, Codex, TitanPrototype, StellarConverter, NanoForge, GainTechnology);
 
 #[cfg(test)]
 mod tests {

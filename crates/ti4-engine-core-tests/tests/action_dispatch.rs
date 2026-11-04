@@ -1295,6 +1295,61 @@ fn the_stellar_converter_chosen_from_the_menu_destroys_a_planet_next_to_a_bombar
     assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
 }
 
+/// The Nano-Forge chosen from the menu asks for the planet, attaches itself there (+2/+2, legendary) and leaves the hand; it is not offered again.
+#[test]
+fn the_nano_forge_chosen_from_the_menu_attaches_to_the_planet_asked_and_leaves_the_hand() {
+    use ti4_engine_core::generated::{Attachment, Relic};
+    let ps = ti4_engine_core_tests::scenario::plain_systems();
+    let (p0, p1) = (ps[1].data().planets[0], ps[2].data().planets[0]);
+    let (mut s, k) = relic_table(Relic::NanoForge, |sc| sc.map_ring(7).control(p0, 0).control(p1, 0));
+    let e = env_r(&k);
+    let live = use_relic(&mut s, &e, Relic::NanoForge);
+    assert!(matches!(live, Live::Asks(_)), "the planet is asked");
+    let q = ask_ask(&mut s, &e).unwrap().unwrap().choice;
+    let offered: Vec<_> = q.opts.as_slice().iter().filter_map(|o| match o {
+        Opt::Relic(ti4_engine_core::choice::relic::Opt::Attach(planet, _)) => Some(*planet),
+        _ => None,
+    }).collect();
+    assert_eq!(offered.len(), 2);
+    assert!(offered.contains(&p0) && offered.contains(&p1));
+    pick(&mut s, &e, |o| matches!(o, Opt::Relic(ti4_engine_core::choice::relic::Opt::Attach(p, _)) if *p == p1)).unwrap();
+    assert_eq!(s.board().planet(p1).attach.as_slice(), &[Attachment::Nanoforge]);
+    assert!(s.board().planet(p0).attach.is_empty());
+    assert!(!s.players().by_seat(Seat(0)).unwrap().cards.relics.as_slice().contains(&Relic::NanoForge), "no longer a card in hand");
+    assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
+}
+
+/// The Nano-Forge is on the menu only with a planet to attach to.
+#[test]
+fn the_nano_forge_is_not_on_the_menu_without_a_planet_to_attach_to() {
+    use ti4_engine_core::generated::Relic;
+    let on_menu = |s: &mut CoreState, e: &Env<'_>| ask_ask(s, e).unwrap().unwrap().choice.opts.as_slice().iter().any(|o| matches!(o, Opt::Turn(TuOpt::UseRelic(Relic::NanoForge))));
+    let (mut none, k) = relic_table(Relic::NanoForge, |sc| sc.map_ring(7));
+    assert!(!on_menu(&mut none, &env_r(&k)), "controls nothing");
+    let p0 = ti4_engine_core_tests::scenario::plain_systems()[1].data().planets[0];
+    let (mut one, k) = relic_table(Relic::NanoForge, |sc| sc.map_ring(7).control(p0, 0));
+    assert!(on_menu(&mut one, &env_r(&k)), "controls a plain planet");
+}
+
+/// A planet the Nano-Forge made legendary can no longer be destroyed by the Stellar Converter ("non-legendary").
+#[test]
+fn a_planet_made_legendary_by_the_nano_forge_is_no_target_of_the_stellar_converter() {
+    use ti4_engine_core::driver::menu_cards::stellar_targets;
+    use ti4_engine_core::generated::Attachment;
+    let ps = ti4_engine_core_tests::scenario::plain_systems();
+    let (mut s, k) = relic_table(ti4_engine_core::generated::Relic::StellarConverter, |sc| sc.map_ring(7).unit(ps[0], None, Unit::DreadnoughtI, 0, 1));
+    for system in &ps[..7] {
+        s.board_mut().sys_mut(*system).flags.set(ti4_engine_core::state::SysFlags::TOUCHED, true);
+    }
+    let scope = ti4_engine_core::query::reach::scope_of(&k);
+    let before = stellar_targets(&s, scope, Seat(0));
+    let (_, victim) = *before.first().expect("a target");
+    s.board_mut().planet_mut(victim).attach.push(Attachment::Nanoforge);
+    let after = stellar_targets(&s, scope, Seat(0));
+    assert_eq!(after.len(), before.len() - 1);
+    assert!(!after.iter().any(|(_, p)| *p == victim));
+}
+
 /// Lane F2e: the Silver Flame rolls a die, is purged either way and, on anything but a ten, bars the seat from public objectives and purges its
 /// home system. The roll is on the dice stream and in the ledger.
 #[test]
