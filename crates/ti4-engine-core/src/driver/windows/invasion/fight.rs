@@ -118,24 +118,9 @@ impl InvasionMachine {
             })
     }
 
-    /// What the leaf windows of the round do not carry (the gates of the string adapters, read from the position).
-    fn round_unported(&self, s: &CoreState, k: &Kernel, defender: Seat) -> Option<Bail> {
-        let status = |p: &crate::state::Player, card: Leader| p.leaders.status.get(&card).copied();
-        let thundarian = s.players().iter().any(|p| status(p, Leader::TheThundarian) == Some(crate::state::LeaderStatus::Readied))
-            || s.players().iter().any(|b| b.faction == crate::generated::Faction::TheYssarilTribes && status(b, Leader::Ssruu) == Some(crate::state::LeaderStatus::Readied));
-        if thundarian && s.players().iter().any(|p| p.faction == crate::generated::Faction::TheNomad) {
-            return Some(Why::Thundarian);
-        }
-        let _ = (k, defender);
-        None
-    }
-
     /// `begin_ground_round`: the round counter, "round started" for a copied round agent, the faction effects of the start (the hooks), then the
     /// Dunlain Reaper's offers.
     fn start_round(&mut self, sx: &mut Sx<'_>, planet: Planet, defender: Seat) -> Result<(), Bail> {
-        if let Some(why) = self.round_unported(sx.state, sx.kernel, defender) {
-            return Err(why);
-        }
         let (invader, system) = (self.p.invader, self.p.system);
         if let Some(active) = sx.state.transient_mut().invasion.active.as_mut()
             && active.planet == Some(planet)
@@ -232,23 +217,46 @@ impl InvasionMachine {
         let owns_x89 = |who: Seat| crate::query::tech::holds_x89(sx.state, who);
         let x89 = [owns_x89(invader), owns_x89(defender)];
         let before: Vec<Piece> = sx.state.board().planet(planet).units.iter().copied().collect();
-        // The dice, then the end of the "Roll Dice" step (the reroll windows open at the announcements).
-        let mut roll = GroundRoll::new(RollFacts {
-            attacker: invader,
-            defender,
-            system,
-            planet,
-            kind: codes.ground,
-            names: codes.names.to_vec(),
-            unit_codes: Unit::ALL.iter().map(|u| (*u, codes.unit(*u))).collect(),
-            x89,
-        });
-        let _ = roll.step(sx);
-        if roll.unsupported {
-            return Err(Why::RollCannotName);
-        }
-        let mut tail = GroundRollTail::new(TailFacts { invader, defender, system, planet, rolled: roll.hits, bump: !copied, announce: true, x89 });
-        let _ = tail.step(sx);
+        // The dice, then the end of the "Roll Dice" step (the reroll windows open at the announcements). A readied The Thundarian listens to
+        // the event that ends the step: its window may ask for the step to be rolled afresh, which throws the dice away (nothing was
+        // produced or assigned) and numbers the round again (`roll_ground_step`'s loop; bounded like the space round's).
+        let round_before = sx.state.meta().combat_round_seq;
+        let mut replays = 0u32;
+        let tail = loop {
+            sx.state.meta_mut().combat_round_seq = round_before;
+            let mut roll = GroundRoll::new(RollFacts {
+                attacker: invader,
+                defender,
+                system,
+                planet,
+                kind: codes.ground,
+                names: codes.names.to_vec(),
+                unit_codes: Unit::ALL.iter().map(|u| (*u, codes.unit(*u))).collect(),
+                x89,
+            });
+            let _ = roll.step(sx);
+            if roll.unsupported {
+                return Err(Why::RollCannotName);
+            }
+            let mut tail = GroundRollTail::new(TailFacts { invader, defender, system, planet, rolled: roll.hits, bump: !copied, announce: true, x89 });
+            let _ = tail.step(sx);
+            sx.state.marks_mut().tail.edit().remove(&crate::keys::MarkKey::PrivateCombatReplayRoll());
+            if sx.kernel.hooks.direct.nomad_agents_watches_roll_step(sx.state) {
+                let payload = Payload::new()
+                    .with(Key::System, Val::System(system))
+                    .with(Key::Planet, Val::Planet(planet))
+                    .with(Key::Attacker, Val::Seat(invader))
+                    .with(Key::Defender, Val::Seat(defender));
+                let _ = sx.emit(fx::event(EventKind::GroundCombatRollStepEnded, payload));
+            }
+            if sx.state.marks_mut().tail.edit().remove(&crate::keys::MarkKey::PrivateCombatReplayRoll()).is_some() {
+                replays += 1;
+                if replays <= crate::rules::combat::roll::MAX_ROLL_REPLAYS {
+                    continue;
+                }
+            }
+            break tail;
+        };
         // Hits a faction adds to a roll once the dice are final (Valkyrie Particle Weave).
         let extra = |who: Seat, hits: u32, other: u32| sx.kernel.hooks.ground.ground_rolls_extra_hits(sx.state, sx.kernel, who, system, planet, hits as usize, other as usize);
         if extra(invader, tail.hits.0, tail.hits.1) != 0 || extra(defender, tail.hits.1, tail.hits.0) != 0 {

@@ -6,8 +6,8 @@
 //! from the staged dice (the reroll windows the announcements opened may have changed them), the dice are
 //! listed as the board shows them for the invasion step's report, and the staging is cleared.
 //!
-//! Not covered (the adapter returns `None`, the string result stands): a
-//! readied The Thundarian (`GROUND_COMBAT_ROLL_STEP_ENDED` and the replays), a roll replay mark, nested activity.
+//! The end-of-step event (`GROUND_COMBAT_ROLL_STEP_ENDED`: a readied The Thundarian) and its replays are the composer's
+//! (`driver::windows::invasion`, `round_body`), which runs this window again for each replay.
 
 use crate::choice::{Choice, Pick};
 use crate::generated::{Planet, System};

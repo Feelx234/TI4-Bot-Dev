@@ -717,3 +717,66 @@ fn dacxive_animators_places_an_infantry_for_the_winner_of_the_composed_fight() {
     }
     assert!(invader_won > 0 && defender_won > 0, "the seeds cover both winners ({invader_won}, {defender_won})");
 }
+
+// ---- I22: The Thundarian in a ground combat (was `Unported(Thundarian)`) ----------------------------------------------------------
+
+/// The Nomad (seat 0) invades the Arborec's planet with a readied The Thundarian; the table carries the Nomad's abilities and the resolver's registry.
+fn thundarian_run(carried: usize, defenders: usize, seed: u64, use_card: bool) -> (CoreState, Vec<Choice>, Result<(), LiveError>) {
+    use ti4_engine_core::choice::reaction::{AbilityKind, Opt as ROpt};
+    use ti4_engine_core::kernel::Resolver;
+    let (p1, _) = planets();
+    let (mut core, k) = Scenario::new(&[Faction::TheNomad, Faction::TheArborec])
+        .map_from(&[sys()])
+        .unit(sys(), None, Unit::CarrierI, 0, 1)
+        .unit(sys(), Some(p1), Unit::InfantryI, 1, defenders)
+        .control(p1, 1)
+        .build();
+    carry(&mut core, carried);
+    core.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::TheThundarian, ti4_engine_core::state::LeaderStatus::Readied);
+    let mut e = env(&k, seed);
+    with_plays(&mut e);
+    ti4_engine_core_factions::ce_movement::register_late_abilities(&mut e.table);
+    let order = [Seat(0), Seat(1)];
+    let mut name = |spec: &ti4_engine_core::kernel::stage::Spec, _: Seat, _: Option<Seat>| ti4_engine_core::choice::reaction::AbilityId { kind: spec.kind, key: Code(spec.slot.0) };
+    let defs = e.table.registry(&core, &order, &mut name);
+    let mut resolver = Resolver::new(&order, Some(Seat(0)));
+    resolver.register(defs);
+    e.registry = Cow::new(resolver.registry().clone());
+    open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
+    let mut pol = move |c: &Choice| {
+        let card = c.opts.as_slice().iter().position(|o| matches!(o, Opt::Reaction(ROpt::Ability(a)) if a.kind == AbilityKind::Leader));
+        match card {
+            Some(i) if use_card => i,
+            Some(_) => c.opts.as_slice().iter().position(|o| matches!(o, Opt::Decline)).unwrap_or(0),
+            None => 0,
+        }
+    };
+    let (asked, end) = play(&mut core, &e, &mut pol);
+    (core, asked, end)
+}
+
+fn thundarian_offers(asked: &[Choice]) -> usize {
+    use ti4_engine_core::choice::reaction::{AbilityKind, Opt as ROpt};
+    asked.iter().filter(|c| c.opts.as_slice().iter().any(|o| matches!(o, Opt::Reaction(ROpt::Ability(a)) if a.kind == AbilityKind::Leader))).count()
+}
+
+#[test]
+fn a_readied_thundarian_in_a_ground_combat_is_offered_at_the_end_of_the_roll_step_and_replays_it_in_the_core() {
+    covers!("driver::windows::invasion::InvasionMachine");
+    let mut used_somewhere = false;
+    for seed in 0..12_u64 {
+        let (declined, asked, end) = thundarian_run(6, 3, seed, false);
+        assert_eq!(end, Ok(()), "seed {seed}: the combat no longer bails with Unported(Thundarian)");
+        assert!(thundarian_offers(&asked) >= 1, "seed {seed}: the card is offered after the roll step: {:?}", asked.iter().map(|c| format!("{:?}", c.ask)).collect::<Vec<_>>());
+        let status = |s: &CoreState| s.players().by_seat(Seat(0)).unwrap().leaders.status.get(&Leader::TheThundarian).copied();
+        assert_eq!(status(&declined), Some(ti4_engine_core::state::LeaderStatus::Readied), "seed {seed}: declined, the card stays ready");
+        let (used, asked, end) = thundarian_run(6, 3, seed, true);
+        assert_eq!(end, Ok(()), "seed {seed}");
+        assert_eq!(status(&used), Some(ti4_engine_core::state::LeaderStatus::Exhausted), "seed {seed}: used, the card is exhausted");
+        // The card exhausts on its first use: it is offered again only after the replayed step, once, and no other round offers it.
+        assert!(thundarian_offers(&asked) >= 1);
+        assert!(used.transient().combat.reroll_staging.is_empty(), "seed {seed}: the dice of the discarded roll are gone");
+        used_somewhere = true;
+    }
+    assert!(used_somewhere);
+}

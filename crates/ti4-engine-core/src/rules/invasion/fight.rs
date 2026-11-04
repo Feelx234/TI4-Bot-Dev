@@ -9,7 +9,7 @@
 //! points, a note held); a feat earned opens the scoring window of its occurrence (`Spawn::EventScoring`: every seat in initiative order, one score
 //! per player), asked to its end before the next combat of the planet.
 //!
-//! Not carried, and declined by the adapter before the window opens: The Thundarian (a step-ended event and its replays), X-89 Bacterial Weapon, Alarum,
+//! Not carried, and declined by the adapter before the window opens: X-89 Bacterial Weapon, Alarum,
 //! Proxima Targeting VI, a neutral side, a coexisting planet.
 
 use super::begin::{BeginGroundRound, Facts as BeginFacts};

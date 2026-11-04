@@ -166,7 +166,6 @@ pub enum Unported {
     Exploration(crate::state::EWhy),
     BombardmentDiceMismatch,
     X89,
-    Thundarian,
 }
 
 /// What a condition reads: the state, the kernel, the ability and the event it is asked about.
