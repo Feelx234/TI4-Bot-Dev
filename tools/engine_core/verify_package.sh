@@ -50,6 +50,12 @@ check layers python3 -I tools/engine_core/check_layers.py core
 note "     $(tail -1 "$out/layers.log")"
 check lint-core tools/engine_core/lint_core.sh
 note "     $(tail -1 "$out/lint-core.log")"
+# D2-9 lane 9a (docs/D29A_RESUME.md): the production graph reaches neither legacy nor lend-string. PROD_GRAPH_MODE is `--report`
+# until lane 9b has landed (the thin crate still depends on legacy), then `` (strict); see the doc.
+if [[ -x tools/engine_core/check_production_graph.sh ]]; then
+  check prod-graph tools/engine_core/check_production_graph.sh ${PROD_GRAPH_MODE---report}
+  note "     $(tail -1 "$out/prod-graph.log")"
+fi
 # D4-5: the covers gap of the typed core (windows no test drives); notes only, `--check` without --quick is the D4 gate
 check d4-coverage python3 -I tools/engine_core/d4/coverage.py --check --quick
 note "     $(head -1 "$out/d4-coverage.log")"
