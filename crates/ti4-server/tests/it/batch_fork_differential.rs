@@ -411,12 +411,12 @@ fn slow_forked_batch_checks_match_the_full_replay_on_a_generated_game() {
     assert!(coverage.mid_step > 0, "{coverage:?}");
 }
 
+/// Was: the forked batch check against the full replay on a history with forced rng positions (a turn redo's marks). Turn redo is switched off, a
+/// history with marks no longer replays: the game refuses the deck reserve (`support::assert_forced_replay_is_refused`).
 #[test]
-fn slow_forked_batch_checks_match_the_full_replay_with_forced_rng_positions() {
+fn a_history_with_forced_rng_positions_is_refused_instead_of_replayed() {
     let source = generated("generated-marks-12", 12, 450, 17);
-    let coverage = differential(&source, 30);
-    eprintln!("{coverage:?}");
-    assert!(coverage.ok > 5, "{coverage:?}");
+    support::assert_forced_replay_is_refused(&source);
 }
 
 #[test]

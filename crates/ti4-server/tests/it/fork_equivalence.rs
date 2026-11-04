@@ -166,46 +166,35 @@ fn slow_a_fork_of_a_generated_game_continues_identically() {
     assert!(stats.prompts.len() > 12, "{stats:?}");
 }
 
-/// The factions added after the first six (Last Bastion, Deepwrought, Crimson, Ral Nel, Nekro,
-/// Firmament, with galvanize, breaches, plots and similar shared state) must fork like any other.
+/// The factions added after the first six (Nekro, with galvanize, breaches, plots and similar shared state) must fork like any other. Last Bastion,
+/// Deepwrought, Crimson, Ral Nel and Firmament are switched off (`ti4_host::disabled`): a table seating one is refused, which is asserted for the
+/// two lists the test used to play; the playable newer factions are forked.
 #[test]
 fn slow_a_fork_of_games_seating_the_newer_factions_continues_identically() {
     for (seed, factions) in [
         (5_u64, ["bastion", "deepwrought", "crimson", "ralnel"]),
         (8_u64, ["nekro", "firmament", "sol", "bastion"]),
     ] {
-        let source = generated_with_factions(&format!("newer-{seed}"), seed, factions, 500, 17);
+        let (state, _) = support::factions_start(seed, factions);
         assert!(
-            source.records.len() > 150,
-            "{factions:?}: {}",
-            source.records.len()
+            matches!(ti4_host::disabled::check_playable(&state), Err(ti4_host::disabled::Disabled::Faction(_))),
+            "{factions:?}: a switched-off faction is refused"
         );
-        let stats = check(&source, 4, 30);
-        eprintln!("{factions:?}: {stats:?}");
-        assert!(stats.forks > 30, "{factions:?}: {stats:?}");
     }
+    let factions = ["nekro", "sol", "hacan", "letnev"];
+    let source = generated_with_factions("newer-8", 8, factions, 500, 0);
+    assert!(source.records.len() > 150, "{factions:?}: {}", source.records.len());
+    let stats = check(&source, 4, 30);
+    eprintln!("{factions:?}: {stats:?}");
+    assert!(stats.forks > 30, "{factions:?}: {stats:?}");
 }
 
+/// Was: a fork of a game with forced rng positions (a turn redo's marks) continues identically. Turn redo is switched off: such a history is
+/// refused at its first step (`GameError::Disabled`, the deck reserve), so there is no game to fork.
 #[test]
-fn slow_a_fork_of_a_game_with_forced_rng_positions_continues_identically() {
-    // A turn redo's marks restore stream positions when a decision is answered; until a draw
-    // applies one, a snapshot would lose it, so those boundaries must be skipped, never forked.
+fn a_game_with_forced_rng_positions_is_refused_instead_of_forked() {
     let source = generated("generated-marks-12", 12, 500, 17);
-    assert!(!source.marks.is_empty());
-    let stats = check(&source, 3, 30);
-    eprintln!("{stats:?}");
-    assert!(stats.forks > 60, "{stats:?}");
-    assert_eq!(stats.skipped_pending_rng, 0, "{stats:?}");
-    // Flushing at every fork point must not change the game: the checked original ends exactly
-    // where a plain replay (which never flushes) ends.
-    let mut plain = start_game(&source);
-    while plain.table.log.records.len() < source.records.len() && plain.step().error.is_none() {}
-    assert_eq!(
-        stats.final_state,
-        serde_json::to_value(&plain.state).unwrap(),
-        "flushing the RNG side channel changed the game"
-    );
-    assert_eq!(stats.final_rng, plain.rng_positions());
+    support::assert_forced_replay_is_refused(&source);
 }
 
 #[test]

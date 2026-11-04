@@ -299,3 +299,18 @@ pub fn strict_saved_games(limit: usize) -> Vec<Source> {
     }
     out
 }
+
+/// Turn redo is switched off (`ti4_host::disabled::TURN_REDO_ENABLED`, docs/DISABLE_XF123.md): a history that carries rng marks replays through
+/// `RngForce::attach`, which gives the game a deck reserve, and the game refuses it with `GameError::Disabled` at its first step. The tests that
+/// replayed such histories assert this refusal instead.
+pub fn assert_forced_replay_is_refused(source: &Source) {
+    use ti4_engine::native::GameError;
+    assert!(!source.marks.is_empty(), "{}: the source carries marks", source.name);
+    let force = RngForce::new(&source.marks);
+    let table = forced_table(source, 0, force.clone());
+    let mut game = Game::with_table(source.state.clone(), ContentStore::embedded(), table).with_galaxy(source.galaxy.clone());
+    force.as_ref().expect("marks give a force").attach(&mut game);
+    let error = game.step().error.expect("the reserve is refused");
+    assert!(matches!(error, GameError::Disabled(_)), "{}: {error:?}", source.name);
+    assert_eq!(game.table.log.records.len(), 0, "{}: nothing was played", source.name);
+}

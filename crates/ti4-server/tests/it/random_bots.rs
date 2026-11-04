@@ -499,47 +499,25 @@ fn undo_while_a_bot_is_thinking_never_loses_a_bot_decision_or_errors_mid_rewind(
     assert!(t.session().error().is_none(), "{:?}", t.session().error());
 }
 
+/// Was: the host redoes a bot seat's turn and the bot plays the new turn itself. Turn redo is switched off (`ti4_host::disabled`,
+/// docs/DISABLE_XF123.md): the request is refused and the game goes on untouched.
 #[test]
-fn the_host_can_redo_a_bot_seats_turn_and_the_bot_plays_the_new_turn_itself() {
+fn the_host_cannot_redo_a_bot_seats_turn_it_is_refused_and_the_game_goes_on() {
     let t = host_table("rb_turn_redo", 5);
-    let bot_turns_done = |log: &[DecisionRecord]| {
-        ti4_host::history::turn_redo::find_turns(log)
-            .iter()
-            .filter(|s| s.seat.as_str() == "p2" && s.complete)
-            .count()
-    };
-    for _ in 0..300 {
+    for _ in 0..60 {
         t.settle();
-        let log = t.session().decision_log();
-        if bot_turns_done(&log) >= 2 && log.len() > 40 {
-            break;
-        }
         t.answer();
     }
     t.settle();
-    let version = t.session().game_version();
-    t.registry
-        .turn_redo_request(&t.id, &t.host_token, version, Some("p2"), None)
-        .expect("host redoes the bot's turn");
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        let status = t
-            .registry
-            .turn_redo_status(&t.id, &t.host_token)
-            .unwrap()
-            .expect("in flight");
-        if status.turn_complete {
-            break;
-        }
-        if t.session().current_pending_decision().is_some() {
-            t.answer();
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the bot's new turn never completed"
-        );
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    let (version, decisions) = (t.session().game_version(), t.session().decision_log().len());
+    let refused = t.registry.turn_redo_request(&t.id, &t.host_token, version, Some("p2"), None);
+    assert!(
+        matches!(&refused, Err(ti4_server::session::registry::HistoryError::Forbidden(why)) if why == ti4_host::disabled::TURN_REDO_OFF),
+        "{refused:?}"
+    );
+    assert_eq!(t.registry.turn_redo_status(&t.id, &t.host_token).unwrap(), None, "no redo is in flight");
+    assert_eq!((t.session().game_version(), t.session().decision_log().len()), (version, decisions), "the game is untouched");
+    t.answer();
     assert!(t.session().error().is_none(), "{:?}", t.session().error());
 }
 
