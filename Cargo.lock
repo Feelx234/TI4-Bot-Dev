@@ -4209,6 +4209,7 @@ dependencies = [
  "ti4-calc",
  "ti4-content",
  "ti4-engine",
+ "ti4-engine-legacy",
  "ti4-model",
  "ts-rs",
 ]
@@ -4283,6 +4284,7 @@ dependencies = [
  "thiserror 2.0.20",
  "ti4-content",
  "ti4-engine",
+ "ti4-engine-legacy",
  "ti4-model",
 ]
 
@@ -4335,6 +4337,7 @@ dependencies = [
  "serde_json",
  "ti4-content",
  "ti4-engine",
+ "ti4-engine-legacy",
  "ti4-model",
 ]
 
@@ -4382,6 +4385,7 @@ dependencies = [
  "thiserror 2.0.20",
  "ti4-content",
  "ti4-engine",
+ "ti4-engine-legacy",
  "ti4-host",
  "ti4-model",
  "ti4-policy",
@@ -4411,6 +4415,7 @@ dependencies = [
  "thiserror 2.0.20",
  "ti4-content",
  "ti4-engine",
+ "ti4-engine-legacy",
  "ti4-model",
  "ti4-policy",
  "tracing",
@@ -4446,6 +4451,7 @@ dependencies = [
  "ti4-calc",
  "ti4-content",
  "ti4-engine",
+ "ti4-engine-legacy",
  "ti4-model",
  "ti4-policy",
  "ti4-sim",

@@ -1307,7 +1307,7 @@ mod tests {
     use rand::SeedableRng;
     use ti4_content::ContentStore;
     use ti4_engine::choice::{Decider, IllegalChoice};
-    use ti4_engine::fixtures::{Hub, game, hub_from, plain_systems, put};
+    use ti4_engine::fixtures::{Hub, loadable_game as game, hub_from, plain_systems, put};
     use ti4_model::POK;
     use ti4_model::state::{GameState, Phase};
 

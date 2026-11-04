@@ -35,7 +35,7 @@ use ti4_engine_core::driver::session::Arm;
 use ti4_engine_core::kernel::Kernel;
 use ti4_engine_core::state::CoreState;
 
-use crate::wire::choice::Choice;
+use crate::wire::choice::{Choice, IllegalChoice};
 use crate::render::{self, Render, Typed};
 
 /// Why a live call stopped without finishing the step.
@@ -47,6 +47,9 @@ pub enum Stop {
     Exhausted,
     /// The asker refuses to go on.
     Blocked,
+    /// The table's decider failed or refused (`IllegalChoice::DeciderFailed`: the host changed its seats, the move was taken back; a replay
+    /// diverged): the wrapper returns it as the step's error, exactly as the string did, after restoring the position.
+    Asker(IllegalChoice),
     /// The core could not run the arm. `LiveError::Unknown` is the bail: in a live game it is a defect, never a lend.
     Live(LiveError),
     /// The arm is in the native set but has no live function (`step::<arm>`): a defect of the caller, never a lend.
@@ -68,6 +71,8 @@ pub struct Question<'a> {
     pub asking: &'a Asking,
     /// The string engine's form of it (`Choice.options[i].id` are the answers an asker gives back).
     pub rendered: Choice,
+    /// The position the question is asked in (the live core; a nested question's own position is `asking.nested` / `asking.at`).
+    pub core: &'a CoreState,
 }
 
 /// Whoever answers: the wrapper's table, a script, a bot.
@@ -283,7 +288,7 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
     loop {
         let rendered = render_asking(cx, core, &asking);
         step.asked.push(rendered.clone());
-        let id = asker.ask(&Question { asking: &asking, rendered })?;
+        let id = asker.ask(&Question { asking: &asking, rendered, core })?;
         // A free-form deal arrives as text: its terms are written to the window before the pick that names them is applied.
         let named = trade::pick(core, &asking.choice, &id);
         let pick = match named {

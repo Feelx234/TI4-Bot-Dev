@@ -1407,13 +1407,12 @@ mod tests {
     #[test]
     fn project_table_view_calculates_objective_progress() {
         let p1 = PlayerId::new("player_1");
-        let mut state = GameState::new(std::slice::from_ref(&p1), &[], BTreeMap::new(), None, 1);
-        let mut player = Player::new(p1.clone());
-        player.faction = FactionId::new("hacan");
+        // A table the typed core can hold (the native objective progress reads the core; a hand-built state has no diplomacy rows).
+        let mut state = ti4_engine::fixtures::seated_dealt(&[("player_1", "hacan"), ("player_2", "xxcha")], ti4_model::content_types::POK);
+        let player = &mut state.players[0];
         player.trade_goods = 7;
         player.tactic_tokens = 2;
         player.strategic_tokens = 2;
-        state.players = vec![player];
 
         state.revealed_objectives = vec![
             ObjectiveId::new("trade_routes"),
@@ -1450,18 +1449,11 @@ mod tests {
     fn project_table_view_names_the_lost_home_planets() {
         let xxcha = PlayerId::new("player_1");
         let letnev = PlayerId::new("player_2");
-        let mut state = GameState::new(
-            &[xxcha.clone(), letnev.clone()],
-            &[],
-            BTreeMap::new(),
-            None,
-            1,
-        );
-        let mut first = Player::new(xxcha.clone());
-        first.faction = FactionId::new("xxcha");
-        let mut second = Player::new(letnev.clone());
-        second.faction = FactionId::new("letnev");
-        state.players = vec![first, second];
+        // A deployed table the typed core can hold; Letnev's own home is then taken off the board (the assertion below: its home planets are
+        // not on the board at all).
+        let mut state = ti4_engine::fixtures::seated_dealt(&[("player_1", "xxcha"), ("player_2", "letnev")], ti4_model::content_types::POK);
+        let letnev_home = state.player(&letnev).and_then(|p| p.home_system.clone()).expect("a home");
+        *state.system_mut(&letnev_home) = Default::default();
         let home = state.system_mut(&SystemId::new("14"));
         home.set_control(PlanetId::new("archontau"), xxcha.clone());
         home.set_control(PlanetId::new("archonren"), letnev.clone());
@@ -1516,17 +1508,17 @@ mod tests {
         let full = ti4_model::content_types::FULL;
         for (kind, sum) in [
             (
-                ti4_engine::production::Spend::Resources,
+                ti4_engine_legacy::production::Spend::Resources,
                 listed.iter().map(|b| i64::from(b.resources)).sum::<i64>(),
             ),
             (
-                ti4_engine::production::Spend::Influence,
+                ti4_engine_legacy::production::Spend::Influence,
                 listed.iter().map(|b| i64::from(b.influence)).sum::<i64>(),
             ),
         ] {
-            let printed = ti4_engine::production::planet_value(content, full, &planet, kind);
+            let printed = ti4_engine_legacy::production::planet_value(content, full, &planet, kind);
             let now =
-                ti4_engine::production::planet_value_now(&state, content, full, &planet, kind);
+                ti4_engine_legacy::production::planet_value_now(&state, content, full, &planet, kind);
             assert_eq!(now - printed, sum);
         }
         assert_eq!(listed[1].resources, 2);

@@ -14,10 +14,9 @@ use ti4_content::units::catalogue;
 use ti4_engine::choice::Choice;
 use ti4_engine::decision_context::{ConstraintKind, DecisionTarget};
 use ti4_engine::invasion::COMMIT_KIND;
-use ti4_engine::movement::{Board, MovementRules};
+use ti4_engine::movement::{MoveView, Pool};
 use ti4_engine::production::{PRODUCE_KIND, Spend};
 use ti4_engine::tactical::{ACTIVATE_KIND, Movable, effective_move_value_for_ship, movable_into};
-use ti4_engine::transit::{CargoWindow, LOAD_KIND, rifts_exited};
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
 use ti4_model::state::GameState;
@@ -530,41 +529,11 @@ fn pool_count(state: &GameState, player: &PlayerId, key: &PoolKey) -> usize {
     }
 }
 
-/// What the hold of `ship` is offered on `path`: the `load` options of the engine's own window.
-fn pools_of(
-    state: &GameState,
-    content: &ContentStore,
-    sources: SourceSet,
-    player: &PlayerId,
-    origin: &SystemId,
-    ship: &Unit,
-    path: &[String],
-) -> Vec<PoolKey> {
-    let hold = CargoWindow::for_ship(state, content, sources, player, origin, ship, path);
-    let Some(choice) = hold.pending_choice() else {
-        return Vec::new();
-    };
-    choice
-        .options
-        .iter()
-        .filter(|option| option.kind == LOAD_KIND)
-        .filter_map(|option| {
-            let text = |key: &str| option.payload.get(key).and_then(serde_json::Value::as_str);
-            let flag = |key: &str| {
-                option
-                    .payload
-                    .get(key)
-                    .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(false)
-            };
-            Some((
-                text("pickup_system")?.to_owned(),
-                text("source").map(str::to_owned),
-                text("unit")?.to_owned(),
-                flag("damaged"),
-                flag("galvanized"),
-            ))
-        })
+/// What the hold of the ship at `origin` is offered on `path`: the pickups of the engine's own cargo window.
+fn pools_of(view: &MoveView, origin: &SystemId, ship: &Unit, path: &[String]) -> Vec<PoolKey> {
+    view.pools(origin.as_str(), ship.type_id.as_str(), path)
+        .into_iter()
+        .map(|Pool { system, planet, unit, damaged, galvanized }| (system, planet, unit, damaged, galvanized))
         .collect()
 }
 
@@ -577,16 +546,8 @@ fn movement(
 ) -> Option<MovementFacts> {
     let active = state.active_system.clone()?;
     let types = catalogue(content, sources);
-    let mut rules = MovementRules::with_laws(
-        galaxy,
-        content,
-        sources,
-        active.as_str(),
-        Board::for_player(state, content, sources, player),
-        Some(state),
-    );
-    ti4_engine::action_cards::apply_movement_effects(&mut rules, state, player);
-    let rolls = !rules.anomalies_ignored && !rules.rifts_ignored;
+    let view = MoveView::new(state, sources, galaxy, player, &active)?;
+    let rolls = view.rolls();
 
     let movable: BTreeMap<(SystemId, usize), Movable> =
         movable_into(state, content, sources, galaxy, player, &active)
@@ -623,13 +584,12 @@ fn movement(
                     found.gravity_drive,
                     found.ionian,
                 );
-                rules
-                    .path_from_ship(origin.as_str(), value, Some(hull.type_id.as_str()))
+                view.path_from_ship(origin.as_str(), value, Some(hull.type_id.as_str()))
                     .map(|path| (found, path))
             });
             let mut loads = Vec::new();
             let r#move = path.map(|(found, path)| {
-                for key in pools_of(state, content, sources, player, origin, hull, &path) {
+                for key in pools_of(&view, origin, hull, &path) {
                     let place = pools.iter().position(|known| *known == key);
                     loads.push(place.unwrap_or_else(|| {
                         pools.push(key);
@@ -640,16 +600,10 @@ fn movement(
                 // route (the default) is no choice and is not listed.
                 let mut routes = if state.rules_version >= ti4_model::state::RULES_MOVEMENT_ROUTES
                 {
-                    ti4_engine::tactical::ship_routes(
-                        state,
-                        content,
-                        sources,
-                        galaxy,
-                        &rules,
-                        player,
-                        origin,
+                    view.routes(
+                        origin.as_str(),
                         index,
-                        hull,
+                        hull.type_id.as_str(),
                         (found.gravity_drive, found.ionian),
                         "",
                     )
@@ -662,7 +616,7 @@ fn movement(
                 let routes = routes
                     .into_iter()
                     .map(|route| RouteFact {
-                        loads: pools_of(state, content, sources, player, origin, hull, &route.path)
+                        loads: pools_of(&view, origin, hull, &route.path)
                             .into_iter()
                             .map(|key| {
                                 pools.iter().position(|known| *known == key).unwrap_or_else(
@@ -686,7 +640,7 @@ fn movement(
                     gravity_drive: found.gravity_drive,
                     ionian: found.ionian,
                     rifts: if rolls {
-                        rifts_exited(&rules, &path)
+                        view.rifts_exited(&path)
                     } else {
                         Vec::new()
                     },
@@ -695,7 +649,7 @@ fn movement(
                 }
             });
             let blocked = r#move.is_none().then(|| {
-                if rules.may_depart(origin.as_str()) {
+                if view.may_depart(origin.as_str()) {
                     Blocked::Range
                 } else {
                     Blocked::CommandToken
@@ -717,7 +671,7 @@ fn movement(
                     false,
                     false,
                 ),
-                nebula: rules.nebula_caps(origin.as_str()),
+                nebula: view.nebula_caps(origin.as_str()),
                 r#move,
                 blocked,
                 loads,
@@ -1167,7 +1121,7 @@ mod tests {
     use super::*;
     use ti4_engine::choice::ChoiceOption;
     use ti4_engine::decision_context::{DecisionContext, DecisionSource};
-    use ti4_engine::tactical::activation_options_with;
+    use ti4_engine_legacy::tactical::activation_options_with;
     use ti4_model::content_types::POK;
     use ti4_model::id::UnitTypeId;
     use ti4_model::state::Phase;
@@ -1257,7 +1211,7 @@ mod tests {
         let (mut state, galaxy) = game();
         let content = ContentStore::embedded();
         let choice =
-            activation_options_with(&state, content, POK, &galaxy, &seat()).expect("offered");
+            ti4_engine::from_legacy_wire::<_, Choice>(&activation_options_with(&state, content, POK, &galaxy, &seat()).expect("offered"));
         let Some(TacticalFacts::Activation(facts)) =
             project_tactical_facts(&state, content, POK, &galaxy, &choice)
         else {
@@ -1282,7 +1236,7 @@ mod tests {
     fn reach(state: &GameState, galaxy: &Galaxy, system: &str) -> ReachFact {
         let content = ContentStore::embedded();
         let choice =
-            activation_options_with(state, content, POK, galaxy, &seat()).expect("offered");
+            ti4_engine::from_legacy_wire::<_, Choice>(&activation_options_with(state, content, POK, galaxy, &seat()).expect("offered"));
         let Some(TacticalFacts::Activation(facts)) =
             project_tactical_facts(state, content, POK, galaxy, &choice)
         else {

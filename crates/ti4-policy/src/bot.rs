@@ -1186,7 +1186,7 @@ mod tests {
     fn watched_hub() -> (ti4_model::state::GameState, ti4_engine::fixtures::Hub) {
         let target = public_target();
         let hub = ti4_engine::fixtures::hub_with_centre(&target);
-        (ti4_engine::fixtures::game(&["a", "b"]), hub)
+        (ti4_engine::fixtures::loadable_game(&["a", "b"]), hub)
     }
 
     fn secure_system(
@@ -2036,7 +2036,10 @@ mod tests {
     // to open a OnePerPlayer window before resuming. These tests prove the bot answers every
     // nested offer legally, with no stale state and no duplicate decisions.
 
-    use ti4_engine::choice::{Resolving, Table, Window};
+    use ti4_engine::from_legacy_wire as thin;
+    use ti4_engine::choice::Table;
+    use ti4_engine_legacy::choice::Table as LegacyTable;
+    use ti4_engine_legacy::choice::{Resolving, Window};
     use ti4_engine::objectives::{EventScoreLimit, ScoringWindow};
     use ti4_engine::secrets::Timing;
     use ti4_model::state::{Feat, GameState};
@@ -2067,9 +2070,9 @@ mod tests {
     ) -> Vec<Choice> {
         let mut offered = Vec::new();
         while let Some(choice) = window.pending_choice(state, content(), POK) {
-            let answer = ask_private(&choice, state, content(), POK, None, bot).unwrap();
-            window.resolve(state, content(), POK, answer).unwrap();
-            offered.push(choice);
+            let answer = ask_private(&thin(&choice), state, content(), POK, None, bot).unwrap();
+            window.resolve(state, content(), POK, thin(&answer)).unwrap();
+            offered.push(thin(&choice));
         }
         offered
     }
@@ -2290,9 +2293,9 @@ mod tests {
         }
         // The context keeps its own table (the M07-023 harness shape): one long-lived context
         // borrows it for the whole loop, so window-level asks go through a separate table.
-        let mut inner = Table::new();
-        let mut dice = ti4_engine::dice::Dice::new();
-        let mut rng = ti4_engine::rng::GameRng::new(51);
+        let mut inner = LegacyTable::new();
+        let mut dice = ti4_engine_legacy::dice::Dice::new();
+        let mut rng = ti4_engine_legacy::rng::GameRng::new(51);
 
         let mut window = ti4_engine::combat::CombatWindow::new(&state, content(), POK, &system);
         let mut ctx = Resolving {
@@ -2312,9 +2315,9 @@ mod tests {
             }
             if let Some(choice) = window.pending_choice(&state, content(), POK) {
                 let answer = ask_table
-                    .ask_seeing(&choice, &Observed::new(&state, content(), POK, None))
+                    .ask_seeing(&thin(&choice), &Observed::new(&state, content(), POK, None))
                     .unwrap();
-                window.resolve(&mut state, &mut ctx, answer).unwrap();
+                window.resolve(&mut state, &mut ctx, thin(&answer)).unwrap();
             } else if let Some(occurrence) = window.take_scoring_occurrence() {
                 paused = true;
                 // Exactly what Game does: service the occurrence's scoring window first.
@@ -2326,9 +2329,9 @@ mod tests {
                 );
                 while let Some(choice) = scoring.pending_choice(&state, content(), POK) {
                     let answer = ask_table
-                        .ask_seeing(&choice, &Observed::new(&state, content(), POK, None))
+                        .ask_seeing(&thin(&choice), &Observed::new(&state, content(), POK, None))
                         .unwrap();
-                    scoring.resolve(&mut state, content(), POK, answer).unwrap();
+                    scoring.resolve(&mut state, content(), POK, thin(&answer)).unwrap();
                 }
             } else {
                 window.settle_open(&mut state, &mut ctx).unwrap();
@@ -2421,6 +2424,8 @@ mod tests {
             ti4_engine::seating::deploy(&mut state, content, player, faction, POK)
                 .map_err(|error| error.to_string())?;
         }
+        // The notes setup dealt name the placeholder faction: deal them again for the factions just set.
+        ti4_engine::fixtures::redeal_notes(&mut state, POK);
 
         let mut table = Table::new();
         for (index, player) in players.iter().enumerate() {

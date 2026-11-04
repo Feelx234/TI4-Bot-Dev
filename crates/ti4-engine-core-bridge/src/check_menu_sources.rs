@@ -4,7 +4,7 @@
 //! no ships, no hand...) with strategy cards dealt, one and two per seat, some spent.
 
 use ti4_content::ContentStore;
-use ti4_engine::choice::ChoiceOption;
+use ti4_engine_legacy::choice::ChoiceOption;
 use ti4_engine_legacy::generated::IdStr;
 use ti4_engine_core::generated::StrategyCard;
 use ti4_model::id::{PlayerId, StrategyCardId};

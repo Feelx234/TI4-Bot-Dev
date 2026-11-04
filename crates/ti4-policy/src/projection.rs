@@ -1079,7 +1079,7 @@ fn public_game_state_facts(seen: &Observed<'_>, player: &PlayerId) -> Vec<(Strin
         f64::from(u8::from(supports.contains_key(player))),
     );
 
-    let mecatol = ti4_model::id::PlanetId::new("mecatol_rex");
+    let mecatol = ti4_model::id::PlanetId::new("mr");
     let mecatol_controller = players.iter().find(|candidate| {
         seen.controlled_planets(candidate)
             .iter()
@@ -1893,7 +1893,7 @@ mod tests {
         let content = ti4_content::ContentStore::embedded();
         let hub = ti4_engine::fixtures::plain_hub();
         let player = ti4_model::id::PlayerId::new("p1");
-        let mut state = ti4_engine::fixtures::game(&["p1"]);
+        let mut state = ti4_engine::fixtures::loadable_game(&["p1"]);
 
         // One carrier on the ring. From there the centre is reachable and the far side is not,
         // so the fact has something to be right or wrong about.
@@ -2327,9 +2327,16 @@ mod tests {
     fn the_public_surface_carries_timing_economy_strategy_and_board_state() {
         let content = ti4_content::ContentStore::embedded();
         let (mut state, player) = position();
+        // A table the typed core can hold (the scoreable-secret fact is a native read).
+        let loadable = ti4_engine::fixtures::loadable_game(&["a", "b"]);
+        for (seat, real) in state.players.iter_mut().zip(&loadable.players) {
+            seat.faction = real.faction.clone();
+        }
+        state.promissory_notes = loadable.promissory_notes.clone();
+        state.promissory_faceup = loadable.promissory_faceup.clone();
         let opponent = PlayerId::new("b");
         let system = ti4_model::id::SystemId::new("18");
-        let mecatol = ti4_model::id::PlanetId::new("mecatol_rex");
+        let mecatol = ti4_model::id::PlanetId::new("mr");
         state.phase = ti4_model::state::Phase::Action;
         state.active = Some(player.clone());
         state.speaker = opponent.clone();
@@ -2338,7 +2345,7 @@ mod tests {
         state.custodians_removed = true;
         state
             .card_initiative
-            .insert(ti4_model::id::StrategyCardId::new("imperial"), 8);
+            .insert(ti4_model::id::StrategyCardId::new("pok8imperial"), 8);
         state
             .system_mut(&system)
             .set_control(mecatol.clone(), player.clone());
@@ -2349,7 +2356,7 @@ mod tests {
             let seat = state.player_mut(&player).unwrap();
             seat.victory_points = 4;
             seat.action_cards = vec![ti4_model::id::ActionCardId::new("summit")];
-            let imperial = ti4_model::id::StrategyCardId::new("imperial");
+            let imperial = ti4_model::id::StrategyCardId::new("pok8imperial");
             seat.strategy_cards = vec![imperial.clone()];
             seat.exhausted_strategy_cards.insert(imperial);
         }
@@ -2365,8 +2372,16 @@ mod tests {
         ti4_engine::fixtures::put(&mut state, &opponent_system, "infantry", &opponent, 1);
         // The actor's held secret is met on the board, in a system that is not the active one:
         // four of their PDS sit on a private fixture planet, so the scoreable count must move.
-        let secret_system = ti4_model::id::SystemId::new("99");
-        let secret_planet = ti4_model::id::PlanetId::new("eap_fixture");
+        // (A planet of the corpus: the typed core holds no planet it does not know.)
+        let (secret_system, secret_planet) = ti4_content::galaxy::all_systems(content, ti4_model::content_types::POK)
+            .iter()
+            .filter(|(id, _)| id.to_string() != opponent_system.to_string() && id.to_string() != "18")
+            .find_map(|(id, _)| {
+                let planets = ti4_content::galaxy::planets_in(content, id, ti4_model::content_types::POK);
+                let planet = planets.iter().find(|p| p.homeworld_of().is_none())?;
+                Some((ti4_model::id::SystemId::new(*id), ti4_model::id::PlanetId::new(planet.id())))
+            })
+            .expect("a second placed planet");
         state
             .system_mut(&secret_system)
             .set_control(secret_planet.clone(), player.clone());
@@ -2397,8 +2412,8 @@ mod tests {
             ("victory-points", 4.0),
             ("action-cards-held", 1.0),
             ("exhausted-planets", 1.0),
-            ("own-strategy-card:imperial:used", 1.0),
-            ("table-strategy-card:imperial:used", 1.0),
+            ("own-strategy-card:pok8imperial:used", 1.0),
+            ("table-strategy-card:pok8imperial:used", 1.0),
             ("passed-players", 1.0),
             ("active-players", 1.0),
             ("opponent-trade-goods-total", 3.0),
@@ -2892,12 +2907,14 @@ mod card_tag_tests {
     }
 
     /// Project `choice` for `player` with the families on, one option-name set per option.
-    fn projected(
+    fn projected<C: serde::Serialize>(
         state: &GameState,
-        choice: &Choice,
+        choice: &C,
         player: &PlayerId,
         held: &CardTagInput<'_>,
     ) -> Vec<FeatureVector> {
+        // (The string windows of these tests speak the frozen engine's `Choice`: one wire shape.)
+        let choice: &Choice = &ti4_engine::from_legacy_wire(choice);
         let seen = Observed::new(
             state,
             ContentStore::embedded(),
@@ -2940,8 +2957,8 @@ mod card_tag_tests {
         let mut state = ti4_engine::fixtures::game(&["a"]);
         let player = PlayerId::new("a");
         let (decider, seen) =
-            ti4_engine::choice::Capturing::new(Box::new(ti4_engine::choice::FirstOption));
-        let mut table = ti4_engine::choice::Table::with_default(Box::new(decider));
+            ti4_engine_legacy::choice::Capturing::new(Box::new(ti4_engine_legacy::choice::FirstOption));
+        let mut table = ti4_engine_legacy::choice::Table::with_default(Box::new(decider));
         ti4_engine::strategy_cards::primary(
             &mut state,
             content,
@@ -3008,13 +3025,13 @@ mod card_tag_tests {
             None,
             &a,
         );
-        let played: Vec<&ChoiceOption> = options
+        let played: Vec<&_> = options
             .iter()
             .filter(|option| option.id.starts_with("action_card|"))
             .collect();
         assert_eq!(played.len(), 1, "{options:?}");
         assert_eq!(played[0].id, "action_card|1");
-        let choice = Choice::new(a.clone(), "act", options.clone());
+        let choice = Choice::new(a.clone(), "act", ti4_engine::from_legacy_wire::<_, Vec<ChoiceOption>>(&options));
         let held = input(&hand, &[]);
         let vectors = projected(&state, &choice, &a, &held);
         let index = choice
@@ -3061,7 +3078,7 @@ mod card_tag_tests {
         let (state, a, options, option) = found.expect("some tagged agent is offered");
         assert!(option.id.starts_with("component|leader|"));
         let leader = option.id.strip_prefix("component|leader|").unwrap();
-        let choice = Choice::new(a.clone(), "act", options);
+        let choice = Choice::new(a.clone(), "act", ti4_engine::from_legacy_wire::<_, Vec<ChoiceOption>>(&options));
         let held = input(&[], &[]);
         let vectors = projected(&state, &choice, &a, &held);
         let index = choice
@@ -3099,7 +3116,7 @@ mod card_tag_tests {
             ..ContactScope::default()
         };
         let options = item_options(&state, content, &scope, &Draft::new(a.clone(), b.clone()));
-        let notes: Vec<&ChoiceOption> = options
+        let notes: Vec<&_> = options
             .iter()
             .filter(|o| o.kind == ITEM_KIND && o.id.starts_with("diplomacy|note|"))
             .collect();
@@ -3114,7 +3131,7 @@ mod card_tag_tests {
             .filter(|(id, holder)| **holder == a && !state.promissory_faceup.contains(*id))
             .map(|(id, _)| id.clone())
             .collect();
-        let choice = Choice::new(a.clone(), "build", options.clone());
+        let choice = Choice::new(a.clone(), "build", ti4_engine::from_legacy_wire::<_, Vec<ChoiceOption>>(&options));
         let held = input(&[], &hand);
         let vectors = projected(&state, &choice, &a, &held);
         let mut tagged = 0;
@@ -3155,17 +3172,17 @@ mod card_tag_tests {
             .clear();
         let hand = state.player(&a).unwrap().action_cards.clone();
         let (decider, seen) =
-            ti4_engine::choice::Capturing::new(Box::new(ti4_engine::choice::FirstOption));
-        let mut table = ti4_engine::choice::Table::with_default(Box::new(decider));
+            ti4_engine_legacy::choice::Capturing::new(Box::new(ti4_engine_legacy::choice::FirstOption));
+        let mut table = ti4_engine_legacy::choice::Table::with_default(Box::new(decider));
         let mut resolver = ti4_engine::timing::Resolver::new(
             vec![a.clone(), PlayerId::new("b")],
             Some(a.clone()),
-            ti4_engine::choice::Table::default(),
+            ti4_engine_legacy::choice::Table::default(),
         );
         ti4_engine::reactions::arm(&mut resolver, &state);
-        let mut dice = ti4_engine::dice::Dice::new();
-        let mut rng = ti4_engine::rng::GameRng::new(0);
-        let mut event_sequence = ti4_engine::event::EventSequence::new();
+        let mut dice = ti4_engine_legacy::dice::Dice::new();
+        let mut rng = ti4_engine_legacy::rng::GameRng::new(0);
+        let mut event_sequence = ti4_engine_legacy::event::EventSequence::new();
         let mut working = state.clone();
         let mut context = ti4_engine::timing::TimingContext {
             state: &mut working,
@@ -3214,6 +3231,7 @@ mod card_tag_tests {
         let seen = Observed::new(&state, content, ti4_model::content_types::POK, None);
         let choice = ti4_engine::draft::strategy_options(&state, content).unwrap();
         let baseline = crate::progress::Baseline::default();
+        let choice: Choice = ti4_engine::from_legacy_wire(&choice);
         let legacy = mlp_choice_features(&seen, &choice, &choice.player, &[], baseline);
         let off = mlp_choice_features_with(&seen, &choice, &choice.player, &[], baseline, None);
         assert_eq!(legacy, off, "None must be byte-identical to the wrapper");

@@ -345,7 +345,7 @@ fn launch_failure_cleanup_and_backwards_compatibility() {
         game_id: old_game_id.to_string(),
         seed: 999,
         player_ids: vec![old_host.clone()],
-        initial_state: ti4_server::fixtures::create_sample_game(),
+        initial_state: ti4_server::fixtures::create_playable_sample_game(),
         map_tiles: Vec::new(),
         seats: None, // Will not be serialized in JSON due to skip_serializing_if
         map_template: None,

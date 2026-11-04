@@ -205,7 +205,7 @@ mod tests {
 
     use ti4_content::ContentStore;
     use ti4_engine::choice::{Decider, IllegalChoice};
-    use ti4_engine::fixtures::{game, hub_with_centre, put_on_planet};
+    use ti4_engine::fixtures::{loadable_game as game, hub_with_centre, put_on_planet};
     use ti4_model::POK;
     use ti4_model::id::{PlanetId, SecretObjectiveId};
 

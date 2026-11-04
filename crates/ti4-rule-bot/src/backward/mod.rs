@@ -829,7 +829,7 @@ mod tests {
     use rand_chacha::ChaCha8Rng;
     use ti4_content::ContentStore;
     use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice};
-    use ti4_engine::fixtures::{game, hub_from, hub_with_centre, plain_systems, put};
+    use ti4_engine::fixtures::{loadable_game as game, hub_from, hub_with_centre, plain_systems, put};
     use ti4_model::POK;
     use ti4_model::state::{GameState, Phase};
 

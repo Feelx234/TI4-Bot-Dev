@@ -3,6 +3,8 @@
 
 pub use ti4_engine_legacy::core_adapter as adapter;
 pub mod allow_list;
+pub mod legacy_adapter;
+pub mod legacy_game;
 pub mod check;
 pub mod dual_shard;
 pub mod alpha;

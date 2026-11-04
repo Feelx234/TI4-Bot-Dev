@@ -98,6 +98,42 @@ pub fn create_sample_game() -> GameState {
     state
 }
 
+/// [`create_sample_game`] as a table the typed core can play: the same three seats (Sol, Hacan, Letnev) in the action phase of round 2 with the same
+/// economy, but real strategy card, action card and objective ids and a deployed board (the sample's invented ids are fine for a snapshot fixture
+/// and refused by the core). For the sessions that actually step.
+///
+/// # Panics
+/// If setup refuses the three seats.
+#[must_use]
+pub fn create_playable_sample_game() -> GameState {
+    let seat_a = PlayerId::new("seat_a");
+    let mut state = ti4_engine::fixtures::seated_dealt(
+        &[("seat_a", "sol"), ("seat_b", "hacan"), ("seat_c", "letnev")],
+        ti4_model::content_types::POK,
+    );
+    state.round = 2;
+    state.speaker = seat_a.clone();
+    for (seat, cards, tg, tactic, fleet, strategic, card) in [
+        ("seat_a", 2, 4, 3, 4, 2, "pok1leadership"),
+        ("seat_b", 1, 8, 2, 3, 3, "pok5trade"),
+        ("seat_c", 1, 1, 3, 3, 2, "pok6warfare"),
+    ] {
+        let id = PlayerId::new(seat);
+        let p = state.player_mut(&id).unwrap();
+        p.trade_goods = tg;
+        p.tactic_tokens = tactic;
+        p.fleet_tokens = fleet;
+        p.strategic_tokens = strategic;
+        p.strategy_cards = vec![StrategyCardId::new(card)];
+        p.action_cards = ["abs", "assassin"].iter().take(cards).map(|c| ActionCardId::new(*c)).collect();
+        state.unclaimed_strategy_cards.retain(|c| c.as_str() != card);
+    }
+    ti4_engine::builders::phase::advance_phase(&mut state);
+    ti4_engine::builders::phase::begin_action_turn(&mut state, &seat_a);
+    state.round = 2;
+    state
+}
+
 /// Creates a sample pending choice with decision context and an outstanding constraint.
 #[must_use]
 pub fn create_sample_pending_choice() -> Choice {

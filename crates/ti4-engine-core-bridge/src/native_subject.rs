@@ -604,7 +604,7 @@ impl Subject for NativeSubject {
         let shadow = self.prepare();
         let info = self.inner.step();
         if let Some(shadow) = shadow {
-            let (records, events) = (self.inner.peek_records().to_vec(), self.inner.peek_events().to_vec());
+            let (records, events) = (crate::legacy_adapter::thin_records(self.inner.peek_records()), self.inner.peek_events().to_vec());
             self.compare(shadow, answers, &records, &events);
         }
         info

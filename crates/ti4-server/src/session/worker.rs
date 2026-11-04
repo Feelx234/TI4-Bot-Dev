@@ -239,6 +239,25 @@ impl SessionShared {
     /// answers "inbox channel closed"); those are the stop, not a failure of the game. Recording
     /// one would make the session, which readers keep seeing until its replacement is published,
     /// answer 503 "failed closed" (smoke run 1b, 2026-10-07).
+    /// A storage fault stops the session: whoever is waiting for the answer to its submission is told so now (the reply channels
+    /// would otherwise stay open for ever, because the publishing that would have answered them returned on the error).
+    pub fn fail_waiting(&mut self, message: &str) {
+        let mut replies = Vec::new();
+        if let Some(pending) = self.pending_decision.as_mut()
+            && let Some(reply) = pending.reply_tx.take()
+        {
+            replies.push(reply);
+        }
+        for pending in &mut self.in_flight_submissions {
+            if let Some(reply) = pending.reply_tx.take() {
+                replies.push(reply);
+            }
+        }
+        for reply in replies {
+            let _ = reply.send(Err(ti4_host::protocol::status::RejectionReason::ValidationFailed { message: message.to_owned() }));
+        }
+    }
+
     pub fn fail_unless_stopped(&mut self, error: String) {
         if !self.stopped {
             self.error = Some(error);
@@ -1359,7 +1378,9 @@ pub fn spawn_session_worker(
                     && !lock.history_active
                 {
                     if let Err(error) = store.append_decision(&lock.game_id, record) {
-                        lock.error = Some(format!("failed to persist accepted decision: {error}"));
+                        let message = format!("failed to persist accepted decision: {error}");
+                        lock.fail_waiting(&message);
+                        lock.error = Some(message);
                         return;
                     }
                 }
@@ -1372,6 +1393,7 @@ pub fn spawn_session_worker(
                     movement,
                     seat_detail,
                 ) {
+                    lock.fail_waiting(&error);
                     lock.error = Some(error);
                     return;
                 }
@@ -1418,6 +1440,7 @@ pub fn spawn_session_worker(
                 })
                 .collect();
             if let Err(error) = lock.persist_history() {
+                lock.fail_waiting(&error);
                 lock.error = Some(error);
                 return;
             }

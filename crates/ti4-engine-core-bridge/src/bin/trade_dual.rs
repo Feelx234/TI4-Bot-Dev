@@ -263,10 +263,10 @@ fn run_position(p: &Position, label: &str, rng: &mut Rng, deals: usize, run: &mu
             let Some(q) = window.pending_choice(&open, content) else { break };
             let pick = q.options[rng.below(q.options.len())].clone();
             // The answer goes through a table, which is what records the question for the core window.
-            let mut table = ti4_engine::choice::Table::with_default(Box::new(ti4_engine::choice::Scripted::new([pick.id.clone()])));
+            let mut table = ti4_engine_legacy::choice::Table::with_default(Box::new(ti4_engine_legacy::choice::Scripted::new([pick.id.clone()])));
             let sources = p.sources;
             let _ = window.answer_with(&mut open, content, galaxy, &q, |c, s| {
-                table.ask_seeing(c, &ti4_engine::choice::Observed::new(s, content, sources, Some(galaxy)))
+                table.ask_seeing(c, &ti4_engine_legacy::choice::Observed::new(s, content, sources, Some(galaxy)))
             });
             if window.is_complete() {
                 break;

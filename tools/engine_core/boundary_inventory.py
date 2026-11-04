@@ -123,6 +123,9 @@ def use_paths(text):
     return found
 
 def expand(tree):
+    # `Name as Alias` first: with the blanks gone `CanonicalHash as X` would read as `CanonicalHashasX`, and the alias cut below would
+    # also take the `ash` off a name that ends in `Hash`.
+    tree = re.sub(r'\s+as\s+\w+', '', tree)
     tree = re.sub(r'\s+', '', tree)
     def rec(prefix, s):
         if '{' not in s:
@@ -143,8 +146,7 @@ def expand(tree):
         return out
     res = []
     for path in rec('', tree):
-        path = re.sub(r'\bas\w+$', '', path.replace('::self', ''))
-        path = re.sub(r'as[A-Za-z_]\w*$', '', path)
+        path = path.replace('::self', '')
         res.append(path.rstrip(':'))
     return res
 

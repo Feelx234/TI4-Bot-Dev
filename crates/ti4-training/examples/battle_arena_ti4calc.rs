@@ -463,11 +463,11 @@ struct CommitAll {
     planet: String,
 }
 
-impl ti4_engine::choice::Decider for CommitAll {
+impl ti4_engine_legacy::choice::Decider for CommitAll {
     fn choose(
         &mut self,
-        choice: &ti4_engine::choice::Choice,
-    ) -> Result<ti4_engine::choice::ChoiceOption, ti4_engine::choice::IllegalChoice> {
+        choice: &ti4_engine_legacy::choice::Choice,
+    ) -> Result<ti4_engine_legacy::choice::ChoiceOption, ti4_engine_legacy::choice::IllegalChoice> {
         let landing = choice.options.iter().find(|option| {
             option.kind == "commit"
                 && option
@@ -480,7 +480,7 @@ impl ti4_engine::choice::Decider for CommitAll {
             .or_else(|| choice.options.iter().find(|option| option.is_decline()))
             .or_else(|| choice.options.first())
             .cloned();
-        pick.ok_or_else(|| ti4_engine::choice::IllegalChoice::NoOptions {
+        pick.ok_or_else(|| ti4_engine_legacy::choice::IllegalChoice::NoOptions {
             player: choice.player.clone(),
             prompt: choice.prompt.clone(),
         })
@@ -490,7 +490,7 @@ impl ti4_engine::choice::Decider for CommitAll {
 /// A system with exactly one planet, not a home system, not Mecatol Rex, not an anomaly.
 fn lone_planet(content: &ContentStore) -> (String, String) {
     let planets = ti4_content::galaxy::all_planets(content, POK);
-    let away = ti4_engine::fixtures::non_home_planets(usize::MAX);
+    let away = ti4_engine_legacy::fixtures::non_home_planets(usize::MAX);
     let systems = ti4_content::galaxy::all_systems(content, POK);
     planets
         .iter()
@@ -498,7 +498,7 @@ fn lone_planet(content: &ContentStore) -> (String, String) {
             !planet.is_placed_during_play()
                 && away.iter().any(|away| away == *id)
                 && planet.system_id().is_some_and(|system| {
-                    !ti4_engine::seating::is_mecatol(system)
+                    !ti4_engine_legacy::seating::is_mecatol(system)
                         && systems.get(system).is_some_and(|s| !s.is_anomaly())
                         && planets
                             .values()
@@ -526,7 +526,7 @@ fn engine_ground(
 ) -> bool {
     use ti4_model::id::{FactionId, PlanetId, PlayerId, SystemId};
     let (a, d) = (PlayerId::new("a"), PlayerId::new("b"));
-    let mut state = ti4_engine::fixtures::game(&["a", "b"]);
+    let mut state = ti4_engine_legacy::fixtures::game(&["a", "b"]);
     let (system, planet) = (SystemId::new(&target.0), PlanetId::new(&target.1));
     let mut setup = |side: &serde_json::Value, owner: &PlayerId, invading: bool| {
         let faction = side["faction"].as_str().expect("faction");
@@ -543,9 +543,9 @@ fn engine_ground(
             let count = usize::try_from(count.as_u64().unwrap_or(0)).unwrap_or(0);
             let ground = matches!(base.as_str(), "infantry" | "mech" | "pds");
             if invading || !ground {
-                ti4_engine::fixtures::put(&mut state, &system, &id, owner, count);
+                ti4_engine_legacy::fixtures::put(&mut state, &system, &id, owner, count);
             } else {
-                ti4_engine::fixtures::put_on_planet(
+                ti4_engine_legacy::fixtures::put_on_planet(
                     &mut state, &system, &planet, &id, owner, count,
                 );
             }
@@ -575,12 +575,12 @@ fn engine_ground(
         .system_mut(&system)
         .set_control(planet.clone(), d.clone());
     state.active = Some(a.clone());
-    let mut table = ti4_engine::choice::Table::with_default(Box::new(CommitAll {
+    let mut table = ti4_engine_legacy::choice::Table::with_default(Box::new(CommitAll {
         planet: target.1.clone(),
     }));
-    let mut dice = ti4_engine::dice::Dice::new();
-    let mut rng = ti4_engine::rng::GameRng::new(seed);
-    let report = ti4_engine::invasion::resolve(
+    let mut dice = ti4_engine_legacy::dice::Dice::new();
+    let mut rng = ti4_engine_legacy::rng::GameRng::new(seed);
+    let report = ti4_engine_legacy::invasion::resolve(
         &mut state, content, POK, &mut table, &mut dice, &mut rng, &system, &a,
     )
     .expect("the invasion resolves");

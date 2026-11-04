@@ -385,36 +385,6 @@ mod tests {
         assert_eq!(state.action_card_deck.len(), 142);
         assert_eq!(action_deck_len(&state), 142);
     }
-
-    #[test]
-    fn a_draw_skips_the_extra_vetos_only_from_the_new_version() {
-        use ti4_model::id::{ActionCardId, PlayerId};
-        let a = PlayerId::new("a");
-        for (version, expected) in [
-            (
-                ti4_model::state::RULES_OFFICIAL_ACTION_DECK,
-                ["sabotage", "veto"],
-            ),
-            (
-                ti4_model::state::RULES_OFFICIAL_ACTION_DECK - 1,
-                ["veto3", "sabotage"],
-            ),
-        ] {
-            let mut state = crate::fixtures::game(&["a", "b"]);
-            state.rules_version = version;
-            state.action_card_deck = ["veto3", "sabotage", "veto4", "veto", "bribery"]
-                .into_iter()
-                .map(ActionCardId::new)
-                .collect();
-            let mut table =
-                crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(Vec::<
-                    String,
-                >::new(
-                ))));
-            let drawn =
-                crate::action_cards::draw(&mut state, content(), &mut table, &a, 2).expect("drawn");
-            let drawn: Vec<&str> = drawn.iter().map(ActionCardId::as_str).collect();
-            assert_eq!(drawn, expected, "version {version}");
-        }
-    }
+    // (`a_draw_skips_the_extra_vetos_only_from_the_new_version` drives the string `action_cards::draw` with a string table: it moved to
+    // `ti4-engine-core-bridge/tests/wrapper_native.rs`, where the legacy crate may be named.)
 }

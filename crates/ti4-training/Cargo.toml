@@ -26,5 +26,9 @@ itertools.workspace = true
 rayon.workspace = true
 mimalloc.workspace = true
 
+[dev-dependencies]
+# Tests and examples that drive the string windows (oracle only; never in the production tree).
+ti4-engine-legacy.workspace = true
+
 [lints]
 workspace = true

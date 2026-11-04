@@ -5940,7 +5940,7 @@ mod tests {
         );
         let a = PlayerId::new("a");
 
-        let mut state = ti4_engine::fixtures::game(&["a", "b"]);
+        let mut state = ti4_engine::fixtures::real_game(&["a", "b"]);
         for id in std::iter::once(&hub.centre).chain(hub.outer.iter()) {
             state
                 .board
@@ -5982,7 +5982,7 @@ mod tests {
         let hub = ti4_engine::fixtures::hub_with_outer(&target_system);
         let a = PlayerId::new("a");
 
-        let mut state = ti4_engine::fixtures::game(&["a", "b"]);
+        let mut state = ti4_engine::fixtures::real_game(&["a", "b"]);
         for id in std::iter::once(&hub.centre).chain(hub.outer.iter()) {
             state
                 .board
@@ -6034,7 +6034,7 @@ mod tests {
             .expect("the corpus has a cultural planet on a tile");
         let hub = ti4_engine::fixtures::hub_with_outer(&target_system);
         let a = PlayerId::new("a");
-        let mut state = ti4_engine::fixtures::game(&["a", "b"]);
+        let mut state = ti4_engine::fixtures::real_game(&["a", "b"]);
         for id in std::iter::once(&hub.centre).chain(hub.outer.iter()) {
             state
                 .board
@@ -6124,7 +6124,7 @@ mod tests {
         let content = ti4_content::ContentStore::embedded();
         let hub = ti4_engine::fixtures::hub_with_centre(ti4_engine::seating::MECATOL);
         let player = PlayerId::new("a");
-        let mut state = ti4_engine::fixtures::game(&["a", "b"]);
+        let mut state = ti4_engine::fixtures::real_game(&["a", "b"]);
         for id in std::iter::once(&hub.centre).chain(hub.outer.iter()) {
             state
                 .board
@@ -6855,9 +6855,9 @@ mod tests {
             .unwrap()
             .to_owned();
         state.active_system = Some(SystemId::new(&destination));
-        let move_choice = ti4_engine::tactical::movement_options(
+        let move_choice: Choice = ti4_engine::from_legacy_wire(&ti4_engine_legacy::tactical::movement_options(
             &player,
-            &[ti4_engine::tactical::Movable {
+            &[ti4_engine_legacy::tactical::Movable {
                 origin: origin.clone(),
                 index: 0,
                 unit: ti4_model::units::Unit::new(
@@ -6868,7 +6868,7 @@ mod tests {
                 gravity_drive: false,
                 ionian: false,
             }],
-        );
+        ));
         let move_option = move_choice
             .options
             .iter()
@@ -7553,6 +7553,8 @@ mod tests {
         for (player, faction) in &factions {
             ti4_engine::seating::deploy(&mut state, content, player, faction, POK).unwrap();
         }
+        // The notes setup dealt name the placeholder faction: deal them again for the factions just set.
+        ti4_engine::fixtures::redeal_notes(&mut state, POK);
         state.revealed_objectives = vec![
             ti4_model::id::ObjectiveId::new("outer_rim"),
             ti4_model::id::ObjectiveId::new("diversify"),

@@ -187,8 +187,8 @@ pub fn golden_games(
         if !include(index) {
             continue;
         }
-        let mut game = spec.build()?;
-        game.table.set_default(golden_decider(spec.seed));
+        let mut game = crate::legacy_game::legacy_game(spec)?;
+        game.table.set_default(Box::new(crate::legacy_adapter::ThinDecider::new(golden_decider(spec.seed))));
         let mut steps = 0usize;
         while !game.state.finished
             && game.state.round <= matrix.limits.max_rounds
@@ -210,7 +210,7 @@ pub fn golden_games(
                 return Err(format!("seed {}: {error}", spec.seed));
             }
         }
-        let hash = ti4_wasm::host_session::decisions_hash(&game.table.log.records);
+        let hash = ti4_wasm::host_session::decisions_hash(&crate::legacy_adapter::thin_records(&game.table.log.records));
         each(index, &hash);
         hashes.push(hash);
     }
@@ -249,7 +249,7 @@ pub fn template_openings() -> (Vec<Position>, Vec<String>) {
                 thunders_edge,
                 rules_version: None,
             };
-            match spec.build() {
+            match crate::legacy_game::legacy_game(&spec) {
                 Ok(game) => {
                     if let Some(galaxy) = game.galaxy() {
                         positions.push(Position {

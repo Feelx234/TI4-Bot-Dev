@@ -7,7 +7,7 @@
 
 use ti4_content::ContentStore;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
-use ti4_engine::fixtures::{game, plain_hub};
+use ti4_engine::fixtures::{loadable_game as game, plain_hub};
 use ti4_model::POK;
 use ti4_model::content_types::ContentType;
 use ti4_model::id::{ObjectiveId, PlayerId, SecretObjectiveId};

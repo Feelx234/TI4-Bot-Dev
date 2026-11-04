@@ -410,7 +410,7 @@ mod tests {
                     group
                         .windows
                         .iter()
-                        .any(|(event, rel)| *event == window.event && *rel == window.relation)
+                        .any(|(event, rel)| *event == window.event && format!("{rel:?}") == format!("{:?}", window.relation))
                 })
                 .count();
             if groups != 1 {

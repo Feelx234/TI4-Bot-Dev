@@ -199,7 +199,7 @@ pub fn choose_explained(
 }
 
 /// The route (rules version 29: `details.routes` of a movement choice, see
-/// `ti4_engine::tactical::ship_routes`) that the bot takes for the move option `picked`: the
+/// `ti4_engine::tactical::routes_into`) that the bot takes for the move option `picked`: the
 /// number of the route in the option's list, 0 being the default, the route the engine took
 /// before routes existed.
 ///
@@ -3582,7 +3582,7 @@ mod tests {
     use ti4_content::ContentStore;
     use ti4_engine::choice::{Decider, IllegalChoice};
     use ti4_engine::fixtures::{
-        Hub, game, hub_from, hub_with_centre, plain_systems, put, put_on_planet,
+        Hub, loadable_game as game, hub_from, hub_with_centre, plain_systems, put, put_on_planet,
     };
     use ti4_model::POK;
     use ti4_model::state::GameState;
@@ -3709,7 +3709,7 @@ mod tests {
 
     #[test]
     fn mecatol_rex_is_invaded_only_when_the_custodians_can_be_paid_for() {
-        let mut state = game(&["a"]);
+        let mut state = game(&["a", "b"]);
         let hub = hub_from(&["18".to_owned()]);
         let mr = SystemId::new("18");
         state.player_mut(&me()).expect("seat").trade_goods = 0;
@@ -4326,6 +4326,14 @@ mod tests {
 
     #[test]
     fn later_drafts_take_imperial_only_with_mecatol_rex_else_the_most_trade_goods() {
+        // The faction plans are off: the seat has a real faction now (the typed core refuses the placeholder), and Sol's plan drafts
+        // Leadership first, an opinion of its own that this test is not about.
+        let mut knobs = crate::tuning::Tuning::default();
+        knobs.faction_plans_enabled = false;
+        crate::tuning::with(knobs, later_drafts_body);
+    }
+
+    fn later_drafts_body() {
         let (mut state, hub, _, _) = board();
         state.round = 3;
         let all = draft(&["pok1leadership", "pok5trade", "pok8imperial"]);

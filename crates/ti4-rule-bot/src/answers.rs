@@ -582,7 +582,7 @@ fn retreat_to(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usi
 mod tests {
     use super::*;
     use ti4_content::ContentStore;
-    use ti4_engine::fixtures::game;
+    use ti4_engine::fixtures::loadable_game as game;
     use ti4_model::POK;
 
     fn seen(state: &ti4_model::state::GameState) -> Observed<'_> {

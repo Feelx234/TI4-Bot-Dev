@@ -834,7 +834,7 @@ mod tests {
         use std::collections::BTreeSet;
 
         let content = ContentStore::embedded();
-        let mut state = ti4_engine::fixtures::game(&["a", "b", "c"]);
+        let mut state = ti4_engine::fixtures::loadable_game(&["a", "b", "c"]);
         state.round = 3;
         // `ans` scores off the holder's own technologies; `dp` scores off the laws in play. Both
         // are given real progress, because a fixture where neither card registers would satisfy
@@ -846,7 +846,7 @@ mod tests {
         {
             let seat = state.player_mut(&PlayerId::new("a")).unwrap();
             seat.secret_objectives = vec![ti4_model::id::SecretObjectiveId::new("ans")];
-            seat.technologies = ["t1", "t2"]
+            seat.technologies = ["ac2", "so2"]
                 .into_iter()
                 .map(ti4_model::id::TechnologyId::new)
                 .collect();
@@ -855,7 +855,7 @@ mod tests {
             .player_mut(&PlayerId::new("b"))
             .unwrap()
             .secret_objectives = vec![ti4_model::id::SecretObjectiveId::new("dp")];
-        state.laws = ["l1", "l2", "l3"]
+        state.laws = ["travel_ban", "wormhole_recon", "nexus"]
             .into_iter()
             .map(|law| (law.to_owned(), law.to_owned()))
             .collect();

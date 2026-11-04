@@ -226,7 +226,7 @@ mod tests {
     use super::*;
     use crate::tuning::{self, Tuning};
     use ti4_content::ContentStore;
-    use ti4_engine::fixtures::{Hub, a_system_where, game, hub_from, plain_systems, put};
+    use ti4_engine::fixtures::{Hub, a_system_where, loadable_game as game, hub_from, plain_systems, put};
     use ti4_model::POK;
     use ti4_model::state::GameState;
 
@@ -302,10 +302,9 @@ mod tests {
 
     /// The movement step the engine would offer, with its rift facts.
     fn step(state: &GameState, hub: &Hub, centre: &SystemId) -> Choice {
-        let seen = observe(state, hub);
-        let choice =
-            ti4_engine::tactical::movement_options(&me(), &seen.movable_into(&me(), centre));
-        ti4_engine::tactical::preview_moves(
+        let seen = ti4_engine_legacy::choice::Observed::new(state, ContentStore::embedded(), POK, Some(&hub.galaxy));
+        let choice = ti4_engine_legacy::tactical::movement_options(&me(), &seen.movable_into(&me(), centre));
+        ti4_engine::from_legacy_wire(&ti4_engine_legacy::tactical::preview_moves(
             state,
             ContentStore::embedded(),
             POK,
@@ -313,7 +312,7 @@ mod tests {
             &me(),
             centre,
             choice,
-        )
+        ))
     }
 
     fn origins(choice: &Choice, keep: &Option<Vec<usize>>) -> Vec<String> {

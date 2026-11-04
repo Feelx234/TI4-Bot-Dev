@@ -116,6 +116,23 @@ pub mod invasion {
     pub use crate::queries::invasion::bombardable;
     pub use ti4_engine_legacy::invasion::*;
 }
+pub mod thunders_edge {
+    /// The breakthrough a faction owns (the printed record's `faction` tag).
+    #[must_use]
+    pub fn breakthrough_for(content: &ti4_content::ContentStore, _sources: ti4_model::content_types::SourceSet, faction: &str) -> Option<ti4_model::id::BreakthroughId> {
+        content
+            .records(ti4_model::content_types::ContentType::Breakthroughs)
+            .iter()
+            .find(|record| record.text("faction").is_some_and(|tag| crate::builders::factions::tag_belongs_to(tag, faction, false)))
+            .and_then(|record| record.text("alias"))
+            .map(ti4_model::id::BreakthroughId::new)
+    }
+    pub use ti4_engine_legacy::thunders_edge::*;
+}
+pub mod laws {
+    pub use crate::queries::laws::{apply_to_galaxy, elected, extra_wormholes, nexus_wormholes_suppressed, spatial_conduit_links, wormholes_all_connected, wormholes_suppressed};
+    pub use ti4_engine_legacy::laws::*;
+}
 pub mod legendary {
     pub use crate::queries::legendary::{available, ionian_available};
     pub use ti4_engine_legacy::legendary::*;
@@ -123,7 +140,7 @@ pub mod legendary {
 pub mod objectives {
     pub use crate::kinds::objectives::{SCORE_KIND, VICTORY_TARGET};
     pub use crate::queries::content::{leader, points_for, winner};
-    pub use crate::queries::objectives::scoreable_on;
+    pub use crate::queries::objectives::{CardProgress, Cost, Imagined, Position, bought_progress_at, cost_family_token, cost_of, counting_progress, family_token, home_planets_not_controlled, neighbour_planet_counts, remaining_position_progress, scoreable_on};
     pub use ti4_engine_legacy::objectives::*;
 }
 pub mod planets {
@@ -132,16 +149,22 @@ pub mod planets {
 }
 pub mod production {
     pub use crate::kinds::production::{AGENT_OPTION_ID, AGENT_OPTION_KIND, BUILDABLE, PAY_KIND, PLACE_KIND, PRODUCE_KIND, REMOTE_SEPARATOR, SPACE, UNLOCKED_BY};
-    pub use crate::queries::production::{buildable_for, capacity, placements, planet_value_boosts, price_of_under, trade_good_worth};
+    pub use crate::queries::production::{Spend, available, native_payment_planets, buildable_for, capacity, placements, planet_value_boosts, price_of_under, trade_good_worth};
     pub use ti4_engine_legacy::production::*;
 }
 pub mod promissory {
     pub use crate::kinds::promissory::SUPPORT_PREFIX;
     pub use crate::queries::promissory::{alias_of, faction_name, held_by, holder_of, may_receive, note_id, owner_of};
+    pub use crate::builders::promissory::deal;
     pub use ti4_engine_legacy::promissory::*;
+}
+pub mod movement {
+    pub use crate::queries::movement::{MoveView, Pool};
+    pub use ti4_engine_legacy::movement::*;
 }
 pub mod reactions {
     pub use crate::kinds::action_cards::ACTION_CARD_KIND;
+    pub use crate::queries::reactions::{Window, window_table};
     pub use ti4_engine_legacy::reactions::*;
 }
 pub mod relics {
@@ -153,19 +176,26 @@ pub mod supply {
     pub use ti4_engine_legacy::supply::*;
 }
 pub mod valuation {
-    pub use crate::queries::valuation::{BASE_UNIT_VALUE, base_unit_value, unit_value};
+    pub use crate::queries::valuation::{BASE_UNIT_VALUE, MULTIPLIER_CEILING, MULTIPLIER_FLOOR, base_unit_value, clamp, fleet_strength, planet_multipliers, planet_value, stranded_troops, system_value, unit_value};
     pub use ti4_engine_legacy::valuation::*;
+}
+pub mod reach_query {
+    pub use crate::queries::reach_query::{ReachOrigin, who_can_reach};
+    pub use ti4_engine_legacy::reach_query::*;
 }
 pub mod secondary_preview {
     pub use crate::kinds::secondary_preview::MAX_ANSWERS;
+    pub use crate::queries::secondary_preview::{SecondaryPreview, preview_secondary};
     pub use ti4_engine_legacy::secondary_preview::*;
 }
 pub mod secrets {
     pub use crate::kinds::secrets::HAND_LIMIT;
     pub use crate::queries::content::scored_count;
+    pub use crate::queries::secrets::{Position, progress, ship_systems_beside_anomaly};
     pub use ti4_engine_legacy::secrets::*;
 }
 pub mod strategy {
+    pub use crate::queries::strategy::SecondaryResolution;
     pub use crate::kinds::strategy::{ACTION_KIND, STRATEGIC_ACTION_ID, STRATEGY_KIND, WAIVED_SECONDARY_PREFIX};
     pub use ti4_engine_legacy::strategy::*;
 }
@@ -177,7 +207,7 @@ pub mod strategy_cards {
 }
 pub mod tactical {
     pub use crate::kinds::tactical::{ACTIVATE_KIND, MAX_ROUTES, MOVE_KIND, ROUTES_DETAIL};
-    pub use crate::queries::tactical::effective_move_value_for_ship;
+    pub use crate::queries::tactical::{Movable, MoveRoute, effective_move_value_for_ship, movable_into, routes_into, routes_of};
     pub use ti4_engine_legacy::tactical::*;
 }
 pub mod technology {
@@ -186,6 +216,7 @@ pub mod technology {
 }
 pub mod timing {
     pub use crate::kinds::timing::ACTIVE_DETAIL;
+    pub use crate::ties::timing::Relation;
     pub use ti4_engine_legacy::timing::*;
 }
 pub mod transactions {
@@ -194,11 +225,47 @@ pub mod transactions {
 }
 pub mod transit {
     pub use crate::kinds::transit::{LOAD_KIND, RIFT_DESTROYS_ON};
+    pub use crate::queries::transit::{Cargo, CargoSource, loadable};
     pub use ti4_engine_legacy::transit::*;
 }
 
 // ---- lane C (setup, 8c): setup, seating, deck, opening, starting_tech, map_feasibility, fixtures ----
 
 // ---- lane D (wrapper, 8e/8f): game ----
+/// The native `Game` (the typed core owns the loop). Reached as `ti4_engine::native::Game` until the swap commit makes it `ti4_engine::game`.
+#[path = "game/mod.rs"]
+pub mod native;
+// THE SWAP: the public paths of the wire types, `Observed` and the `Game` are the thin crate's. Everything that speaks `Choice`, `Table`, `Decider`
+// or `Game` now speaks these; the legacy modules of the glob that still name the legacy types are listed in docs/D28D_RESUME.md.
+pub mod game {
+    pub use crate::kinds::game::{CONTINUE_ACTION_ID, CONTINUE_ACTION_KIND, END_TURN_ID, END_TURN_KIND, SECONDARY_PREVIEW_COMPLETE, TACTICAL_ACTION_ID};
+    pub use crate::native::{Game, GameError, GameSnapshot, RunError, StepResult};
+}
+pub mod choice {
+    pub use crate::observed::*;
+    pub use crate::wire::choice::*;
+}
+/// Thin deciders on legacy tables, for oracles and the tests that still drive a string window (never production).
+pub mod oracle_adapter;
+/// The trigger a reaction decision carries (copy; pure).
+pub mod trigger;
+pub use wire::{decision_context, dice, event, fingerprint, observation, preview, rng};
+/// A wire value of the legacy crate read as the same value of this one (a `Choice`, a `DecisionRecord`, ...): one serde shape,
+/// `tests/wire_parity.rs`. For tests and oracles that still drive a string window; never for the game loop.
+///
+/// # Panics
+/// Never for the wire types.
+pub fn from_legacy_wire<A: serde::Serialize, B: serde::de::DeserializeOwned>(a: &A) -> B {
+    serde_json::from_value(serde_json::to_value(a).expect("a wire value serialises")).expect("this crate reads the same wire value")
+}
+// The root re-exports of the legacy crate whose types moved (an explicit `pub use` shadows the glob).
+pub use choice::{AlwaysDecline, Choice, ChoiceOption, Decider, DecisionLog, DecisionRecord, DecisionRecordFields, FirstOption, IllegalChoice, Scripted, SeededRandom, Table, distinct_units, first_of_each, options_from, unit_label, validate};
+pub use dice::{Dice, Roll};
+pub use fingerprint::{CanonicalHash, CanonicalHashVersion, decision_hash, event_hash};
+pub use game::{Game, GameError, RunError, StepResult};
+pub use rng::GameRng;
+pub use strategy::SecondaryResolution;
+pub use timing::Relation;
+pub use transit::{Cargo, CargoSource};
 
 // ---- lane E (product edges) and lane F (gates) add no module here ----

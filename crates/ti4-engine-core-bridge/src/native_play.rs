@@ -28,7 +28,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use ti4_engine::core_sync::codec::rng::TextSeeds;
 use ti4_engine::core_sync::{materialize, Codec, Ctx, Sources};
-use ti4_engine_legacy::game::Game;
+use ti4_engine::game::Game;
 use ti4_engine::live::{self, arms, Asker, Question, Stop};
 use ti4_engine::render::Render;
 use ti4_engine_core::driver::live::{is_open, live_arm, LiveError};
@@ -194,10 +194,7 @@ impl Asker for Bot<'_> {
             return Err(Stop::Blocked);
         }
         let place = self.seats.iter().position(|s| s == rendered.player.as_str()).unwrap_or(0);  // mutants:skip (a seat text always found; the fallback place)
-        // The rule bot is the string bot, which reads the legacy `Choice`: the same wire value, through JSON (the parity of the two types is
-        // `ti4-engine/tests/wire_parity.rs`).
-        let legacy: ti4_engine_legacy::choice::Choice = serde_json::from_value(serde_json::to_value(rendered).expect("a choice serialises")).expect("the legacy type reads the thin one");
-        let (picked, _, _) = ti4_rule_bot::choose_explained(&legacy, None, self.seed, place, self.index);
+        let (picked, _, _) = ti4_rule_bot::choose_explained(rendered, None, self.seed, place, self.index);
         self.index += 1;
         let chosen = rendered.options[picked.min(rendered.options.len() - 1)].id.clone();  // mutants:skip (picked is always below the length: the clamp is defensive)
         self.asked.push(Asked {
@@ -290,32 +287,46 @@ impl NativeGame {
     /// # Errors
     /// A position the codecs cannot carry (a dropped feature, more than 16 owners), or a game without a galaxy.
     pub fn from_game(game: &Game<'static>, seed: u64) -> Result<Self, String> {
-        if game.galaxy().is_none() {
-            return Err("the game has no galaxy".to_owned());
-        }
+        let Some(galaxy) = game.galaxy() else { return Err("the game has no galaxy".to_owned()) };
+        Self::from_parts(&game.state, galaxy, &game.rng_positions(), game.sources(), seed)
+    }
+
+    /// [`Self::from_game`] for a game of the frozen legacy engine (the shadow's subject).
+    ///
+    /// # Errors
+    /// As [`Self::from_game`].
+    pub fn from_legacy(game: &ti4_engine_legacy::game::Game<'static>, seed: u64) -> Result<Self, String> {
+        let Some(galaxy) = game.galaxy() else { return Err("the game has no galaxy".to_owned()) };
+        Self::from_parts(&game.state, galaxy, &game.rng_positions(), game.content_sources(), seed)
+    }
+
+    /// Load a freshly created position into a core and own it from now on.
+    ///
+    /// # Errors
+    /// A position the codecs cannot carry (a dropped feature, more than 16 owners), or a rules version below the latest.
+    pub fn from_parts(state: &ti4_model::state::GameState, galaxy: &ti4_content::galaxy::Galaxy, positions: &ti4_engine::rng::RngPositions, sources: SourceSet, seed: u64) -> Result<Self, String> {
         // Only the latest rules version is supported by the core (user decision): an older game is refused, never played and never counted as a gap.
-        if game.state.rules_version != ti4_model::state::RULES_VERSION {
-            return Err(format!("rules version {} is not the latest ({}): the core supports the latest only", game.state.rules_version, ti4_model::state::RULES_VERSION));
+        if state.rules_version != ti4_model::state::RULES_VERSION {
+            return Err(format!("rules version {} is not the latest ({}): the core supports the latest only", state.rules_version, ti4_model::state::RULES_VERSION));
         }
-        let mut cx = Ctx::of(&game.state).map_err(|e| format!("no owners table: {e}"))?;
-        let positions = game.rng_positions();
+        let mut cx = Ctx::of(state).map_err(|e| format!("no owners table: {e}"))?;
         // The string applies the laws and the printed lanes (rules version 22) to its galaxy at every step's reconcile (`laws::apply_to_galaxy`), which a
         // game that was not stepped yet has not done: the core's map would follow no lane (a lane tile a neighbour, no system joined across it).
-        let galaxy = game.galaxy().cloned().map(|mut galaxy| {
-            ti4_engine_legacy::laws::apply_to_galaxy(&game.state, &mut galaxy);
-            galaxy
-        });
-        let core = Codec::load(&mut cx, &game.state, Sources { galaxy: galaxy.as_ref(), rng: Some(&positions) }, slices_for(true))
+        let galaxy = {
+            let mut galaxy = galaxy.clone();
+            ti4_engine::laws::apply_to_galaxy(state, &mut galaxy);
+            Some(galaxy)
+        };
+        let core = Codec::load(&mut cx, state, Sources { galaxy: galaxy.as_ref(), rng: Some(positions) }, slices_for(true))
             .map_err(|e| format!("the position does not load: {e}"))?;
         // (The options that name a seat by faction -- Politics' speaker, Trade's refreshed seats -- need the faction texts.)
-        let factions = cx.owners.ids().iter().map(|id| game.state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned())).collect();
+        let factions = cx.owners.ids().iter().map(|id| state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned())).collect();
         let render = Render::new(cx.owners.ids().to_vec()).with_factions(factions).with_codes(core.texts.codes.clone());
-        let sources = game.content_sources();
         let seats = cx.owners.ids().to_vec();
         Ok(Self {
             seeds: Rc::new(TextSeeds::of(&cx)),
             kernel: live::kernel::kernel_for(sources),
-            base: game.state.clone(),
+            base: state.clone(),
             core,
             cx,
             render,
@@ -929,7 +940,7 @@ pub struct Shadowed {
 /// A spec that does not build.
 pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result<Shadowed, String> {
     let mut legacy = MaskSubject::<LegacyMask>::new(spec, Pilot::Script)?;
-    let mut native = NativeGame::from_game(legacy.game(), spec.seed)?;
+    let mut native = NativeGame::from_legacy(legacy.game(), spec.seed)?;
     let mut matrix = Matrix::default();
     let mut group: Vec<Played> = Vec::new();
     let mut compared = 0usize;
@@ -1238,7 +1249,7 @@ fn run_legacy(legacy: &mut MaskSubject<LegacyMask>, group: &[Played], ahead: &[S
     }
     let info = legacy.step();
     legacy.clear_script();
-    let records = legacy.peek_records().to_vec();
+    let records = crate::legacy_adapter::thin_records(legacy.peek_records());
     let events = legacy.peek_events().to_vec();
     LegacyRun { info, records, events }
 }
@@ -1723,9 +1734,8 @@ mod tests {
             choice.player = ti4_model::id::PlayerId::new(&seats[place]);
             for index in 0..6 {
                 let mut bot = Bot { seed: 9, seats: &seats, index, asked: Vec::new() };
-                let id = bot.ask(&Question { asking: &asking, rendered: choice.clone() }).unwrap();
-                let legacy: ti4_engine_legacy::choice::Choice = serde_json::from_value(serde_json::to_value(&choice).unwrap()).unwrap();
-                let (picked, _, _) = ti4_rule_bot::choose_explained(&legacy, None, 9, place, index);
+                let id = bot.ask(&Question { asking: &asking, rendered: choice.clone(), core: &g.core }).unwrap();
+                let (picked, _, _) = ti4_rule_bot::choose_explained(&choice, None, 9, place, index);
                 assert_eq!(id, choice.options[picked].id, "place {place}, index {index}");
                 assert_eq!(bot.index, index + 1, "one decision more");
                 assert_eq!(bot.asked.len(), 1);
@@ -1735,7 +1745,7 @@ mod tests {
         let mut empty = rendered.clone();
         empty.options.clear();
         let mut bot = Bot { seed: 9, seats: &seats, index: 0, asked: Vec::new() };
-        assert_eq!(bot.ask(&Question { asking: &asking, rendered: empty }), Err(Stop::Blocked), "a question without options is not answered");
+        assert_eq!(bot.ask(&Question { asking: &asking, rendered: empty, core: &g.core }), Err(Stop::Blocked), "a question without options is not answered");
     }
 
     /// Fleet Logistics' second action is a free option of the closing menu: since lane F the core assembles it (`driver::menu::closing_menu`), so the
@@ -1791,7 +1801,7 @@ mod tests {
         let setup = || {
             let spec = lobby_spec("sol", 4, 1);
             let legacy = MaskSubject::<LegacyMask>::new(&spec, Pilot::Script).unwrap();
-            let mut native = NativeGame::from_game(legacy.game(), spec.seed).unwrap();
+            let mut native = NativeGame::from_legacy(legacy.game(), spec.seed).unwrap();
             let base = legacy.game().state.clone();
             let mut group: Vec<Played> = Vec::new();
             loop {
@@ -1843,7 +1853,7 @@ mod tests {
         let (mut legacy, native, base, mut group) = {
             let spec = lobby_spec("sol", 4, 1);
             let legacy = MaskSubject::<LegacyMask>::new(&spec, Pilot::Script).unwrap();
-            let mut native = NativeGame::from_game(legacy.game(), spec.seed).unwrap();
+            let mut native = NativeGame::from_legacy(legacy.game(), spec.seed).unwrap();
             let base = legacy.game().state.clone();
             let mut group: Vec<Played> = Vec::new();
             loop {

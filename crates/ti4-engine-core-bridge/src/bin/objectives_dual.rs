@@ -17,7 +17,7 @@
 //! objective revealed or held. Exit status 1 on any difference.
 
 use ti4_content::ContentStore;
-use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, Observed, SeatObservation, ask_private};
+use ti4_engine_legacy::choice::{Choice, ChoiceOption, Decider, IllegalChoice, Observed, SeatObservation, ask_private};
 use ti4_engine_legacy::dual::{self, Area, AreaMask, Backend};
 use ti4_engine_legacy::generated::IdStr;
 use ti4_engine_legacy::objectives::Imagined;

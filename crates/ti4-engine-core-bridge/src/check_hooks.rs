@@ -44,7 +44,7 @@ pub fn hook_positions() -> Vec<Position> {
             thunders_edge: false,
             rules_version: None,
         };
-        if let Ok(game) = spec.build() {
+        if let Ok(game) = crate::legacy_game::legacy_game(&spec) {
             if let Some(galaxy) = game.galaxy() {
                 out.push(Position { label: format!("hooks table {}", n + 1), state: game.state.clone(), galaxy: galaxy.clone(), sources: game.sources() });
             }

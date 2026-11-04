@@ -1,7 +1,7 @@
 use ti4_content::ContentStore;
 use ti4_engine::choice::{AlwaysDecline, Choice, ChoiceOption, Decider, Scripted, Table};
 use ti4_engine::decision_context::{DecisionContext, DecisionSource};
-use ti4_engine::fixtures::{game, plain_hub, put};
+use ti4_engine::fixtures::{loadable_game as game, plain_hub, put};
 use ti4_engine::game::Game;
 use ti4_host::planning::{RecordedDecision, RecordingDecider, ReplayDecider, ReplayStopReason};
 use ti4_model::id::{PlayerId, SystemId};
@@ -105,7 +105,13 @@ fn a_recorded_move_survives_disposal_serialization_and_reconstruction() {
 
     // The next question requires new input; exhaustion must not select a default.
     let decisions_before = rebuilt.table.log.len();
-    let _ = rebuilt.step();
+    // (A native step may end before the question -- the end of the action is its own step -- so the steps go on until the question is put.)
+    for _ in 0..8 {
+        let _ = rebuilt.step();
+        if progress.lock().unwrap().stop_reason().is_some() {
+            break;
+        }
+    }
     assert_eq!(
         progress.lock().unwrap().stop_reason(),
         Some(ReplayStopReason::Exhausted)
@@ -277,8 +283,14 @@ fn replay_handles_nested_choices_and_reports_exhaustion_inside_a_step() {
         assert_eq!(checkpoint.step().error, None);
     }
     let follower = PlayerId::new("b");
-    checkpoint.state.player_mut(&follower).unwrap().trade_goods = 3;
-    assert_eq!(checkpoint.step().error, None); // Leadership primary.
+    checkpoint.edit_position(|state| state.player_mut(&follower).unwrap().trade_goods = 3).unwrap();
+    // Leadership primary (a native step can end before the follower is asked: the steps go on until the follower's question stands).
+    for _ in 0..8 {
+        assert_eq!(checkpoint.step().error, None);
+        if checkpoint.legal_options().is_some_and(|c| c.player == follower) {
+            break;
+        }
+    }
     assert_eq!(checkpoint.legal_options().unwrap().player, follower);
     let original_state = serde_json::to_value(&checkpoint.state).unwrap();
 
@@ -286,18 +298,26 @@ fn replay_handles_nested_choices_and_reports_exhaustion_inside_a_step() {
     let (recorder, recording) =
         RecordingDecider::new(Box::new(Scripted::new(["yes", "fleet_tokens"])));
     draft.table = Table::with_default(Box::new(recorder));
-    assert_eq!(draft.step().error, None);
+    // (The string put the purchase and the pool selection in one step; a native step ends at each question of the window, so the steps go on
+    // until both are recorded. What the test is about -- the replay consumes them in order -- does not depend on the grouping.)
+    for _ in 0..8 {
+        assert_eq!(draft.step().error, None);
+        if recording.lock().unwrap().len() >= 2 {
+            break;
+        }
+    }
     let decisions = recording.lock().unwrap().clone();
-    assert_eq!(
-        decisions.len(),
-        2,
-        "the purchase and pool selection happen in one step"
-    );
+    assert_eq!(decisions.len(), 2, "the purchase and the pool selection");
 
     let mut rebuilt = checkpoint.fork();
     let (replay, progress) = ReplayDecider::new(decisions.clone());
     rebuilt.table = Table::with_default(Box::new(replay));
-    assert_eq!(rebuilt.step().error, None);
+    for _ in 0..8 {
+        assert_eq!(rebuilt.step().error, None);
+        if progress.lock().unwrap().consumed() >= 2 {
+            break;
+        }
+    }
     assert_eq!(progress.lock().unwrap().consumed(), 2);
     assert_eq!(progress.lock().unwrap().stop_reason(), None);
     assert_eq!(
@@ -309,13 +329,20 @@ fn replay_handles_nested_choices_and_reports_exhaustion_inside_a_step() {
     let mut interrupted = checkpoint.fork();
     let (replay, progress) = ReplayDecider::new(decisions[..1].to_vec());
     interrupted.table = Table::with_default(Box::new(replay));
-    let _ = interrupted.step(); // The progress latch, not StepResult, is authoritative.
+    for _ in 0..8 {
+        let _ = interrupted.step(); // The progress latch, not StepResult, is authoritative.
+        if progress.lock().unwrap().stop_reason().is_some() {
+            break;
+        }
+    }
     assert_eq!(
         progress.lock().unwrap().stop_reason(),
         Some(ReplayStopReason::Exhausted)
     );
     assert_eq!(progress.lock().unwrap().consumed(), 1);
-    assert_eq!(interrupted.table.log.len(), 1);
+    // (A step that fails is taken back whole -- core, code table and journal -- so the answer it had consumed is not journaled; the string kept
+    // the half-applied step. The replay's own latch above still says one decision was consumed.)
+    assert_eq!(interrupted.table.log.len(), 0);
     drop(interrupted);
     assert_eq!(
         serde_json::to_value(&checkpoint.state).unwrap(),

@@ -1,7 +1,4 @@
 {
- "action_cards::apply_movement_effects": {
-  "status": "legacy"
- },
  "action_cards::hand_limit": {
   "status": "native"
  },
@@ -38,7 +35,7 @@
  "builders::objectives::adjust_victory_points": {
   "status": "native"
  },
- "builders::ph": {
+ "builders::phase": {
   "status": "native"
  },
  "builders::promissory": {
@@ -227,13 +224,16 @@
  "factions::mahact::fleet_pool_owners": {
   "status": "native"
  },
- "fingerprint::CanonicalH": {
-  "status": "legacy"
+ "fingerprint::CanonicalHash": {
+  "status": "pending"
  },
- "fingerprint::decision_h": {
-  "status": "legacy"
+ "fingerprint::CanonicalHashVersion": {
+  "status": "pending"
  },
- "fixtures::game": {
+ "fingerprint::decision_hash": {
+  "status": "pending"
+ },
+ "fixtures::loadable_game": {
   "status": "native"
  },
  "fixtures::plain_hub": {
@@ -258,22 +258,22 @@
   "status": "native"
  },
  "game::CONTINUE_ACTION_ID": {
-  "status": "legacy"
+  "status": "native"
  },
  "game::CONTINUE_ACTION_KIND": {
-  "status": "legacy"
+  "status": "native"
  },
  "game::Game": {
-  "status": "legacy"
+  "status": "native"
  },
  "game::GameSnapshot": {
-  "status": "legacy"
+  "status": "native"
  },
  "game::RunError": {
-  "status": "legacy"
+  "status": "native"
  },
  "game::SECONDARY_PREVIEW_COMPLETE": {
-  "status": "legacy"
+  "status": "native"
  },
  "invasion::COMMIT_KIND": {
   "status": "native"
@@ -285,7 +285,7 @@
   "status": "native"
  },
  "laws::apply_to_galaxy": {
-  "status": "legacy"
+  "status": "native"
  },
  "legendary::ionian_available": {
   "status": "native"
@@ -293,59 +293,59 @@
  "map_feasibility::apply": {
   "status": "native"
  },
- "movement::Board": {
-  "status": "legacy"
+ "movement::MoveView": {
+  "status": "native"
  },
- "movement::MovementRules": {
-  "status": "legacy"
+ "movement::Pool": {
+  "status": "native"
  },
  "objectives::CardProgress": {
-  "status": "pending"
+  "status": "native"
  },
  "objectives::Cost": {
-  "status": "pending"
+  "status": "native"
  },
  "objectives::Imagined": {
-  "status": "pending"
+  "status": "native"
  },
  "objectives::Imagined::NONE": {
-  "status": "pending"
+  "status": "native"
  },
  "objectives::Position": {
-  "status": "pending"
+  "status": "native"
  },
  "objectives::Position::new": {
-  "status": "pending"
+  "status": "native"
  },
  "objectives::VICTORY_TARGET": {
   "status": "native"
  },
  "objectives::bought_progress_at": {
-  "status": "pending"
+  "status": "native"
  },
  "objectives::cost_of": {
-  "status": "pending"
+  "status": "native"
  },
  "objectives::counting_progress": {
-  "status": "pending"
+  "status": "native"
  },
  "objectives::family_token": {
-  "status": "pending"
+  "status": "native"
  },
  "objectives::home_planets_not_controlled": {
-  "status": "pending"
+  "status": "native"
  },
  "objectives::leader": {
   "status": "native"
  },
  "objectives::neighbour_planet_counts": {
-  "status": "pending"
+  "status": "native"
  },
  "objectives::points_for": {
   "status": "native"
  },
  "objectives::remaining_position_progress": {
-  "status": "pending"
+  "status": "native"
  },
  "objectives::scoreable_on": {
   "status": "native"
@@ -387,16 +387,16 @@
   "status": "native"
  },
  "production::Spend": {
-  "status": "pending"
+  "status": "native"
  },
  "production::Spend::Influence": {
-  "status": "pending"
+  "status": "native"
  },
  "production::Spend::Resources": {
-  "status": "pending"
+  "status": "native"
  },
  "production::available": {
-  "status": "pending"
+  "status": "native"
  },
  "production::buildable_for": {
   "status": "native"
@@ -405,7 +405,7 @@
   "status": "native"
  },
  "production::native_payment_planets": {
-  "status": "pending"
+  "status": "native"
  },
  "production::placements": {
   "status": "native"
@@ -423,19 +423,19 @@
   "status": "native"
  },
  "promissory::deal": {
-  "status": "legacy"
+  "status": "native"
  },
  "reach_query::ReachOrigin": {
-  "status": "pending"
+  "status": "native"
  },
  "reach_query::who_can_reach": {
-  "status": "pending"
+  "status": "native"
  },
  "reactions::ACTION_CARD_KIND": {
   "status": "native"
  },
  "reactions::window_table": {
-  "status": "legacy"
+  "status": "native"
  },
  "relics::SHARD": {
   "status": "native"
@@ -465,25 +465,25 @@
   "status": "native"
  },
  "secondary_preview::SecondaryPreview": {
-  "status": "pending"
+  "status": "native"
  },
  "secondary_preview::preview_secondary": {
-  "status": "legacy"
+  "status": "native"
  },
  "secrets::HAND_LIMIT": {
   "status": "native"
  },
  "secrets::Position": {
-  "status": "pending"
+  "status": "native"
  },
  "secrets::progress": {
-  "status": "pending"
+  "status": "native"
  },
  "secrets::scored_count": {
   "status": "native"
  },
  "secrets::ship_systems_beside_anomaly": {
-  "status": "pending"
+  "status": "native"
  },
  "setup::start_game_seeded_with_card_set": {
   "status": "native"
@@ -498,7 +498,7 @@
   "status": "native"
  },
  "strategy::SecondaryResolution": {
-  "status": "pending"
+  "status": "native"
  },
  "strategy_cards::INFLUENCE_PER_TOKEN": {
   "status": "native"
@@ -525,19 +525,19 @@
   "status": "native"
  },
  "tactical::Movable": {
-  "status": "pending"
+  "status": "native"
  },
  "tactical::effective_move_value_for_ship": {
   "status": "native"
  },
  "tactical::movable_into": {
-  "status": "pending"
+  "status": "native"
+ },
+ "tactical::routes_into": {
+  "status": "native"
  },
  "tactical::routes_of": {
-  "status": "pending"
- },
- "tactical::ship_routes": {
-  "status": "legacy"
+  "status": "native"
  },
  "technology::active_aliases": {
   "status": "native"
@@ -564,28 +564,22 @@
   "status": "native"
  },
  "thunders_edge::breakthrough_for": {
-  "status": "legacy"
+  "status": "native"
  },
  "timing::ACTIVE_DETAIL": {
   "status": "native"
  },
  "timing::Relation": {
-  "status": "pending"
+  "status": "native"
  },
  "transactions::OPEN_KIND": {
   "status": "native"
- },
- "transit::CargoWindow": {
-  "status": "legacy"
  },
  "transit::LOAD_KIND": {
   "status": "native"
  },
  "transit::RIFT_DESTROYS_ON": {
   "status": "native"
- },
- "transit::rifts_exited": {
-  "status": "legacy"
  },
  "valuation::unit_value": {
   "status": "native"

@@ -624,7 +624,7 @@ fn pending(session: &GameSession) -> (PlayerId, String, u64, String) {
 #[test]
 fn live_movement_batch_loads_only_the_selected_galvanized_variant() {
     use ti4_content::galaxy::all_systems;
-    use ti4_engine::fixtures::{game, hub_from, plain_systems, put, put_on_planet};
+    use ti4_engine::fixtures::{loadable_game as game, hub_from, plain_systems, put, put_on_planet};
     use ti4_model::{content_types::POK, id::PlanetId, state::Phase};
 
     for galvanized in [false, true] {

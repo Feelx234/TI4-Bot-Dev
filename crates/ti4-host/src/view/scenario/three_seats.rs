@@ -262,9 +262,9 @@ fn base(state: &mut GameState) -> Result<[PlayerId; 3], String> {
         seats => return Err(format!("a game of three seats has {}", seats.len())),
     };
     let cards = [
-        (&sol, StrategyCardId::new("leadership")),
-        (&hacan, StrategyCardId::new("trade")),
-        (&letnev, StrategyCardId::new("warfare")),
+        (&sol, StrategyCardId::new("pok1leadership")),
+        (&hacan, StrategyCardId::new("pok5trade")),
+        (&letnev, StrategyCardId::new("pok6warfare")),
     ];
     for (seat, card) in &cards {
         state
@@ -318,7 +318,7 @@ fn research(
         .retain(|card| *card != technology);
     state
         .unclaimed_strategy_cards
-        .push(StrategyCardId::new("leadership"));
+        .push(StrategyCardId::new("pok1leadership"));
 
     // One ready Biotic skip (Sol's Spec Ops II needs a second green prerequisite) and one
     // exhausted skip of any colour, whichever planets this map carries.
@@ -677,7 +677,7 @@ fn score_imperial(state: &mut GameState, sol: &PlayerId) {
         .retain(|card| *card != imperial);
     state
         .unclaimed_strategy_cards
-        .push(StrategyCardId::new("leadership"));
+        .push(StrategyCardId::new("pok1leadership"));
     revealed_objectives(state, sol);
     state.active = Some(sol.clone());
 }

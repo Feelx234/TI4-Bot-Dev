@@ -361,7 +361,7 @@ const fn cost_family(f: q::CostFamily) -> CostFamily {
     }
 }
 
-fn cost_progress_of(p: q::CostProgress) -> CostProgress {
+pub fn cost_progress_of(p: q::CostProgress) -> CostProgress {
     CostProgress { family: cost_family(p.family), have: p.have, target: p.target }
 }
 
@@ -423,6 +423,14 @@ impl TypedImagined {
     fn get(&self) -> q::Imagined<'_> {
         q::Imagined { planets: &self.planets, systems: &self.systems, technologies: &self.technologies, structures: &self.structures }
     }
+}
+
+/// A way to pay a bill of resources: [`ObjView::first_resource_plan`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResourcePlan {
+    pub planets: Vec<String>,
+    pub trade_goods: i32,
+    pub worth: i64,
 }
 
 // ---- the loaded position -------------------------------------------------------------------------------------------------------------
@@ -511,6 +519,25 @@ impl ObjView {
         let f = Rc::new(SeatFacts::of(self.owned.core(), self.scope(), seat, self.terms(seat, false)));
         self.facts.borrow_mut()[slot] = Some(Rc::clone(&f));
         f
+    }
+
+    /// The plan that pays `cost` resources first (`payment::plans(..)[0]` of the string): the planets to exhaust in the order it lists them, the
+    /// trade goods, and what the plan is worth. `None` when nothing pays it or the seat holds cards the core has no planets for.
+    pub fn first_resource_plan(&self, player: &PlayerId, cost: i64) -> Option<ResourcePlan> {
+        let seat = self.seat_of(player)?;
+        let facts = self.facts(seat);
+        let core = self.owned.core();
+        let useful = q::useful_planets(core, &facts, ti4_engine_core::query::economy::Spend::Resources)?;
+        let per_good = facts.terms.per_good;
+        let goods = (core.players().by_seat(seat).map_or(0, |p| i64::from(p.econ.trade_goods)) + facts.terms.commodities) * per_good;
+        let plans = q::plans(useful.as_slice(), cost, goods, per_good);
+        let plan = plans.as_slice().first()?;
+        let worth_of = |planet: &ti4_engine_core::generated::Planet| useful.as_slice().iter().find(|(p, _)| p == planet).map_or(0, |(_, worth)| *worth);
+        Some(ResourcePlan {
+            planets: plan.planets().iter().map(|planet| ti4_engine_core::generated::Planet::as_str(*planet).to_owned()).collect(),
+            trade_goods: plan.trade_goods,
+            worth: plan.planets().iter().map(worth_of).sum::<i64>() + i64::from(plan.trade_goods) * per_good,
+        })
     }
 
     /// Run `f` on the typed position of `player` with an imagined option; `None` when `player` is not a seat of the position.

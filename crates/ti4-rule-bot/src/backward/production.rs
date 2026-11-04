@@ -324,7 +324,7 @@ mod tests {
     }
 
     fn plans(goods: i32, secret: &str) -> Vec<Plan> {
-        let mut state = ti4_engine::fixtures::seated_game(&[("a", "sol"), ("b", "letnev")], POK);
+        let mut state = ti4_engine::fixtures::seated_dealt(&[("a", "sol"), ("b", "letnev")], POK);
         state.round = 3;
         state.phase = Phase::Action;
         {

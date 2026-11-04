@@ -5,12 +5,12 @@ use std::time::Duration;
 use ti4_host::protocol::server::ServerMessage;
 use ti4_host::protocol::status::{RejectionReason, ViewerRole};
 use ti4_model::id::PlayerId;
-use ti4_server::fixtures::create_sample_game;
+use ti4_server::fixtures::create_playable_sample_game;
 use ti4_server::session::{GameSession, MockClient, SeatController, SessionConfig};
 
 #[test]
 fn wrong_seat_stale_nonce_and_unknown_option_preserve_state_and_log() {
-    let state = create_sample_game();
+    let state = create_playable_sample_game();
     let seat_a = PlayerId::new("seat_a");
     let seat_b = PlayerId::new("seat_b");
     let seat_c = PlayerId::new("seat_c");

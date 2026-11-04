@@ -177,3 +177,22 @@ mod tests {
         assert!(with_strict(true, || reproducible(false, false, 3, 3)));
     }
 }
+
+// ---- lane D: the runtime gap counter (docs/todo/D2-8-wrapper.md section 3) ----
+
+static GAPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A live call the core could not run (`Stop::Live(Unknown)`): a defect report with its cause, never a fallback. The wrapper counts it and
+/// returns `GameError::Core`; the server exposes [`gap_count`] and a full nightly must end with 0.
+pub fn note_gap(arm: &str, cause: &str) {
+    GAPS.fetch_add(1, Ordering::Relaxed);
+    if std::env::var_os("TI4_GAP_TRACE").is_some() {
+        eprintln!("core gap in {arm}: {cause}");
+    }
+}
+
+/// How many gaps this process has met.
+#[must_use]
+pub fn gap_count() -> u64 {
+    GAPS.load(Ordering::Relaxed)
+}

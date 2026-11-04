@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use ti4_content::ContentStore;
 use ti4_engine_legacy::Game;
-use ti4_engine::choice::{SeededRandom, Table};
+use ti4_engine_legacy::choice::{SeededRandom, Table};
 use ti4_engine_core_bridge::alpha::{check_game, list_games, refuse_live_dir};
 use ti4_engine_core_bridge::roundtrip::Checker;
 use ti4_host::setup::{self, TableSetup};
@@ -54,7 +54,7 @@ fn store_game(dir: &std::path::Path, n: usize) -> FileGameStore {
         })
         .unwrap();
     for r in records {
-        storage.append_decision(GAME, r).unwrap();
+        storage.append_decision(GAME, &ti4_engine_core_bridge::legacy_adapter::convert(r)).unwrap();
     }
     storage
 }
