@@ -150,7 +150,8 @@ async fn lobby_case(game_id: &str, max_answers: usize) {
             ti4_host::setup::card_set::DEFAULT,
             ti4_host::setup::SpeakerOrder::Seat,
             None,
-            true,
+            // Thunder's Edge content is switched off (the session refuses it with `GameError::Disabled` and would never ask a question).
+            false,
         )
         .expect("a started table");
     let session = registry.get_game(game_id).expect("the game");
@@ -169,7 +170,7 @@ async fn lobby_case(game_id: &str, max_answers: usize) {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["seed"], "18432220952314264515");
     assert_eq!(body["setup"]["table"]["seed"], "18432220952314264515");
-    assert_eq!(body["setup"]["table"]["thunders_edge"], true);
+    assert_ne!(body["setup"]["table"]["thunders_edge"], true, "Thunder's Edge content is off");
     assert_eq!(body["setup"]["table"]["speaker_order"], "seat");
     assert_eq!(body["seats"][0]["nickname"], "Host Name");
     assert_eq!(body["seats"][0]["kind"], "human");
