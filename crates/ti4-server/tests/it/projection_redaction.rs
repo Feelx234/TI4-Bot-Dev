@@ -760,7 +760,7 @@ fn the_facts_show_no_hand_of_another_seat_and_no_order_of_a_deck() {
 fn secret_objective_progress_reaches_only_the_holding_seat() {
     use ti4_model::id::SecretObjectiveId;
 
-    let mut game = create_sample_game();
+    let mut game = ti4_server::fixtures::create_playable_sample_game();
     // seat_a holds a countable secret and a feat secret; seat_b holds a countable one whose
     // identity Search Warrant turns face up for everybody.
     game.player_mut(&PlayerId::new("seat_a"))
