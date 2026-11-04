@@ -38,8 +38,10 @@ pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<d
     // An exploration (the invasion's first claim): the event texts, the words of its log row and the printed names of the action cards.
     table.codes.explore = crate::ties::exploring_dual::codes(r);
     table.facts.explore_words = Some(crate::ties::exploring_dual::words);
+    let faction_of = |who: Seat| core.players().by_seat(who).map(|p| p.faction);
     let mut name = |spec: &Spec, who: Seat, lender: Option<Seat>| {
-        ability_id(r, &id_text(r, spec, &faction(who), r.seat_text(who), lender.map(|l| (faction(l), r.seat_text(l).to_owned())).as_ref()))
+        let key = crate::render::ability_key(spec.slot.0, who.0, lender.map(|l| l.0), faction_of(who), lender.and_then(faction_of));
+        r.ability_id_memo(key, || ability_id(r, &id_text(r, spec, &faction(who), r.seat_text(who), lender.map(|l| (faction(l), r.seat_text(l).to_owned())).as_ref())))
     };
     let defs = table.registry(core, &order, &mut name);
     let mut resolver = Resolver::new(&order, None);

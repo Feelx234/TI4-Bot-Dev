@@ -528,6 +528,13 @@ impl NativeGame {
         Step::Played(Played { arm, source, asked, events, announced, finished: out.finished })
     }
 
+    /// The live pieces of the game, for the perf probe (`perf_why micro`, docs/PERF_WHY.md): the core, its context, the renderer, the opening position
+    /// (`base`), the kernel and the text seeds.
+    #[must_use]
+    pub fn probe(&self) -> (&CoreState, &Ctx, &Render, &ti4_model::state::GameState, &'static Kernel, Rc<TextSeeds>, SourceSet) {
+        (&self.core, &self.cx, &self.render, &self.base, self.kernel, self.seeds.clone(), self.sources)
+    }
+
     /// The final scores `(faction, victory points)` in seat order.
     #[must_use]
     pub fn scores(&self) -> Vec<(String, i16)> {

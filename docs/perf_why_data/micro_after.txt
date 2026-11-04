@@ -1,0 +1,29 @@
+# perf_why micro 4 1 700 (AFTER; the env row is the warm memo)
+4p seed 1: the LIVE core after 700 kernel steps (round 6)
+  mirror GameState json 24 KB; opening position json 16 KB; ledger events 1246
+per-step pieces
+  GameState clone (base)                   9.6 us   allocs     214   bytes      23.7 KB
+  CoreState clone                          0.8 us   allocs       4   bytes       1.0 KB
+  materialize (clone + store ALL)         55.1 us   allocs    1190   bytes      96.5 KB
+  materialize + drop of the old mirror      54.3 us   allocs    1190   bytes      96.5 KB
+  store per slice into a clone of the base state
+  store Meta                               0.1 us   allocs       2   bytes       0.0 KB
+  store Seats                              0.2 us   allocs       5   bytes       0.2 KB
+  store Players                            7.8 us   allocs     171   bytes      15.9 KB
+  store Board                             15.8 us   allocs     305   bytes      29.1 KB
+  store Decks                              4.5 us   allocs     242   bytes       8.9 KB
+  store Cards                              3.1 us   allocs      71   bytes       5.2 KB
+  store Objectives                         0.5 us   allocs      15   bytes       1.3 KB
+  store Agenda                             0.2 us   allocs       2   bytes       0.0 KB
+  store Strategy                           0.5 us   allocs      10   bytes       0.7 KB
+  store Explore                            2.5 us   allocs      63   bytes       5.1 KB
+  store Trade                              3.0 us   allocs      41   bytes       4.0 KB
+  store Marks                              0.0 us   allocs       0   bytes       0.0 KB
+  store Transient                          1.4 us   allocs      42   bytes       2.0 KB
+  store Pending                            0.0 us   allocs       0   bytes       0.0 KB
+  store Rng                                0.0 us   allocs       0   bytes       0.0 KB
+  store Ledger                             0.2 us   allocs       7   bytes       0.3 KB
+  Codec::load all (from the mirror)       63.3 us   allocs     206   bytes      30.5 KB
+  env_with_plays (registry etc.)          42.8 us   allocs     307   bytes     123.2 KB
+  roster_for x2                            0.0 us   allocs       0   bytes       0.0 KB
+  Observed::new (cheap)                    0.1 us   allocs       0   bytes       0.0 KB

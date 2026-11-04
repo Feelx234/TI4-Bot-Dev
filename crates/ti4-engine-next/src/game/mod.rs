@@ -996,10 +996,20 @@ fn native_step(
     // A window looked at each seat once, however often the driver ran it again after a nested question.
     let mut told = std::collections::BTreeSet::new();
     let passed_by: Vec<_> = skipped.lock().expect("skipped log").iter().filter(|(who, event, relation)| told.insert((event.id, who.0, *relation == ti4_engine_core::choice::reaction::Relation::After))).cloned().collect();
+    // Only a table with a window observer (the server's bluff banner) is told anything, and the position it is told in is the same for every seat of the
+    // step: the string state is built once, and not at all for a table nobody listens at (it was a whole `materialized()` per seat, 7.6 per step on
+    // average, a third of a game's time: docs/PERF_WHY.md).
+    let mut shown: Option<GameState> = None;
     for (who, event, relation) in passed_by {
-        let at = n.materialized()?;
+        if !table.has_window_observer() {
+            break;
+        }
+        let at = match &shown {
+            Some(at) => at,
+            None => shown.insert(n.materialized()?),
+        };
         let relation = if relation == ti4_engine_core::choice::reaction::Relation::After { crate::ties::timing::Relation::After } else { crate::ties::timing::Relation::When };
-        table.window_skipped(&n.render.player(who), &crate::kernel_sync::text::event_text(&n.render, event.kind), relation, &at);
+        table.window_skipped(&n.render.player(who), &crate::kernel_sync::text::event_text(&n.render, event.kind), relation, at);
     }
     // 4. The hand-overs between the arms.
     if out.finished {

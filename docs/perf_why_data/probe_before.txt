@@ -1,0 +1,22 @@
+# perf_why probe 4 1   (BEFORE; the timing probe patch is probe.patch; the 'window_skipped loop' row was added in a second round and its per-seat drop of the
+# string state at the end of each iteration is outside the row: the row is 425 ms, the loop with its drops about 515 ms; the 'post live_step' row holds both)
+wrapper (Game)                1565.5 ms  steps  1165   1343.8 us/step  allocs   18193113 (  15616/step)  bytes   1450.9 MB ( 1245.4 KB/step)
+  probe step_native total                     1560.9 ms  calls   1165
+  probe native_step (kernel+asker+env)        1477.4 ms  calls   1165
+  probe env_with_plays                         410.5 ms  calls   1165
+  probe mirror materialized                     62.3 ms  calls   1165
+  probe mirror drop old                         14.2 ms  calls   1165
+  probe rolls+secondary+galaxy                   4.5 ms  calls   1165
+  probe asker.ask total                        110.6 ms  calls   1232
+  probe ask: materialize                        86.7 ms  calls   1223
+  probe ask: Observed+table.ask_seeing           8.2 ms  calls   1223
+  probe clone core+codes (before)                2.3 ms  calls   1165
+  probe arm (facts+asks+step_arm)                0.5 ms  calls   1165
+  probe live_step                              489.4 ms  calls   1165
+  probe live_reconcile                          48.2 ms  calls    797
+  probe post live_step (events,paid,sync)      524.3 ms  calls   1165
+  probe drop env + tail                          1.2 ms  calls   1165
+  probe window_skipped loop (mat per seat)     425.2 ms  calls   8895
+  probe paid auto_resolve                        0.1 ms  calls   1165
+  probe events pushed_since                      2.3 ms  calls   1165
+  probe sync_codes                               5.5 ms  calls   1165

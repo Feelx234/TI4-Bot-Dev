@@ -1,0 +1,213 @@
+--- a/crates/ti4-engine-next/src/game/mod.rs	2026-11-04 23:16:07.990139055 +0000
++++ b/crates/ti4-engine-next/src/game/mod.rs	2026-11-04 23:06:48.136651607 +0000
+@@ -45,6 +45,16 @@
+ mod asker;
+ mod rolls;
+ 
++/// TEMPORARY timing probe (docs/PERF_WHY.md), not committed.
++pub mod probe {
++    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
++    pub static NS: [AtomicU64; 24] = [const { AtomicU64::new(0) }; 24];
++    pub static N: [AtomicU64; 24] = [const { AtomicU64::new(0) }; 24];
++    pub const NAMES: [&str; 24] = ["step_native total", "native_step (kernel+asker+env)", "env_with_plays", "mirror materialized", "mirror drop old", "rolls+secondary+galaxy", "asker.ask total", "ask: materialize", "ask: Observed+table.ask_seeing", "clone core+codes (before)", "Game::step outside step_native", "arm (facts+asks+step_arm)", "live_step", "live_reconcile", "post live_step (events,paid,sync)", "drop env + tail", "window_skipped loop (mat per seat)", "paid auto_resolve", "events pushed_since", "sync_codes", "", "", "", ""];
++    pub fn add(i: usize, t: std::time::Instant) { NS[i].fetch_add(t.elapsed().as_nanos() as u64, Relaxed); N[i].fetch_add(1, Relaxed); }
++    pub fn report() { for i in 0..24 { if N[i].load(Relaxed) > 0 { println!("  probe {:<34} {:>9.1} ms  calls {:>6}", NAMES[i], NS[i].load(Relaxed) as f64 / 1e6, N[i].load(Relaxed)); } } }
++}
++
+ use asker::TableAsker;
+ 
+ /// Metadata returned after one attempted game step.
+@@ -781,7 +791,9 @@
+         }
+         let before_rng = self.observation.as_ref().and_then(|_| self.native.as_ref().and_then(|n| materialize::rng_positions(&n.core).ok()));
+         let before_private = self.observation.as_ref().map(|_| (private_marks(&self.state), deck_lengths(&self.state)));
++        let t_o = std::time::Instant::now();
+         let outcome = self.step_native();
++        let _ = t_o;
+         match outcome {
+             Ok(done) => {
+                 if done.finished_game {
+@@ -849,13 +861,18 @@
+     fn step_native(&mut self) -> Result<Done, GameError> {
+         let Self { state, table, events, content, sources, galaxy, native, rolls, blocked, aftermath_observer, strategic_observer, steps, secondary, participation, .. } = self;
+         let Some(native) = native.as_mut() else { return Err(GameError::Blocked("the core is not loaded".to_owned())) };
++        let t_all = std::time::Instant::now();
++        let t_b = std::time::Instant::now();
+         let before = native.core.clone();
+         let (codes, factions) = (native.render.codes_snapshot(), native.render.factions.clone());
+         let after_glue = native.after_glue;
+         let log_len = table.log.records.len();
++        probe::add(9, t_b);
++        let t_n = std::time::Instant::now();
+         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+             native_step(native, table, events, content, *sources, galaxy.as_ref(), strategic_observer.as_ref(), aftermath_observer.as_ref(), participation.as_ref(), state)
+         }));
++        probe::add(1, t_n);
+         let result = match result {
+             Ok(r) => r,
+             Err(p) => {
+@@ -867,16 +884,23 @@
+             Ok(done) if done.finished_game => Ok(done),
+             Ok(done) => {
+                 *steps += 1;
++                let t_m = std::time::Instant::now();
+                 let mirror = native.materialized()?;
++                probe::add(3, t_m);
++                let t_d = std::time::Instant::now();
+                 *state = mirror;
++                probe::add(4, t_d);
++                let t_r = std::time::Instant::now();
+                 *rolls = rolls::rendered(&native.core, &native.cx, &native.render, rolls.len());
+                 *secondary = secondary_view(&native.core, &native.cx);
+                 if let Some(galaxy) = galaxy.as_mut() {
+                     crate::laws::apply_to_galaxy(state, galaxy);
+                 }
++                probe::add(5, t_r);
+                 if let Some(error) = blocked.clone() {
+                     return Err(error);
+                 }
++                probe::add(0, t_all);
+                 Ok(done)
+             }
+             Err(error) => {
+@@ -939,7 +963,9 @@
+     participation: Option<&Participation>,
+     state: &GameState,
+ ) -> Result<Done, GameError> {
++    let t_e = std::time::Instant::now();
+     let mut env = live::env::env_with_plays(&n.render, &n.core, n.kernel, n.seeds.clone(), sources);
++    probe::add(2, t_e);
+     // The seats a reaction window passed by because they had nothing to resolve (`Table::window_skipped`, the wait banner of the hidden reactions).
+     let skipped = Arc::new(std::sync::Mutex::new(Vec::new()));
+     env.table.skipped = Some(Arc::clone(&skipped));
+@@ -955,16 +981,21 @@
+             break;
+         }
+         let left_open = is_open::<TurnFlowWin>(&n.core);
+-        match live::live_reconcile(&mut n.core, &lcx, &mut asker) {
++        let t_lr = std::time::Instant::now();
++        let rr = live::live_reconcile(&mut n.core, &lcx, &mut asker);
++        probe::add(13, t_lr);
++        match rr {
+             Ok(step) if step.finished && !left_open => break,
+             Ok(_) => {}
+             Err(stop) => return Err(asker.error_of(stop, "reconcile")),
+         }
+     }
+     // 2. The arm.
++    let t_arm = std::time::Instant::now();
+     let facts = Facts::of_core(&n.core, false);
+     let asks = asks_of(&n.core);
+     let arm = step_arm(&facts, asks);
++    probe::add(11, t_arm);
+     if arm == Arm::Finished {
+         return Ok(Done { finished_game: true, asked: 0, hidden: false });
+     }
+@@ -972,10 +1003,12 @@
+         return Err(GameError::Core(format!("the arm {} has no live function", arms::name(arm))));
+     }
+     // 3. The native step.
++    let t_ls = std::time::Instant::now();
+     let out = match live::live_step(&mut n.core, arm, &lcx, &mut asker) {
+-        Ok(out) => out,
++        Ok(out) => { probe::add(12, t_ls); out }
+         Err(stop) => return Err(asker.error_of(stop, arms::name(arm))),
+     };
++    let t_post = std::time::Instant::now();
+     asker.arm_done(arm, &out, &n.core);
+     let asked = out.asked.len();
+     let hidden = asker.hidden;
+@@ -990,39 +1023,50 @@
+         .map(|p| live::render_asking(&lcx, &p.at, &ti4_engine_core::driver::live::Asking { choice: p.choice.clone(), nested: None, at: Some(p.at.clone()) }))
+         .collect();
+     drop(lcx);
++    let t_p = std::time::Instant::now();
+     for rendered in &paid {
+         table.auto_resolve(rendered, "it was the only way left to pay");
+     }
++    probe::add(17, t_p);
+     // A window looked at each seat once, however often the driver ran it again after a nested question.
+     let mut told = std::collections::BTreeSet::new();
+     let passed_by: Vec<_> = skipped.lock().expect("skipped log").iter().filter(|(who, event, relation)| told.insert((event.id, who.0, *relation == ti4_engine_core::choice::reaction::Relation::After))).cloned().collect();
+-    // Only a table with a window observer (the server's bluff banner) is told anything, and the position it is told in is the same for every seat of the
+-    // step: the string state is built once, and not at all for a table nobody listens at (it was a whole `materialized()` per seat, 7.6 per step on
+-    // average, a third of a game's time: docs/PERF_WHY.md).
++    // Only a table with a window observer (the server's bluff banner) is told; the position it is told in is the same for every seat of the step, so it
++    // is shown once (it was a whole `materialized()` per seat, 7.6 per step: docs/PERF_WHY.md).
+     let mut shown: Option<GameState> = None;
+     for (who, event, relation) in passed_by {
+         if !table.has_window_observer() {
+             break;
+         }
++        let t_w = std::time::Instant::now();
+         let at = match &shown {
+             Some(at) => at,
+             None => shown.insert(n.materialized()?),
+         };
+         let relation = if relation == ti4_engine_core::choice::reaction::Relation::After { crate::ties::timing::Relation::After } else { crate::ties::timing::Relation::When };
+         table.window_skipped(&n.render.player(who), &crate::kernel_sync::text::event_text(&n.render, event.kind), relation, at);
++        probe::add(16, t_w);
+     }
+     // 4. The hand-overs between the arms.
+     if out.finished {
+         n.after_arm(arm);
+     }
+     // 5. Commit: the events, the code table.
++    let t_ev = std::time::Instant::now();
+     let lines = crate::render::events::pushed_since(&n.render, &n.cx, &n.core, from).map(|lines| lines.into_iter().map(|p| p.text().to_owned()).collect::<Vec<_>>());
+     events.extend(lines.unwrap_or_else(|| vec!["<a line the tables cannot name>".to_owned()]));
++    probe::add(18, t_ev);
++    let t_sc = std::time::Instant::now();
+     let one = n.render.sync_codes(&mut n.core.texts.codes);
++    probe::add(19, t_sc);
+     debug_assert!(one, "the renderer's code table continues the position's");
+     let handed_off = arm == Arm::Tactical && n.core.pending().window(WindowKind::Aftermath).is_some();
+     n.after_glue = out.finished && (glued(arm) || arm == Arm::Aftermath || handed_off || (n.after_glue && arm == Arm::Tactical && asked == 0));
+     let _ = state;
++    probe::add(14, t_post);
++    let t_dr = std::time::Instant::now();
++    drop(env);
++    probe::add(15, t_dr);
+     Ok(Done { finished_game: false, asked, hidden })
+ }
+ 
+--- a/crates/ti4-engine-next/src/game/asker.rs	2026-11-04 23:16:07.960162692 +0000
++++ b/crates/ti4-engine-next/src/game/asker.rs	2026-11-04 23:06:48.136955972 +0000
+@@ -118,6 +118,15 @@
+ 
+ impl Asker for TableAsker<'_> {
+     fn ask(&mut self, q: &Question<'_>) -> Result<String, Stop> {
++        let t_ask = std::time::Instant::now();
++        let r = self.ask_inner(q);
++        super::probe::add(6, t_ask);
++        r
++    }
++}
++
++impl TableAsker<'_> {
++    fn ask_inner(&mut self, q: &Question<'_>) -> Result<String, Stop> {
+         let rendered = &q.rendered;
+         if rendered.options.is_empty() {
+             self.empty = Some((rendered.player.clone(), rendered.prompt.clone()));
+@@ -150,6 +159,7 @@
+             return Ok(only.id);
+         }
+         let at = position_of(q);
++        let t_mat = std::time::Instant::now();
+         let state = match materialize::materialize(at, self.cx, self.base) {
+             Ok(state) => state,
+             Err(e) => {
+@@ -157,8 +167,12 @@
+                 return Err(Stop::Blocked);
+             }
+         };
++        super::probe::add(7, t_mat);
++        let t_obs = std::time::Instant::now();
+         let observed = Observed::new(&state, self.content, self.sources, self.galaxy);
+-        match self.table.ask_seeing(rendered, &observed) {
++        let asked_result = self.table.ask_seeing(rendered, &observed);
++        super::probe::add(8, t_obs);
++        match asked_result {
+             Ok(option) => {
+                 if let Some(observer) = self.strategic
+                     && let Some(card) = self.strategic_action_of(q.core, &option.id, &rendered.player)

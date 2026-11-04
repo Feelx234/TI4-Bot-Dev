@@ -1,0 +1,9 @@
+[package]
+name = "ti4-perf-alloc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "A counting global allocator over mimalloc for the perf tools (docs/PERF_WHY.md). Its own crate because the workspace forbids unsafe code and a GlobalAlloc impl needs it; it does not inherit the workspace lints."
+
+[dependencies]
+mimalloc.workspace = true
