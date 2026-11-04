@@ -10,9 +10,10 @@
 #           --from ID       start at this step (a resumed run)
 #           --base-ref REF  the ref the `lint` step compares the immutable surfaces against (also env BASE_REF)
 #           --dry-run       as above
+# Env (heavy-prep 2026-11-04): ALPHA_SKIP (default 1: alpha step skipped with a recorded reason), BENCH_RECORD=1 + BENCH_RECORD_BIN=<legacy selfplay> (re-record the bench baselines at rules version BENCH_RECORD_RV, default 35, instead of only comparing)
 # Env:      ZERO_BAIL (report|enforce, the zero-bail step), CARGO_TARGET_DIR (required except for --dry-run: private, gate/lockstep/dev profiles are built into it),
 #           SHARDS (default 3: two gates fit on 8 cores), WORKERS (benches, default 6), GAMES (golden dual games, default 20),
-#           ALPHA_SRC (default /var/lib/ti4-public), SOAK_GAMES (default 40), BASE_REF (immutable-surface check; default core-integration-6, else origin/core-integration-6, else the step FAILS and says so)
+#           ALPHA_SRC (default /var/lib/ti4-public), SOAK_GAMES (default 40), BASE_REF (immutable-surface check; default the tag deployed-int23-54a15dba = the deployed int-23 line, else core-integration-23, else origin/core-integration-23, else the step FAILS and says so)
 #
 # The lane: the script re-executes itself under /root/heavy2.sh (the two-slot lock) and holds it for the whole run. Never start it
 # outside a quiet window and never together with another gate that holds both slots. Nothing here edits the checkout; the
@@ -70,13 +71,17 @@ step() { ids+=("$1"); titles+=("$2"); cmds+=("$3"); }
 
 step layers   "layers of the core (check_layers.py core and thin, engine report)" \
   "python3 -I tools/engine_core/check_layers.py core && python3 -I tools/engine_core/check_layers.py thin && { python3 -I tools/engine_core/check_layers.py engine > $out/layers-engine.txt 2>&1 || true; }"
-# BASE_REF: the flag/env value, else core-integration-6 (local), else origin/core-integration-6; none of them = the step fails.
+# BASE_REF: the flag/env value, else the tag deployed-int23-54a15dba (the deployed int-23 line: web/ and state.rs as they ship), else
+# core-integration-23, else origin/core-integration-23; none of them = the step fails. Why not the live branch tip: the P1 commits of the
+# flip legitimately changed web/ (Thunder's Edge switch gone, screenshots) and state.rs (version handling), so a diff against
+# nightly-fixes-2026-10-26 is never empty; the lint step now guards that the heavy run's tip did not touch those surfaces AFTER the
+# deployed int-23 (docs/HEAVY_RUN_PLAN.md).
 # D2-9 lane 9a (G7 row 9, docs/D29A_RESUME.md): the production graph and the checker's own self-tests; strict since lane 9b (PROD_GRAPH_MODE=--report only prints the violations). Only when the script exists.
 [[ -x tools/engine_core/check_production_graph.sh ]] && step prod-graph "production graph: no legacy / lend-string in any production crate (mode: ${PROD_GRAPH_MODE:-strict}), self-tests" \
   "tools/engine_core/check_production_graph.sh --self-test && tools/engine_core/check_output_probes.sh --self-test && tools/engine_core/check_production_graph.sh ${PROD_GRAPH_MODE-}"
-step lint     "core hygiene (lint_core.sh) and the immutable surfaces against ${BASE_REF:-core-integration-6}" \
-  "base='$BASE_REF'; if [[ -z \$base ]]; then for r in core-integration-6 origin/core-integration-6; do git rev-parse -q --verify \$r^{commit} >/dev/null && { base=\$r; break; }; done; fi; \
-   [[ -n \$base ]] && git rev-parse -q --verify \$base^{commit} >/dev/null || { echo \"lint: no usable base ref (\$base; tried core-integration-6 and origin/core-integration-6): pass --base-ref REF\"; exit 1; }; \
+step lint     "core hygiene (lint_core.sh) and the immutable surfaces against ${BASE_REF:-deployed-int23-54a15dba}" \
+  "base='$BASE_REF'; if [[ -z \$base ]]; then for r in deployed-int23-54a15dba core-integration-23 origin/core-integration-23; do git rev-parse -q --verify \$r^{commit} >/dev/null && { base=\$r; break; }; done; fi; \
+   [[ -n \$base ]] && git rev-parse -q --verify \$base^{commit} >/dev/null || { echo \"lint: no usable base ref (\$base; tried deployed-int23-54a15dba, core-integration-23, origin/core-integration-23): pass --base-ref REF\"; exit 1; }; \
    echo \"lint: immutable surfaces against \$base\"; \
    tools/engine_core/lint_core.sh && git diff --exit-code \$base -- web/ crates/ti4-model/src/state.rs ':!docs/RULES_VERSION.md' && { git diff \$base -- docs/RULES_VERSION.md | grep -E '^[-+][^-+]' | grep -v -i refus > /dev/null && { echo \"RULES_VERSION.md: a hunk other than the refusal note changed\"; exit 1; } || true; }"
 step build    "gate-profile binaries (selfplay, every bridge bin)" \
@@ -106,13 +111,22 @@ step board-g  "board_equivalence: golden positions" \
   "$T/gate/board_equivalence golden $CFG $GAMES 10"
 step sync     "core_sync_gate --strict (round trip of >= 3000 positions) and the marks census" \
   "$T/gate/core_sync_gate $CFG $GAMES 10 --strict && python3 -I tools/engine_core/marks_census.py --strict"
-step alpha    "alpha_roundtrip --strict on a fresh COPY of the alpha data" \
-  "d=\$(mktemp -d) && rsync -a --exclude feedback $ALPHA_SRC/ \$d/ && $T/gate/alpha_roundtrip \$d --strict; rc=\$?; rm -rf \$d; exit \$rc"
+# ALPHA_SKIP (default 1): skipped with a recorded reason (user decision 2026-11-04): all 14 alpha saves are rules version 0 and are
+# refused since MIN_SUPPORTED_RULES_VERSION = 35, so the round trip has no corpus; the recovery proof is the rv35 tests. ALPHA_SKIP=0 runs it
+# (only useful against an rv35 data directory in ALPHA_SRC).
+step alpha    "alpha_roundtrip --strict on a fresh COPY of the alpha data (ALPHA_SKIP=${ALPHA_SKIP:-1}: skipped by default)" \
+  "if [[ '${ALPHA_SKIP:-1}' == 1 ]]; then echo 'SKIPPED: all 14 alpha saves are rules version 0 and refused (MIN_SUPPORTED_RULES_VERSION 35); no corpus for the round trip; recovery is proved by the rv35 server/wasm tests. Decision of 2026-11-04; ALPHA_SKIP=0 runs the step.'; exit 0; fi; d=\$(mktemp -d) && rsync -a --exclude feedback $ALPHA_SRC/ \$d/ && $T/gate/alpha_roundtrip \$d --strict; rc=\$?; rm -rf \$d; exit \$rc"
 for mode in off resolver state resolver,state; do
   id="bench-${mode//,/+}"
   if [[ $mode == off ]]; then env="env -u TI4_CHURN"; else env="env TI4_CHURN=$mode"; fi
-  step "$id" "benches bench, bench-v1..v5 (200/200 identical x6) with TI4_CHURN=$mode" \
-    "$env VERIFY_OUT=$out/$id tools/engine_profile/verify_benches.sh $out/selfplay-new $WORKERS > $out/$id.txt 2>&1; cat $out/$id.txt; [[ \$(grep -c '200 identical, 0 different' $out/$id.txt) == 6 ]]"
+  rec=""
+  if [[ $mode == off && "${BENCH_RECORD:-0}" == 1 ]]; then
+    # BENCH_RECORD=1: re-record the six baselines first (rules version 35, the frozen legacy engine = BENCH_RECORD_BIN, a selfplay built at
+    # core-integration-20), then verify the fresh selfplay-new against them. The new files are left uncommitted in tools/rulebot.
+    rec="[[ -x '${BENCH_RECORD_BIN:-}' ]] || { echo 'BENCH_RECORD=1 needs BENCH_RECORD_BIN=<legacy-built selfplay> (docs/HEAVY_RUN_PLAN.md)'; exit 1; }; tools/engine_profile/record_benches.sh '${BENCH_RECORD_BIN:-}' $WORKERS ${BENCH_RECORD_RV:-35} > $out/bench-record.txt 2>&1; cat $out/bench-record.txt; [[ \$(grep -c ': recorded' $out/bench-record.txt) == 6 ]] || exit 1; "
+  fi
+  step "$id" "benches bench, bench-v1..v5 (200/200 identical x6) with TI4_CHURN=$mode${rec:+ -- RE-RECORDED first (BENCH_RECORD=1)}" \
+    "${rec}$env VERIFY_OUT=$out/$id tools/engine_profile/verify_benches.sh $out/selfplay-new $WORKERS > $out/$id.txt 2>&1; cat $out/$id.txt; [[ \$(grep -c '200 identical, 0 different' $out/$id.txt) == 6 ]]"
 done
 step census   "golden lent census: the labels the core bails at (bail probe merged into the table) and the golden games on core / string" \
   "if [[ ! -s $out/bail-probe.tsv ]]; then echo \"census: $out/bail-probe.tsv is missing or empty: it is written by the step dual-all (TI4_BAIL_PROBE); run dual-all first (same --out), or --from dual-all\"; exit 1; fi \
@@ -183,7 +197,8 @@ for i in "${selected[@]}"; do
   id="${ids[$i]}"; t0=$SECONDS
   say "start $id: ${titles[$i]}"
   bash -c "set -o pipefail; ${cmds[$i]}" > "$out/$id.log" 2>&1; rc=$?
-  if [[ $rc == 0 ]]; then say "ok   $id ($((SECONDS - t0)) s)"; else say "FAIL $id (rc $rc, $((SECONDS - t0)) s, see $out/$id.log)"; fail+=("$id"); fi
+  if [[ $rc == 0 ]] && grep -q '^SKIPPED' "$out/$id.log"; then say "skip $id ($(grep -m1 '^SKIPPED' "$out/$id.log" | cut -c1-160))"
+  elif [[ $rc == 0 ]]; then say "ok   $id ($((SECONDS - t0)) s)"; else say "FAIL $id (rc $rc, $((SECONDS - t0)) s, see $out/$id.log)"; fail+=("$id"); fi
 done
 if [[ ${#fail[@]} == 0 ]]; then say "END OF D1 RUN OK (${#selected[@]} steps)"; exit 0; fi
 say "END OF D1 RUN FAILED: ${fail[*]}"
