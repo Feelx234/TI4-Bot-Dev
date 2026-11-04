@@ -34,7 +34,7 @@ pub fn round_target_id(r: &Render, t: &RoundTarget) -> String {
 fn round_target_of(r: &Render, id: &str) -> Option<RoundTarget> {
     let parts: Vec<&str> = id.split('|').collect();
     let [owner, place, unit, index, flags] = parts.as_slice() else { return None };
-    let flags: u8 = flags.parse().ok().filter(|f| *f < 4)?;
+    let flags: u8 = flags.parse().ok().filter(|f| *f < 4)?; // mutants:skip (a flag of 4 or more fails the canonical-id check below: its re-rendered flags differ)
     let t = RoundTarget {
         owner: r.seat(owner)?,
         planet: if *place == "space" { None } else { Some(Planet::from_id(place)?) },
@@ -387,6 +387,166 @@ impl Family for Fam {
                 "discard" => Some(Opt::KyverDiscard),
                 _ => None,
             },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ti4_engine_core::choice::leaders::{Ask, Opt};
+    use ti4_engine_core::generated::Leader;
+    use ti4_engine_core::ids::Seat;
+
+    fn render() -> Render {
+        Render::new(vec!["a".to_owned(), "b".to_owned()])
+    }
+
+    fn target(planet: Option<Planet>, sustained: bool, galvanized: bool) -> RoundTarget {
+        RoundTarget { owner: Seat(1), planet, unit: Unit::CruiserI, index: 2, sustained, galvanized }
+    }
+
+    fn parse(a: &Ask, id: &str) -> Option<Opt> {
+        Fam::parse(&render(), a, id)
+    }
+
+    #[test]
+    fn a_round_agent_unit_id_names_owner_place_unit_index_and_flags_and_parses_back() {
+        let r = render();
+        let planet = Planet::ALL[0];
+        for (sustained, galvanized, flags) in [(false, false, "0"), (false, true, "1"), (true, false, "2"), (true, true, "3")] {
+            for place in [None, Some(planet)] {
+                let t = target(place, sustained, galvanized);
+                let id = round_target_id(&r, &t);
+                assert_eq!(id, format!("b|{}|{}|2|{flags}", place.map_or("space", |p| p.as_str()), Unit::CruiserI.as_str()));
+                assert_eq!(round_target_of(&r, &id), Some(t));
+                assert_eq!(parse(&Ask::RoundAgentUnit { agent: Leader::ALL[0], copied: false }, &id), Some(Opt::RoundAgentUnit(t)));
+            }
+        }
+        let good = round_target_id(&r, &target(None, true, false));
+        for bad in [good.replace("|2|2", "|2|4"), good.replace("|2|2", "|02|2"), good.replace("b|", "z|"), good.replace("space", "nowhere"), good.replace("|2|2", "|2"), good.replace("|2|2", "|x|2"), format!("{good}|0")] {
+            assert_eq!(round_target_of(&r, &bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_round_agent_question_gets_the_card_of_its_leader_and_a_caption_per_unit() {
+        use ti4_engine_core::choice::{Choice, Ctx, Origin};
+        let r = render();
+        let content = ti4_content::ContentStore::embedded();
+        let agent = Leader::from_id("solagent").expect("a round agent");
+        let planet = Planet::ALL[0];
+        let planet_name = ti4_content::galaxy::planet(content, planet.as_str(), ti4_model::content_types::DEFAULT).and_then(|p| p.name()).unwrap_or(planet.as_str()).to_owned();
+        let (fleet, ground) = (target(None, false, false), target(Some(planet), true, true));
+        let make = |copied: bool| Choice {
+            actor: Seat(0),
+            ask: ti4_engine_core::choice::Ask::Leaders(Ask::RoundAgentUnit { agent, copied }),
+            ctx: Ctx {
+                origin: Origin::Rule(ti4_engine_core::choice::generic::Rule::R22),
+                subtype: ti4_engine_core::choice::Subtype::Generic(ti4_engine_core::choice::generic::Subtype::Unclassified),
+                optional: false,
+                target: None,
+                outstanding: ti4_engine_core::containers::SmallList::new(),
+                space_battle: false,
+                invasion_seq: None,
+            },
+            opts: [ti4_engine_core::choice::Opt::Leaders(Opt::RoundAgentUnit(fleet)), ti4_engine_core::choice::Opt::Decline, ti4_engine_core::choice::Opt::Leaders(Opt::RoundAgentUnit(ground))].into_iter().collect(),
+        };
+        for copied in [false, true] {
+            let choice = make(copied);
+            let mut rendered = crate::choice::Choice::new(ti4_model::id::PlayerId::new("a"), "q", Vec::new());
+            complete_round_agent(&r, &choice, &mut rendered);
+            let tag = if copied { "agent (copied by Ssruu)" } else { "agent" };
+            assert_eq!(rendered.details["card"], crate::strategy_cards::leader_card(content, agent.as_str(), tag), "copied {copied}");
+            let captions = &rendered.details["captions"];
+            let unit = Unit::CruiserI.as_str();
+            assert_eq!(captions[round_target_id(&r, &fleet)]["label"], format!("{unit} · In the fleet"));
+            assert_eq!(captions[round_target_id(&r, &ground)]["label"], format!("{unit} · On {planet_name}"));
+            assert_eq!(captions[round_target_id(&r, &fleet)]["hint"], "Unit 3 of that kind there");
+            assert_eq!(captions[round_target_id(&r, &fleet)]["seat"], "b");
+            assert_eq!(captions.as_object().unwrap().len(), 2, "the decline has no caption");
+        }
+        // Another question is left alone.
+        let mut other = make(false);
+        other.ask = ti4_engine_core::choice::Ask::Leaders(Ask::SustainCommander);
+        let mut rendered = crate::choice::Choice::new(ti4_model::id::PlayerId::new("a"), "q", Vec::new());
+        complete_round_agent(&r, &other, &mut rendered);
+        assert!(rendered.details.is_empty());
+    }
+
+    #[test]
+    fn the_printed_names_of_technologies_and_cards_label_the_options_and_prompts() {
+        use ti4_content::ContentStore;
+        use ti4_model::content_types::ContentType;
+        let content = ContentStore::embedded();
+        let r = render();
+        let tech = Technology::ALL.iter().copied().find(|t| content.get(ContentType::Technologies, t.as_str()).and_then(|rec| rec.text("name")).is_some_and(|n| n != t.as_str())).expect("a technology with a printed name");
+        let name = content.get(ContentType::Technologies, tech.as_str()).and_then(|rec| rec.text("name")).unwrap();
+        assert_eq!(Fam::option(&r, &Ask::FlayeshTech, &Opt::Gain(tech)).label, name);
+        assert_eq!(technology_name(tech), name);
+        let card = ti4_engine_core::generated::ActionCard::ALL.iter().copied().find(|c| content.get(ContentType::ActionCards, c.as_str()).and_then(|rec| rec.text("name")).is_some_and(|n| n != c.as_str())).expect("a card with a printed name");
+        let card_name = content.get(ContentType::ActionCards, card.as_str()).and_then(|rec| rec.text("name")).unwrap();
+        assert_eq!(action_card_name(card), card_name);
+        let ask = Ask::KyverFate { target: Seat(1), card };
+        assert_eq!(Fam::prompt(&r, &ask), format!("Kyver: b showed {card_name}"));
+        assert_eq!(Fam::option(&r, &ask, &Opt::KyverTake).label, format!("take {card_name} from b"));
+        assert_eq!(Fam::option(&r, &ask, &Opt::KyverDiscard).label, "force b to discard 3 random action cards");
+    }
+
+    #[test]
+    fn the_options_of_the_player_questions_and_the_follower_question_are_worded_per_question() {
+        let r = render();
+        let umbat = Fam::option(&r, &Ask::UmbatPlayer, &Opt::Player(Seat(1)));
+        assert_eq!((umbat.id.as_str(), umbat.label.as_str()), ("b", "player b"));
+        let nekro = Fam::option(&r, &Ask::NekroPlayer, &Opt::Player(Seat(1)));
+        assert_eq!((nekro.id.as_str(), nekro.label.as_str()), ("b", "b"));
+        let ask = Ask::WinnuFollower { follower: Seat(1) };
+        let yes = Fam::option(&r, &ask, &Opt::HeroFollower(true));
+        let no = Fam::option(&r, &ask, &Opt::HeroFollower(false));
+        assert_eq!((yes.id.as_str(), yes.label.as_str()), ("yes|b", "let b follow"));
+        assert_eq!((no.id.as_str(), no.label.as_str()), ("no|b", "not b"));
+    }
+
+    #[test]
+    fn the_ids_of_the_leader_questions_parse_to_their_options_and_nothing_else() {
+        let gain = Opt::GainTradeGood;
+        assert_eq!(parse(&Ask::SustainCommander, GAIN_ID), Some(gain));
+        assert_eq!(parse(&Ask::SustainCommander, "other"), None);
+        assert_eq!(parse(&Ask::SardakkSkip, "skip"), Some(Opt::SardakkSkip));
+        assert_eq!(parse(&Ask::SardakkSkip, "other"), None);
+        // Jol-Nar: keeping names the held technology; another technology is a trade.
+        let held = Technology::ALL[0];
+        let other = Technology::ALL[1];
+        let swap = Ask::JolnarSwap { held };
+        assert_eq!(parse(&swap, &format!("keep|{}", held.as_str())), Some(Opt::Keep));
+        assert_eq!(parse(&swap, &format!("keep|{}", other.as_str())), None, "keeping what is not held");
+        assert_eq!(parse(&swap, other.as_str()), Some(Opt::Trade(other)));
+        // Letani Ospha: the base unit names.
+        let replace = Ask::OsphaReplace { owner: Seat(0), ship: Unit::CruiserI, system: System::ALL[0] };
+        for base in [UnitBaseType::Carrier, UnitBaseType::Cruiser, UnitBaseType::Destroyer, UnitBaseType::Dreadnought, UnitBaseType::Flagship, UnitBaseType::Warsun] {
+            assert_eq!(parse(&replace, &format!("replace|{}", super::super::promissory::base_name_of(base))), Some(Opt::OsphaReplace(base)));
+        }
+        assert_eq!(parse(&replace, "replace|infantry"), None);
+        assert_eq!(parse(&replace, "carrier"), None);
+        // Nekro Malleon: a pool or the discard.
+        for pool in [Pool::Tactic, Pool::Fleet, Pool::Strategic] {
+            assert_eq!(parse(&Ask::NekroPayment, &format!("token|{}", pool_name(pool))), Some(Opt::Token(pool)));
+        }
+        assert_eq!(parse(&Ask::NekroPayment, "token|nothing"), None);
+        assert_eq!(parse(&Ask::NekroPayment, "discard"), Some(Opt::Discard));
+        assert_eq!(parse(&Ask::NekroPayment, "keep"), None);
+        // Mathis Mathinus: the follower must be the asked seat.
+        let ask = Ask::WinnuFollower { follower: Seat(1) };
+        assert_eq!(parse(&ask, "yes|b"), Some(Opt::HeroFollower(true)));
+        assert_eq!(parse(&ask, "no|b"), Some(Opt::HeroFollower(false)));
+        assert_eq!(parse(&ask, "yes|a"), None);
+        assert_eq!(parse(&ask, "no|a"), None);
+        assert_eq!(parse(&ask, "maybe|b"), None);
+        // Every option the renderer words for these questions parses back.
+        let r = render();
+        for (ask, opt) in [(swap, Opt::Keep), (swap, Opt::Trade(other)), (Ask::NekroPayment, Opt::Discard), (Ask::NekroPayment, Opt::Token(Pool::Fleet)), (ask, Opt::HeroFollower(true)), (ask, Opt::HeroFollower(false)), (Ask::SardakkSkip, Opt::SardakkSkip)] {
+            let id = Fam::option(&r, &ask, &opt).id;
+            assert_eq!(Fam::parse(&r, &ask, &id), Some(opt), "{id}");
         }
     }
 }
