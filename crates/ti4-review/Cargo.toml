@@ -26,6 +26,8 @@ thiserror.workspace = true
 zstd.workspace = true
 ti4-content.workspace = true
 ti4-engine.workspace = true
+# Reads legacy-only items (diplomacy, draft, map edits); named directly, not through lend-string (host and rule-bot are in this tree). Unbuilt: needs torch.
+ti4-engine-legacy.workspace = true
 ti4-mlp = { workspace = true, optional = true }
 ti4-model.workspace = true
 ti4-policy = { workspace = true, optional = true }

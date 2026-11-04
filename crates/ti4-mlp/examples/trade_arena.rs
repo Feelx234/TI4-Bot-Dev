@@ -26,7 +26,7 @@ use rayon::prelude::*;
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc, sync::Arc, time::Instant};
 use ti4_content::ContentStore;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
-use ti4_engine::diplomacy::candidates::contact_seat_index;
+use ti4_engine_legacy::diplomacy::candidates::contact_seat_index;
 use ti4_mlp::bundle::CriticMode;
 use ti4_model::{
     DealRevision, DealTerm, DiplomacyEvent, PlayerId, TransferAsset, content_types::DEFAULT,
@@ -220,16 +220,16 @@ fn rule_response(choice: &Choice, seen: &SeatObservation<'_>) -> ChoiceOption {
         .options
         .iter()
         .zip(&facts)
-        .find(|(option, _)| option.id == ti4_engine::diplomacy::window::ACCEPT_ID);
+        .find(|(option, _)| option.id == ti4_engine_legacy::diplomacy::window::ACCEPT_ID);
     let worth_it = accept.is_some_and(|(_, facts)| {
         facts
             .iter()
             .any(|(name, value)| *name == ti4_policy::deal_value::FACT_SCORE && *value > 0.0)
     });
     let wanted = if worth_it {
-        ti4_engine::diplomacy::window::ACCEPT_ID
+        ti4_engine_legacy::diplomacy::window::ACCEPT_ID
     } else {
-        ti4_engine::diplomacy::window::DECLINE_ID
+        ti4_engine_legacy::diplomacy::window::DECLINE_ID
     };
     choice
         .options
@@ -455,7 +455,7 @@ fn arena_game(
                                 .iter()
                                 .filter(|other| {
                                     *other != p
-                                        && ti4_engine::transactions::may_transact(
+                                        && ti4_engine_legacy::transactions::may_transact(
                                             &game.state,
                                             content,
                                             galaxy,

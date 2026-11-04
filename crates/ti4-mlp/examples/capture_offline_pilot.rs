@@ -1464,7 +1464,7 @@ fn play_game(
         .err();
     let completed = run_error.is_none();
     let error = run_error.map(|value| value.to_string());
-    let diplomacy_records = ti4_engine::diplomacy::export_log_records(&game.state, &plan.game_id)
+    let diplomacy_records = ti4_engine_legacy::diplomacy::export_log_records(&game.state, &plan.game_id)
         .map_err(|error| format!("exporting diplomacy log: {error}"))?;
     let diplomacy_signal_count = game
         .state
@@ -2496,7 +2496,7 @@ fn validate_part_pair(
             serde_json::from_str(&line).map_err(|error| {
                 PartProblem::Corrupt(format!("parsing diplomacy record {line_index}: {error}"))
             })?;
-        if record.schema != ti4_engine::diplomacy::log::DIPLOMACY_LOG_SCHEMA_V2
+        if record.schema != ti4_engine_legacy::diplomacy::log::DIPLOMACY_LOG_SCHEMA_V2
             || record.game_id != metadata.game_id
             || !deal_ids.insert(record.deal_id)
         {

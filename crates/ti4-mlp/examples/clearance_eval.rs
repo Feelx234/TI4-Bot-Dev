@@ -158,7 +158,7 @@ fn main() {
         let income: i32 = income
             .parse()
             .unwrap_or_else(|_| refuse("--status-income-tg expects a whole number"));
-        ti4_engine::game::STATUS_INCOME_TRADE_GOODS
+        ti4_engine_legacy::game::STATUS_INCOME_TRADE_GOODS
             .store(income, std::sync::atomic::Ordering::Relaxed);
         println!(
             "  experiment  every seat gains {income} trade goods at the start of each status phase"

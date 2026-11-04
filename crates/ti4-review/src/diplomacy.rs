@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize as _;
 use serde_json::Value;
-use ti4_engine::diplomacy::candidates::{CandidateBundle, DealTemplate};
+use ti4_engine_legacy::diplomacy::candidates::{CandidateBundle, DealTemplate};
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 use ti4_model::{
@@ -514,16 +514,16 @@ pub(crate) fn append_action_lines(
             continue;
         };
         let actor = seat(after, &PlayerId::new(decision.player.as_str()));
-        if option.id == ti4_engine::diplomacy::candidates::END_TALKS_ID {
+        if option.id == ti4_engine_legacy::diplomacy::candidates::END_TALKS_ID {
             details.push(format!("{actor} ended negotiations before the vote"));
         } else if option.kind == ti4_engine::diplomacy::candidates::OPEN_KIND {
             // The option carries the target's stable seating-order index.
-            let target = ti4_engine::diplomacy::candidates::contact_seat_index(&option.id)
+            let target = ti4_engine_legacy::diplomacy::candidates::contact_seat_index(&option.id)
                 .and_then(|index| after.seating_order.get(index))
                 .and_then(|id| after.player(id))
                 .map_or_else(|| option.label.clone(), |player| seat(after, &player.id));
             details.push(format!("{actor} opened diplomatic contact with {target}"));
-        } else if option.id == ti4_engine::diplomacy::window::DECLINE_ID
+        } else if option.id == ti4_engine_legacy::diplomacy::window::DECLINE_ID
             && decision
                 .context
                 .as_ref()
@@ -616,7 +616,7 @@ pub fn payload_lines(state: &GameState, payload: &BTreeMap<String, Value>) -> Ve
 mod tests {
     use std::collections::BTreeMap;
 
-    use ti4_engine::diplomacy::candidates::CandidateFeatures;
+    use ti4_engine_legacy::diplomacy::candidates::CandidateFeatures;
     use ti4_model::DiplomacyState;
 
     use super::*;
@@ -660,7 +660,7 @@ mod tests {
                 revision: 0,
             },
         });
-        ti4_engine::diplomacy::settle_deadlines(&mut after, 1).unwrap();
+        ti4_engine_legacy::diplomacy::settle_deadlines(&mut after, 1).unwrap();
 
         let journal = journal_lines(&before, &after).join("\n");
         assert!(journal.contains("Deal #1 offered by seat0"), "{journal}");

@@ -92,10 +92,10 @@ pub fn diplomacy_sheet(ui: &mut egui::Ui, frame: &ReviewFrame) {
                         crate::diplomacy::stance(relationship),
                         crate::diplomacy::relationship_cell(relationship)
                     );
-                    if ti4_engine::diplomacy::recent_attack(state, observer, subject) {
+                    if ti4_engine_legacy::diplomacy::recent_attack(state, observer, subject) {
                         text.push_str(" ⚔");
                     }
-                    if ti4_engine::diplomacy::recent_breach(state, observer, subject) {
+                    if ti4_engine_legacy::diplomacy::recent_breach(state, observer, subject) {
                         text.push_str(" ✗");
                     }
                     ui.label(text);

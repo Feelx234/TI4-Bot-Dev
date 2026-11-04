@@ -48,7 +48,7 @@ use ti4_model::id::{FactionId, PlayerId};
 
 const FACTIONS: [&str; 6] = ["sol", "letnev", "xxcha", "hacan", "jolnar", "l1z1x"];
 
-/// The prompt `ti4_engine::draft::strategy_options` builds for the primary pick.
+/// The prompt `ti4_engine_legacy::draft::strategy_options` builds for the primary pick.
 ///
 /// Duplicated from the engine for the same reason [`Watching::secondary_card`]'s table is: a
 /// reworded prompt would silently stop being counted. Unlike the secondaries there is no event

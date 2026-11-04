@@ -828,7 +828,7 @@ fn a_manual_ssruu_round_copy_parks_with_target_labels_and_resumes_on_the_chosen_
     result.expect("the engine settles the submitted target through Table::ask");
     let content = ContentStore::embedded();
     assert_eq!(
-        ti4_engine::factions::borrowed_round_agents::extra_die_for(
+        ti4_engine_legacy::factions::borrowed_round_agents::extra_die_for(
             &state,
             content,
             DEFAULT,
@@ -843,7 +843,7 @@ fn a_manual_ssruu_round_copy_parks_with_target_labels_and_resumes_on_the_chosen_
         "the unselected first cruiser receives no copied die"
     );
     assert_eq!(
-        ti4_engine::factions::borrowed_round_agents::extra_die_for(
+        ti4_engine_legacy::factions::borrowed_round_agents::extra_die_for(
             &state,
             content,
             DEFAULT,

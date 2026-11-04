@@ -1046,9 +1046,9 @@ pub fn frame_board(
 ) -> Vec<BoardTile> {
     let mut tiles = board.to_vec();
     let on_grid = |tile: &BoardTile| tile.special_area.is_none();
-    for edit in ti4_engine::movement::recorded_map_edits(state) {
+    for edit in ti4_engine_legacy::movement::recorded_map_edits(state) {
         match edit {
-            ti4_engine::movement::MapEdit::Swap { a, b } => {
+            ti4_engine_legacy::movement::MapEdit::Swap { a, b } => {
                 let at = |id: &str| tiles.iter().position(|t| on_grid(t) && t.system == id);
                 if let (Some(i), Some(j)) = (at(&a), at(&b)) {
                     let (qi, ri) = (tiles[i].q, tiles[i].r);
@@ -1058,7 +1058,7 @@ pub fn frame_board(
                     tiles[j].r = ri;
                 }
             }
-            ti4_engine::movement::MapEdit::Replace { old, new } => {
+            ti4_engine_legacy::movement::MapEdit::Replace { old, new } => {
                 if let Some(i) = tiles.iter().position(|t| on_grid(t) && t.system == old)
                     && let Some(tile) =
                         crate::system_metadata(content, &new, tiles[i].q, tiles[i].r, None)

@@ -912,12 +912,12 @@ fn the_off_map_home_follows_its_gate_when_a_swap_moves_it() {
     let mut galaxy =
         ti4_content::galaxy::Galaxy::placed(content, &placed, ti4_model::content_types::FULL)
             .unwrap();
-    ti4_engine::movement::apply_map_edit(
+    ti4_engine_legacy::movement::apply_map_edit(
         &mut state,
         &mut galaxy,
         content,
         ti4_model::content_types::FULL,
-        &ti4_engine::movement::MapEdit::Swap {
+        &ti4_engine_legacy::movement::MapEdit::Swap {
             a: "17".to_owned(),
             b: "24".to_owned(),
         },
@@ -952,12 +952,12 @@ fn a_replaced_tile_takes_the_new_tiles_metadata_on_the_same_hex() {
         ti4_content::galaxy::Galaxy::placed(content, &placed, ti4_model::content_types::FULL)
             .unwrap();
     // 43 is a supernova in the corpus; the Muaat hero replaces a tile with its own supernova.
-    ti4_engine::movement::apply_map_edit(
+    ti4_engine_legacy::movement::apply_map_edit(
         &mut state,
         &mut galaxy,
         content,
         ti4_model::content_types::FULL,
-        &ti4_engine::movement::MapEdit::Replace {
+        &ti4_engine_legacy::movement::MapEdit::Replace {
             old: "21".to_owned(),
             new: "43".to_owned(),
         },

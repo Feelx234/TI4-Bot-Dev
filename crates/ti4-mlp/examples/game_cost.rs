@@ -427,7 +427,7 @@ fn main() {
                                 .filter(|unit| {
                                     types
                                         .get(unit.type_id.as_str())
-                                        .is_some_and(ti4_engine::fleet::counts_against_supply)
+                                        .is_some_and(ti4_engine_legacy::fleet::counts_against_supply)
                                 })
                                 .map(|unit| unit.type_id.to_string())
                                 .collect();
@@ -435,7 +435,7 @@ fn main() {
                                 "      {} in {system_id}: fleet_tokens {} limit {} ships {} over {over} [{}]",
                                 seat.id,
                                 seat.fleet_tokens,
-                                ti4_engine::fleet::limit(&final_state, content, &seat.id),
+                                ti4_engine_legacy::fleet::limit(&final_state, content, &seat.id),
                                 counted.len(),
                                 counted.join(",")
                             );

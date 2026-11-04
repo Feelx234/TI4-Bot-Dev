@@ -726,7 +726,7 @@ fn public_game_state_facts(seen: &Observed<'_>, player: &PlayerId) -> Vec<(Strin
                     seen.sources(),
                 )
                 .as_ref()
-                .is_some_and(ti4_engine::fleet::counts_against_supply)
+                .is_some_and(ti4_engine_legacy::fleet::counts_against_supply)
                 {
                     fleet += 1;
                 }

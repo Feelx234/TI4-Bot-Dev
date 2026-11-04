@@ -229,7 +229,7 @@ pub fn seatable_factions(content: &ContentStore) -> Vec<&'static str> {
     let mut out = Vec::new();
     for entry in ti4_engine::seating::wide_roster(content, ti4_model::content_types::DEFAULT) {
         if entry == ti4_engine::seating::KELERES_FAMILY {
-            out.extend(ti4_engine::factions::keleres::VARIANTS);
+            out.extend(ti4_engine_legacy::factions::keleres::VARIANTS);
         } else {
             out.push(entry);
         }
@@ -1385,7 +1385,7 @@ fn summarize_action(
         .filter(|option| {
             option.kind != ti4_engine::transactions::OPEN_KIND
                 && option.kind != ti4_engine::diplomacy::candidates::OPEN_KIND
-                && option.kind != ti4_engine::diplomacy::candidates::PAYMENT_KIND
+                && option.kind != ti4_engine_legacy::diplomacy::candidates::PAYMENT_KIND
         })
         .map(|option| option.label.clone())
         .collect();

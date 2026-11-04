@@ -135,7 +135,9 @@ pub fn roster_for(content: &ContentStore, sources: SourceSet) -> Option<&'static
 // --- the string state at setup as a research context (D2-9b: the thin crate has no string engine to ask) ----------------------------
 
 /// The faction hooks of the research questions at a seat of a position that is being made (`starting_tech`): no purge (the Deepwrought
-/// are refused), the Analytical ability's waiver, and nothing else a faction effect, a relic or a law could add before the first card is played.
+/// are refused), the Analytical ability's waiver, and nothing else a faction effect could add. The Prophet's Tears and the Research Team laws are read by
+/// [`setup_researchable_by_prerequisites`]; the Publicize Weapon Schematics law, the Yin commander and the card-bound waiver offers need a played
+/// game (a law passed, a leader unlocked, a card gained), which a position that is being made has not.
 struct SetupHooks {
     analytical: bool,
 }
@@ -207,12 +209,26 @@ pub fn setup_researchable_by_prerequisites(state: &ti4_model::state::GameState, 
             }
         }
     }
+    // The waivers that do not depend on the technology: the Prophet's Tears, and the Research Team laws (a controlled, readied planet).
+    let mut waivable = usize::from(seat.relics.iter().any(|r| r.as_str() == "prophetstears"));
+    for colour in q::COLOURS {
+        let alias = match colour_name(colour) {
+            "BIOTIC" => "rt_biotic",
+            "CYBERNETIC" => "rt_cybernetic",
+            "PROPULSION" => "rt_propulsion",
+            _ => "rt_warfare",
+        };
+        if let Some(planet) = crate::queries::laws::elected(state, alias) {
+            let planet = ti4_model::id::PlanetId::new(planet.clone());
+            waivable += usize::from(!state.exhausted_planets.contains(&planet) && state.controlled_planets(player).into_iter().any(|(_, held)| *held == planet));
+        }
+    }
     let ready = |t: Technology| owned.contains(t) && !seat.exhausted_technologies.contains(ti4_model::id::text(<Technology as IdStr>::as_str(t)));
     let ctx = q::ResearchCtx {
         faction,
         owned,
         holdings,
-        waivable: 0,
+        waivable,
         joined,
         aida_ready: state.rules_version >= q::RULES_TECH_EFFECTS && ready(Technology::AIDevelopmentAlgorithm),
         inheritance_card: ready(Technology::InheritanceSystems),

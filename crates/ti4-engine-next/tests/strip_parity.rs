@@ -119,3 +119,28 @@ fn the_researchable_by_prerequisites_read_at_setup_is_the_legacy_one() {
     }
     assert!(nonempty > 10, "{nonempty}");
 }
+
+/// The waivers that exist before a card is played: the Prophet's Tears and a Research Team law on a controlled planet.
+#[test]
+fn the_setup_read_counts_the_relic_and_law_waivers_as_the_legacy_one_does() {
+    let content = content();
+    let a = PlayerId::new("a");
+    let mut moved = 0;
+    for faction in ["winnu", "sol", "hacan"] {
+        let base = old::fixtures::seated_dealt(&[("a", faction), ("b", "sardakk")], POK);
+        let home = base.controlled_planets(&a).into_iter().map(|(_, p)| p.clone()).next().expect("a home planet");
+        let plain = old::technology::researchable_by_prerequisites(&base, content, POK, &a);
+        let mut tears = base.clone();
+        tears.player_mut(&a).expect("a").relics.push(ti4_model::id::RelicId::new("prophetstears"));
+        let mut team = base.clone();
+        team.laws.insert("rt_biotic".to_owned(), home.to_string());
+        let mut spent = team.clone();
+        spent.exhausted_planets.insert(home);
+        for (label, state) in [("tears", &tears), ("research team", &team), ("research team, planet exhausted", &spent)] {
+            let want = old::technology::researchable_by_prerequisites(state, content, POK, &a);
+            assert_eq!(want, thin::technology::researchable_by_prerequisites(state, content, POK, &a), "{faction}: {label}");
+            moved += usize::from(want != plain);
+        }
+    }
+    assert!(moved >= 3, "the waivers must change the answer somewhere ({moved})");
+}
