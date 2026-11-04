@@ -383,9 +383,13 @@ fn pass_ends_the_hold_early_and_stop_interrupts_it_at_once() {
     let registry = Arc::new(GameRegistry::new());
     let (session, seats, _) = launch(&registry);
     // A hold that would otherwise last many seconds.
+    // (One hold per round: the native step tells the session every window it passed by in a row, after the step, so a combat that opens several
+    // declared windows holds them back to back with no engine work between. In an optimised build the poll below sees no gap between two holds
+    // and takes them for one; the test is about ONE hold. Integration 21.)
     session.set_bluff_policy(BluffPolicy {
         min_hold: Duration::from_secs(6),
         max_hold: Duration::from_secs(6),
+        seat_round_holds: 1,
         ..BluffPolicy::default()
     });
     declare(&session, &seats.letnev, &["space_combat"]).expect("declared");
@@ -426,9 +430,13 @@ fn a_stop_interrupts_a_running_hold_at_once() {
     // Undo, redo, restart and turn redo all stop the session first.
     let registry = Arc::new(GameRegistry::new());
     let (session, seats, _) = launch(&registry);
+    // (One hold per round: the native step tells the session every window it passed by in a row, after the step, so a combat that opens several
+    // declared windows holds them back to back with no engine work between. In an optimised build the poll below sees no gap between two holds
+    // and takes them for one; the test is about ONE hold. Integration 21.)
     session.set_bluff_policy(BluffPolicy {
         min_hold: Duration::from_secs(6),
         max_hold: Duration::from_secs(6),
+        seat_round_holds: 1,
         ..BluffPolicy::default()
     });
     declare(&session, &seats.letnev, &["space_combat"]).expect("declared");
@@ -455,6 +463,8 @@ fn a_stop_interrupts_a_running_hold_at_once() {
 fn the_default_hold_lasts_two_to_four_seconds() {
     let registry = Arc::new(GameRegistry::new());
     let (session, seats, _) = launch(&registry);
+    // (One hold per round, as in the test above: consecutive holds of one native step are not told apart by the poll in an optimised build.)
+    session.set_bluff_policy(BluffPolicy { seat_round_holds: 1, ..BluffPolicy::default() });
     declare(&session, &seats.letnev, &["space_combat"]).expect("declared");
     let holder = {
         let session = session.clone();
