@@ -439,6 +439,7 @@ pub(crate) fn set_table_codes(table: &mut AbilityTable, r: &Render) {
         table.codes.reflective_cause = r.code("action_card:reflective_shielding");
         table.codes.not_from_supply = ["transaction", "pillage", "extreme_duress", "trade_agreement", "artuno"].map(|t| r.code(t));
         crate::ties::production_live::fill_codes(table, r);
+        crate::ties::invasion::fill_codes(table, r);
         table.codes.tactical = ti4_engine_core::kernel::ability::TacticalCodes {
             tactic: r.code("tactic"),
             space_cannon: r.code("space_cannon"),

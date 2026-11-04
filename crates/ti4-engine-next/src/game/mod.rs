@@ -943,6 +943,9 @@ fn native_step(
     // The seats a reaction window passed by because they had nothing to resolve (`Table::window_skipped`, the wait banner of the hidden reactions).
     let skipped = Arc::new(std::sync::Mutex::new(Vec::new()));
     env.table.skipped = Some(Arc::clone(&skipped));
+    // The payments with one way left to pay the core collapsed without a question (`AbilityTable::auto_paid`): the payer is told below.
+    let auto_paid = Arc::new(std::sync::Mutex::new(Vec::new()));
+    env.table.auto_paid = Some(Arc::clone(&auto_paid));
     let lcx = live::Cx::new(&n.render, &env);
     let from = n.core.ledger.events.len();
     let mut asker = TableAsker::new(table, content, sources, galaxy, &n.cx, &n.base, strategic, aftermath).with_participation(participation);
@@ -977,7 +980,19 @@ fn native_step(
     let asked = out.asked.len();
     let hidden = asker.hidden;
     drop(asker);
+    // The step is committed. A step the driver replays (a rollback and a run again) logged the same payment again: one note per (question, position).
+    let mut noted = std::collections::BTreeSet::new();
+    let paid: Vec<_> = auto_paid
+        .lock()
+        .expect("auto-paid log")
+        .iter()
+        .filter(|p| noted.insert((format!("{:?}", p.choice), p.at.ledger.events.len())))
+        .map(|p| live::render_asking(&lcx, &p.at, &ti4_engine_core::driver::live::Asking { choice: p.choice.clone(), nested: None, at: Some(p.at.clone()) }))
+        .collect();
     drop(lcx);
+    for rendered in &paid {
+        table.auto_resolve(rendered, "it was the only way left to pay");
+    }
     // A window looked at each seat once, however often the driver ran it again after a nested question.
     let mut told = std::collections::BTreeSet::new();
     let passed_by: Vec<_> = skipped.lock().expect("skipped log").iter().filter(|(who, event, relation)| told.insert((event.id, who.0, *relation == ti4_engine_core::choice::reaction::Relation::After))).cloned().collect();

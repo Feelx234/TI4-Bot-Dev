@@ -282,7 +282,13 @@ fn a_single_option_question_that_appears_is_reported() {
     assert_eq!(a.prompt, "pay 3 more resources");
     assert_eq!(a.option_id, "exhaust|jord");
     // The log never held it, so the later decisions all still fit.
-    assert!(p.survives_to_end);
+    // (Paying for the mech spends resources that the same player's later Orbital Drop at decision 79 needs, so at version 35 the history no longer
+    // survives to its end: the game really differs there. What this test is about holds: the unlogged payment shifts no cursor, so every
+    // decision between the edit and that real difference still fits.)
+    let conflict = p.first_conflict.as_ref().expect("the spent resources change a later offer");
+    assert_eq!(conflict.cursor, 79);
+    assert_eq!(conflict.found_prompt.as_deref(), Some("end your turn"));
+    assert_eq!(p.kept_later, 79 - 64, "decisions 64..79 all still fit");
 }
 
 #[test]

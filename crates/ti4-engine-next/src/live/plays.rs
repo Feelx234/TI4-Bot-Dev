@@ -343,6 +343,21 @@ mod tests {
         assert_eq!(walk(&mut stopped, &bare), Err(LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::PlayFacts)));
     }
 
+    /// The product Env names the invasion's texts (`ground`, the combat values, the unit names of the dice groups): without them every ground-dice
+    /// question of a product session is labelled by code 0 (the legacy lockstep tests filled them by hand; the product never did).
+    #[test]
+    fn the_product_env_carries_the_invasion_texts_of_the_ground_dice() {
+        let kernel = crate::live::kernel::kernel_for(POK);
+        let (core, r) = position();
+        let env = crate::live::env::env_with_plays(&r, &core, kernel, Rc::new(NoSeeds), POK);
+        let c = &env.table.codes.invasion;
+        assert_eq!(r.code("ground"), c.ground);
+        assert_ne!(c.ground, ti4_engine_core::state::Code(0));
+        assert_eq!(r.code("combat value 5"), c.names[4]);
+        assert_eq!(r.code("infantry"), c.units[ti4_engine_core::generated::Unit::InfantryI as usize]);
+        assert_eq!(r.code("ground_round"), c.ground_round);
+    }
+
     /// The facts follow the position: the unit a seat places for infantry changes with a technology the seat gains between two calls of
     /// the same Env (it is computed per call, not once per game).
     #[test]
