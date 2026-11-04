@@ -14,6 +14,8 @@
 //! and tuning, the answer is the triple `(picked, smart, rng)` of [`ti4_rule_bot::choose_explained`], including
 //! the position of the random stream.
 
+pub mod seen_view;
+
 use rand_chacha::ChaCha8Rng;
 use ti4_engine::choice::{Choice, SeatObservation};
 

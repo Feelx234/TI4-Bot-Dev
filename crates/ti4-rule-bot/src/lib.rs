@@ -102,7 +102,7 @@ use rand_chacha::ChaCha8Rng;
 use serde_json::Value;
 use ti4_content::StrategyCardKind;
 use ti4_content::units::UnitType;
-use ti4_engine::choice::{Choice, ChoiceOption};
+use ti4_engine::choice::{Choice, ChoiceOption, SeatObservation};
 use ti4_engine::fleet_strength::{Descriptors, descriptors, matchup};
 use ti4_engine::production::Spend;
 use ti4_engine::tactical::Movable;
@@ -173,7 +173,7 @@ const GRAVITY_DRIVE: &str = "gd";
 #[must_use]
 pub fn choose(
     choice: &Choice,
-    seen: Option<&dyn SeatView>,
+    seen: Option<&SeatObservation<'_>>,
     game_seed: u64,
     seat: usize,
     index: usize,
@@ -186,6 +186,19 @@ pub fn choose(
 /// pick stood (`false`: no opinion, or none without `seen`). Same pick, same stream.
 #[must_use]
 pub fn choose_explained(
+    choice: &Choice,
+    seen: Option<&SeatObservation<'_>>,
+    game_seed: u64,
+    seat: usize,
+    index: usize,
+) -> (usize, bool, ChaCha8Rng) {
+    choose_explained_view(choice, seen.map(|seen| seen as &dyn SeatView), game_seed, seat, index)
+}
+
+/// [`choose_explained`] over any source of the position (`view::SeatView`): the string `SeatObservation` or the typed core's
+/// `Seen` through `ti4_rule_bot_typed::seen_view::SeenView`. Same pick, same stream, for the same answers of the accessors.
+#[must_use]
+pub fn choose_explained_view(
     choice: &Choice,
     seen: Option<&dyn SeatView>,
     game_seed: u64,

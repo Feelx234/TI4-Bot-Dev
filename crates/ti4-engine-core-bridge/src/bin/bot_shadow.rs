@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! bot_shadow --config FILE [--games 0,5,11 | --games 0..5] [--shards N --shard K] [--bot key=value]...
-//!            [--max-steps N] [--seen-parity STRIDE] [--mode self-check|source] [--mutant none|pick|smart|rng]
+//!            [--max-steps N] [--seen-parity STRIDE] [--mode self-check|source|view-diff] [--mutant none|pick|smart|rng]
 //!            [--min-coverage subtype=0.99]... [--json FILE] [--strict]
 //! bot_shadow --spec JSON  [same flags]       one game given as a `GameSpec` (the `spec` of a mismatch report)
 //! ```
@@ -67,6 +67,7 @@ fn main() {
                 cfg.mode = match value("--mode").as_str() {
                     "self-check" => Mode::SelfCheck,
                     "source" => Mode::Source,
+                    "view-diff" => Mode::ViewDiff,
                     other => fail(&format!("unknown mode '{other}'")),
                 }
             }

@@ -13,5 +13,8 @@ workspace = true
 ti4-rule-bot = { workspace = true }
 ti4-engine = { workspace = true }
 ti4-model = { workspace = true }
+ti4-content = { workspace = true }
+# The typed view of a position (`Seen`) is what the adapter in `seen_view` reads.
+ti4-engine-core = { workspace = true }
 # No default features, as in `ti4-rule-bot`: this crate will be linked into the wasm build.
 rand_chacha = { workspace = true }

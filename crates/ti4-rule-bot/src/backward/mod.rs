@@ -733,6 +733,24 @@ thread_local! {
     static PILE: std::cell::RefCell<Vec<SystemId>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
+/// What [`verdict`] leaves for the movement hooks of the following calls: the gather steps and the piles, the only state the bot
+/// carries from one decision to the next (besides the thread's tuning).
+pub type Memory = (Vec<SystemId>, Vec<SystemId>);
+
+/// The memory [`verdict`] left on this thread.
+#[must_use]
+pub fn memory() -> Memory {
+    (GATHER.with(|g| g.borrow().clone()), PILE.with(|g| g.borrow().clone()))
+}
+
+/// Put a memory back. A harness that runs the bot twice on one position (the string view and the typed view) saves the memory
+/// before, runs the first, restores, runs the second and compares what each left, so that the second run starts from the same
+/// state as the first and a difference in one cannot leak into the next call.
+pub fn set_memory(memory: Memory) {
+    GATHER.with(|g| *g.borrow_mut() = memory.0);
+    PILE.with(|g| *g.borrow_mut() = memory.1);
+}
+
 /// Whether `system` is a gather step of the plans chosen by the last [`verdict`] (the movement
 /// hook then moves every ship and its cargo that can go on).
 #[must_use]

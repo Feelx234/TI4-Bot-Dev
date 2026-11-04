@@ -34,7 +34,7 @@ impl RuleBotDecider {
                 prompt: choice.prompt.clone(),
             });
         }
-        let (picked, _) = crate::choose(choice, seen, self.game_seed, self.seat, self.answered);
+        let (picked, _, _) = crate::choose_explained_view(choice, seen, self.game_seed, self.seat, self.answered);
         self.answered += 1;
         Ok(choice.options[picked].clone())
     }

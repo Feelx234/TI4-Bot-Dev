@@ -1997,7 +1997,7 @@ fn rider_decision(
     held: &[String],
 ) -> Option<String> {
     // One prediction per agenda: do not play a second rider on the agenda already predicted.
-    let already = seen.agenda_prediction_of(me).is_some();
+    let already = seen.has_agenda_prediction(me);
     if already {
         return None;
     }

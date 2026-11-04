@@ -24,11 +24,22 @@ use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::{Observed, PublicSeat, SeatObservation};
 use ti4_engine::objectives::{CardProgress, Imagined};
 use ti4_engine::production::Spend;
-use ti4_engine::tactical::{Movable, MoveRoute};
+use ti4_engine::tactical::Movable;
 use ti4_engine::transit::Cargo;
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{ActionCardId, ObjectiveId, PlanetId, PlayerId, SecretObjectiveId, StrategyCardId, SystemId};
-use ti4_model::state::{ActiveInvasion, Phase, SystemState};
+use ti4_model::state::{Phase, SystemState};
+
+/// The invasion in progress, as far as the bot reads it: where, who invades and who defends.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvasionFacts {
+    /// The system being invaded.
+    pub system: SystemId,
+    /// The invading player.
+    pub invader: PlayerId,
+    /// The defending player, once there is one.
+    pub defender: Option<PlayerId>,
+}
 
 /// The public facts of a position: what [`Observed`] answers.
 pub trait View {
@@ -70,8 +81,6 @@ pub trait View {
     fn systems_with_token(&self, player: &PlayerId) -> BTreeSet<&SystemId>;
     /// Whether a ship with this movement can reach the destination.
     fn can_reach(&self, player: &PlayerId, origin: &SystemId, destination: &SystemId, move_value: i32) -> bool;
-    /// The routes of one ship.
-    fn ship_routes_into(&self, player: &PlayerId, origin: &SystemId, index: usize, boosts: (bool, bool), destination: &SystemId) -> Vec<MoveRoute>;
     /// Every ship of the player that could reach the destination.
     fn movable_into(&self, player: &PlayerId, destination: &SystemId) -> Vec<Movable>;
     /// Gravity rifts a ship would exit on its way.
@@ -84,10 +93,10 @@ pub trait View {
     fn agenda_in_play(&self) -> Option<&str>;
     /// Agendas resolved in the current round.
     fn agendas_resolved_this_round(&self) -> usize;
-    /// The outcome a seat predicted on the agenda in play.
-    fn agenda_prediction_of(&self, player: &PlayerId) -> Option<&str>;
-    /// The invasion in progress.
-    fn invasion(&self) -> Option<ActiveInvasion>;
+    /// Whether the seat predicted an outcome on the agenda in play with a rider (the text of the prediction is not read).
+    fn has_agenda_prediction(&self, player: &PlayerId) -> bool;
+    /// The invasion in progress (the parts the bot reads).
+    fn invasion(&self) -> Option<InvasionFacts>;
     /// The space battle in progress: system, attacker, defender.
     fn space_battle(&self) -> Option<(SystemId, PlayerId, PlayerId)>;
     /// Promissory notes in play: note key to holder.
@@ -181,16 +190,6 @@ macro_rules! forward_view {
             fn can_reach(&self, player: &PlayerId, origin: &SystemId, destination: &SystemId, move_value: i32) -> bool {
                 Observed::can_reach({ let $this = self; $obs }, player, origin, destination, move_value)
             }
-            fn ship_routes_into(
-                &self,
-                player: &PlayerId,
-                origin: &SystemId,
-                index: usize,
-                boosts: (bool, bool),
-                destination: &SystemId,
-            ) -> Vec<MoveRoute> {
-                Observed::ship_routes_into({ let $this = self; $obs }, player, origin, index, boosts, destination)
-            }
             fn movable_into(&self, player: &PlayerId, destination: &SystemId) -> Vec<Movable> {
                 Observed::movable_into({ let $this = self; $obs }, player, destination)
             }
@@ -216,11 +215,11 @@ macro_rules! forward_view {
             fn agendas_resolved_this_round(&self) -> usize {
                 Observed::agendas_resolved_this_round({ let $this = self; $obs })
             }
-            fn agenda_prediction_of(&self, player: &PlayerId) -> Option<&str> {
-                Observed::agenda_prediction_of({ let $this = self; $obs }, player)
+            fn has_agenda_prediction(&self, player: &PlayerId) -> bool {
+                Observed::agenda_prediction_of({ let $this = self; $obs }, player).is_some()
             }
-            fn invasion(&self) -> Option<ActiveInvasion> {
-                Observed::invasion({ let $this = self; $obs })
+            fn invasion(&self) -> Option<InvasionFacts> {
+                Observed::invasion({ let $this = self; $obs }).map(|i| InvasionFacts { system: i.system, invader: i.invader, defender: i.defender })
             }
             fn space_battle(&self) -> Option<(SystemId, PlayerId, PlayerId)> {
                 Observed::space_battle({ let $this = self; $obs })

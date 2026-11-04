@@ -42,6 +42,10 @@ pub enum Mode {
     SelfCheck,
     /// The [`TypedSource`] says whether there is a typed question; calls without one are skipped.
     Source,
+    /// D3 lane V: the typed half is the SAME bot code reading the position from the typed core (`Seen` through
+    /// `ti4_rule_bot_typed::seen_view::SeenView`) instead of the string `Observed`. A call whose position the typed state
+    /// cannot hold is skipped as `seen-unavailable`.
+    ViewDiff,
 }
 
 /// A deliberate bug in the typed half, to prove the harness fails on it (the mutation check of the package).
@@ -246,10 +250,14 @@ impl Shadow {
         if let Ok(json) = serde_json::to_string(choice) {
             self.choices.update(json.as_bytes());
         }
-        // The string half: the game's answer. Its view traffic is what `observed-count` counts.
+        // The string half: the game's answer. Its view traffic is what `observed-count` counts. The bot's memory between calls
+        // (backward gather/pile) is saved before and kept after; the typed half starts from the saved one.
+        let memory_before = ti4_rule_bot::backward::memory();
         ti4_model::count::set_scope(Some(&subtype));
         let (picked, smart, rng) = ti4_rule_bot::choose_explained(choice, Some(seen), self.seed, seat, index);
         ti4_model::count::set_scope(None);
+        let memory_string = ti4_rule_bot::backward::memory();
+        ti4_rule_bot::backward::set_memory(memory_before);
         let string = Answer::of(picked, smart, rng);
 
         self.calls += 1;
@@ -257,6 +265,13 @@ impl Shadow {
             self.check_view(seen, &subtype, index);
         }
         let outcome = self.compare(choice, seen, &subtype, seat, index, string);
+        // What the typed half left in the bot's memory must be what the string half left; the game goes on with the latter.
+        let memory_typed = ti4_rule_bot::backward::memory();
+        if memory_typed != memory_string {
+            self.report.by_subtype.entry(subtype.clone()).or_default().mismatches += 1;
+            self.report.parity.mismatches.push(format!("game {} decision {index} ({subtype}): the bot's memory (gather/pile) differs after the typed half", self.game));
+        }
+        ti4_rule_bot::backward::set_memory(memory_string);
         let stat = self.report.by_subtype.entry(subtype).or_default();
         stat.calls += 1;
         match outcome {
@@ -287,6 +302,23 @@ impl Shadow {
         }
     }
 
+    /// The bot's answer reading the position from the typed core (mode `ViewDiff`).
+    fn view_answer(&mut self, choice: &Choice, seen: &SeatObservation<'_>, seat: usize, index: usize) -> Result<(usize, bool, ChaCha8Rng), Reason> {
+        use ti4_engine_core::Seat;
+        use ti4_rule_bot_typed::seen_view::{Owners, SeenView};
+        let obs = seen.observed();
+        let owned = ti4_engine_legacy::seen_load::SeenOwned::of(obs)
+            .map_err(|e| Reason::SeenUnavailable(format!("{:?}: {}", e.slice, e.what)))?;
+        let typed = owned.seen(seen.bound_seat()).ok_or_else(|| Reason::SeenUnavailable("bound seat has no seat".to_owned()))?;
+        let owners = Owners::new((0..16u8).map_while(|i| owned.player(Seat(i))).collect());
+        let view = SeenView::new(&typed, &owners, obs.content(), obs.sources(), obs.galaxy());
+        let answer = ti4_rule_bot::choose_explained_view(choice, Some(&view), self.seed, seat, index);
+        if view.bails() > 0 {
+            *self.report.parity.skipped.entry("view bails (typed side could not answer)").or_default() += u64::from(view.bails());
+        }
+        Ok(answer)
+    }
+
     fn compare(
         &mut self,
         choice: &Choice,
@@ -305,8 +337,14 @@ impl Shadow {
                 Some(_) => {}
             }
         }
-        let (mut tp, mut ts, mut trng) =
-            ti4_rule_bot_typed::choose_typed_explained(choice, Some(seen), self.seed, seat, index);
+        let (mut tp, mut ts, mut trng) = if self.mode == Mode::ViewDiff {
+            match self.view_answer(choice, seen, seat, index) {
+                Ok(answer) => answer,
+                Err(reason) => return Outcome::Skipped(reason),
+            }
+        } else {
+            ti4_rule_bot_typed::choose_typed_explained(choice, Some(seen), self.seed, seat, index)
+        };
         match self.mutant {
             Mutant::None => {}
             Mutant::Pick => tp = (tp + 1) % choice.options.len(),
@@ -472,7 +510,7 @@ pub fn render(report: &Report, mode: Mode) -> String {
             skipped.join(" ")
         );
     }
-    if report.parity.positions > 0 {
+    if report.parity.positions > 0 || !report.parity.mismatches.is_empty() || !report.parity.skipped.is_empty() {
         let p = &report.parity;
         let _ = writeln!(
             out,
@@ -530,7 +568,7 @@ pub fn to_json(report: &Report) -> serde_json::Value {
         .collect();
     serde_json::json!({
         "calls": report.calls(), "compared": report.compared(), "mismatches": report.mismatches.len(),
-        "seen_parity": { "positions": report.parity.positions, "unmapped": report.parity.unmapped, "compared": report.parity.compared, "differences": report.parity.mismatches.len() },
+        "seen_parity": { "positions": report.parity.positions, "unmapped": report.parity.unmapped, "compared": report.parity.compared, "differences": report.parity.mismatches.len(), "bailed": report.parity.skipped },
         "games": games, "by_subtype": by_subtype, "view_calls": report.view_calls,
     })
 }

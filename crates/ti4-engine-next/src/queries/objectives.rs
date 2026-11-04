@@ -20,12 +20,11 @@ use std::rc::Rc;
 
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
-use ti4_engine_core::generated::{FactionTag, Planet, PlanetTrait, PublicObjective, System, Technology, UnitBaseType};
+use ti4_engine_core::generated::{Planet, PlanetTrait, PublicObjective, System, Technology, UnitBaseType};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::query::board;
 use ti4_engine_core::query::economy::Spend as CoreSpend;
 use ti4_engine_core::query::objectives::{self as q, Pos, SeatFacts, Terms};
-use ti4_engine_core::rules::production::Cx;
 use ti4_engine_core::seen::{ProgressRow, RowFamily, Seen};
 use ti4_engine_core::state::ObjectiveRef;
 use ti4_model::content_types::SourceSet;
@@ -469,38 +468,9 @@ impl ObjView {
         crate::ties::core_adapter::scope(self.sources)
     }
 
-    /// The hook answers of one seat, from the core kernel (the same reads as `ti4_engine_core::seen`'s hook terms).
+    /// The hook answers of one seat: the core view's own (`Seen::terms`, public since D3 lane V0; this type kept a copy).
     fn terms(&self, seat: Seat, force_capacity: bool) -> Terms {
-        let (core, k) = (self.owned.core(), self.owned.kernel());
-        let mut t = Terms { blanked: self.owned.blanked(), ..Terms::default() };
-        t.faction_tag = core
-            .players()
-            .by_seat(seat)
-            .and_then(|p| FactionTag::ALL.iter().copied().find(|tag| matches!(tag.factions(), [only] if *only == p.faction)));
-        for p in k.hooks.direct.borrowed_commanders_b_firmament_planets(core, k, seat).as_slice() {
-            t.firmament.insert(*p);
-        }
-        t.per_good = k.hooks.economy.trade_good_worth(core, seat, 1).max(1);
-        t.commodities = k.hooks.direct.keleres_spendable_commodities(core, seat);
-        t.oceans = !k.hooks.direct.deepwrought_spendable_oceans(core, seat).is_empty();
-        for (_, planet) in board::controlled_planets(core, seat).as_slice() {
-            let bonus = k.hooks.direct.bastion_units_resource_bonus(core, *planet);
-            if bonus != 0 {
-                t.helios.push((*planet, bonus));
-            }
-        }
-        // Produce en Masse reads the PRODUCTION of the seat in every system: only a seat that can be asked about it pays for the scan.
-        if force_capacity || q::wants_capacity(core, seat) {
-            let cx = Cx::new(core, k, self.scope(), self.owned.blanked());
-            for (system, _) in core.board().systems() {
-                let capacity = ti4_engine_core::rules::production::capacity(&cx, seat, system);
-                if capacity > 0 {
-                    t.capacity.push((system, capacity));
-                }
-            }
-            t.capacity_known = true;
-        }
-        t
+        Seen::new(self.owned.core(), self.owned.kernel(), seat).with_blanked(self.owned.blanked()).terms(seat, force_capacity)
     }
 
     fn facts(&self, seat: Seat) -> Rc<SeatFacts> {
