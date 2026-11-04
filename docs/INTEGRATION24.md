@@ -70,7 +70,9 @@ No join bug between the three merges. No new string-engine bug.
 | after the merge: web vitest/tsc | unchanged (no web file changed by the merge) |
 
 ## 5. Deploy preflight
-PREFLIGHT
+`deploy/public/deploy.sh --ref core-integration-24 --preflight-only` on `75eac2cd7` (the tip at that time; the tag `heavy-base-int24` is on it, later commits are docs only): web client built, wasm compressed, production graph strict
+0 violations / 0 failed controls, release server built, output probes ok (server binary and wasm: no legacy literal), preflight on a copy of the live data: **recovered 10, failed 0, refused 17** (all "saved with an older version of the rules", files kept;
+int-23 had 14 refused, three more old games were created since), no `--allow-failed`. NOT deployed, nothing pushed, `current`/`previous` untouched.
 
 ## 6. Not run (heavy run, by order)
 Z-gate, mutation ratchet, golden dual (all 20 games), benches (baselines are re-recorded first, plan section 4), soak, census, D4 crate, torch crates (not buildable here).
