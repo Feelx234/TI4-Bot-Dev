@@ -197,10 +197,10 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
     let mut pieces: Vec<Unit> = if let Some((system, _, _)) = core.transient().combat.active_space_combat {
         let cell = core.board().sys(system);
         let mut pieces: Vec<Unit> = cell.units.iter().map(|p| p.kind()).collect();
-        // (The units on the planets are named only where they are ships: a ground force or a structure rolls no die in a space combat, and each kind named doubles
-        // the roll groups: a fight whose seats also hold infantry, a PDS and a dock on the planets went over `MAX_TYPES`, which names none: `CombatUnported`.)
+        // (The units on the planets are named only where they can fight as ships: a ground force or a structure rolls no die in a space combat, and each kind named
+        // doubles the roll groups: a fight whose seats also hold infantry, a PDS and a dock on the planets went over `MAX_TYPES`, which names none: `CombatUnported`.)
         for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
-            pieces.extend(core.board().planet(*planet).units.iter().map(|p| p.kind()).filter(|u| u.data().ship));
+            pieces.extend(core.board().planet(*planet).units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| p.kind()));
         }
         pieces
     } else {
@@ -215,7 +215,7 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
     if let Some((system, _, _)) = core.transient().combat.active_space_combat {
         let mut owned: Vec<(ti4_engine_core::ids::Seat, Unit)> = core.board().sys(system).units.iter().map(|p| (p.owner(), p.kind())).collect();
         for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
-            owned.extend(core.board().planet(*planet).units.iter().map(|p| (p.owner(), p.kind())).filter(|(_, u)| u.data().ship));
+            owned.extend(core.board().planet(*planet).units.iter().filter(|p| fights_as_a_ship(core, system, p.owner(), p.kind())).map(|p| (p.owner(), p.kind())));
         }
         let milor_in_play = milor_in_play(core);
         for (owner, unit) in owned {
@@ -265,6 +265,14 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
         t.groups.push((kinds, state_code(core, &joined), r.code(&joined)));
     }
     t
+}
+
+/// Whether a unit of `owner` standing on a planet of `system` can fight the system's space combat: a ship (none stands on a planet), a Naaz Eidolon Maximum, or a ground
+/// force of a seat whose Nekro flagship, the Alastor, is in the space area (it chooses ground forces that fight as ships).
+fn fights_as_a_ship(core: &CoreState, system: ti4_engine_core::generated::System, owner: ti4_engine_core::ids::Seat, unit: Unit) -> bool {
+    unit.data().ship
+        || unit == Unit::EidolonMaximum
+        || (unit.data().ground_force && core.board().sys(system).units.iter().any(|p| p.owner() == owner && p.kind() == Unit::TheAlastor))
 }
 
 /// Every form of a base type a faction can field (its upgrades and its own faction units, and with `with_plain` the plain unit): what a seat that gains a unit in the middle of a

@@ -1786,7 +1786,7 @@ mod tests {
         assert_eq!((owed.native.as_slice(), owed.legacy.len()), (["INVENTED".to_owned()].as_slice(), 0));
         // The next group's legacy events must open with it.
         let mut next = Owed { native: vec!["INVENTED".to_owned()], legacy: Vec::new() };
-        let nothing: Vec<Played> = vec![Played { arm: Arm::Tokens, source: None, asked: Vec::new(), events: Vec::new(), finished: false }];
+        let nothing: Vec<Played> = vec![Played { arm: Arm::Tokens, source: None, asked: Vec::new(), events: Vec::new(), announced: 0, finished: false }];
         let run = LegacyRun { info: run.info, records: Vec::new(), events: vec!["OTHER".to_owned()] };
         let d = compare_run(&mut legacy, &native, &base, &nothing, &run, &mut next, false).expect("the string pushed another line than the one owed");
         assert_eq!((d.what, d.native.as_str(), d.legacy.as_str()), ("events", "INVENTED", "OTHER"));
@@ -2235,7 +2235,7 @@ mod tests {
     /// of the retreat announcement): its events are the head of the group's, never more, and never different.
     #[test]
     fn a_legacy_step_that_asked_nothing_and_pushed_the_head_of_the_groups_events_stopped_early() {
-        let played = |events: &[&str]| Played { arm: Arm::Aftermath, source: None, asked: Vec::new(), events: events.iter().map(|e| (*e).to_owned()).collect(), finished: false };
+        let played = |events: &[&str]| Played { arm: Arm::Aftermath, source: None, asked: Vec::new(), events: events.iter().map(|e| (*e).to_owned()).collect(), announced: 0, finished: false };
         let group = [played(&["RETREAT_STEP_STARTED", "HITS_TO_ASSIGN"])];
         let text = |events: &[&str]| events.iter().map(|e| (*e).to_owned()).collect::<Vec<_>>();
         assert!(events_lead(&[], &group, &text(&["RETREAT_STEP_STARTED"])));
@@ -2251,7 +2251,7 @@ mod tests {
     fn a_legacy_step_that_did_and_said_nothing_is_idle_against_a_group_that_pushed_events() {
         let info = crate::oracle::StepInfo { phase: "action".to_owned(), active: None, finished: false, error: None, resolved_choice: false };
         let run = |events: &[&str]| LegacyRun { info: info.clone(), records: Vec::new(), events: events.iter().map(|e| (*e).to_owned()).collect() };
-        let pushed = Played { arm: Arm::Phase, source: None, asked: Vec::new(), events: vec!["STATUS_PHASE_BEGAN".to_owned()], finished: true };
+        let pushed = Played { arm: Arm::Phase, source: None, asked: Vec::new(), events: vec!["STATUS_PHASE_BEGAN".to_owned()], announced: 0, finished: true };
         let silent = Played { events: Vec::new(), ..pushed.clone() };
         assert!(steps_idle(&run(&[]), std::slice::from_ref(&pushed)));
         assert!(!steps_idle(&run(&["X"]), &[pushed]), "the string said something");
@@ -2267,6 +2267,7 @@ mod tests {
             source,
             asked: (0..asks).map(|_| Asked { player: "a".to_owned(), prompt: "p".to_owned(), options: vec![], chosen: "c".to_owned() }).collect(),
             events: Vec::new(),
+            announced: 0,
             finished: true,
         };
         let holding = [played(Arm::Ask, Some(AskArm::Tokens), 1)];
