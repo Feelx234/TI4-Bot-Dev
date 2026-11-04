@@ -8,6 +8,10 @@ core:   every module of `crates/ti4-engine-core/src` (and `ti4-engine-core-facti
         belongs to a layer; a module may import only from LOWER layers (or its own subtree), and the
         files of `rules/` (L4 areas) may not import each other: they talk through `Next`.
         L3 (`kernel`) never imports L6. Test code (`#[cfg(test)] mod` blocks, `tests/`) is ignored.
+thin:   (D2-9 lane 9a) `crates/ti4-engine-next/src` may name `ti4_engine_legacy` only inside the module `lend_string`
+        (file `lend_string.rs` or directory `lend_string/`), and `lib.rs` must declare it as
+        `#[cfg(feature = "lend-string")] pub mod lend_string;`. Exit 1 on a violation (today: red, the facade glue
+        is still there; the gate of lane 9b/9d).
 engine: the tier table of 4.2 over the string engine; counts the module references that point up or
         sideways inside L4 (the number the port brings to zero). Reporting only, exit 0.
 """
@@ -172,6 +176,25 @@ def check_engine(root):
         print('modules without a tier:', ', '.join(untiered))
 
 
+def check_thin(src):
+    bad, units = [], 0
+    for path in rs_files(src):
+        rel = os.path.relpath(path, src)
+        units += 1
+        if rel == 'lend_string.rs' or rel.startswith('lend_string' + os.sep) or os.path.basename(rel).startswith('tests'):
+            continue   # the gated module; test-only files (`tests*.rs`, declared under #[cfg(test)])
+        text = strip_tests(open(path, encoding='utf-8').read())
+        n = len(re.findall(r'ti4_engine_legacy|ti4-engine-legacy', text))
+        if n:
+            bad.append(f'{rel}: {n} reference(s) to ti4_engine_legacy outside the cfg(feature = "lend-string") module lend_string')
+    lib = os.path.join(src, 'lib.rs')
+    if os.path.exists(os.path.join(src, 'lend_string.rs')) or os.path.isdir(os.path.join(src, 'lend_string')):
+        t = open(lib, encoding='utf-8').read()
+        if not re.search(r'#\[cfg\(feature\s*=\s*"lend-string"\)\]\s*(pub(\([^)]*\))?\s+)?mod\s+lend_string\b', t):
+            bad.append('lib.rs: module lend_string is not declared under #[cfg(feature = "lend-string")]')
+    return bad, units
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else 'core'
     if mode == 'core':
@@ -181,6 +204,13 @@ def main():
         for b in bad:
             print('LAYER', b)
         print(f'check_layers core: {units} files checked, {len(bad)} violations')
+        sys.exit(1 if bad else 0)
+    elif mode == 'thin':
+        root = sys.argv[2] if len(sys.argv) > 2 else os.path.join(REPO, 'crates/ti4-engine-next/src')
+        bad, units = check_thin(root)
+        for b in bad:
+            print('LEGACY', b)
+        print(f'check_layers thin: {units} files checked, {len(bad)} violations')
         sys.exit(1 if bad else 0)
     elif mode == 'engine':
         check_engine(sys.argv[2] if len(sys.argv) > 2 else os.path.join(REPO, 'crates/ti4-engine/src'))
