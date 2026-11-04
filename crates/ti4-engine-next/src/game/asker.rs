@@ -107,6 +107,15 @@ impl<'t> TableAsker<'t> {
     }
 }
 
+/// The position a question is asked in: a nested question's own (`Asking::nested`), else the one a question put at the close of a window
+/// from inside a step carries (`Asking::at`: the facts of such a question are `None`, so it is not `nested`, but the step was rolled back
+/// all the same), else the live core. Reading the live core for the second kind showed the table the position the step started from: a card
+/// declared in the window was not yet announced (`action_card_plays`), so the server held the declaring answer back, never acknowledged it,
+/// and the card's own question (a Rider's predicted outcome) was put to its owner before the reply (`D28G_RESUME.md`).
+fn position_of<'q>(q: &'q Question<'_>) -> &'q CoreState {
+    q.asking.nested.as_ref().map(|(_, at)| &**at).or(q.asking.at.as_deref()).unwrap_or(q.core)
+}
+
 impl Asker for TableAsker<'_> {
     fn ask(&mut self, q: &Question<'_>) -> Result<String, Stop> {
         let rendered = &q.rendered;
@@ -127,7 +136,7 @@ impl Asker for TableAsker<'_> {
         {
             if let Some(trigger) = &context.trigger {
                 let relation = if trigger.relation == "after" { crate::ties::timing::Relation::After } else { crate::ties::timing::Relation::When };
-                if let Ok(state) = materialize::materialize(q.asking.nested.as_ref().map(|(_, at)| &**at).unwrap_or(q.core), self.cx, self.base) {
+                if let Ok(state) = materialize::materialize(position_of(q), self.cx, self.base) {
                     self.table.window_skipped(&rendered.player, &trigger.event_type, relation, &state);
                 }
             }
@@ -147,8 +156,7 @@ impl Asker for TableAsker<'_> {
         {
             return Ok(only.id);
         }
-        // The position the question is asked in: a nested question's own, else the live core.
-        let at = q.asking.nested.as_ref().map(|(_, at)| &**at).unwrap_or(q.core);
+        let at = position_of(q);
         let state = match materialize::materialize(at, self.cx, self.base) {
             Ok(state) => state,
             Err(e) => {

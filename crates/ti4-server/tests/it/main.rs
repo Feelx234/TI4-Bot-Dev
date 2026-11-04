@@ -12,6 +12,7 @@ mod bot_lobby_service;
 mod both_hosts;
 mod catalog_http;
 mod crash_recovery;
+mod declared_card_reply;
 mod dev_scenario_recovery;
 mod dev_scenarios;
 mod diplomacy_ready_batch;
