@@ -405,16 +405,23 @@ pub fn airo_shir_aur(sx: &mut Sx<'_>, who: Seat, key: u32) -> Flow {
     finish(sx, who, key, Leader::AiroShirAur, window.used)
 }
 
-/// Dannel of the Tenth (Yin hero): every planet that is not in a home system, in the order of the map (`yin::hero_spots`).
+/// Dannel of the Tenth (Yin hero): every planet that is not in a home system, in the order of the hexes of the map (`yin::hero_spots`: the string's
+/// `Galaxy::system_ids`, by `q` then `r`, not the order of the system table). The Wormhole Nexus is off the grid (user ruling 2026-11-04): its locked
+/// planet is never a target, Mallice is one once the Nexus is open, and it comes last, after the planets on the grid.
 fn yin_spots(sx: &Sx<'_>) -> Vec<(System, crate::generated::Planet)> {
+    use crate::generated::Planet;
     let Some(galaxy) = sx.state.galaxy() else { return Vec::new() };
     let mut spots = Vec::new();
-    for index in galaxy.in_play().iter() {
-        let Some(system) = System::ALL.get(index).copied() else { continue };
+    for system in galaxy.placed_in_hex_order() {
+        let Some(system) = System::ALL.get(system.index()).copied() else { continue };
         if system.data().home_system {
             continue;
         }
-        spots.extend(system.data().planets.iter().map(|planet| (system, *planet)));
+        spots.extend(system.data().planets.iter().filter(|planet| !matches!(**planet, Planet::Mallice | Planet::LockedMallice)).map(|planet| (system, *planet)));
+    }
+    let nexus = System::MalliceLockedNexus;
+    if sx.state.meta().flags.has(crate::state::MetaFlags::NEXUS_UNLOCKED) && galaxy.in_play().contains(nexus.index()) {
+        spots.push((nexus, Planet::Mallice));
     }
     spots
 }

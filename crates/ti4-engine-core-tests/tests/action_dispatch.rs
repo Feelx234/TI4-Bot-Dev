@@ -1723,6 +1723,85 @@ fn dannel_of_the_tenth_chosen_from_the_menu_commits_infantry_to_an_empty_planet_
     assert!(held >= 1, "an empty planet the infantry landed on is taken");
 }
 
+/// The planets Dannel of the Tenth offers for the first infantry, with the Wormhole Nexus on the map, open or not (user ruling 2026-11-04).
+fn dannel_spots(nexus_open: bool) -> Vec<(ti4_engine_core::generated::System, Planet)> {
+    use ti4_engine_core::generated::{Leader, System};
+    use ti4_engine_core::state::{LeaderStatus, MetaFlags};
+    let ps = ti4_engine_core_tests::scenario::plain_systems();
+    let system = ps.iter().copied().find(|s| !s.data().planets.is_empty() && !s.data().home_system).expect("a system with a planet");
+    let (mut s, k) = Scenario::new(&[Faction::TheYinBrotherhood, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[system, System::MalliceLockedNexus])
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.meta_mut().flags.set(MetaFlags::NEXUS_UNLOCKED, nexus_open);
+    s.players_mut().edit(0).leaders.status.insert(Leader::DannelOfTheTenth, LeaderStatus::Unlocked);
+    let e = env_r(&k);
+    pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::DannelOfTheTenth)))).expect("the hero is native");
+    let q = ask_ask(&s, &e).unwrap().unwrap().choice;
+    q.opts
+        .as_slice()
+        .iter()
+        .filter_map(|o| match o {
+            Opt::Leaders(ti4_engine_core::choice::leaders::Opt::YinSpot(sys, planet)) => Some((*sys, *planet)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Dannel of the Tenth may not target the locked Mallice (user ruling 2026-11-04; string bug S4 recorded the reverse).
+#[test]
+fn dannel_of_the_tenth_never_offers_the_locked_mallice() {
+    use ti4_engine_core::generated::System;
+    let spots = dannel_spots(false);
+    assert!(!spots.is_empty(), "the other planet is offered");
+    assert!(spots.iter().all(|(sys, p)| *p != Planet::LockedMallice && *p != Planet::Mallice && *sys != System::MalliceLockedNexus), "{spots:?}");
+}
+
+/// The spots come in the order of the hexes of the map (the string's `Galaxy::system_ids`), not the order of the system table: shadow game yin 4p seed 8
+/// offered Mecatol Rex first where the string offered Wellon first.
+#[test]
+fn dannel_of_the_tenth_lists_the_planets_in_the_order_of_the_hexes() {
+    use ti4_engine_core::generated::{Leader, System};
+    use ti4_engine_core::hex::Hex;
+    use ti4_engine_core::state::LeaderStatus;
+    let ps = ti4_engine_core_tests::scenario::plain_systems();
+    let mut two = ps.iter().copied().filter(|s| s.data().planets.len() == 1 && !s.data().home_system);
+    let (low, high) = (two.next().expect("a system"), two.next().expect("another"));
+    assert!(low.index() < high.index());
+    let (mut s, k) = Scenario::new(&[Faction::TheYinBrotherhood, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_hexes(&[(low, Hex { q: 1, r: 0 }), (high, Hex { q: -1, r: 0 })])
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.players_mut().edit(0).leaders.status.insert(Leader::DannelOfTheTenth, LeaderStatus::Unlocked);
+    let e = env_r(&k);
+    pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::DannelOfTheTenth)))).expect("the hero is native");
+    let q = ask_ask(&s, &e).unwrap().unwrap().choice;
+    let order: Vec<System> = q
+        .opts
+        .as_slice()
+        .iter()
+        .filter_map(|o| match o {
+            Opt::Leaders(ti4_engine_core::choice::leaders::Opt::YinSpot(sys, _)) => Some(*sys),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(order, vec![high, low], "the hex at q = -1 comes first, though the system table lists it second");
+}
+
+/// Dannel of the Tenth may target Mallice once the Wormhole Nexus is open; the locked planet stays out.
+#[test]
+fn dannel_of_the_tenth_offers_the_unlocked_mallice() {
+    let spots = dannel_spots(true);
+    assert!(spots.iter().any(|(_, p)| *p == Planet::Mallice), "{spots:?}");
+    assert!(spots.iter().all(|(_, p)| *p != Planet::LockedMallice), "{spots:?}");
+    assert_eq!(spots.iter().filter(|(_, p)| *p == Planet::Mallice).count(), 1, "once: {spots:?}");
+    assert!(spots.len() > 1 && spots.last().is_some_and(|(_, p)| *p == Planet::Mallice), "the Nexus is off the grid and comes last: {spots:?}");
+}
+
 /// Lane L: Mathis Mathinus with the Thunder's Edge Warfare primary was the counted gap `TurnGap::FreeTactical`: the free tactical action begins inside the
 /// hero's action (no token, the activation announced), the hero stays in play, and the followers are selected only when the action has ended.
 #[test]
