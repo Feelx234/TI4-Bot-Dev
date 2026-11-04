@@ -24,6 +24,11 @@ use super::home::HomeProduction;
 use super::pay::{PayBill, PayStep, Stage as PayStage};
 use super::{Cx as ProdCx, Extras};
 
+/// `ti4_model::state::RULES_MINISTER_INDUSTRY_WINDOW`: from this version Minister of Industry opens the ordinary production window after a space dock.
+const RULES_MINISTER_INDUSTRY_WINDOW: u32 = 25;
+/// `ti4_model::state::RULES_WINNU_AGENT_PRODUCTION`: from this version Berekar Berekon is offered to a use of PRODUCTION.
+const RULES_WINNU_AGENT_PRODUCTION: u32 = 26;
+
 fn ask(a: SAsk) -> Ask {
     Ask::Strategy(a)
 }
@@ -270,12 +275,14 @@ pub struct Construction {
     pub placed: bool,
     /// The planet a PDS was picked for and the step it was picked in, until the alternative is answered.
     alt_at: Option<(System, Planet, CStage)>,
+    /// The step the window goes on with when the use of PRODUCTION Minister of Industry granted is over (the Thunder's Edge choice goes on to the second structure).
+    resume: Option<CStage>,
 }
 
 impl Construction {
     #[must_use]
     pub const fn new(who: Seat, primary: bool, facts: StructureFacts) -> Self {
-        Self { who, primary, facts, stage: CStage::Start, te: None, uses: Vec::new(), using: Child::idle(), produces: false, produced: None, unsupported: false, placed: false, alt_at: None }
+        Self { who, primary, facts, stage: CStage::Start, te: None, uses: Vec::new(), using: Child::idle(), produces: false, produced: None, unsupported: false, placed: false, alt_at: None, resume: None }
     }
 
     /// The primary of the Thunder's Edge Construction: one of a structure or a use of PRODUCTION (`systems` can produce,
@@ -283,7 +290,7 @@ impl Construction {
     /// production is not carried: choosing it sets [`Construction::produces`] and ends the window.
     #[must_use]
     pub fn new_te(who: Seat, facts: StructureFacts, source: Code, systems: &[System]) -> Self {
-        Self { who, primary: true, facts, stage: CStage::Start, te: Some((source, systems.to_vec())), uses: Vec::new(), using: Child::idle(), produces: false, produced: None, unsupported: false, placed: false, alt_at: None }
+        Self { who, primary: true, facts, stage: CStage::Start, te: Some((source, systems.to_vec())), uses: Vec::new(), using: Child::idle(), produces: false, produced: None, unsupported: false, placed: false, alt_at: None, resume: None }
     }
 
     /// The Thunder's Edge primary with its production carried: `uses` are the facts of the use of PRODUCTION in each system that can produce, in
@@ -359,6 +366,13 @@ impl Construction {
         }
     }
 
+    /// The seat holds Minister of Industry and the rules version makes the production after a space dock the ordinary window.
+    fn industry_produces(&self, sx: &Sx<'_>) -> bool {
+        sx.state.meta().rules_version >= RULES_MINISTER_INDUSTRY_WINDOW
+            && crate::query::laws::holds_ministry(sx.state, reach::blanked(sx.state), self.who, crate::generated::Agenda::MinisterOfIndustry)
+            && sx.table.facts.plays.as_ref().is_some_and(|p| p.roster.is_some())
+    }
+
     /// The step after the one just done.
     fn advance(&mut self) {
         self.stage = if self.primary && self.stage == CStage::First { CStage::Second } else { CStage::Done };
@@ -385,7 +399,7 @@ impl Window for Construction {
                     if let Some((_, made)) = &mut self.produced {
                         *made = used.made();
                     }
-                    self.stage = if self.unsupported { CStage::Done } else { CStage::Second };
+                    self.stage = if self.unsupported { CStage::Done } else { self.resume.take().unwrap_or(CStage::Second) };
                 }
                 None => self.stage = CStage::Second,
             }
@@ -495,6 +509,18 @@ impl Window for Construction {
                 let (unit, in_space) = self.placement(pds).ok_or(Illegal)?;
                 fx::place_unit(sx.state, self.who, system, (!in_space).then_some(planet), unit);
                 self.placed = true;
+                // Minister of Industry: "When the owner of this card places a space dock in a system, their units in that system may use their
+                // PRODUCTION abilities" (from rules version 25 the ordinary production window; `strategy_cards::construct`).
+                if !pds && self.industry_produces(sx) {
+                    self.advance();
+                    let roster = sx.table.facts.plays.as_ref().and_then(|p| p.roster).ok_or(Illegal)?;
+                    let agent_rules = sx.state.meta().rules_version >= RULES_WINNU_AGENT_PRODUCTION;
+                    self.resume = Some(self.stage);
+                    self.using.start(HomeProduction::at(self.who, system, roster, agent_rules));
+                    self.produced = Some((system, Made::new()));
+                    self.stage = CStage::Producing;
+                    return Ok(());
+                }
             }
             Opt::Strategy(SOpt::PlacePds) if self.stage == CStage::Alternative => {
                 let (system, planet, from) = self.alt_at.take().ok_or(Illegal)?;

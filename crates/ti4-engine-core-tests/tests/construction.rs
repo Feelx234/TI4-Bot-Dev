@@ -181,3 +181,65 @@ fn construction_survives_every_answer_policy() {
     smoke_quiet(|| Rig::new(table().0, Construction::new(Seat(0), true, facts())));
     smoke_quiet(|| Rig::new(table().0, Construction::new(Seat(0), false, facts())));
 }
+
+// ---- I22: Minister of Industry ----------------------------------------------------------------------------------------------
+
+/// The plays facts of a table (the unit roster the production window reads).
+fn with_roster(table: &mut ti4_engine_core::kernel::stage::AbilityTable, rules_version: u32) {
+    use ti4_engine_core::kernel::ability::{PlayFacts, SharedPlay};
+    let roster: &'static ti4_engine_core::query::tech::UnitRoster = Box::leak(Box::default());
+    table.facts.plays = Some(PlayFacts {
+        scope: 0,
+        blanked: false,
+        action_card: Code(0),
+        supply_base: Code(0),
+        note_order: |a, b| a.cmp(&b),
+        seats: Vec::new(),
+        name_group: Vec::new(),
+        has_effect: Vec::new(),
+        skimmer: false,
+        roster: Some(roster),
+        rules_version,
+        tech_order: |a, b| a.cmp(&b),
+        shared: SharedPlay::default(),
+    });
+}
+
+/// Seat 0 (Muaat) controls two planets and holds `goods` trade goods; with `minister` it was elected Minister of Industry.
+fn industry_rig(minister: bool, rules_version: u32, primary: bool) -> (Rig<Construction>, Vec<Planet>) {
+    let (sc, planets) = table();
+    let (mut state, kernel) = sc.goods(0, 6).tokens(0, 3, 3, 2).build();
+    if minister {
+        state.agenda_mut().laws.insert(Agenda::MinisterOfIndustry, ti4_engine_core::state::Outcome::Seat(Seat(0)));
+    }
+    let mut table = ti4_engine_core::kernel::stage::AbilityTable::default();
+    with_roster(&mut table, rules_version);
+    (Rig::from_parts(state, kernel, Construction::new(Seat(0), primary, facts())).with_table(table), planets)
+}
+
+#[test]
+fn a_space_dock_placed_by_the_minister_of_industry_opens_the_production_of_its_system() {
+    covers!("rules::production::strategy_cards::Construction");
+    // Without the law the primary goes straight on to the PDS; with it the dock's system produces first (the units in that system "may use their PRODUCTION").
+    let (mut plain, planets) = industry_rig(false, 35, true);
+    plain.run();
+    plain.pick_opt(structure(false, planets[0]));
+    assert!(matches!(plain.asked().ask, Ask::Strategy(SAsk::PlaceStructure { step: 2, only_pds: true })), "{:?}", plain.asked().ask);
+
+    let (mut rig, planets) = industry_rig(true, 35, true);
+    rig.run();
+    rig.pick_opt(structure(false, planets[0]));
+    assert!(matches!(rig.asked().ask, Ask::Production(_)), "the dock's system offers its production: {:?}", rig.asked().ask);
+    // Stopping ends the use and the primary goes on to its PDS.
+    rig.pick_where(|o| matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Stop)));
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::PlaceStructure { step: 2, only_pds: true })), "{:?}", rig.asked().ask);
+    rig.pick_opt(structure(true, planets[1]));
+    assert!(rig.is_done());
+    assert_eq!(units_on(&rig, planets[0], Unit::SpaceDockI), 1);
+
+    // A PDS under the law produces nothing.
+    let (mut pds, planets) = industry_rig(true, 35, false);
+    pds.run();
+    pds.pick_opt(structure(true, planets[0]));
+    assert!(pds.is_done(), "a PDS opens no production");
+}

@@ -110,11 +110,20 @@ fn hecatoncheires(core: &CoreState, kernel: &Kernel, roster: &UnitRoster, who: S
 }
 
 /// What a Construction window needs of the position (`strategy_cards_core::structure_facts`). `None` where a faction effect changes the
-/// placement the core does not follow: Minister of Industry's production after a dock.
+/// placement the core does not follow: Minister of Industry's production after a dock, unless `industry` says the caller's window runs it
+/// (the strategic action's [`Construction`](crate::rules::production::strategy_cards::Construction) does and reports what it made; the
+/// Titan Prototype's build does not).
 #[must_use]
 pub fn structure_facts(core: &CoreState, kernel: &Kernel, roster: &UnitRoster, who: Seat, codes: &TurnCodes) -> Option<StructureFacts> {
+    structure_facts_with(core, kernel, roster, who, codes, false)
+}
+
+/// [`structure_facts`], with `industry`: Minister of Industry's production after a dock is carried by the window (rules version 25 and later).
+#[must_use]
+pub fn structure_facts_with(core: &CoreState, kernel: &Kernel, roster: &UnitRoster, who: Seat, codes: &TurnCodes, industry: bool) -> Option<StructureFacts> {
     // Minister of Industry: a production after the dock (`laws::industry_produces_on_placement`).
-    if laws::holds_ministry(core, reach::blanked(core), who, crate::generated::Agenda::MinisterOfIndustry) {
+    let industry = industry && core.meta().rules_version >= 25;
+    if !industry && laws::holds_ministry(core, reach::blanked(core), who, crate::generated::Agenda::MinisterOfIndustry) {
         return None;
     }
     Some(StructureFacts {
@@ -200,7 +209,7 @@ pub fn facts_at(core: &CoreState, kernel: &Kernel, codes: &TurnCodes, roster: Op
             // (Doctor Sucaban's offer is the window's own since lane H4; Specialist Compounds is a Thunder's Edge breakthrough and the Deepwrought commander a dropped faction's.)
             research: true,
             payments: true,
-            structures: roster.and_then(|roster| structure_facts(core, kernel, roster, who, codes)),
+            structures: roster.and_then(|roster| structure_facts_with(core, kernel, roster, who, codes, true)),
             trade_source: codes.trade_primary,
         },
         // (Cabal's replenish note and the Trade Agreement are the core's; the siphoning plot is a dropped faction's.)

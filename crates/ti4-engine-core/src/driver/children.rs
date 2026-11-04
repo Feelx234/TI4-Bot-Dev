@@ -82,7 +82,7 @@ fn spawn(request: &Spawn) -> Option<Box<dyn ErasedWindow>> {
             Erased::boxed(Research::rider(*who, *scope).with_roster(**roster), |w| if w.failed { Report::Left } else { Report::Nothing })
         }
         Spawn::Leadership { who, primary } => Erased::boxed(Leadership::new(*who, *primary), |_| Report::Nothing),
-        Spawn::Construction { who, primary, facts } => Erased::boxed(Construction::new(*who, *primary, *facts), |_| Report::Nothing),
+        Spawn::Construction { who, primary, facts } => Erased::boxed(Construction::new(*who, *primary, *facts), |w| if w.unsupported { Report::Left } else { Report::Produced(w.produced.clone()) }),
         Spawn::TitanBuild { who, facts, goods } => Erased::boxed(TitanBuild::new(*who, *facts, *goods), |w| Report::Built(w.built)),
         Spawn::Politics { who, primary, official } => Erased::boxed(Politics::new(*who, *primary, *official), |w| if w.unsupported { Report::Left } else { Report::Nothing }),
         Spawn::ConstructionTe { who, facts, uses: te } => {
