@@ -878,11 +878,14 @@ pub struct AbilityTable {
     card_plays: Vec<CardPlay>,
     /// A seat that has nothing to resolve in a reaction window was looked at once (`Table::window_skipped` of the string): the log the
     /// wrapper drains after the step. `None` records nothing.
-    pub skipped: Option<std::sync::Arc<std::sync::Mutex<Vec<(Seat, EventRec, Relation)>>>>,
+    pub skipped: Option<SkippedLog>,
     /// A payment with one way left to pay was collapsed without a question (`PayStep`, `pay_in`): the log the wrapper drains after the step to
     /// tell the payer (`Table::auto_resolve`: "it was the only way left to pay"). `None` records nothing and clones nothing.
     pub auto_paid: Option<std::sync::Arc<std::sync::Mutex<Vec<AutoPaid>>>>,
 }
+
+/// The log of the seats a reaction window passed by (`AbilityTable::skipped`).
+pub type SkippedLog = std::sync::Arc<std::sync::Mutex<Vec<(Seat, EventRec, Relation)>>>;
 
 /// A payment question that was not asked because it had one option: what the wrapper needs to announce it (the question as it would have been
 /// put, the option taken, the position it was put in). A step the driver repeats (a rollback and a replay) logs the same entry again: the

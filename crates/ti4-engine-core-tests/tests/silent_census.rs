@@ -232,7 +232,7 @@ fn template_matches(parts: &[String], s: &str) -> bool {
         let Some(found) = s.get(from..end).and_then(|window| window.find(part.as_str())) else { return false };
         at = from + found + part.len();
     }
-    at < end || parts.len() == 2 && at < end
+    at < end
 }
 
 /// `text` without its `#[cfg(test)]` items: up to the `;` of a `use` or `mod x;`, or through the braces of a `mod` or a function. (Braces inside strings and

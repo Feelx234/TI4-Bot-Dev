@@ -4,7 +4,6 @@
 mod surface_common;
 
 use surface_common::{content, positions};
-use ti4_content::Record;
 use ti4_engine as thin;
 use ti4_engine_legacy as old;
 use ti4_model::content_types::ContentType;

@@ -177,7 +177,6 @@ pub mod supply {
 }
 pub mod valuation {
     pub use crate::queries::valuation::{BASE_UNIT_VALUE, MULTIPLIER_CEILING, MULTIPLIER_FLOOR, base_unit_value, clamp, fleet_strength, planet_multipliers, planet_value, stranded_troops, system_value, unit_value};
-    pub use ti4_engine_legacy::valuation::*;
 }
 pub mod reach_query {
     pub use crate::queries::reach_query::{ReachOrigin, who_can_reach};

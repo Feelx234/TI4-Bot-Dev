@@ -15,7 +15,7 @@
 //!   [`Facts::te_uses`]: more systems than the facts hold, a use of PRODUCTION the production windows do not carry).
 
 use crate::containers::SmallList;
-use crate::generated::{PublicObjective, StrategyCard, StrategyCardKind, System};
+use crate::generated::{StrategyCard, StrategyCardKind, System};
 use crate::ids::Seat;
 use crate::kernel::children::{FreeSystems, ImperialFacts, Made, Report, Spawn, StructureFacts, TeUses};
 use crate::kernel::fx;

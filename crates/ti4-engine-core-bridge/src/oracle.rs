@@ -36,7 +36,7 @@ use std::rc::Rc;
 use std::sync::Mutex;
 
 use serde_json::{Value, json};
-use ti4_engine::choice::{Choice, ChoiceOption, Decider, DecisionRecord, IllegalChoice};
+use ti4_engine::choice::{Choice, DecisionRecord};
 use ti4_engine_legacy::dual::{self, Area, AreaCounts, AreaMask, Backend, Category, Difference, DualReport, diff_json};
 use ti4_engine::fingerprint::{CanonicalHashVersion, decision_hash};
 use ti4_engine_legacy::game::Game;

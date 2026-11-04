@@ -14,7 +14,7 @@ use crate::choice::strategy::{ctx, gain_pool_choice, rule_ctx, Ask as SAsk, Opt 
 use crate::choice::generic::Content;
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
-use crate::generated::{Agenda, Faction, Planet, PublicObjective, StrategyCard, System};
+use crate::generated::{Agenda, Faction, Planet, StrategyCard, System};
 use crate::ids::Seat;
 use crate::kernel::{fx, fx_pay};
 use crate::kernel::children::{ErasedChild, Spawn};

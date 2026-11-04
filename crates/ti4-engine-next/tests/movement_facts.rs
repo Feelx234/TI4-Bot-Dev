@@ -5,7 +5,6 @@
 //! constructed variants (laws, cards, tokens, command tokens, enemy fleets).
 mod surface_common;
 
-use std::collections::BTreeSet;
 
 use surface_common::{Pos, content, positions};
 use ti4_content::galaxy::Galaxy;

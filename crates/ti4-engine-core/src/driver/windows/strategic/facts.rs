@@ -25,7 +25,7 @@ use crate::query::tech::UnitRoster;
 use crate::query::{laws, reach};
 use crate::rules::strategy;
 use crate::rules::strategy_secondary::{FollowerFacts, Waiver, WaiverEffect};
-use crate::state::{CoreState, NoteKey, ObjectiveRef};
+use crate::state::{CoreState, NoteKey};
 
 // (Only the latest rules version is supported: the new engine refuses a game below it at load, so no version gate is kept here: the Technology
 // ability asks the payment of the research, a space-only structure is placed in the space area, Berekar Berekon is offered to a use of PRODUCTION.)
