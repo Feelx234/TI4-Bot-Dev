@@ -363,7 +363,8 @@ mod bill_tests {
     fn pay_logged(s: &mut CoreState, cost: i64) -> (Driver<PayBill>, Vec<crate::kernel::ability::AutoPaid>, usize) {
         let k = Kernel::plain();
         let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let table = AbilityTable { auto_paid: Some(log.clone()), ..AbilityTable::default() };
+        let mut table = AbilityTable::default();
+        table.auto_paid = Some(log.clone());
         let mut d = Driver::new(PayBill::new(Seat(0), Spend::Influence, cost), Resolver::new(&[Seat(0)], Some(Seat(0))), table, 1);
         let mut asked = 0;
         let mut status = d.run(s, &k).unwrap();
