@@ -1474,6 +1474,58 @@ mod tests {
         NativeGame::from_spec(&lobby_spec(faction, players, seed)).expect("a lobby game builds and loads")
     }
 
+    /// Perf lane (docs/PERF_AB.md): the one-pass scan for the space cannon kinds of `combat_texts` finds what the scan system by system found, on the
+    /// positions of three games every 10th step, and every planet is listed under the one system it prints (the premise of the shortcut).
+    #[test]
+    fn the_space_cannon_scan_of_the_combat_texts_matches_the_scan_by_systems() {
+        for system in ti4_engine_core::generated::System::ALL {
+            for planet in system.data().planets {
+                assert_eq!(planet.data().system, Some(system), "{planet:?} is listed under {system:?} but prints another system");
+            }
+        }
+        let mut seen_guns = 0;
+        for (faction, players, seed) in [("sol", 4, 1), ("yin", 6, 3), ("winnu", 3, 2)] {
+            let mut g = game(faction, players, seed);
+            for step in 0..500 {
+                if step % 10 == 0 {
+                    let (fast, slow) = (ti4_engine::ties::combat_live::space_cannon_kinds(&g.core), ti4_engine::ties::combat_live::space_cannon_kinds_by_systems(&g.core));
+                    assert_eq!(fast, slow, "{faction} {players}p seed {seed} step {step}");
+                    seen_guns += fast.len();
+                }
+                if !matches!(g.step(), Step::Played(_)) {
+                    break;
+                }
+            }
+        }
+        assert!(seen_guns > 0, "the games put a space cannon unit on the board");
+    }
+
+    /// Perf lane (docs/PERF_AB.md): `Observed::seat` asks `mahact_foreign_tokens` first of the player's faction and loads no core view for another
+    /// faction. The shortcut answers what the hook answers, for every seat of a Mahact table at several positions of a game.
+    #[test]
+    fn the_mahact_foreign_tokens_shortcut_answers_what_the_hook_answers() {
+        use ti4_engine::queries::view::Full;
+        let spec = lobby_spec("mahact", 4, 1);
+        let mut game = spec.build().expect("builds");
+        let mut checked_mahact = 0;
+        for step in 0..400 {
+            if step % 40 == 0 {
+                let state = &game.state;
+                let full = Full::of(state).expect("the core holds the position");
+                for seat in &state.players {
+                    let by_hook = full.seat(&seat.id).map_or(0, |s| full.kernel().hooks.direct.mahact_foreign_tokens(full.core(), s));
+                    assert_eq!(ti4_engine::queries::factions::mahact_foreign_tokens(state, &seat.id), by_hook, "step {step} seat {}", seat.id);
+                    checked_mahact += usize::from(seat.faction.as_str() == "mahact");
+                }
+                assert_eq!(ti4_engine::queries::factions::mahact_foreign_tokens(state, &ti4_model::id::PlayerId::new("nobody")), 0);
+            }
+            if game.step().error.is_some() {
+                break;
+            }
+        }
+        assert!(checked_mahact >= 2, "a Mahact seat was checked ({checked_mahact})");
+    }
+
     /// Integration 18 (lane Q's Brother Milor x lane A's thin copy of the combat texts): the Yin game of the 6-player sweep (seed 3) puts two Fighter I of the Yin
     /// seat on a board that had none when the fight opened, (step 568 of the native game). The texts of a fight must name the forms of the fighters Milor can land
     /// (`UnportedAftermath(CombatUnported)` otherwise). The copy of `combat_live` in the thin crate was cut before lane Q; the native loop drives the thin glue.

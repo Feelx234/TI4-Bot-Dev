@@ -124,6 +124,55 @@ const MAX_TYPES: usize = 10;
 /// The most unit kinds ONE seat may field in a fight that names more than `MAX_TYPES` kinds in all (its subsets are the roll groups named: 2^12 - 1).
 const MAX_SIDE_TYPES: usize = 12;
 
+/// The kinds of unit with a space cannon on the board (in a space area or on a planet), each once, sorted.
+///
+/// Reads every planet cell once. (The scan this replaces, [`space_cannon_kinds_by_systems`], asked `planets_of` of every one of the 231 systems, and
+/// that walks all 159 planets each time: about 12 percent of a core step.)
+#[must_use]
+pub fn space_cannon_kinds(core: &CoreState) -> Vec<Unit> {
+    let board = core.board();
+    let mut guns: Vec<Unit> = Vec::new();
+    let mut note = |units: &ti4_engine_core::state::UnitList| {
+        for piece in units.iter() {
+            let u = piece.kind();
+            if u.data().space_cannon.is_some() && !guns.contains(&u) {
+                guns.push(u);
+            }
+        }
+    };
+    for (_, cell) in board.systems() {
+        note(&cell.units);
+    }
+    for (planet, cell) in board.planets() {
+        // A planet's units are listed under the system `planets_of` names it for: where it was placed, else its printed system.
+        if !cell.units.is_empty() && (cell.placed_in.is_some() || planet.data().system.is_some()) {
+            note(&cell.units);
+        }
+    }
+    guns.sort_unstable();
+    guns
+}
+
+/// The original scan of [`space_cannon_kinds`], system by system through `planets_of_sorted`; kept as the oracle of its test.
+#[must_use]
+pub fn space_cannon_kinds_by_systems(core: &CoreState) -> Vec<Unit> {
+    let mut guns: Vec<Unit> = Vec::new();
+    let systems: Vec<_> = core.board().systems().map(|(system, _)| system).collect();
+    for system in systems {
+        let mut here: Vec<Unit> = core.board().sys(system).units.iter().map(|p| p.kind()).collect();
+        for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
+            here.extend(core.board().planet(*planet).units.iter().map(|p| p.kind()));
+        }
+        for u in here {
+            if u.data().space_cannon.is_some() && !guns.contains(&u) {
+                guns.push(u);
+            }
+        }
+    }
+    guns.sort_unstable();
+    guns
+}
+
 /// The texts of the space combat at `core`: the fixed words, and for the unit types that can be named in the fight in `active_space_combat` (the
 /// types present, with the other form of each dual-form unit) their names and every roll group's. State texts go to the position's table, shown
 /// texts to the render table. A fight with more than ten types names none (the machine then stops at a roll it cannot name).
@@ -177,21 +226,8 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
     // The gunners of the space cannon offense (the tactical head runs before any combat is open): the offense stages each roll under its unit's
     // type id, as the string does.
     {
-        let mut guns: Vec<Unit> = Vec::new();
-        let systems: Vec<_> = core.board().systems().map(|(system, _)| system).collect();
-        for system in systems {
-            let mut here: Vec<Unit> = core.board().sys(system).units.iter().map(|p| p.kind()).collect();
-            for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, system).iter() {
-                here.extend(core.board().planet(*planet).units.iter().map(|p| p.kind()));
-            }
-            for u in here {
-                if u.data().space_cannon.is_some() && !guns.contains(&u) {
-                    guns.push(u);
-                }
-            }
-        }
-        guns.sort_unstable();
-        for u in guns {
+        let mut guns = space_cannon_kinds(core);
+        for u in guns.drain(..) {
             let id = IdStr::as_str(u);
             t.guns.push((u, state_code(core, id), r.code(id)));
         }

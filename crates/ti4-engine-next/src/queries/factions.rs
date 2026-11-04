@@ -24,6 +24,12 @@ pub fn mahact_fleet_pool_owners(state: &GameState, mahact: &PlayerId) -> Vec<Pla
 /// How many foreign command tokens `player`'s fleet pool holds (0 unless they are the Mahact).
 #[must_use]
 pub fn mahact_foreign_tokens(state: &GameState, player: &PlayerId) -> i32 {
+    // Only the Mahact's fleet pool holds foreign tokens (the hook answers 0 for every other faction, and for a player the position does not
+    // seat). Asking first spares loading the whole position into a core view for every seat sheet a decider reads (`Observed::seat`:
+    // 70 percent of a rule-bot game, docs/PERF_AB.md).
+    if !state.player(player).is_some_and(|seat| seat.faction.as_str() == "mahact") {
+        return 0;
+    }
     Full::of(state).and_then(|v| Some(v.kernel().hooks.direct.mahact_foreign_tokens(v.core(), v.seat(player)?))).unwrap_or(0)
 }
 
