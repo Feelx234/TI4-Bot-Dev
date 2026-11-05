@@ -48,6 +48,10 @@ ruling (active player first, then initiative order) is untouched.
 * Tests (`cargo test --profile lockstep`): `ti4-engine-core-tests` `action_card_effects` (26) and `w16_commander_hosts` (8) green; `ti4-engine-legacy --lib` with the filters of this lane plus
   `combat::`, `dual_window::`, `dice::`, `courageous`, `the_use_dispatch_and_the_action_list`, `the_hero_runs_in_lockstep`, `tactical_dual_tests`, `menu_dual_tests`, `cannon_prelude_tests`: 338 passed.
   Not run: the full legacy lib (5,300 tests), clippy, the heavy gates (dual-all, dual-drv, dual-wide, dual-lent, strict) - this lane's goal was to make the dual clean so they can run.
+* Mutation check of the new harness tests (each fix reverted in the working tree, tests rerun, then restored): without the fix the tests of A (S8 cut), D (Icarus tokens), E1 (Battlestation
+  casualty hit), E2 (Edict pool), E3 (lent Support), E4 (Dart and Tai) and E6 (hero recording) FAIL, and so does B (Vortex listed twice: 4 differences). The first versions of the B and E6 tests
+  passed without their fix (the Cabal position lacked the dealt notes so the core view was refused; the unit tests run the composed machine off) and were corrected until they failed.
+  C and E5 are core tests asserting the new values (the old code returns `None` / no `invasion_seq`).
 * Mistakes found by the tests on the way and fixed (kept here because the same trap waits for the next harness change): the first version of `note_asked_before` skipped every inner-window
   note, which dropped questions the table never recorded (a neutral side answers its sustain question without asking; six `combat::` lockstep tests caught it); it now skips only the
   question the table recorded just before.
@@ -57,8 +61,7 @@ ruling (active player first, then initiative order) is untouched.
 All 20 games pass `dual_run ... all=dual` with exit 0. **Nothing remains** for the golden dual of `profile-20.json`.
 
 What this does NOT cover (so the heavy run can still find things): the other dual configurations of the heavy steps (other seeds/profiles: the probe was the 20 golden games only), the bail
-census (`TI4_BAIL_IS_FAILURE`: the S8 cut is a compared window, not a bail, but the 73 other bail labels are what they were), and the unit-test mutation check of the harness tests
-(section 5).
+census (`TI4_BAIL_IS_FAILURE`: the S8 cut is a compared window, not a bail, but the 73 other bail labels are what they were).
 
 ## 5. Open points and notes for the next lane
 

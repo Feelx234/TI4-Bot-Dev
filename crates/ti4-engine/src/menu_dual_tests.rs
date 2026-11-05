@@ -57,9 +57,16 @@ fn cabals_vortex_is_listed_once_by_the_typed_menu() {
     let _guard = crate::dual::tests::serial();
     let _ = take_report();
     let hub = crate::fixtures::plain_hub();
-    let (dock_at, target) = (SystemId::new(hub.outer[0].clone()), SystemId::new(hub.centre.clone()));
+    // The dock stands on a planet of a ring system (as it does in a game), the Hacan cruiser in the centre.
+    let (dock_at, dock_planet) = hub
+        .outer
+        .iter()
+        .find_map(|id| ti4_content::galaxy::planets_in(ContentStore::embedded(), id, ti4_model::content_types::POK).into_iter().next().map(|p| (SystemId::new(id.as_str()), ti4_model::id::PlanetId::new(p.id()))))
+        .expect("a ring system with a planet");
+    let target = SystemId::new(hub.centre.clone());
     let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
     let mut state = crate::fixtures::seated_game(&[("a", "cabal"), ("b", "hacan")], ti4_model::content_types::POK);
+    crate::promissory::deal(&mut state, ContentStore::embedded(), ti4_model::content_types::POK);
     for system in state.board.values_mut() {
         system.units.clear();
         system.planet_units.clear();
@@ -67,7 +74,7 @@ fn cabals_vortex_is_listed_once_by_the_typed_menu() {
     state.phase = ti4_model::state::Phase::Action;
     state.active = Some(a.clone());
     state.player_mut(&a).unwrap().technologies.insert(TechnologyId::new("vtx"));
-    crate::fixtures::put(&mut state, &dock_at, "spacedock", &a, 1);
+    crate::fixtures::put_on_planet(&mut state, &dock_at, &dock_planet, "spacedock", &a, 1);
     crate::fixtures::put(&mut state, &target, "cruiser", &b, 1);
     /// Passes, and remembers the ids of the first menu it is shown.
     struct Passes(std::rc::Rc<std::cell::RefCell<Vec<String>>>);
