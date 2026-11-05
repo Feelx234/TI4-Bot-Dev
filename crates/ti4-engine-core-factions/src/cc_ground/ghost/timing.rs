@@ -101,9 +101,10 @@ fn mech_destinations(s: &CoreState, owner: Seat) -> Option<Vec<(Wormhole, System
     use ti4_engine_core::query::board;
     let galaxy = galaxy_of(s)?;
     let mut found = Vec::new();
+    let placed = board::placed_planets(s);
     for (system, cell) in s.board().systems() {
         let present = cell.units.as_slice().iter().any(|u| u.owner() == owner && u.kind() == Unit::IcarusDrive)
-            || board::planets_of(s, system).any(|planet| board::planet_units(s, planet).iter().any(|u| u.owner() == owner && u.kind() == Unit::IcarusDrive));
+            || board::planets_of_in(s, &placed, system).any(|planet| board::planet_units(s, planet).iter().any(|u| u.owner() == owner && u.kind() == Unit::IcarusDrive));
         if !present || galaxy.coord_of(system).is_none() {
             continue;
         }

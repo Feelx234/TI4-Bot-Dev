@@ -178,7 +178,18 @@ impl Interner {
     /// What a table must satisfy to continue the history of `earlier`.
     #[must_use]
     pub fn extends(&self, earlier: &Self) -> bool {
-        earlier.len() <= self.len() && (0..earlier.len() as u32).all(|i| self.get(i) == earlier.get(i))
+        if earlier.len() > self.len() {
+            return false;
+        }
+        // The common case is two tables of one lineage: the same sealed base and the same `Arc`s in the suffix (a clone shares them), which are
+        // equal by identity without comparing a byte. Only the texts past the shared prefix are compared.
+        let mut from = 0;
+        if Arc::ptr_eq(&self.base, &earlier.base) {
+            from = self.base.items.len().min(earlier.len());
+            let shared = self.local.iter().zip(&earlier.local).take_while(|(a, b)| Arc::ptr_eq(a, b)).count();
+            from = (from + shared).min(earlier.len());
+        }
+        (from as u32..earlier.len() as u32).all(|i| self.get(i) == earlier.get(i))
     }
 
     /// Every text in index order.
@@ -295,6 +306,32 @@ mod tests {
         let mut other = Interner::default();
         other.intern(b"x", CAP);
         assert!(!a.extends(&other));
+    }
+
+    /// The identity shortcut of `extends` (same base, same suffix `Arc`s) answers what the comparison by content does, also across compactions and
+    /// for two clones that went on with different texts at the same index.
+    #[test]
+    fn extends_agrees_with_the_comparison_by_content() {
+        let by_content = |a: &Interner, b: &Interner| b.len() <= a.len() && (0..b.len() as u32).all(|i| a.get(i) == b.get(i));
+        let mut a = Interner::default();
+        let mut snapshots = vec![a.clone()];
+        for n in 0..200u32 {
+            a.intern(format!("t{n}").as_bytes(), CAP);
+            if n % 5 == 0 {
+                snapshots.push(a.clone());
+            }
+        }
+        let mut b = snapshots[10].clone();
+        b.intern(b"diverged", CAP);
+        let mut c = snapshots[10].clone();
+        c.intern(b"other", CAP);
+        let mut all = snapshots.clone();
+        all.extend([a.clone(), b, c, Interner::default()]);
+        for x in &all {
+            for y in &all {
+                assert_eq!(x.extends(y), by_content(x, y), "{} vs {}", x.len(), y.len());
+            }
+        }
     }
 
     #[test]

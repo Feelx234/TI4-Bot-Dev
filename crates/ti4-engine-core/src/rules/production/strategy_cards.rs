@@ -857,11 +857,12 @@ fn infantry_of(who: Seat) -> impl Fn(&crate::state::Piece) -> bool {
 fn infantry_sites(s: &CoreState, who: Seat) -> Vec<(System, Option<Planet>)> {
     let is_infantry = infantry_of(who);
     let mut sites = Vec::new();
+    let placed = board::placed_planets(s);
     for (system, cell) in s.board().systems() {
         if cell.units.as_slice().iter().any(&is_infantry) {
             sites.push((system, None));
         }
-        let mut planets: Vec<Planet> = board::planets_of(s, system).collect();
+        let mut planets: Vec<Planet> = board::planets_of_in(s, &placed, system).collect();
         planets.sort_unstable();
         for planet in planets {
             if s.board().planet(planet).units.as_slice().iter().any(&is_infantry) {

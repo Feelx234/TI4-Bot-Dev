@@ -1,0 +1,15 @@
+4p seed 1 sol: played 600 steps (StepLimit); per-step pieces on this position (tight loops, hot cache):
+  ability specs 186, size_of Spec 56 B, AbilityDef 20 B, AbilityTable 1920 B, Env 1952 B, CoreState 2880 B
+  specs by `applies`: every seat 154 (with a condition fn: 154), one faction 26, held-predicate 6; registry rows (all seats) 618
+  CoreState::clone                                    0.77 us   allocs      3   bytes       0.6 KB
+  CoreState::clone + one ledger push (tail copy)      0.83 us   allocs      6   bytes       0.7 KB
+  env_with_plays (registry + table + codes)          43.22 us   allocs    291   bytes      68.7 KB
+  Env::clone (AbilityTable + registry)                0.39 us   allocs      3   bytes      10.7 KB
+  AbilityTable::clone                                 0.39 us   allocs      3   bytes      10.7 KB
+  Facts::of_core                                      0.01 us   allocs      0   bytes       0.0 KB
+  asks()                                              0.01 us   allocs      0   bytes       0.0 KB
+  combat_texts + sync_codes (Cx::texts)               5.91 us   allocs      2   bytes       0.0 KB
+  Render::sync_codes alone (equal tables)             0.03 us   allocs      0   bytes       0.0 KB
+  texts in the code table: 1060
+  planets_of for all 231 systems (current)           60.96 us   allocs      0   bytes       0.0 KB
+  Board::planet x 159 (one pass)                      0.22 us   allocs      0   bytes       0.0 KB

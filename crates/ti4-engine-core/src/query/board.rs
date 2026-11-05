@@ -73,6 +73,19 @@ pub fn planets_of(core: &CoreState, system: System) -> impl Iterator<Item = Plan
     )
 }
 
+/// Every planet an effect placed into a system (Mirage and the like), with the system, in planet order: one scan of the board. [`planets_of`] runs
+/// this scan again for each system it is asked about, which a loop over all the systems turns into systems x planets cell reads; such a loop takes
+/// the list once and asks [`planets_of_in`].
+#[must_use]
+pub fn placed_planets(core: &CoreState) -> Vec<(Planet, System)> {
+    core.board().planets().filter_map(|(p, c)| c.placed_in.map(|s| (p, s))).collect()
+}
+
+/// [`planets_of`] with the board's placed planets given (`placed` is [`placed_planets`] of the same position): the same planets in the same order.
+pub fn planets_of_in<'a>(core: &'a CoreState, placed: &'a [(Planet, System)], system: System) -> impl Iterator<Item = Planet> + 'a {
+    system.data().planets.iter().copied().filter(move |p| core.board().planet(*p).placed_in.is_none()).chain(placed.iter().filter(move |(_, s)| *s == system).map(|(p, _)| *p))
+}
+
 /// Who controls the planet.
 #[must_use]
 pub fn control(core: &CoreState, planet: Planet) -> Option<Seat> {
@@ -231,4 +244,26 @@ pub fn is_legendary(core: &CoreState, planet: Planet) -> bool {
 #[must_use]
 pub fn attachments(core: &CoreState, planet: Planet) -> &SmallList<crate::generated::Attachment, 3> {
     &core.board().planet(planet).attach
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `planets_of_in` with the board's placed list lists what `planets_of` lists, for every system, also with planets placed into several systems.
+    #[test]
+    fn planets_of_in_lists_what_planets_of_lists() {
+        let mut s = CoreState::all_loaded();
+        for (i, planet) in [Planet::ALL[0], Planet::ALL[40], Planet::ALL[Planet::ALL.len() - 1]].into_iter().enumerate() {
+            s.board_mut().planet_mut(planet).placed_in = Some(System::ALL[3 + i * 50]);
+        }
+        let placed = placed_planets(&s);
+        assert_eq!(placed.len(), 3);
+        for system in System::ALL {
+            let a: Vec<Planet> = planets_of(&s, system).collect();
+            let b: Vec<Planet> = planets_of_in(&s, &placed, system).collect();
+            assert_eq!(a, b, "{system:?}");
+        }
+        assert!(placed_planets(&CoreState::all_loaded()).is_empty());
+    }
 }

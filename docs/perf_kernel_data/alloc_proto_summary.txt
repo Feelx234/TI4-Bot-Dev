@@ -1,0 +1,88 @@
+668798 allocation events, 203.6 MB
+(only allocations inside Game::play)
+
+== by phase (MB, share, count)
+   86.66 MB  44.2%    370615  env_with_plays/env_for (adapter)
+   70.53 MB  36.0%    159203  core driver::live::advance
+   38.29 MB  19.5%     60622  other
+    0.56 MB   0.3%      2194  core driver::live::ask
+    0.07 MB   0.0%      4411  texts/sync_codes
+
+== by nearest project frame (direct allocator of the bytes)
+   53.03 MB  27.0%    260416  ti4_engine::live::env::env_for
+   36.75 MB  18.7%     10332  <ti4_engine_core::kernel::ability::AbilityTable as core::clone::Clone>::clone
+   26.64 MB  13.6%      9976  ti4_engine_core::driver::live::table_at
+   22.66 MB  11.6%      6257  ti4_engine_core::containers::log::Log::push
+   18.63 MB   9.5%      1252  ti4_engine_core::kernel::ability::AbilityTable::registry
+    9.50 MB   4.8%     38744  <ti4_engine_core::state::CoreState as core::clone::Clone>::clone
+    3.15 MB   1.6%     10221  ti4_engine::live::plays::play_facts
+    3.07 MB   1.6%      1148  ti4_engine_core::driver::windows::live_common::table_at
+    2.45 MB   1.3%       852  <ti4_engine_core::kernel::ability::Tape as ti4_engine_core::kernel::Asker>::pick
+    2.14 MB   1.1%      2307  ti4_engine_core::kernel::fx::journal_recs
+    2.05 MB   1.0%      4323  ti4_engine_core::kernel::stage::Sx::emit
+    1.30 MB   0.7%       452  ti4_engine_core::driver::live::asking_of
+    1.29 MB   0.7%       508  ti4_engine_core::driver::live::advance
+    1.23 MB   0.6%      6876  ti4_engine_core::query::transit::activatable
+    1.09 MB   0.6%      1453  ti4_engine_core::containers::small_list::SmallList::push
+    0.66 MB   0.3%      1406  ti4_engine_core::movement::CoreRules::search_path
+
+== by nearest rule-level project frame (skips state/containers helpers)
+   53.03 MB  27.0%    260416  ti4_engine::live::env::env_for
+   36.75 MB  18.7%     10332  <ti4_engine_core::kernel::ability::AbilityTable as core::clone::Clone>::clone
+   26.64 MB  13.6%      9976  ti4_engine_core::driver::live::table_at
+   18.63 MB   9.5%      1252  ti4_engine_core::kernel::ability::AbilityTable::registry
+   11.59 MB   5.9%      3309  ti4_engine_core::kernel::fx::mirror_journal
+   10.93 MB   5.6%      3164  ti4_engine_core::kernel::fx::plain
+    4.10 MB   2.1%     16625  ti4_engine_core::driver::Driver::settle
+    3.43 MB   1.7%      9024  ti4_engine_core::driver::live::advance
+    3.15 MB   1.6%     10221  ti4_engine::live::plays::play_facts
+    3.07 MB   1.6%      1148  ti4_engine_core::driver::windows::live_common::table_at
+    2.45 MB   1.3%       852  <ti4_engine_core::kernel::ability::Tape as ti4_engine_core::kernel::Asker>::pick
+    2.14 MB   1.1%      2307  ti4_engine_core::kernel::fx::journal_recs
+    2.07 MB   1.1%      3772  ti4_engine_core::driver::live::asking_of
+    2.05 MB   1.0%      4359  ti4_engine_core::kernel::stage::Sx::emit
+    1.23 MB   0.6%      6876  ti4_engine_core::query::transit::activatable
+    1.22 MB   0.6%      4335  ti4_engine_core::driver::turn::advance_job
+
+== by size class (<= bytes): MB
+         1     0.00
+         2     0.01
+         4     0.37
+         8     0.53
+        16     2.38
+        32     3.11
+        64     2.16
+       128     4.86
+       256     6.73
+       512     2.79
+      1024    18.84
+      2048     4.14
+      4096    16.23
+      8192     9.90
+     16384   124.04
+     32768     0.03
+
+== inside the top owners: the three frames right above the allocator
+ti4_engine::live::env::env_for
+       21.42 MB  with_capacity_in < with_capacity_in < with_capacity_in
+       16.03 MB  branch < grow_amortized < grow_one
+       15.47 MB  branch < grow_amortized < alloc::raw_vec::RawVecInner::reserve::do_reserve_and_handle
+        0.11 MB  ti4_engine::live::env::env_for < new < provider
+<ti4_engine_core::kernel::ability::AbilityTable as core::clone::Clone>::clone
+       36.75 MB  with_capacity_in < with_capacity_in < with_capacity_in
+ti4_engine_core::driver::live::table_at
+       26.64 MB  with_capacity_in < with_capacity_in < with_capacity_in
+ti4_engine_core::containers::log::Log::push
+       14.55 MB  branch < grow_amortized < grow_one
+        8.03 MB  with_capacity_in < with_capacity_in < with_capacity_in
+        0.08 MB  make_mut < edit < ti4_engine_core::containers::log::Log::push
+        0.00 MB  alloc::sync::Arc::make_mut < ti4_engine_core::containers::log::Log::push < data
+ti4_engine_core::kernel::ability::AbilityTable::registry
+       18.63 MB  with_capacity_in < with_capacity_in < with_capacity_in
+<ti4_engine_core::state::CoreState as core::clone::Clone>::clone
+        9.32 MB  with_capacity_in < with_capacity_in < with_capacity_in
+        0.19 MB  clone < clone < clone
+ti4_engine::live::plays::play_facts
+        3.15 MB  with_capacity_in < with_capacity_in < with_capacity_in
+ti4_engine_core::driver::windows::live_common::table_at
+        3.07 MB  with_capacity_in < with_capacity_in < with_capacity_in

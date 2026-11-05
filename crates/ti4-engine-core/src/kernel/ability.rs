@@ -963,7 +963,8 @@ impl AbilityTable {
         order: &[Seat],
         name: &mut dyn FnMut(&Spec, Seat, Option<Seat>) -> AbilityId,
     ) -> Vec<AbilityDef> {
-        let mut out = Vec::new();
+        // (Sized for a table of a few hundred rows in one allocation: growing from empty by doubling re-allocated it nine times per call.)
+        let mut out = Vec::with_capacity(self.specs.len() * order.len());
         // The pair rules the string registers first (`leads`), borrower by borrower, then each lender in seat order.
         for &borrower in order {
             for &lender in order {

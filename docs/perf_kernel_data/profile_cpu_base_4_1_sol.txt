@@ -1,0 +1,266 @@
+g_4_1_sol.data: 3243 samples, 3133 in the game loop (play)
+
+== self (leaf, inline-aware)
+ 12.32%  ti4_engine_core::state::board::Board::planet   <-  ti4_engine_core::state::board::Board::planet
+  7.44%  libc:memcpy/memmove(stripped)   <-  ti4_engine::render::Render::sync_codes
+  3.96%  eq   <-  ti4_engine_core::rules::production::strategy_cards::infantry_sites
+  2.87%  libc:memcpy/memmove(stripped)   <-  ti4_engine_core::containers::interner::Interner::intern
+  2.68%  {closure#0}   <-  ti4_engine_core::rules::production::strategy_cards::infantry_sites
+  2.33%  ti4_engine_core::containers::small_list::SmallList::as_slice   <-  ti4_engine_core::containers::small_list::SmallList::as_slice
+  2.17%  core::ops::function::impls::<impl core::ops::function::FnMut for &mut F>::call_mut   <-  ti4_engine_core::rules::production::strategy_cards::infantry_sites
+  1.95%  get   <-  ti4_engine_core::state::board::Board::planet
+  1.76%  clone   <-  <ti4_engine_core::state::CoreState as core::clone::Clone>::clone
+  1.69%  eq   <-  ti4_engine_core_factions::ce_movement::empyrean::timing::watcher_window
+  1.47%  eq   <-  ti4_engine::live::env::env_for
+  1.24%  ti4_engine_core::state::board::Board::sys   <-  ti4_engine_core::state::board::Board::sys
+  1.24%  then_some   <-  ti4_engine_core::query::tech::unlocked_upgrade
+  1.21%  get   <-  ti4_engine_core::containers::interner::Interner::extends
+  1.15%  ti4_engine::live::env::env_for::{{closure}}   <-  ti4_engine::live::env::env_for::{{closure}}
+  1.05%  {closure#0}   <-  ti4_engine_core_factions::ce_movement::empyrean::timing::watcher_window
+  0.96%  try_fold   <-  ti4_engine_core::rules::production::strategy_cards::infantry_sites
+  0.93%  eq   <-  ti4_engine_core_factions::cc_ground::ghost::timing::mech_destinations
+  0.80%  {closure#0}   <-  ti4_engine_core_factions::cc_ground::ghost::timing::mech_destinations
+  0.77%  get   <-  ti4_engine_core::state::board::Board::sys
+  0.73%  as_ref   <-  ti4_engine_core::containers::interner::Interner::find
+  0.70%  write   <-  ti4_engine::live::env::env_for
+  0.70%  index   <-  ti4_engine_core::containers::interner::Interner::find
+  0.70%  eq   <-  ti4_engine::render::Render::ability_id_memo
+  0.67%  next   <-  ti4_engine_core_factions::cc_ground::ghost::timing::mech_destinations
+  0.64%  compare   <-  ti4_engine_core::containers::interner::Interner::find
+  0.54%  binary_search_by   <-  ti4_engine::live::env::env_for
+  0.54%  try_fold   <-  ti4_engine_core::query::tech::unlocked_upgrade
+  0.51%  eq   <-  ti4_engine_core::query::trade::are_neighbours
+  0.51%  equal   <-  ti4_engine_core::containers::interner::Interner::extends
+
+== inclusive
+100.00%  perf_kernel::Game::play
+100.00%  std::panic::catch_unwind
+100.00%  std::rt::lang_start_internal
+100.00%  perf_kernel::main
+100.00%  perf_kernel::play_one
+100.00%  _start
+100.00%  std::rt::lang_start
+100.00%  __libc_start_main
+100.00%  libc:memcpy/memmove(stripped)
+100.00%  std::rt::lang_start_internal::{{closure}}
+100.00%  std::sys::backtrace::__rust_begin_short_backtrace
+100.00%  std::rt::lang_start::{{closure}}
+100.00%  std::panicking::catch_unwind::do_call
+100.00%  std::panicking::catch_unwind
+ 99.78%  step
+ 99.78%  catch_unwind
+ 99.78%  {closure#0}
+ 99.78%  do_call
+ 99.78%  call_once
+ 83.08%  branch
+ 81.46%  step_with
+ 81.14%  perf_kernel::Game::run_live
+ 66.45%  map_err
+ 56.46%  advance_inner
+ 48.77%  ti4_engine_core::driver::Driver::settle
+ 47.08%  ti4_engine_core::driver::live::advance
+ 46.73%  once
+ 30.74%  try_fold
+ 29.88%  ti4_engine_core::driver::turn::ask::advance_ask
+ 27.96%  <alloc::vec::Vec as alloc::vec::spec_from_iter_nested::SpecFromIterNested>::from_iter
+ 27.64%  <ti4_engine_core::driver::turn::TurnFlowWin as ti4_engine_core::kernel::stage::Window>::step
+ 26.59%  ti4_engine_core::driver::Driver::resume
+ 25.25%  ti4_engine_core::driver::windows::strategic::perform::run
+ 24.58%  new
+ 23.91%  ptr
+ 23.91%  non_null
+ 23.68%  find
+ 21.13%  <core::iter::adapters::map::Map as core::iter::traits::iterator::Iterator>::try_fold
+ 19.76%  deref_mut
+ 19.76%  as_mut_slice
+ 19.25%  next
+ 18.10%  ti4_engine::live::env::env_with_plays
+ 18.07%  provider
+ 17.81%  as_mut_ptr
+ 17.65%  ti4_engine_core::driver::windows::strategic::begin::run_begin
+ 17.11%  ti4_engine::live::env::env_for
+ 16.50%  eq
+ 16.44%  ti4_engine_core::rules::production::strategy_cards::infantry_sites
+ 15.48%  ti4_engine_core::driver::Driver::reask
+ 15.10%  emit
+ 15.00%  or_else
+ 14.87%  ti4_engine_core::kernel::resolver::Resolver::run_window
+ 14.71%  ti4_engine_core::kernel::stage::Sx::emit
+ 14.71%  emit_with
+ 14.68%  eligible
+ 14.65%  ti4_engine_core::state::board::Board::planet
+ 14.20%  <ti4_engine_core::kernel::ability::RulesHost as ti4_engine_core::kernel::resolver::Host>::condition
+ 14.17%  drop_in_place
+ 12.26%  ti4_engine_core::kernel::children::ErasedChild::step
+ 12.22%  ti4_engine_core::driver::windows::strategic::advance_secondary
+
+== innermost project frame (time budget by layer/area)
+ 16.88%  L1 state::board
+ 12.96%  L4 rules::production
+  9.80%  ADAPTER ti4_engine::render
+  8.78%  ADAPTER ti4_engine::live::env
+  8.68%  L1 containers::interner
+  3.73%  L2 query::tech
+  3.67%  L6 factions::ce_movement
+  3.45%  L1 containers::small_list
+  3.42%  L6 factions::cc_ground
+  3.19%  L3 kernel::ability
+  2.65%  L1 state
+  2.46%  L5 driver::live
+  1.88%  BENCH perf_kernel
+  1.63%  L2 query::board
+  1.47%  L2 query::fleet
+  1.37%  L5 driver::turn
+  1.21%  L5 driver
+  0.96%  OTHER ti4_content
+  0.96%  L2 query::trade
+  0.96%  L1 state::players
+  0.93%  L5 driver::windows
+  0.77%  ADAPTER ti4_engine::live::plays
+  0.64%  L3 kernel::hooks
+  0.61%  L3 kernel::resolver
+  0.41%  L3 kernel::seam
+  0.38%  L1 containers::log
+  0.32%  L2 query::transit
+  0.29%  L6 factions::cb_economy
+  0.29%  L2 query::reach
+  0.29%  L3 kernel::stage
+  0.22%  L1 containers::set
+  0.22%  L2 query::objectives
+  0.19%  L1 containers::sorted_map
+  0.19%  L2 query::seats
+  0.16%  L0 galaxy
+  0.16%  ADAPTER ti4_engine::ties::action_cards_view
+  0.16%  L1 choice
+  0.16%  ADAPTER ti4_engine::ties::combat_live
+  0.16%  L3 kernel::fx
+  0.16%  L4 rules::action_cards
+  0.16%  L1 state::marks
+  0.16%  L0 hex
+  0.13%  ADAPTER ti4_engine::ties::technology_core
+  0.13%  L5 driver::menu_faction
+  0.13%  ADAPTER ti4_engine::render::ability_key
+  0.13%  L1 state::pending
+  0.13%  L1 state::piece
+  0.13%  L3 kernel::fx_strategy
+  0.10%  L6 factions::cd_registry
+  0.10%  L6 factions::common
+  0.10%  ADAPTER ti4_engine::generated
+  0.10%  L5 driver::menu
+  0.10%  L2 query::laws
+  0.06%  ADAPTER ti4_engine::ties::reactions_core
+  0.06%  L2 query::leaders
+  0.06%  L4 rules::combat
+  0.06%  ADAPTER ti4_engine::builders
+  0.06%  L3 kernel::children
+  0.06%  L4 rules::tactical
+  0.06%  L2 query::trade_deals
+
+== leaf kind
+ 82.48%  other
+ 14.87%  memcpy/memmove/memset
+  2.65%  allocator (malloc/free/realloc)
+
+== demand view: nearest non-helper project function (self + helpers it calls)
+ 16.44%  ti4_engine_core::rules::production::strategy_cards::infantry_sites
+ 10.02%  ti4_engine::render::Render::sync_codes
+  6.83%  ti4_engine::live::env::env_for
+  6.67%  ti4_engine_core_factions::ce_movement::empyrean::timing::watcher_window
+  6.48%  ti4_engine_core_factions::cc_ground::ghost::timing::mech_destinations
+  6.32%  ti4_engine::render::Render::code
+  2.78%  ti4_engine_core::query::tech::unlocked_upgrade
+  2.30%  ti4_engine_core::query::trade::are_neighbours
+  2.11%  ti4_engine::render::Render::ability_id_memo
+  2.11%  ti4_engine_core::kernel::ability::AbilityTable::registry
+  2.01%  ti4_engine_core::driver::live::advance
+  1.95%  unattributed
+  1.92%  ti4_engine_core::driver::Driver::settle
+  1.76%  ti4_engine_core::rules::production::sorted_planets
+  1.60%  ti4_engine::live::env::env_for::{{closure}}
+  1.44%  ti4_engine_core::query::fleet::standing_in
+  1.15%  ti4_engine_core::query::board::controlled_planets
+  1.05%  ti4_engine_core::driver::turn::advance_job
+  0.80%  ti4_engine_core::query::board::systems_with_units_of
+  0.77%  ti4_content::record::Record::text
+  0.77%  ti4_engine_core::query::board::controls_a_planet_in
+  0.70%  ti4_engine_core::query::fleet::held_on_board
+  0.67%  ti4_engine_core::query::fleet::remaining_all
+  0.61%  <ti4_engine_core::kernel::ability::AbilityTable as core::clone::Clone>::clone
+  0.54%  ti4_engine::live::env::env_with_plays
+  0.54%  <ti4_engine_core::kernel::ability::RulesHost as ti4_engine_core::kernel::resolver::Host>::condition
+  0.48%  ti4_engine_core::query::tech::open_to_faction
+  0.48%  ti4_engine::ties::combat_live::combat_texts
+  0.45%  ti4_engine_core::query::transit::activatable
+  0.45%  ti4_engine_core::kernel::resolver::Resolver::run_window
+  0.41%  ti4_engine_core::kernel::seam::stack::Stack::eval
+  0.41%  ti4_engine::live::plays::shared
+  0.38%  ti4_engine_core::driver::live::table_at
+  0.32%  ti4_engine_core::driver::live::asking_of
+  0.29%  ti4_engine_core_factions::cc_ground::ghost::movement::extra_wormholes
+  0.29%  ti4_engine_core::kernel::ability::Tape::pick_with
+  0.26%  ti4_engine_core::driver::live::driver_of
+  0.26%  ti4_engine_core::kernel::fx::plain
+  0.26%  ti4_engine_core::kernel::read::planets_of_sorted
+  0.26%  ti4_engine_core::driver::turn::ask::run_chosen
+  0.26%  ti4_engine_core::query::economy::spendable_planets
+  0.22%  ti4_engine_core::driver::windows::tactical::live::advance_tactical
+  0.22%  ti4_engine_core::driver::turn::prelude::run_reconcile
+  0.22%  ti4_engine_core::rules::production::strategy_cards::Research::open
+  0.22%  ti4_engine_core::query::seats::initiative_order
+  0.22%  ti4_engine::ties::combat_live::space_cannon_kinds
+  0.22%  ti4_engine_core::query::reach::technology_text
+  0.19%  ti4_engine_core::driver::menu_faction::faction
+  0.19%  ti4_engine_core::query::tech::ResearchCtx::can_research
+  0.19%  ti4_engine_core::query::reach::SeatReach::new
+  0.19%  ti4_engine_core::driver::windows::strategic::advance_secondary
+  0.19%  ti4_engine_core::query::tech::unit_form
+  0.19%  ti4_engine_core_factions::cb_economy::deepwrought::query::oceans
+  0.16%  ti4_engine_core::kernel::hooks::strategy::StrategyHooks::unit_form_override
+  0.16%  ti4_engine_core::query::leaders::has_commander_ability_in
+  0.16%  ti4_engine_core::kernel::hooks::movement::MovementHooks::extra_wormholes
+  0.16%  ti4_engine::ties::action_cards_view::reveal_set_of_lines
+  0.16%  ti4_engine::live::plays::play_facts
+  0.16%  ti4_engine_core::rules::production::payment_faces
+  0.16%  ti4_engine_core::rules::production::build_for
+
+== for the top demanders: their hottest leaf frames
+ti4_engine_core::rules::production::strategy_cards::infantry_sites
+       4.76%  ti4_engine_core::state::board::Board::planet
+       3.96%  eq
+       2.68%  {closure#0}
+ti4_engine::render::Render::sync_codes
+       7.44%  libc:memcpy/memmove(stripped)
+       1.21%  get
+       0.51%  equal
+ti4_engine::live::env::env_for
+       1.47%  eq
+       0.70%  write
+       0.54%  binary_search_by
+ti4_engine_core_factions::ce_movement::empyrean::timing::watcher_window
+       1.95%  ti4_engine_core::state::board::Board::planet
+       1.69%  eq
+       1.05%  {closure#0}
+ti4_engine_core_factions::cc_ground::ghost::timing::mech_destinations
+       3.22%  ti4_engine_core::state::board::Board::planet
+       0.93%  eq
+       0.80%  {closure#0}
+ti4_engine::render::Render::code
+       2.87%  libc:memcpy/memmove(stripped)
+       0.73%  as_ref
+       0.70%  index
+ti4_engine_core::query::tech::unlocked_upgrade
+       1.24%  then_some
+       0.54%  try_fold
+       0.45%  {closure#0}
+ti4_engine_core::query::trade::are_neighbours
+       0.80%  ti4_engine_core::containers::small_list::SmallList::as_slice
+       0.51%  eq
+       0.26%  ti4_engine_core::state::board::Board::sys
+ti4_engine::render::Render::ability_id_memo
+       0.70%  eq
+       0.41%  write_u64
+       0.22%  probe_seq
+ti4_engine_core::kernel::ability::AbilityTable::registry
+       0.32%  write
+       0.29%  ti4_engine_core::kernel::ability::AbilityTable::registry
+       0.19%  next
