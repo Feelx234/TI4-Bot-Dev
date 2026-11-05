@@ -873,6 +873,15 @@ fn infantry_sites(s: &CoreState, who: Seat) -> Vec<(System, Option<Planet>)> {
     sites
 }
 
+/// Whether `infantry_sites(s, who)` is non-empty, without building the list (one yes/no per paid research): the same locations, the first hit ends it.
+fn has_infantry_site(s: &CoreState, who: Seat) -> bool {
+    let is_infantry = infantry_of(who);
+    let placed = board::placed_planets(s);
+    s.board().systems().any(|(system, cell)| {
+        cell.units.as_slice().iter().any(&is_infantry) || board::planets_of_in(s, &placed, system).any(|planet| s.board().planet(planet).units.as_slice().iter().any(&is_infantry))
+    })
+}
+
 impl Research {
     /// `cost`: the resources the paid research costs (6 for the primary's second, 4 for the secondary).
     #[must_use]
@@ -918,7 +927,7 @@ impl Research {
     /// The paid research begins: Doctor Sucaban is offered first, before the affordability gate (the whole point of the card is to make a research
     /// affordable that was not), then the research is paid for the cost that is left.
     fn begin_paid(&mut self, s: &mut CoreState, k: &Kernel) {
-        if self.cost > 0 && !infantry_sites(s, self.who).is_empty() {
+        if self.cost > 0 && has_infantry_site(s, self.who) {
             self.sucaban = sucaban_sources(s, self.who);
         }
         self.next_offer(s, k);
@@ -1336,7 +1345,7 @@ impl Window for Research {
                 },
                 RStage::Trade => {
                     // (`while reduced > 0`, and `sites.is_empty()` ends the trade.)
-                    if self.cost > 0 && !infantry_sites(sx.state, self.who).is_empty() {
+                    if self.cost > 0 && has_infantry_site(sx.state, self.who) {
                         return Next::Continue(self.trade_choice(sx.state).ask);
                     }
                     self.after_offers(sx.state, sx.kernel);
