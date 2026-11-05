@@ -270,7 +270,12 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
         if types.is_empty() {
             return t;
         }
-        types
+        // (The kinds of each seat are named too: a table of all the pairs together can go over `MAX_TYPES`, past which only the subsets of each seat's own
+        // kinds are roll groups, and a side with no kinds named leaves the machine standing at its first roller: `CombatUnported`.)
+        for (owner, unit) in &types {
+            add(&mut sides, *owner, *unit);
+        }
+        types.into_iter().map(|(_, unit)| unit).collect()
     };
     for u in pieces.drain(..) {
         if !present.contains(&u) {
@@ -359,7 +364,7 @@ fn researches_in_combat(core: &CoreState, seat: ti4_engine_core::ids::Seat) -> b
 /// The unit types of the space combat Airo Shir Aur (Mahact hero) can start from this position: the active seat holds the unlocked hero, and the fight
 /// is at a system next to one of its fleets that holds another seat's ships. No fight is open yet (`active_space_combat` is written when the card moves
 /// the fleet), so the texts the machine names its rolls by are minted for the types of every such pair: the ships of the destination and of the fleet.
-fn hero_fight_types(core: &CoreState) -> Vec<Unit> {
+fn hero_fight_types(core: &CoreState) -> Vec<(ti4_engine_core::ids::Seat, Unit)> {
     use ti4_engine_core::generated::{Leader, UnitBaseType};
     let Some(active) = core.meta().active else { return Vec::new() };
     let unlocked = core.players().by_seat(active).is_some_and(|p| p.leaders.status.get(&Leader::AiroShirAur) == Some(&ti4_engine_core::state::LeaderStatus::Unlocked));
@@ -369,7 +374,7 @@ fn hero_fight_types(core: &CoreState) -> Vec<Unit> {
     }
     let Some(galaxy) = core.galaxy() else { return Vec::new() };
     let ship = |u: Unit| u.data().ship || u.data().base_type == UnitBaseType::Fighter;
-    let mut out: Vec<Unit> = Vec::new();
+    let mut out: Vec<(ti4_engine_core::ids::Seat, Unit)> = Vec::new();
     for (origin, cell) in core.board().systems() {
         let mine: Vec<Unit> = cell.units.iter().filter(|p| p.owner() == active && ship(p.kind())).map(|p| p.kind()).collect();
         if mine.is_empty() {
@@ -384,8 +389,8 @@ fn hero_fight_types(core: &CoreState) -> Vec<Unit> {
                 there.extend(core.board().planet(*planet).units.iter().filter(|p| fights_as_a_ship(core, to, p.owner(), p.kind())).map(|p| (p.owner(), p.kind())));
             }
             if there.iter().any(|(owner, _)| *owner != active) {
-                out.extend(mine.iter().copied());
-                out.extend(there.iter().map(|(_, u)| *u));
+                out.extend(mine.iter().map(|u| (active, *u)));
+                out.extend(there.iter().copied());
             }
         }
     }
@@ -1135,6 +1140,30 @@ mod tests {
         use ti4_engine_core::generated::Unit as U;
         assert!(named.contains(&U::Mordred), "the mech the Alastor brings in rolls in the fight: {named:?}");
         assert!(texts.groups.iter().any(|(kinds, _, _)| *kinds == vec![U::Mordred]), "and its group is named");
+    }
+
+    /// Bench stops (`UnportedAftermath(CombatUnported)`, Mahact hero, bench-v2 seed 23 6p): when the pairs Airo Shir Aur can fight in name more than `MAX_TYPES`
+    /// kinds together, only the subsets of each seat's own kinds are roll groups, and the hero branch named no seat's kinds, so no group at all was named and the
+    /// machine stood at its first roller.
+    #[test]
+    fn the_texts_of_the_step_that_plays_airo_shir_aur_name_the_groups_of_each_seat_when_the_pairs_hold_many_kinds() {
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "mahact"), ("b", "hacan")]);
+        for kind in ["carrier", "cruiser", "cruiser2", "dreadnought", "dreadnought2", "destroyer", "destroyer2", "fighter", "fighter2"] {
+            crate::fixtures::put(&mut state, &origin, kind, &a(), 1);
+        }
+        for kind in ["warsun", "hacan_flagship", "carrier2"] {
+            crate::fixtures::put(&mut state, &target, kind, &b(), 1);
+        }
+        state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("mahacthero"), ti4_model::state::LeaderStatus::Unlocked);
+        let mut cx = Ctx::of(&state).expect("owners");
+        let mut core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&crate::rng::RngPositions::default()) }, SliceSet::ALL).expect("the position loads");
+        let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+        let texts = super::combat_texts(&mut core, &render);
+        use ti4_engine_core::generated::Unit as U;
+        assert!(texts.unit_codes.len() > super::MAX_TYPES, "the pairs hold more kinds than the table of all subsets takes: {}", texts.unit_codes.len());
+        assert!(texts.groups.iter().any(|(kinds, _, _)| *kinds == vec![U::CarrierI]), "the fleet's groups are named seat by seat");
+        assert!(texts.groups.iter().any(|(kinds, _, _)| *kinds == vec![U::WarSun]), "and the destination's");
     }
 
     /// The texts of a combat step are ONE table for the render and the position: the state phases, the unit names and the roll groups (state) and the

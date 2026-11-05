@@ -839,7 +839,7 @@ fn s3_feat_differs(d: &Difference) -> bool {
 }
 
 /// S4: the string's list of planets for the Yin hero (Dannel of the Tenth: "any non-home planets") walks the hex grid, and the Wormhole Nexus sits beside it; the
-/// core's list holds `82b|mallice` (the planet's own system) once the Nexus is open (the locked planet is never offered since the ruling of 2026-11-04), the script wants it and the string does not offer it.
+/// core's list holds `82a|mallice` once the Nexus is open (the locked planet is never offered since the ruling of 2026-11-04), the script wants it and the string does not offer it.
 fn s4_nexus_in_error(error: &str) -> bool {
     let Some(wanted) = error.split("script wanted \"").nth(1).and_then(|r| r.split('"').next()) else { return false };
     let Some(offered) = error.split(" was offered ").nth(1) else { return false };

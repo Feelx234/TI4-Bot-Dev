@@ -1854,11 +1854,12 @@ fn dannel_of_the_tenth_offers_the_unlocked_mallice() {
     assert!(spots.iter().any(|(_, p)| *p == Planet::Mallice), "{spots:?}");
     assert!(spots.iter().all(|(_, p)| *p != Planet::LockedMallice), "{spots:?}");
     assert_eq!(spots.iter().filter(|(_, p)| *p == Planet::Mallice).count(), 1, "once: {spots:?}");
-    assert!(spots.len() > 1 && spots.last() == Some(&(ti4_engine_core::generated::System::MalliceNexus, Planet::Mallice)), "the Nexus is off the grid and comes last, under the system the planet is printed in: {spots:?}");
+    assert!(spots.len() > 1 && spots.last().is_some_and(|(_, p)| *p == Planet::Mallice), "the Nexus is off the grid and comes last: {spots:?}");
 }
 
-/// Bench stops (6 native games ended on "planet entry in an untouched system \"mallice\""): the open Mallice is offered under the system it is printed in
-/// (`MalliceNexus`), and a commitment to it leaves the entries of the planet in a system the position has touched, so the position can be shown.
+/// Bench stops (6 native games ended on "planet entry in an untouched system \"mallice\""): the open Mallice is offered under the tile of the Nexus on the map
+/// (`MalliceLockedNexus`, `82a|mallice`) and a commitment to it leaves the entries of the planet in the system the planet is printed in (`MalliceNexus`), a
+/// system the position has touched, so the position can be shown.
 #[test]
 fn dannel_of_the_tenth_on_the_open_mallice_leaves_its_entries_in_the_planets_own_touched_system() {
     use ti4_engine_core::generated::{Leader, System};
@@ -1876,8 +1877,8 @@ fn dannel_of_the_tenth_on_the_open_mallice_leaves_its_entries_in_the_planets_own
     let e = env_r(&k);
     let first = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::DannelOfTheTenth)))).expect("the hero is native");
     assert!(matches!(first.0, Live::Asks(_)));
-    let mallice = |o: &Opt| matches!(o, Opt::Leaders(ti4_engine_core::choice::leaders::Opt::YinSpot(sys, Planet::Mallice)) if *sys == System::MalliceNexus);
-    let (live, _) = pick(&mut s, &e, mallice).expect("the open Mallice is offered under the system it is printed in");
+    let mallice = |o: &Opt| matches!(o, Opt::Leaders(ti4_engine_core::choice::leaders::Opt::YinSpot(sys, Planet::Mallice)) if *sys == System::MalliceLockedNexus);
+    let (live, _) = pick(&mut s, &e, mallice).expect("the open Mallice is offered under the tile of the Nexus");
     first_options(&mut s, &e, live, 40);
     assert_eq!(status(&s, 0, Leader::DannelOfTheTenth), Some(LeaderStatus::Purged), "the card resolved");
     assert_eq!(s.board().planet(Planet::Mallice).control, Some(Seat(0)), "the empty planet is taken");
