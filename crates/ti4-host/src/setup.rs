@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
+use ti4_engine::core_setup::GameStart;
 use ti4_engine::seating;
 use ti4_model::id::{FactionId, PlayerId};
 use ti4_model::state::GameState;
@@ -594,6 +595,71 @@ fn create_with(
         crate::disabled::check_playable(&state).map_err(|e| e.to_string())?;
     }
     Ok((state, galaxy))
+}
+
+/// The game that the table starts, built straight into the typed core (`ti4-engine-core-setup`): the same table as [`create`] makes of
+/// it, field by field (`tests/setup_native_parity.rs` of the bridge), as a [`GameStart`] that
+/// [`ti4_engine::game::Game::from_start`] plays without a string position and without a load. The opening state a server stores is
+/// [`GameStart::opening_state`], the raw board [`GameStart::raw_galaxy`].
+///
+/// `Ok(None)`: this table starts from a scenario or a start preset, which are hand edits of a finished string position (dev and test
+/// tables); [`create`] makes those.
+///
+/// # Errors
+/// As [`create`].
+pub fn create_start(
+    content: &ContentStore,
+    setup: &TableSetup,
+    players: &[PlayerId],
+    drawn: &Drawn,
+) -> Result<Option<GameStart>, String> {
+    if setup.thunders_edge {
+        return Err(crate::disabled::Disabled::ThundersEdge.to_string());
+    }
+    ti4_engine::core_sync::guard::ids_supported(players)?;
+    if players.len() != setup.player_count {
+        return Err("one player id per seat is required".to_owned());
+    }
+    if setup.scenario()?.is_some() || setup.start_preset().is_some() {
+        return Ok(None);
+    }
+    ti4_engine::core_sync::guard::factions_known(drawn.factions.iter().map(FactionId::as_str))?;
+    if drawn.factions.len() != players.len() {
+        return Err("one faction per seat is required".to_owned());
+    }
+    if let Some(faction) = drawn
+        .factions
+        .iter()
+        .find(|faction| crate::disabled::is_disabled_faction(faction.as_str()))
+    {
+        return Err(crate::disabled::Disabled::Faction(faction.as_str().to_owned()).to_string());
+    }
+    let seed = setup.game_seed();
+    let assignments: BTreeMap<PlayerId, FactionId> = players
+        .iter()
+        .cloned()
+        .zip(drawn.factions.iter().cloned())
+        .collect();
+    let galaxy = crate::map::build_galaxy(content, players, seed, setup.map.stored().as_deref(), &assignments)?;
+    let spec = ti4_engine::core_setup::TableSpec {
+        content,
+        players,
+        factions: &drawn.factions,
+        seed,
+        card_set: Some(&setup.strategy_cards),
+        deck_sources: ti4_model::content_types::POK,
+        speaker: match setup.speaker_order {
+            SpeakerOrder::Random => ti4_engine::core_setup::SpeakerChoice::Seeded,
+            SpeakerOrder::Seat => ti4_engine::core_setup::SpeakerChoice::Seat(0),
+        },
+        starting_tech: setup.starting_tech,
+        rules_version: None,
+    };
+    let start = GameStart::new(&spec, galaxy)?;
+    // The one rule of what the product plays, on the finished table.
+    let opening = start.opening_state().map_err(|e| e.to_string())?;
+    crate::disabled::check_playable(&opening).map_err(|e| e.to_string())?;
+    Ok(Some(start))
 }
 
 /// The game of a test table: `players` in their order, the first seat opens, the Prophecy of Kings

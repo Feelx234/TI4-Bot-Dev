@@ -212,7 +212,13 @@ pub mod transit {
 pub mod native;
 // THE SWAP: the public paths of the wire types, `Observed` and the `Game` are the thin crate's. Everything that speaks `Choice`, `Table`, `Decider`
 // or `Game` now speaks these; the legacy modules of the glob that still name the legacy types are listed in docs/D28D_RESUME.md.
+/// The native setup (`ti4-engine-core-setup`): a table becomes the typed core position directly (docs/SETUP_NATIVE_DESIGN.md).
+pub mod core_setup {
+    pub use crate::native::{GameStart, StartParts};
+    pub use ti4_engine_core_setup::{CoreStart, SetupError, SpeakerChoice, TableSpec, start_game};
+}
 pub mod game {
+    pub use crate::native::GameStart;
     pub use crate::kinds::game::{CONTINUE_ACTION_ID, CONTINUE_ACTION_KIND, END_TURN_ID, END_TURN_KIND, SECONDARY_PREVIEW_COMPLETE, TACTICAL_ACTION_ID};
     pub use crate::native::{Game, GameError, GameSnapshot, RunError, StepResult};
 }

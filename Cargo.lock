@@ -4116,6 +4116,7 @@ dependencies = [
  "ti4-content",
  "ti4-engine-core",
  "ti4-engine-core-factions",
+ "ti4-engine-core-setup",
  "ti4-engine-legacy",
  "ti4-host",
  "ti4-model",
@@ -4148,6 +4149,7 @@ dependencies = [
  "ti4-content",
  "ti4-engine",
  "ti4-engine-core",
+ "ti4-engine-core-setup",
  "ti4-engine-legacy",
  "ti4-host",
  "ti4-model",
@@ -4165,6 +4167,20 @@ name = "ti4-engine-core-factions"
 version = "0.1.0"
 dependencies = [
  "ti4-engine-core",
+]
+
+[[package]]
+name = "ti4-engine-core-setup"
+version = "0.1.0"
+dependencies = [
+ "rand 0.9.5",
+ "rand_chacha 0.9.0",
+ "sha2",
+ "thiserror 2.0.20",
+ "ti4-content",
+ "ti4-engine-core",
+ "ti4-engine-core-factions",
+ "ti4-model",
 ]
 
 [[package]]

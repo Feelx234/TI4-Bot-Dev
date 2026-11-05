@@ -1460,11 +1460,26 @@ pub fn spawn_session_worker(
             game.install_table(table);
             game
         } else {
-            let mut game = Game::with_table(config.state, ContentStore::embedded(), table);
-            if let Some(galaxy) = config.galaxy {
-                game = game.with_galaxy(galaxy);
+            match config.start {
+                // A new game of a plain table: the core the native setup built is the position (no string state, no load).
+                Some(start) if config.prior_decisions.is_empty() => {
+                    match Game::from_start_with_table(start, ContentStore::embedded(), table) {
+                        Ok(game) => game,
+                        Err(error) => {
+                            let mut lock = worker_shared.lock().expect("shared lock");
+                            lock.fail_unless_stopped(format!("the game cannot start: {error}"));
+                            return;
+                        }
+                    }
+                }
+                _ => {
+                    let mut game = Game::with_table(config.state, ContentStore::embedded(), table);
+                    if let Some(galaxy) = config.galaxy {
+                        game = game.with_galaxy(galaxy);
+                    }
+                    game
+                }
             }
-            game
         };
         if let Some(force) = &rng_force {
             force.attach(&mut game);

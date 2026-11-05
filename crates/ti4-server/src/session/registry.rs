@@ -3256,8 +3256,21 @@ impl GameRegistry {
         // A start preset (a tool of this server) seats its own factions in the order of the join
         // and sets its cases on the opening state; `ti4_host::setup` does both.
         let drawn = ti4_host::setup::draw(&setup, &chosen).map_err(LobbyError::Map)?;
-        let (initial_state, galaxy) =
-            ti4_host::setup::create(content, &setup, &players, &drawn).map_err(LobbyError::Map)?;
+        // A plain table is set up straight into the typed core, which the worker plays without loading a string position; the string
+        // state of it is the opening the init record stores. A scenario or a start preset is made on a string position.
+        let (initial_state, galaxy, start) =
+            match ti4_host::setup::create_start(content, &setup, &players, &drawn).map_err(LobbyError::Map)? {
+                Some(start) => (
+                    start.opening_state().map_err(|e| LobbyError::Map(e.to_string()))?,
+                    start.raw_galaxy().clone(),
+                    Some(start),
+                ),
+                None => {
+                    let (state, galaxy) = ti4_host::setup::create(content, &setup, &players, &drawn)
+                        .map_err(LobbyError::Map)?;
+                    (state, galaxy, None)
+                }
+            };
         let map_tiles = ti4_host::map::build_board_tiles(content, &galaxy);
         // A table that starts from a scenario plays its opening (`ti4_host::view::scenario`).
         let opening = setup
@@ -3273,6 +3286,7 @@ impl GameRegistry {
         // A table with no value waits as the process says, as before.
         config.random_bot_delay_ms = lobby.bot_delay_ms;
         config.opening = opening;
+        config.start = start;
         config.seats = players
             .iter()
             .map(|p| {
@@ -4228,6 +4242,7 @@ fn running_lobby_from_session(session: &GameSession) -> LobbyState {
         random_bot_delay_ms: None,
         resume: None,
         opening: None,
+        start: None,
     })
 }
 
@@ -4348,5 +4363,6 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
         random_bot_delay_ms: None,
         resume: None,
         opening: None,
+        start: None,
     })
 }

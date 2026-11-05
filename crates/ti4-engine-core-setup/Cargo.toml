@@ -1,0 +1,21 @@
+[package]
+name = "ti4-engine-core-setup"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Layer L7: game setup that builds the typed core position (CoreState) directly (docs/SETUP_NATIVE_DESIGN.md). No string GameState, no Codec::load, no legacy crate."
+
+[dependencies]
+ti4-model.workspace = true
+ti4-content.workspace = true
+ti4-engine-core.workspace = true
+ti4-engine-core-factions.workspace = true
+# Default features off, as the thin crate and the core have them: no OS entropy (the wasm build has no backend for it).
+rand = { version = "0.9", default-features = false }
+rand_chacha.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

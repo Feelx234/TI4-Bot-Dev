@@ -373,13 +373,8 @@ impl TableRequest {
         let content = ContentStore::embedded();
         let drawn = table.drawn()?;
         let players = table.joined();
-        let (state, galaxy) = setup::create(content, &table.setup, &players, &drawn)?;
-        let opening = table
-            .setup
-            .scenario()?
-            .and_then(|scenario| ti4_host::view::scenario::opening(scenario, &state, &galaxy));
+        let (game, galaxy, opening) = started(content, &table.setup, &players, &drawn)?;
         let seed = table.setup.game_seed();
-        let game = Game::with_seeded_random(state, content, seed).with_galaxy(galaxy.clone());
         Ok(Built {
             game,
             galaxy: Some(galaxy),
@@ -399,6 +394,27 @@ impl TableRequest {
             opening,
         })
     }
+}
+
+/// The game of a table that is set up, with the board the page draws and the opening of a scenario: a plain table is set up straight
+/// into the typed core (`ti4-engine-core-setup`: no string position, no load), a scenario or a start preset by the string setup.
+fn started(
+    content: &'static ContentStore,
+    setup: &TableSetup,
+    players: &[PlayerId],
+    drawn: &setup::Drawn,
+) -> Result<(Game<'static>, Galaxy, Option<ti4_host::view::scenario::Opening>), String> {
+    if let Some(start) = setup::create_start(content, setup, players, drawn)? {
+        let galaxy = start.raw_galaxy().clone();
+        let game = Game::from_start(start, content).map_err(|e| e.to_string())?;
+        return Ok((game, galaxy, None));
+    }
+    let (state, galaxy) = setup::create(content, setup, players, drawn)?;
+    let opening = setup
+        .scenario()?
+        .and_then(|scenario| ti4_host::view::scenario::opening(scenario, &state, &galaxy));
+    let game = Game::with_seeded_random(state, content, setup.game_seed()).with_galaxy(galaxy.clone());
+    Ok((game, galaxy, opening))
 }
 
 /// A game of a fixed setup: a seeded game on the recommended map for its count, or a scenario
@@ -640,17 +656,12 @@ impl Setup {
             .collect();
         let joined: Vec<PlayerId> = SEATS[..players].iter().map(|s| PlayerId::new(*s)).collect();
         let drawn = setup::draw(&table, &chosen)?;
-        let (state, galaxy) = setup::create(content, &table, &joined, &drawn)?;
-        let opening = table
-            .scenario()?
-            .and_then(|scenario| ti4_host::view::scenario::opening(scenario, &state, &galaxy));
+        let (game, galaxy, opening) = started(content, &table, &joined, &drawn)?;
         let rule_seats = if setup.bots == Some(Bots::Random) {
             0
         } else {
             ((1_u32 << players) - 1) & !(1 << human)
         };
-        let game =
-            Game::with_seeded_random(state, content, table.game_seed()).with_galaxy(galaxy.clone());
         Ok(Built {
             game,
             galaxy: Some(galaxy),
