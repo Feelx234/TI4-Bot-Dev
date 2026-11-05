@@ -120,6 +120,9 @@ at most a small part of it. Two procedure notes: `verify_benches.sh` looks games
 baseline" at 36 (the compare must ignore the version: `tools/engine_profile/bench_rv36/`); and the string recorder accepts `--rules-version 36` and plays it exactly as 35 (hashes identical).
 The bench steps stay red until the differences are explained or ruled by-design by the user.
 
+**UPDATE (core-bench-stops, 2026-11-05): the 61 native stops are fixed** (`docs/BENCH_STOPS_RESUME.md`): 0 `engine_error` in 6 x 200 games, the decision streams of the games that already worked unchanged. The native
+re-recording of the six baselines is prepared in a copy (`tools/engine_profile/bench_rv36/prepare_native_record.sh`), not adopted. The S1 order explains an early part of the divergence from the string, not all of it (same file).
+
 ## 5. Run A: everything but the ratchet
 
 ```sh

@@ -482,10 +482,12 @@ fn staged_destructions_and_cancellations_and_duranium_armor_and_devotion_are_bai
     e.devotion = true;
     let mut fight = Fight::new(base(), e, 3);
     assert_eq!(fight.settle(Policy::First), Some(Stop::Over));
-    // Destructions waiting for their announcement: the flow stops at a transition.
+    // Destructions waiting for their announcement: the flow goes on with them pending (the string leaves them pending across the windows of a round) and
+    // they are announced at the end of the round (it was a bail of the non-live machine until the bench stops lane).
     let mut fight = Fight::new(base(), env(), 3);
     fight.state.transient_mut().combat.pending_destructions.push(ti4_engine_core::state::PendingDestruction { system: sys(), owner: Seat(1), unit: Unit::CruiserI, reason: Code(1), during_space_combat: true });
-    assert_eq!(fight.settle(Policy::First), Some(Stop::Bailed(Bail::Unported)));
+    assert_eq!(fight.settle(Policy::First), Some(Stop::Over));
+    assert!(fight.state.transient().combat.pending_destructions.is_empty(), "announced at the end of a round");
     // Hits a card cancelled this round and a neutral side: also the string's.
     let mut e = env();
     e.duranium = [true, true];
