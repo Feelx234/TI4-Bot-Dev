@@ -1281,7 +1281,8 @@ mod tests {
             crate::fixtures::put(&mut state, &origin, "dreadnought", &a(), 2);
             crate::fixtures::put(&mut state, &destination, "dreadnought", &b(), 2);
             let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual).with(Area::Driver, Backend::Dual);
-            let done = with_mask(mask, || use_hero_seeded(&mut state, &hub, &[], seed));
+            // (The composed machine is off by default in the unit tests; the golden game runs with it.)
+            let done = with_mask(mask, || crate::dual_window::with_composed(true, || use_hero_seeded(&mut state, &hub, &[], seed)));
             assert_eq!(done, Ok(Some(true)), "seed {seed}");
         }
         let r = report();

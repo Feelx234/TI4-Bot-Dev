@@ -69,7 +69,18 @@ fn cabals_vortex_is_listed_once_by_the_typed_menu() {
     state.player_mut(&a).unwrap().technologies.insert(TechnologyId::new("vtx"));
     crate::fixtures::put(&mut state, &dock_at, "spacedock", &a, 1);
     crate::fixtures::put(&mut state, &target, "cruiser", &b, 1);
-    let table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(["pass"])));
+    /// Passes, and remembers the ids of the first menu it is shown.
+    struct Passes(std::rc::Rc<std::cell::RefCell<Vec<String>>>);
+    impl crate::choice::Decider for Passes {
+        fn choose(&mut self, c: &crate::choice::Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+            if self.0.borrow().is_empty() {
+                *self.0.borrow_mut() = c.options.iter().map(|o| o.id.clone()).collect();
+            }
+            c.options.first().cloned().ok_or_else(|| crate::choice::IllegalChoice::NoOptions { player: c.player.clone(), prompt: c.prompt.clone() })
+        }
+    }
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let table = crate::choice::Table::with_default(Box::new(Passes(seen.clone())));
     with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
         let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(hub.galaxy.clone());
         let r = game.step();
@@ -77,6 +88,8 @@ fn cabals_vortex_is_listed_once_by_the_typed_menu() {
     });
     let r = report();
     let _ = take_report();
+    let menu = seen.borrow().clone();
+    assert_eq!(menu.iter().filter(|id| id.as_str() == "faction|cabal|vortex").count(), 1, "the string lists Vortex once: {menu:?}");
     assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
     assert!(r.windows.get("turn::menu.choice").is_some_and(|w| w.compared >= 1), "the action menu was compared: {:?}", r.windows);
 }
