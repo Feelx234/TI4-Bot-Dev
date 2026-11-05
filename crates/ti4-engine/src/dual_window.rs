@@ -103,6 +103,9 @@ pub struct Recording {
     pub eligible: Vec<String>,
     /// The dice abilities rolled inside the window: `(hits_on, faces)` of each roll, in order.
     pub dice: Vec<(Option<u32>, Vec<u32>)>,
+    /// Where each of those rolls sits in the game's dice history (`Dice::history`), in the same order: a window that reads the history
+    /// for the dice of its own machine leaves these out (the ability dice are compared on their own, as `nested.ability_dice`).
+    pub dice_at: Vec<usize>,
     /// Something nested happened that no ability explains (a question or an event inside an emission, outside
     /// an effect and outside a window's pick): the core window has no counterpart to follow.
     pub foreign: bool,
@@ -417,14 +420,23 @@ pub fn note_withdraw(player: &str, system: &str, round_seq: u32, destinations: &
 }
 
 /// A roll was made (`Dice::roll`): kept when an ability's effect made it.
-pub fn note_dice(roll: &crate::dice::Roll) {
+pub fn note_dice(roll: &crate::dice::Roll, at: usize) {
     REC.with(|r| {
         if let Some(rec) = r.borrow_mut().as_mut() {
             if rec.effect_depth > 0 {
                 rec.dice.push((roll.hits_on, roll.faces.clone()));
+                rec.dice_at.push(at);
             }
         }
     });
+}
+
+/// The places in the game's dice history of the rolls an ability's effect made while the running window was recording (`Recording::dice_at`).
+/// A window whose value lists the dice of its own machine skips them: the core's machine does not roll them, the core's ability does, and
+/// the two are compared as `nested.ability_dice`.
+#[must_use]
+pub fn effect_roll_places() -> Vec<usize> {
+    REC.with(|r| r.borrow().as_ref().map(|rec| rec.dice_at.clone()).unwrap_or_default())
 }
 
 /// The first emission of the recording reads the resolver's configuration (`make` is called once).
