@@ -1,5 +1,10 @@
 # Heavy run plan (prepared 2026-11-04 by lane core-heavy-prep; brought to RULES_VERSION 36 by core-integration-24)
 
+**Updated for `core-integration-26` (2026-11-05; see `docs/INTEGRATION26.md`).** Lint base: the tag `heavy-base-int26` (the tip of `core-integration-26`; `web/` and `state.rs` equal the int-25 tag, checked). The soak
+lane `old` (rules versions 0..34, refused by the product) is out of the default plan (`soak_corpus.py lanes`; `lanes --all`, `LANES=old` and `gen old` still make it). Run A (`/root/end-of-d1-20261105`) failed `dual-lent`,
+`zero-bail`, `soak` and `d4gate`; the fixes are merged in int-26 (`DUALLENT_FIX_RESUME.md`, `LENT_GAPS_RESUME.md`, `ZEROBAIL_RESUME.md`), and the re-run ("run A, round 2") is started per section 12.3 with the out dir `/root/end-of-d1-<date>-r2`. Everything below
+that still says int-25 is the history of the first run.
+
 **Updated for `core-integration-25` (rules version 36; bench baselines native, golden dual clean, lint base `heavy-base-int25`; see `docs/INTEGRATION25.md`).** Earlier text for `core-integration-24` follows. Candidate: the tip of branch `core-integration-24` (= `core-rv36` + `web-feedback-ui-1` + this
 plan; see `docs/INTEGRATION24.md`). What changed against the first version of this file: the version is 36 (the core plays 36 only; `MIN_SUPPORTED_RULES_VERSION`
 follows), the golden set `v36-std` and the ladder game 36 are recorded (v35-std, te and templates are frozen), the `lint` base is the new tag
@@ -62,7 +67,7 @@ TZ=Europe/Berlin date; df -h /root | tail -1                      # >= 60 GB fre
 for f in /root/.ti4-heavy.lock /root/.ti4-heavy.lock.2; do flock -n $f true && echo free $f || echo BUSY $f; done
 uptime; ps aux | grep -E 'cargo|rustc|perf_ab' | grep -v grep     # nothing heavy running
 tools/engine_core/end_of_d1.sh --dry-run                          # 25 steps
-git rev-parse heavy-base-int25 && git diff --stat heavy-base-int25 -- web/ crates/ti4-model/src/state.rs   # empty
+git rev-parse heavy-base-int26 && git diff --stat heavy-base-int26 -- web/ crates/ti4-model/src/state.rs   # empty
 ```
 
 ## 4. Bench baselines for rules version 36 (DONE in core-integration-25: native baselines are committed)
@@ -211,15 +216,20 @@ scratch under `$OUT/mut`: delete it and rerun the module.
 ### 12.3 What is run (the coordinator, on the go)
 
 ```sh
-cd /root/TI4-Bot-Dev/.claude/worktrees/core-integration-25                     # clean tree at the tip
-git rev-parse heavy-base-int25 && git diff --stat heavy-base-int25 -- web/ crates/ti4-model/src/state.rs   # tag exists, diff empty
+cd /root/TI4-Bot-Dev/.claude/worktrees/core-integration-26                     # clean tree at the tip
+git rev-parse heavy-base-int26 && git diff --stat heavy-base-int26 -- web/ crates/ti4-model/src/state.rs   # tag exists, diff empty
 TZ=Europe/Berlin date; df -h /root | tail -1                                  # not within the hour before 20:30; >= 60 GB free
 for f in /root/.ti4-heavy.lock /root/.ti4-heavy.lock.2; do flock -n $f true && echo free $f || echo BUSY $f; done
-export CARGO_TARGET_DIR=/root/deploytmp/eod CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0
-OUT=/root/end-of-d1-$(date -u +%Y%m%d)
+export CARGO_TARGET_DIR=/root/deploytmp/eod26 CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0   # a fresh dir
+OUT=/root/end-of-d1-$(date -u +%Y%m%d)-r2
 ZERO_BAIL=enforce SHARDS=3 WORKERS=6 GAMES=20 SOAK_GAMES=40 \
-  nohup tools/engine_core/end_of_d1.sh --skip ratchet --out $OUT > $OUT.nohup 2>&1 &     # via the harness with run_in_background
+  setsid nohup tools/engine_core/end_of_d1.sh --skip ratchet --out $OUT > $OUT.nohup 2>&1 &     # detached
 ```
 
 Then monitor with section 9. Run B (ratchet) per section 6 after A is understood. Delete `/root/deploytmp/eod` and the recorder dirs at the end (section 11).
 
+
+### 12.4 Round 2 (int-26)
+
+Same command as 12.3 with the tag `heavy-base-int26`, target `/root/deploytmp/eod26`, out dir `/root/end-of-d1-<date>-r2`. Steps to watch (failed in run A): `dual-lent`, `zero-bail`, `soak`, `d4gate`. The
+soak plan has no `old` lane any more (12.1 of the first run is history). The ratchet (run B) is not part of this run. Expected duration: run A took 3.5 h.
