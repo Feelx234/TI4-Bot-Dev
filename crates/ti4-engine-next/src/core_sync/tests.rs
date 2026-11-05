@@ -286,6 +286,22 @@ mod text_tables {
         assert_eq!(e.what, "mark without a text");
     }
 
+    /// Bench stops (15 native games ended on `Marks: mark without a text "NomadTcsNegotiating(..)"`): the mark the Temporal Command Suite's transaction writes
+    /// while it runs has the value the core's effect gives it, and that value has a text, the string's `true`.
+    #[test]
+    fn the_mark_of_a_temporal_command_suite_transaction_has_a_text() {
+        use ti4_engine_core::keys::MarkKey;
+        use ti4_engine_core::ids::Seat;
+        let gs = game();
+        let mut cx = Ctx::of(&gs).unwrap();
+        let mut core = Codec::load(&mut cx, &gs, Sources::default(), SliceSet::of(&[Slice::Marks])).unwrap();
+        core.marks_mut().tail.edit().insert(MarkKey::NomadTcsNegotiating(Seat(0), Seat(1)), ti4_engine_core_factions::ce_movement::nomad::query::NEGOTIATING);
+        let mut back = gs.clone();
+        Codec::store(&cx, &core, &mut back, SliceSet::of(&[Slice::Marks])).expect("the position can be shown while the window runs");
+        let shown = back.faction_marks.iter().find(|(k, _)| k.starts_with("nomad:tcs:negotiating:"));
+        assert_eq!(shown.map(|(_, v)| v.as_str()), Some("true"), "{:?}", back.faction_marks);
+    }
+
     #[test]
     fn clones_of_a_state_resolve_their_own_texts_and_the_shared_base() {
         let gs = with_promises(&["shared"]);

@@ -251,15 +251,31 @@ fn announce_destructions(host: &mut RulesHost<'_>, resolver: &mut Resolver) -> R
     Ok(())
 }
 
+/// The unit that just sustained, as `combat::remember_sustain_target` wrote it (`combat:sustain_target`): the planet it stands on (none: the space area) and
+/// the unit with its damage and galvanize token. Only a record of this system, this owner and this type, damaged, names a target (the string's filter).
+fn sustain_target(host: &RulesHost<'_>, system: System, victim: Seat, unit: ti4_engine_core::generated::Unit) -> Option<(Option<ti4_engine_core::generated::Planet>, ti4_engine_core::state::Piece)> {
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    let Some(MarkVal::Rec(fields)) = host.state.marks().tail.get(&MarkKey::CombatSustainTarget()) else { return None };
+    let [MarkVal::Atom(Atom::System(at)), MarkVal::Atom(planet), MarkVal::Atom(Atom::Seat(owner)), MarkVal::Atom(Atom::Unit(kind)), MarkVal::Atom(Atom::Num(damaged)), MarkVal::Atom(Atom::Num(galvanized))] = fields.as_slice() else { return None };
+    if *at != system || *owner != victim || *kind != unit || *damaged == 0 {
+        return None;
+    }
+    let planet = match planet {
+        Atom::Planet(planet) => Some(*planet),
+        _ => None,
+    };
+    Some((planet, ti4_engine_core::state::Piece::new(unit, victim).with_sustained(true).with_galvanized(*galvanized != 0)))
+}
+
 /// `action_cards::direct_hit`: "after another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units
 /// or abilities: destroy that ship." The sustained ship leaves the board and its destruction is staged for the
 /// announcement that follows the discard.
 ///
-/// Bails (`Unknown`, the string answers): the exact ship is the one the sustain handoff names; the core derives it as the
-/// first sustained ship of the type, which is the same ship unless a planet-standing combatant of the victim could be it or
-/// the sustained ships of the type differ in their galvanize token.
+/// The ship is the one the sustain handoff names (`combat:sustain_target`: the string's `exact`, which may stand on a planet: a Naaz Eidolon Maximum, an
+/// Alastor ground force) and, when the handoff names none, the first sustained ship of the type among the victim's combatants (`ships_of`, planet-standing
+/// ones included), removed from where it stands as `combat::remove_combat_ship` does.
 #[allow(clippy::unnecessary_wraps)]
-fn direct_hit(host: &mut RulesHost<'_>, _: &mut Resolver, who: Seat, _: ActionCard) -> Result<(), TimingError> {
+fn direct_hit(host: &mut RulesHost<'_>, resolver: &mut Resolver, who: Seat, _: ActionCard) -> Result<(), TimingError> {
     let Some((system, victim, unit, producer, during_space_combat)) = host.state.transient().combat.last_sustain else { return Ok(()) };
     if producer != who {
         return Ok(());
@@ -270,20 +286,16 @@ fn direct_hit(host: &mut RulesHost<'_>, _: &mut Resolver, who: Seat, _: ActionCa
     }
     if host.table.facts.staging {
         let rd = Rd::new(&*host.state, host.kernel).with_blanked(reach::blanked(&*host.state));
-        let ships = combat::ships_of(rd, victim, system);
-        let sustained: Vec<_> = ships.iter().filter(|p| p.kind() == unit && p.sustained()).copied().collect();
-        let Some(&first) = sustained.first() else { return Ok(()) };
-        let in_space = host.state.board().sys(system).units.iter().filter(|p| **p == first).count();
-        if ships.len() != host.state.board().sys(system).units.iter().filter(|p| p.owner() == victim && rd.is_ship(p.kind())).count()
-            || sustained.iter().any(|p| *p != first)
-            || in_space == 0
-        {
-            host.tape.unknown.set(Some(Unknown::MissingFact));
-            return Ok(());
-        }
-        let units = &mut host.state.board_mut().sys_mut(system).units;
-        if let Some(at) = units.iter().position(|p| *p == first) {
+        let Some(first) = combat::ships_of(rd, victim, system).into_iter().find(|p| p.kind() == unit && p.sustained()) else { return Ok(()) };
+        if let Some((planet, piece)) = sustain_target(host, system, victim, unit) {
+            let units = match planet {
+                Some(planet) => &mut host.state.board_mut().planet_mut(planet).units,
+                None => &mut host.state.board_mut().sys_mut(system).units,
+            };
+            let Some(at) = units.iter().position(|p| *p == piece) else { return Ok(()) };
             units.remove(at);
+        } else {
+            with_sx(host, resolver, |sx| combat::assign::remove_ship(sx, system, victim, first));
         }
         // The handoff of the sustained ship is spent with it.
         host.state.marks_mut().tail.edit().remove(&ti4_engine_core::keys::MarkKey::CombatSustainTarget());
@@ -462,12 +474,41 @@ mod tests {
         assert_eq!(s.transient().combat.pending_destructions.len(), 1);
     }
 
+    /// Ships of one type that differ by their galvanize token are no ambiguity: with no handoff the string removes the first sustained ship of the type
+    /// among the combatants, and so does the core (it was a `MissingFact` bail).
     #[test]
-    fn bail_direct_hit_on_ships_that_differ_by_their_galvanize_token() {
-        let (mut s, system, _) = sustained_dreadnought_fight();
-        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::DreadnoughtI, Seat(1)).with_sustained(true).with_galvanized(true));
-        assert_eq!(run(&mut s, &registered(), ActionCard::DirectHit1, Seat(0), true), Ok(Some(Unknown::MissingFact)));
-        assert_eq!(s.board().sys(system).units.len(), 3, "nothing was removed");
+    fn direct_hit_removes_the_first_sustained_ship_when_the_sustained_ships_differ_by_their_galvanize_token() {
+        let (mut s, system, hurt) = sustained_dreadnought_fight();
+        let galvanized = Piece::new(Unit::DreadnoughtI, Seat(1)).with_sustained(true).with_galvanized(true);
+        s.board_mut().sys_mut(system).units.push(galvanized);
+        assert_eq!(run(&mut s, &registered(), ActionCard::DirectHit1, Seat(0), true), Ok(None));
+        assert!(!s.board().sys(system).units.contains(&hurt), "the first sustained ship of the type is gone");
+        assert!(s.board().sys(system).units.contains(&galvanized), "the other stays");
+        assert_eq!(s.transient().combat.pending_destructions.len(), 1);
+    }
+
+    /// Bench stops (`MissingFact` of a Direct Hit, 2 native games): the ship that sustained stands on a planet (a Naaz Eidolon Maximum fights the space combat from
+    /// there). The sustain handoff names the exact unit and the planet it stands on, and that unit leaves its planet; the ships in space stay.
+    #[test]
+    fn direct_hit_removes_the_ship_named_by_the_handoff_from_the_planet_it_stands_on() {
+        use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+        let (mut s, _) = table(&[Faction::TheFederationOfSol, Faction::TheNaazRokhaAlliance]);
+        let system = System::ALL[0];
+        let planet = *ti4_engine_core::query::board::planets_of(&s, system).collect::<Vec<_>>().first().unwrap_or(&ti4_engine_core::generated::Planet::ALL[0]);
+        let maximum = Piece::new(Unit::EidolonMaximum, Seat(1)).with_sustained(true);
+        let cruiser = Piece::new(Unit::CruiserI, Seat(1));
+        s.board_mut().sys_mut(system).units.push(cruiser);
+        s.board_mut().planet_mut(planet).units.push(maximum);
+        s.transient_mut().combat.last_sustain = Some((system, Seat(1), Unit::EidolonMaximum, Seat(0), true));
+        let num = |b: u32| MarkVal::Atom(Atom::Num(b));
+        let target = MarkVal::Rec(vec![MarkVal::Atom(Atom::System(system)), MarkVal::Atom(Atom::Planet(planet)), MarkVal::Atom(Atom::Seat(Seat(1))), MarkVal::Atom(Atom::Unit(Unit::EidolonMaximum)), num(1), num(0)]);
+        s.marks_mut().tail.edit().insert(MarkKey::CombatSustainTarget(), target);
+        assert_eq!(run(&mut s, &registered(), ActionCard::DirectHit1, Seat(0), true), Ok(None));
+        assert!(s.board().planet(planet).units.is_empty(), "the unit left its planet");
+        assert_eq!(s.board().sys(system).units.as_slice(), &[cruiser], "the ships in space stay");
+        let staged = s.transient().combat.pending_destructions.as_slice().to_vec();
+        assert_eq!((staged.len(), staged[0].unit, staged[0].owner), (1, Unit::EidolonMaximum, Seat(1)));
+        assert!(s.marks().tail.get(&MarkKey::CombatSustainTarget()).is_none(), "the handoff is spent");
     }
 
     #[test]
@@ -535,6 +576,59 @@ mod tests {
         let kinds: Vec<EventKind> = d.emitted.iter().map(|e| e.kind).collect();
         assert_eq!(kinds, [EventKind::ActionCardPlayed, EventKind::ActionCardDiscarded, EventKind::ShipDestroyed], "the loss is announced after the discard, by the window");
         assert!(s.transient().combat.pending_destructions.is_empty());
+    }
+
+    /// Bench stops (7 native games ended on `Unknown::PendingDestructions`): a Direct Hit that destroys the Yin flagship (Van Hauge) announces the removal
+    /// of the card in one pass, as the string's `reactions::announce`; the `SHIP_DESTROYED` windows of that pass stage the destruction of every other ship in
+    /// the system (the flagship takes them with it) and these wait for the next announcement of the enclosing window. The play is not unknown: a table with
+    /// an announcement leaves nothing of the CARD's own unannounced.
+    #[test]
+    fn what_the_announcement_of_a_play_stages_in_turn_waits_for_the_next_announcement() {
+        use ti4_engine_core::choice::reaction::{AbilityId, AbilityKind};
+        use ti4_engine_core::driver::{Driver, Status};
+        use ti4_engine_core::kernel::ability::CardPlay;
+        use ti4_engine_core::rules::action_cards::announce::Announce;
+        use ti4_engine_core::rules::action_cards::{Env, Facts, Placed};
+        use ti4_engine_core::state::Code;
+        fn destroy_the_flagship(host: &mut RulesHost<'_>, _: &mut Resolver, _: Seat, _: ActionCard) -> Result<(), TimingError> {
+            host.state.transient_mut().combat.pending_destructions.push(ti4_engine_core::state::PendingDestruction {
+                system: System::ALL[0],
+                owner: Seat(0),
+                unit: Unit::VanHauge,
+                reason: Code(0),
+                during_space_combat: true,
+            });
+            Ok(())
+        }
+        let env = Env {
+            mahact_held: 0,
+            scope: ti4_engine_core::tables::Scope(u32::MAX),
+            blanked: false,
+            action_card: Code(0),
+            supply_base: Code(0),
+            note_order: |a, b| a.cmp(&b),
+            infantry: Placed::NONE,
+            cruiser: Placed::NONE,
+            fighter: Placed::NONE,
+            facts: Facts::default(),
+        };
+        let (mut s, _) = table(&[Faction::TheYinBrotherhood, Faction::TheEmiratesOfHacan]);
+        let system = System::ALL[0];
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::CruiserI, Seat(1)));
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::FighterI, Seat(1)));
+        let mut t = AbilityTable::default();
+        register_after_play(&mut t);
+        crate::cd_registry::yin::timing::register_abilities(&mut t);
+        t.add_card_play(CardPlay { covers: |c| c == ActionCard::Parley, effect: destroy_the_flagship });
+        let announce = Announce::of(&s, ActionCard::Parley, Seat(1), env, true, true).expect("a registered play");
+        let k = ti4_engine_core::kernel::Kernel::plain();
+        let mut resolver = Resolver::new(&[Seat(0), Seat(1)], Some(Seat(1)));
+        resolver.register(t.registry(&s, &[Seat(0), Seat(1)], &mut |spec, _, _| AbilityId { kind: AbilityKind::Other, key: Code(spec.slot.0) }));
+        let mut d = Driver::new(announce, resolver, t, 1);
+        assert_eq!(d.run(&mut s, &k).unwrap(), Status::Done);
+        assert_eq!(d.unknown(), None, "the card's own removal was announced; what that announcement staged is the next announcement's");
+        assert_eq!(s.transient().combat.pending_destructions.len(), 2, "the cruiser and the fighter wait: {:?}", s.transient().combat.pending_destructions);
+        assert!(s.board().sys(system).units.is_empty(), "the flagship's ability removed them");
     }
 
     /// Integration of B6d, B12 and W15: ONE owner per card (`docs/INTEGRATION5.md`). A card the action-card area plays nested

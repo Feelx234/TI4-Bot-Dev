@@ -411,7 +411,12 @@ fn hero_fight_types(core: &CoreState) -> Vec<Unit> {
         }
         for index in galaxy.adjacent(origin).iter() {
             let Some(to) = ti4_engine_core::generated::System::ALL.get(index).copied() else { continue };
-            let there: Vec<(ti4_engine_core::ids::Seat, Unit)> = core.board().sys(to).units.iter().filter(|p| ship(p.kind())).map(|p| (p.owner(), p.kind())).collect();
+            let mut there: Vec<(ti4_engine_core::ids::Seat, Unit)> = core.board().sys(to).units.iter().filter(|p| ship(p.kind())).map(|p| (p.owner(), p.kind())).collect();
+            // (The units that stand on the planets of the destination and fight its space combat as ships too: a Naaz Eidolon Maximum, the ground forces a Nekro
+            // Alastor in the space area can choose. They roll in the fight, so the machine names their groups, or it stands at their roller: `CombatUnported`.)
+            for planet in ti4_engine_core::rules::combat::planets_of_sorted(core, to).iter() {
+                there.extend(core.board().planet(*planet).units.iter().filter(|p| fights_as_a_ship(core, to, p.owner(), p.kind())).map(|p| (p.owner(), p.kind())));
+            }
             if there.iter().any(|(owner, _)| *owner != active) {
                 out.extend(mine.iter().copied());
                 out.extend(there.iter().map(|(_, u)| *u));

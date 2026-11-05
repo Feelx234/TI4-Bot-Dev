@@ -1854,7 +1854,40 @@ fn dannel_of_the_tenth_offers_the_unlocked_mallice() {
     assert!(spots.iter().any(|(_, p)| *p == Planet::Mallice), "{spots:?}");
     assert!(spots.iter().all(|(_, p)| *p != Planet::LockedMallice), "{spots:?}");
     assert_eq!(spots.iter().filter(|(_, p)| *p == Planet::Mallice).count(), 1, "once: {spots:?}");
-    assert!(spots.len() > 1 && spots.last().is_some_and(|(_, p)| *p == Planet::Mallice), "the Nexus is off the grid and comes last: {spots:?}");
+    assert!(spots.len() > 1 && spots.last() == Some(&(ti4_engine_core::generated::System::MalliceNexus, Planet::Mallice)), "the Nexus is off the grid and comes last, under the system the planet is printed in: {spots:?}");
+}
+
+/// Bench stops (6 native games ended on "planet entry in an untouched system \"mallice\""): the open Mallice is offered under the system it is printed in
+/// (`MalliceNexus`), and a commitment to it leaves the entries of the planet in a system the position has touched, so the position can be shown.
+#[test]
+fn dannel_of_the_tenth_on_the_open_mallice_leaves_its_entries_in_the_planets_own_touched_system() {
+    use ti4_engine_core::generated::{Leader, System};
+    use ti4_engine_core::state::{LeaderStatus, MetaFlags, SysFlags};
+    let ps = ti4_engine_core_tests::scenario::plain_systems();
+    let system = ps.iter().copied().find(|s| !s.data().planets.is_empty() && !s.data().home_system).expect("a system with a planet");
+    let (mut s, k) = Scenario::new(&[Faction::TheYinBrotherhood, Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan])
+        .phase(Phase::Action)
+        .active(Some(0))
+        .map_from(&[system, System::MalliceLockedNexus])
+        .tokens(0, 3, 3, 2)
+        .build();
+    s.meta_mut().flags.set(MetaFlags::NEXUS_UNLOCKED, true);
+    s.players_mut().edit(0).leaders.status.insert(Leader::DannelOfTheTenth, LeaderStatus::Unlocked);
+    let e = env_r(&k);
+    let first = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::DannelOfTheTenth)))).expect("the hero is native");
+    assert!(matches!(first.0, Live::Asks(_)));
+    let mallice = |o: &Opt| matches!(o, Opt::Leaders(ti4_engine_core::choice::leaders::Opt::YinSpot(sys, Planet::Mallice)) if *sys == System::MalliceNexus);
+    let (live, _) = pick(&mut s, &e, mallice).expect("the open Mallice is offered under the system it is printed in");
+    first_options(&mut s, &e, live, 40);
+    assert_eq!(status(&s, 0, Leader::DannelOfTheTenth), Some(LeaderStatus::Purged), "the card resolved");
+    assert_eq!(s.board().planet(Planet::Mallice).control, Some(Seat(0)), "the empty planet is taken");
+    // Every planet with an entry sits in a system the position has touched (the codec stores a planet under the system it is printed in).
+    for (planet, cell) in s.board().planets() {
+        if cell.control.is_some() || !cell.units.as_slice().is_empty() {
+            let home = cell.placed_in.or(planet.data().system).expect("a system");
+            assert!(s.board().sys(home).flags.has(SysFlags::TOUCHED), "{planet:?} has an entry in {home:?}, which nothing touched");
+        }
+    }
 }
 
 /// Lane L: Mathis Mathinus with the Thunder's Edge Warfare primary was the counted gap `TurnGap::FreeTactical`: the free tactical action begins inside the

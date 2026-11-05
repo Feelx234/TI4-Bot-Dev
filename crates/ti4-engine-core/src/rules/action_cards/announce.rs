@@ -12,7 +12,7 @@
 //! is written against [`Runner`], so there is one place per rule.
 //!
 //! Bails (each answers `Unknown`, the adapter falls back to the string run, one test each in `tests`):
-//! * destructions staged by the played card (Direct Hit): the announcement of the removals is not ported
+//! * destructions staged by the played card (Direct Hit) in a table with no announcement of the removals (`AbilityTable::after_play`)
 //!   (`Unknown::PendingDestructions`);
 //! * a Data Skimmer that could take the discard (`Unknown::DataSkimmer`);
 //! * a card whose effect the core does not play (`Announce::of` is `None`), or a play inside a window whose
@@ -170,8 +170,11 @@ impl Announce {
             self.discard(rt)?;
             // An effect may have staged a destruction (Direct Hit, Courageous to the End): a rules package that registered
             // the announcement of the removals gives them their windows; otherwise it is the string's.
-            rt.after_play()?;
-            if !rt.state().transient().combat.pending_destructions.is_empty() {
+            // The announcement is ONE pass over what the effect staged, as the string's (`reactions::announce`): what the announced
+            // `SHIP_DESTROYED` windows stage in turn (the Yin flagship takes every ship with it) waits for the next announcement of the
+            // enclosing window, the string's too. Only a table with no announcement leaves the effect's own removals unannounced.
+            let announced = rt.after_play()?;
+            if !announced && !rt.state().transient().combat.pending_destructions.is_empty() {
                 rt.unknown(Unknown::PendingDestructions);
             }
             self.played = true;

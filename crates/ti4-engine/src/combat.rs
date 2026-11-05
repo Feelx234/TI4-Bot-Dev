@@ -11233,6 +11233,24 @@ mod tests {
         }
     }
 
+    /// Bench stops (`MissingFact` of a Direct Hit, 2 native games): the ship that sustained stands on a planet (a Naaz Eidolon Maximum joins the space fight from
+    /// its planet, the Nekro Alastor's ground forces likewise). The string removes the exact unit the sustain handoff names from its planet; the core does the
+    /// same (it bailed because the ships of the victim were not all in the space area). Every window of the fight is compared and none bails.
+    #[test]
+    fn direct_hit_on_a_ship_that_stands_on_a_planet_runs_in_the_core_in_lockstep() {
+        let mut hit = 0;
+        for seed in 1..=16_u64 {
+            let (_, _, bails, plays) = cards_fight_with(seed, ["hacan", "naaz"], &["dh1"], &[], false, false, &|s, system| {
+                s.system_mut(system).units.retain(|u| !(u.owner == defender() && u.type_id.as_str() == "dreadnought"));
+                put(s, system, "cruiser", &defender(), 1);
+                crate::fixtures::put_on_planet(s, system, &ti4_model::id::PlanetId::new("mecatol_rex"), "naaz_voltron", &defender(), 1);
+            });
+            assert!(bails.iter().all(|k| !k.contains("(card dh") && !k.contains("a fact the adapter")), "seed {seed}: {bails:?}");
+            hit += usize::from(plays.iter().any(|c| c == "dh1"));
+        }
+        assert!(hit > 0, "a Direct Hit was played");
+    }
+
     /// The first golden run of the card plays found 12 differences: Reflective Shielding stages hits that the sustain window of the
     /// string takes up afterwards. Since package W11 the windows of the use of SUSTAIN DAMAGE take them up too, so the card is no longer
     /// named as a bail and nothing differs (declared in the plain fight of the tests).
