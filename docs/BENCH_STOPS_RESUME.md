@@ -33,14 +33,20 @@ legacy lockstep suites for combat, Mahact, dual windows, cards, trade and turns 
 
 * Native verify of the six benches with the final binary: `/root/deploytmp/rv36/ver-stops2/` (`bench*.json`, `*.line`); 0 `engine_error`, 6 x 200 victories; compare with the
   string recording (`base35/`) is meaningless for identity (see the S1 section), compare with the old native output: `unchanged_streams.py ver36-out ver-stops2` -> `changed 0` x6.
-* Quick native fingerprint and the test suites: `/root/deploytmp/rv36/finaltests.log` (native_play --quick, core-factions lib, core-tests, ti4-engine lib, a filtered run of the ti4-engine-legacy lib), results in the section "Final test run" below.
+* Quick native fingerprint: `native_play --quick` = sol 4p seed 1, 1165 steps, fingerprint **538dc68f23dddcc9**, ZERO GAP (unchanged).
+* Test suites (`lockstep` profile, log `/root/deploytmp/rv36/finaltests.log`): `ti4-engine-core-factions` lib 159 passed; `ti4-engine` (next) lib 365 passed; `ti4-engine-legacy` lib filtered to
+  combat / invasion_live / mahact / dual_window / cards / turn_live / trade_live / core_sync / yin / nomad: 1 303 passed; `ti4-engine-core-tests` all binaries: 2 016 passed, 1 failed
+  (`state_basics::a_state_with_a_slice_missing_refuses_to_read_it_in_debug`: a `debug_assertions` test, fails in the optimised `lockstep` profile, not touched by this lane). One existing test changed:
+  `combat_machine::staged_destructions_and_cancellations_...` asserted the old bail of the non-live machine at pending destructions; it now asserts the fight goes on and announces them at the end of the round.
+  No heavy gate (Z-gate, golden dual, mutation ratchet) was run, as briefed; the dual-lockstep suites above are the string comparison.
 * Red check: the fixes were reverted in a scratch worktree and the new tests failed (DH planet, DH galvanize, announcement, mallice with the first version of the test, combat_fight, nomad mark, valkyrie, Alastor texts; the many-kinds test fails on `unit_codes.len() > MAX_TYPES` because the old code returns empty texts there).
 * Debugging aid used and removed: an env-triggered note at each `Unknown` / machine bail (not in the tree).
 
 ## Re-recording the baselines (prepared, not done)
 
 `tools/engine_profile/bench_rv36/prepare_native_record.sh NATIVE_SELFPLAY OUTDIR` copies `tools/rulebot` to `OUTDIR`, records the six baselines there natively at 36 and verifies them with the
-same binary (must print `200 identical, 0 different` x6, which also proves determinism). Run for this branch: `OUTDIR=/root/deploytmp/rv36/native36-rb` (log `prepare.log`; see "Prepared recording" below for the result).
+same binary (must print `200 identical, 0 different` x6, which also proves determinism). Run for this branch with the final binary: `OUTDIR=/root/deploytmp/rv36/native36-rb` (log `/root/deploytmp/rv36/prepare.log`): recorded 6 x 200 at 36, verified **200 identical, 0 different x6**; the recording's hashes
+are also equal to the hashes of the independent verify run `ver-stops2` (1 200 of 1 200), i.e. the native engine is deterministic across worker counts. Cost: ~15 min recording + ~15 min verify at 6 workers (cpu 1 800 s for `bench`, `bench-v4`, `bench-v5`; 570 s for v1-v3).
 To adopt it, in ONE commit (the user decides): `cp native36-rb/baseline*.json native36-rb/golden*.json tools/rulebot/ && git add tools/rulebot && git commit`. The committed `golden*.json` carry rules versions 23/18/11; the native
 engine refuses them ("rules version 23 is not supported (the core plays 36 to 36)"), so the copy sets all four to 36 and `verify_benches.sh` (and the three `TI4_CHURN` bench steps) need the same configs.
 Note (unchanged from `BENCH_RV36_RESUME.md`): the specs inside a recording carry the rules version, so only a recording made at 36 verifies at 36 by the verify script.
