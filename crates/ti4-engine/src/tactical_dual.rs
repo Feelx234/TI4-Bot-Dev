@@ -121,7 +121,14 @@ mod real {
     use super::{Args, At, Stepped, Tag, label};
     use crate::core_sync::{Footprint, Sources, with_core};
     use crate::dual::{CoreWindow, Run, note_bail};
-    use crate::dual_window::{Recording, apply_staged, drive_with, event_of, nested_check, nested_fp, tables};
+    use crate::dual_window::{Recording, apply_staged, drive_positioned, drive_with, event_of, nested_check, nested_fp, tables};
+
+    /// The position the questions of a window that followed nested activity are rendered in: a production an ability makes (the Arborec flagship and commander)
+    /// asks questions whose options read the position (costs, spots), so the renderer is given the production kernel. A window with no nested activity asks
+    /// only its own questions and needs none.
+    fn nested_position(script: &Recording, sources: SourceSet) -> Option<&'static ti4_engine_core::kernel::Kernel> {
+        script.nested.then(|| crate::production_view::kernel_of(sources))
+    }
     use crate::generated::IdStr;
 
     /// What one answer reads and writes: the tokens, techs and cards (Players, Cards, Trade), the board, the map and the
@@ -341,7 +348,7 @@ mod real {
                     }
                 }
             };
-            let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, &script, &complete);
+            let driven = drive_positioned(&mut driver, core, &env.kernel, nested_position(&script, sources), &r, &before, &script, &complete);
             staged = std::mem::take(&mut core.pending_mut().staged);
             rng_after = Some(core.rng().clone());
             out = Some(Ran { stage: driver.window.stage(), plain: driver.window.plain.clone(), dice: driver.window.dice.clone(), emitted: driver.emitted.clone(), bailed: driver.window.bailed });
@@ -397,7 +404,7 @@ mod real {
         let mut out = None;
         let driven = with_core(gs, &mut cx, src, nested_fp(WINDOW, script), |core, _| {
             let mut driver = crate::window_driver::driver_for(Machine::free(seat, facts, target), resolver, AbilityTable::default(), 1);
-            let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+            let driven = drive_positioned(&mut driver, core, &env.kernel, nested_position(script, sources), &r, &before, script, &|_, _, _| {});
             staged = std::mem::take(&mut core.pending_mut().staged);
             rng_after = Some(core.rng().clone());
             out = Some((driver.window.stage(), driver.window.plain.clone(), driver.emitted.clone()));
@@ -520,6 +527,10 @@ mod real {
         if script.questions.iter().any(|q| !q.nested) {
             return bail(LABEL, "a hook of the close asked a question");
         }
+        // Nova Seed used in the reply to the end of the movement replaces the active system's tile inside the close: the marks above only know the edits of earlier uses.
+        if script.effects.iter().any(|id| id.contains(":muaathero:")) {
+            return bail(LABEL, "map edits (Nova Seed)");
+        }
         let (mut cx, r) = tables(gs)?;
         let seat = r.seat(player.as_str())?;
         let facts = Facts { pool: r.code("tactic") };
@@ -531,7 +542,7 @@ mod real {
         let mut out = None;
         let driven = with_core(gs, &mut cx, src, nested_fp(WINDOW, script), |core, _| {
             let mut driver = crate::window_driver::driver_for(Machine::closing(seat, facts), resolver, AbilityTable::default(), 1);
-            let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &|_, _, _| {});
+            let driven = drive_positioned(&mut driver, core, &env.kernel, nested_position(script, sources), &r, &before, script, &|_, _, _| {});
             staged = std::mem::take(&mut core.pending_mut().staged);
             out = Some((driver.window.closed, driver.emitted.clone(), driver.window.plain.clone()));
             driven

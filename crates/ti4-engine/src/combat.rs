@@ -4744,12 +4744,8 @@ fn skilled_retreat_text(
     system: &SystemId,
 ) -> Vec<SystemId> {
     let types = catalogue(content, sources);
-    galaxy
-        .adjacent(system.as_str())
+    skilled_retreat_candidates(state, content, sources, galaxy, player, system)
         .into_iter()
-        .filter(|adjacent| !galaxy.is_hyperlane(adjacent)) // not a system: never a retreat
-        .map(SystemId::new)
-        .filter(|adjacent| retreat_may_enter(state, content, sources, galaxy, player, adjacent))
         .filter(|adjacent| {
             !state.system_state(adjacent).units.iter().any(|unit| {
                 &unit.owner != player
@@ -4758,6 +4754,32 @@ fn skilled_retreat_text(
                         .is_some_and(UnitType::is_ship)
             })
         })
+        .collect()
+}
+
+/// The systems [`skilled_retreat_destinations`] chooses from before it looks at the ships standing there: the adjacent systems of the map (a hyperlane is never a
+/// retreat) the movement rules let the fleet enter, none under the Mahact hero's bar. What the map and the rules say; the ships of the position are the other half
+/// (they change between two plays of the card in one round). The core window, which is lent no galaxy, is told this list (`dual_window::note_withdraw`) and finds
+/// the free ones itself.
+#[doc(hidden)]
+#[must_use]
+pub fn skilled_retreat_candidates(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Vec<SystemId> {
+    if crate::factions::mahact_units::ship_movement_barred(state) {
+        return Vec::new();
+    }
+    galaxy
+        .adjacent(system.as_str())
+        .into_iter()
+        .filter(|adjacent| !galaxy.is_hyperlane(adjacent)) // not a system: never a retreat
+        .map(SystemId::new)
+        .filter(|adjacent| retreat_may_enter(state, content, sources, galaxy, player, adjacent))
         .collect()
 }
 

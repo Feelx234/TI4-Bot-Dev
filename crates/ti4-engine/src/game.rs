@@ -18247,6 +18247,21 @@ mod tests {
     #[cfg(feature = "typed-core")]
     #[test]
     fn dart_and_tai_explores_inside_the_control_window_and_the_core_follows() {
+        dart_and_tai_in_lockstep(false);
+    }
+
+    /// Found by the dual-lent run (`golden-lent.json` games 1 and 2; the soak slice `std_100000_5_all`): Distant Suns ("explore a planet that holds one of your
+    /// mechs: draw 1 additional card") when the exploration is the one Dart and Tai starts. The window ran on the combat kernel, which holds no economy hook of
+    /// the factions, so the core drew one card, asked nothing and the string's "which exploration card to resolve" question was never put (the deck one
+    /// card longer, the log row and the reward missing).
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn dart_and_tai_explores_with_the_second_card_of_distant_suns_and_the_core_follows() {
+        dart_and_tai_in_lockstep(true);
+    }
+
+    #[cfg(feature = "typed-core")]
+    fn dart_and_tai_in_lockstep(mech: bool) {
         use crate::dual::{AreaMask, Backend, local_windows, take_report, with_mask};
         let _serial = crate::dual::tests::serial();
         let _ = take_report();
@@ -18276,6 +18291,10 @@ mod tests {
         crate::fixtures::put(&mut state, &system, "destroyer", &a, 1);
         crate::fixtures::put(&mut state, &system, "dreadnought", &a, 1);
         crate::fixtures::put(&mut state, &system, "infantry", &a, 1);
+        if mech {
+            // The mech lands with the infantry and stands on the planet when it is taken: Distant Suns draws the second card.
+            crate::fixtures::put(&mut state, &system, "naaz_mech", &a, 1);
+        }
         state.system_mut(&system).set_control(planet.clone(), b.clone());
         crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 1);
         let mut reactions = std::collections::BTreeMap::new();

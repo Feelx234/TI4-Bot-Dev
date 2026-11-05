@@ -481,7 +481,12 @@ fn pillage_targets(
         .filter(|target| {
             event.event_type != "TRANSACTION_RESOLVED" || !transaction_gain_pending(state, target)
         })
-        .filter(|target| crate::transactions::are_neighbours(state, galaxy, owner, target))
+        .filter(|target| {
+            let near = crate::transactions::are_neighbours(state, galaxy, owner, target);
+            // The core window that follows this ability is lent no map: the answer is an input of its Pillage.
+            crate::dual_window::note_neighbours(owner.as_str(), target.as_str(), near);
+            near
+        })
         .filter(|target| {
             state
                 .player(target)

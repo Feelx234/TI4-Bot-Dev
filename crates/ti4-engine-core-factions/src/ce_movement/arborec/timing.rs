@@ -6,7 +6,7 @@
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
 use ti4_engine_core::generated::{Faction, Technology, Unit};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::kernel::ability::{AbilityTable, Applies, CondCx, Eff, Slot, Spec};
+use ti4_engine_core::kernel::ability::{AbilityTable, Applies, CondCx, Eff, Slot, Spec, Unknown};
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
 use ti4_engine_core::query::tech;
@@ -74,9 +74,30 @@ fn flagship_in(s: &CoreState, who: Seat, system: System) -> bool {
     ti4_engine_core::query::board::space_units(s, system).iter().any(|p| p.owner() == who && crate::common::flagship_has_text(s, who, p.kind(), Unit::DuhaMenaimon))
 }
 
+/// Whether a production by an ability of `limit` units in `system` would ask anything: `Err` when the adapter lent the window none of the facts the production
+/// reads (the kernel for payments, the unit roster). The condition then cannot say, which is not "nothing to build" (found by the soak: the Arborec commander was
+/// never offered in a window that followed the activation, while the string asked it).
+fn producible(c: &CondCx<'_>, who: Seat, system: System, limit: i32) -> Result<bool, ()> {
+    producible_in(c.state, c.kernel, c.facts, who, system, limit)
+}
+
+fn producible_in(s: &CoreState, host: &ti4_engine_core::kernel::Kernel, facts: &ti4_engine_core::kernel::ability::AdapterFacts, who: Seat, system: System, limit: i32) -> Result<bool, ()> {
+    if ti4_engine_core::driver::windows::production::ability_facts(s, host, facts, who, system, limit).is_none() {
+        return Err(());
+    }
+    Ok(can_produce_by_ability(s, host, facts, who, system, limit))
+}
+
 fn flagship_when(c: &CondCx<'_>) -> bool {
     let me = c.def.owner;
-    activated(c).is_some_and(|(activator, system)| activator == me && flagship_in(c.state, me, system) && can_produce_by_ability(c.state, c.kernel, c.facts, me, system, FLAGSHIP_LIMIT))
+    let Some((activator, system)) = activated(c) else { return false };
+    if activator != me || !flagship_in(c.state, me, system) {
+        return false;
+    }
+    match producible(c, me, system, FLAGSHIP_LIMIT) {
+        Ok(can) => can,
+        Err(()) => c.unknown(Unknown::MissingFact),
+    }
 }
 
 fn flagship(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
@@ -90,25 +111,37 @@ fn flagship(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 }
 
 /// `commander_ready`: the commander is unlocked, another player activated, and the system holds a unit of the owner with PRODUCTION that
-/// could build something.
-fn commander_system(s: &CoreState, host: &ti4_engine_core::kernel::Kernel, facts: &ti4_engine_core::kernel::ability::AdapterFacts, owner: Seat, activator: Seat, system: System) -> bool {
+/// could build something. `Err`: the production facts were not lent ([`producible`]).
+fn commander_system(s: &CoreState, host: &ti4_engine_core::kernel::Kernel, facts: &ti4_engine_core::kernel::ability::AdapterFacts, owner: Seat, activator: Seat, system: System) -> Result<bool, ()> {
     if !leaders::has_commander_ability_in(s, owner, Leader::DirzugaRophal) || activator == owner {
-        return false;
+        return Ok(false);
     }
-    let Some(k) = facts.production_kernel_for(host) else { return false };
+    let Some(k) = facts.production_kernel_for(host) else { return Err(()) };
     let cx = ti4_engine_core::rules::production::Cx::new(s, k, reach::scope_of(k), reach::blanked(s));
-    !ti4_engine_core::rules::production::producers(&cx, owner, system).is_empty() && can_produce_by_ability(s, host, facts, owner, system, 1)
+    if ti4_engine_core::rules::production::producers(&cx, owner, system).is_empty() {
+        return Ok(false);
+    }
+    producible_in(s, host, facts, owner, system, 1)
 }
 
 fn commander_when(c: &CondCx<'_>) -> bool {
-    activated(c).is_some_and(|(activator, system)| commander_system(c.state, c.kernel, c.facts, c.def.owner, activator, system))
+    let Some((activator, system)) = activated(c) else { return false };
+    match commander_system(c.state, c.kernel, c.facts, c.def.owner, activator, system) {
+        Ok(can) => can,
+        Err(()) => c.unknown(Unknown::MissingFact),
+    }
 }
 
 fn commander(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let me = eff.owner();
     let (Some(system), Some(activator)) = (eff.event.payload.system(Key::System), eff.event.payload.seat(Key::Player)) else { return Ok(()) };
-    if !commander_system(eff.read().0, eff.read().1, eff.adapter_facts(), me, activator, system) {
-        return Ok(());
+    match commander_system(eff.read().0, eff.read().1, eff.adapter_facts(), me, activator, system) {
+        Ok(true) => {}
+        Ok(false) => return Ok(()),
+        Err(()) => {
+            eff.unknown(Unknown::MissingFact);
+            return Ok(());
+        }
     }
     produce_in(eff, me, system, 1)?;
     Ok(())

@@ -3,7 +3,8 @@
 //! (`factions::component_actions`, `factions::mapped_component_actions`). Read from the position and the hook table alone.
 //!
 //! The actions that need a Thunder's Edge breakthrough (Psychospore, Deorbit Barrage, Vaults of the Heir, Deepgloom Executable) are out of
-//! scope: no position of the game offers them. Where a listing needs a rule the core does not hold (the PDS placement of Nekro's
+//! scope: no position of the game offers them, except the Deepgloom Executable, which is offered to the OTHER seats (below: a counted gap, found by
+//! the Thunder's Edge lane of the soak). Where a listing needs a rule the core does not hold (the PDS placement of Nekro's
 //! `???_ERROR_ERROR_???`, Terraform's targets, Cabal's Vortex) the source is the counted gap [`MenuGap::Faction`] for exactly the seats that
 //! could be offered it, never a silent omission.
 
@@ -197,6 +198,18 @@ pub fn faction(core: &CoreState, k: &Kernel, roster: &UnitRoster, who: Seat) -> 
         && fx::box_has(core, k, reach::scope_of(k), who, Unit::InfantryI)
     {
         out.push(action(Faction::TheWinnu, c::LAZAX_GATE_FOLDING, 0));
+    }
+    // The ACTIONS of the Thunder's Edge breakthroughs (out of scope; the product refuses Thunder's Edge games, the dual run plays them): Psychospore (Arborec),
+    // Deorbit Barrage (Saar) and Vaults of the Heir (Mahact) are the holder's own component actions, listed with its faction's (`component_actions` of the
+    // modules); the Deepgloom Executable's "allow other players to use your Stall Tactics" is an action of the OTHER seats, listed after the Yssaril's own. The core
+    // lists none of them, so a seat that could be offered one (the holder; for the Deepgloom a seat with a card to discard and an owner at the table) is the
+    // counted gap, never a menu without the option (found by the Thunder's Edge lane of the soak: 3051 and 646 `turn::menu` differences).
+    use crate::generated::Breakthrough as Bt;
+    if matches!(p.cards.breakthrough, Some(Bt::Psychospore | Bt::DeorbitBarrage | Bt::VaultsOfTheHeir)) {
+        return Err(MenuGap::Faction(p.faction));
+    }
+    if !p.cards.hand.is_empty() && core.players().iter().any(|o| o.seat != who && o.cards.breakthrough == Some(Bt::DeepgloomExecutable)) {
+        return Err(MenuGap::Faction(Faction::TheYssarilTribes));
     }
     // Yssaril: Stall Tactics, then Mageon Implants.
     if p.faction == Faction::TheYssarilTribes && !p.cards.hand.is_empty() {

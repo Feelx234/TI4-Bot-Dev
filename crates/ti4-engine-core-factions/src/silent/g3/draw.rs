@@ -8,10 +8,14 @@ use ti4_engine_core::kernel::stage::Window;
 use ti4_engine_core::kernel::Next;
 use ti4_engine_core::rules::action_cards::draw::DrawCards;
 
-/// Draw `count` cards for `who`, asking what the draw asks (Scheming's discard, the hand limit). (From rules version 30 the unofficial cards leave the deck before a draw; only the
-/// latest version is supported.)
+/// `ti4_model::state::RULES_OFFICIAL_ACTION_DECK`: from this version the unofficial action cards leave the deck before a draw.
+const RULES_OFFICIAL_ACTION_DECK: u32 = 30;
+
+/// Draw `count` cards for `who`, asking what the draw asks (Scheming's discard, the hand limit). From rules version 30 the two unofficial cards (Veto 3 and 4) leave the deck before a
+/// draw (`action_cards::draw`); below it they stay, as in every other draw of the core (the game's version is in the position).
 pub fn draw(eff: &mut Eff<'_, '_>, who: Seat, count: usize, slot: Slot) {
-    draw_with(eff, who, count, true, slot);
+    let official = eff.read().0.meta().rules_at_least(RULES_OFFICIAL_ACTION_DECK);
+    draw_with(eff, who, count, official, slot);
 }
 
 /// [`draw`] with the choice of dropping the two unofficial cards from the deck first: `false` for a window that only enforces the hand limit (`action_cards::enforce_hand_limit` touches no deck).

@@ -261,6 +261,33 @@ fn more_than_sixteen_owners_are_refused_when_the_owner_table_is_built() {
     assert!(Ctx::with_extra(&gs, &extra[..13]).is_ok());
 }
 
+/// Found by the soak (`old_100000_6_wide`, the first game: `unmapped (strict mode): Transient: owner not in the table "neutral"`, no backtrace, no window label): the
+/// record of the last fight still names the neutral force when the board no longer holds one of its units (the last of them fell), and the table was built from the
+/// board only. Every owner the transient part of the position names is in the table, so the `Transient` slice loads and goes back whatever the board holds.
+#[test]
+fn the_owner_table_holds_the_neutral_force_the_record_of_the_last_fight_names_with_no_unit_left_on_the_board() {
+    let mut gs = crate::fixtures::real_game(&["a", "b"]);
+    let neutral = PlayerId::new(crate::neutral_units::NEUTRAL);
+    let system = ti4_model::id::SystemId::new("18");
+    assert!(Ctx::of(&gs).unwrap().seat(Slice::Transient, neutral.as_str()).is_err(), "no unit of the neutral force on the board: not in the table");
+    gs.last_combat_sides = Some((system.clone(), vec![PlayerId::new("a"), neutral.clone()]));
+    gs.last_ship_destroyed = Some((system.clone(), neutral.clone(), UnitTypeId::new("neutral_cruiser")));
+    let mut cx = Ctx::of(&gs).unwrap();
+    assert!(cx.seat(Slice::Transient, neutral.as_str()).is_ok(), "named by the record of the last fight: in the table");
+    let _ = unmapped::take_thread();
+    let mut core = ti4_engine_core::state::CoreState::with_loaded(SliceSet::EMPTY);
+    cx.attach(&mut core);
+    Codec::load_slice(&mut cx, &gs, Sources::default(), Slice::Transient, &mut core).expect("the Transient slice loads");
+    assert_eq!(unmapped::take_thread().total, 0);
+    // ... and back.
+    let mut back = gs.clone();
+    back.last_combat_sides = None;
+    back.last_ship_destroyed = None;
+    Codec::store_slice(&cx, &core, &mut back, Slice::Transient).expect("the Transient slice goes back");
+    assert_eq!(back.last_combat_sides, gs.last_combat_sides);
+    assert_eq!(back.last_ship_destroyed, gs.last_ship_destroyed);
+}
+
 #[test]
 fn an_owner_or_seat_the_table_does_not_know_is_refused() {
     let gs = crate::fixtures::real_game(&["a", "b"]);

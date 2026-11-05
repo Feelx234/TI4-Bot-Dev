@@ -460,6 +460,10 @@ pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<F
         let (Some(a), Some(b)) = (<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(a), <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(b)) else { continue };
         table.facts.set_adjacent(a, b, *adjacent);
     }
+    for (owner, target, neighbours) in &script.neighbours {
+        let (Some(owner), Some(target)) = (r.seat(owner), r.seat(target)) else { continue };
+        table.facts.set_neighbours(owner, target, *neighbours);
+    }
     // A played card: Data Skimmer takes another player's discard onto the breakthrough (a Ral Nel seat). A rules version
     // before 3 plays at once, which the core's play does too (B6: `reaction_slot::play`).
     if let Some(slot) = script.effects.iter().find(|e| e.starts_with("reaction:")) {
@@ -477,6 +481,8 @@ pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<F
         return Err("nested activity without a resolver".to_owned());
     };
     table.facts.plays = play_facts(r, gs, &cfg.sources);
+    // The unit forms of the factions: what a production by an ability (the Arborec flagship and commander) builds. A window that explores keeps its own (`keep_exploration`).
+    table.facts.roster = crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), cfg.sources.clone());
     // Salvage Operations reads the units its owner may build (`production::buildable_for`, in the string's order).
     for i in 0..r.seats.len() {
         let Some(who) = u8::try_from(i).ok().map(Seat) else { continue };

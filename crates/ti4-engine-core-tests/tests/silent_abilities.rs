@@ -289,3 +289,42 @@ fn pillage_takes_a_trade_good_or_a_commodity_from_a_neighbour_with_three_goods()
     let own = rig(scenario(3), |_| {}, fx::event(EventKind::TradeGoodsGained, Payload::new().with(Key::Player, Val::Seat(Seat(0)))));
     assert!(own.is_done());
 }
+
+/// Found by the dual-lent run (lane core-lent-gaps): a window that follows abilities is lent no map (the string's galaxy is not in the position), and a position
+/// without a map used to have "no neighbours", so Pillage was never offered while the string offered it (golden-lent games 0, 2, 4, 6, 14, 15, 17, 18). The neighbours
+/// are then the string's own answer (`AdapterFacts::set_neighbours`); with neither the map nor the answer the core cannot say, which is a loud gap and not "no neighbours".
+#[test]
+fn pillage_in_a_window_without_a_map_reads_the_neighbours_the_string_noted_and_otherwise_is_a_loud_gap() {
+    use ti4_engine_core::kernel::ability::Unknown;
+    use ti4_engine_core::state::Slice;
+    covers!("silent::pillage::PILLAGE_GAINED");
+    let (system, planets) = two_planet_system();
+    let build = |noted: Option<bool>| {
+        let (mut state, kernel) = Scenario::new(&[Faction::TheMentakCoalition, Faction::TheEmiratesOfHacan])
+            .map_from(&[system])
+            .unit(system, Some(planets[0]), Unit::InfantryI, 0, 1)
+            .unit(system, Some(planets[1]), Unit::InfantryI, 1, 1)
+            .goods(1, 3)
+            .build();
+        state.loaded = ti4_engine_core::state::SliceSet::of_without(state.loaded, Slice::Map);
+        let mut t = table();
+        if let Some(near) = noted {
+            t.facts.set_neighbours(Seat(0), Seat(1), near);
+        }
+        let event = fx::event(EventKind::TradeGoodsGained, Payload::new().with(Key::Player, Val::Seat(Seat(1))));
+        let mut r = Rig::from_parts(state, kernel, EmitEvent::new(event)).with_abilities(t);
+        r.run();
+        r
+    };
+    // The string said they are neighbours: the use is offered.
+    let near = build(Some(true));
+    assert!(matches!(near.asked().ask, Ask::Reaction(RAsk::Window { .. })), "{}", near.transcript());
+    assert_eq!(near.driver.unknown(), None);
+    // The string said they are not: nothing is offered, nothing is unknown.
+    let far = build(Some(false));
+    assert!(far.is_done(), "{}", far.transcript());
+    assert_eq!(far.driver.unknown(), None);
+    // The string never asked: the window cannot be followed.
+    let unsaid = build(None);
+    assert_eq!(unsaid.driver.unknown(), Some(Unknown::MissingFact), "{}", unsaid.transcript());
+}

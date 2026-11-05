@@ -129,8 +129,10 @@ impl Ask {
     #[must_use]
     pub const fn carries_trigger(&self) -> bool {
         match self {
-            Self::Landing(_) | Self::Mitosis | Self::Pillage => true,
-            Self::ExtraDie(_) | Self::StrikeWing => false,
+            Self::Landing(_) | Self::Mitosis => true,
+            // Pillage's take is built by hand in the string (`mentak::pillage_effect`: a `DecisionContext` of the faction ability, no trigger);
+            // only the reaction window that offers the use carries the event.
+            Self::ExtraDie(_) | Self::StrikeWing | Self::Pillage => false,
             Self::Reclaimer | Self::TradePolicy | Self::CommanderFighters | Self::Voidwatch | Self::Stillness | Self::NaazAgent | Self::NaazCopy => false,
             Self::T(t) => t.carries_trigger(),
             Self::U(u) => u.carries_trigger(),

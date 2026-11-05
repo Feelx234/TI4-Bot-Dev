@@ -219,6 +219,37 @@ fn the_free_tactical_action_activates_without_a_token() {
     assert_eq!(game.events.last().map(String::as_str), Some("FREE_TACTICAL_ACTION"));
 }
 
+/// Found by the soak (`factions_100000_2_all` seed 100001, `bot-v5_100000_2_all` seed 100001; `tactical::activate` 8 differences, `tactical::free` 3): the Arborec
+/// commander ("after another player activates a system that contains your PRODUCTION: produce 1 unit there") was never offered by the core in the window of the
+/// activation. The window it follows was lent no roster of the faction units, so the condition (`can_produce_by_ability`) answered "nothing to build" instead of "I
+/// cannot say"; and once it answered, the questions of the production were rendered with no position (a panic: the options read the costs and the spots of the
+/// position they are asked in).
+#[test]
+fn the_arborec_commander_is_followed_in_the_activation_window_with_its_production_questions() {
+    let probe = table(&[("a", "sol"), ("b", "arborec")]);
+    let b_home = probe.player(&PlayerId::new("b")).and_then(|p| p.home_system.clone()).expect("a home system");
+    let mut ids = vec![b_home.to_string()];
+    ids.extend(crate::fixtures::plain_systems(12).into_iter().filter(|i| i != b_home.as_str()).take(6));
+    let hub = crate::fixtures::hub_from(&ids);
+    let ring = SystemId::new(hub.outer[1].clone());
+    let mut state = table(&[("a", "sol"), ("b", "arborec")]);
+    state.promissory_notes.clear();
+    state.promissory_faceup.clear();
+    state.player_mut(&b()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("arboreccommander"), ti4_model::state::LeaderStatus::Unlocked);
+    let planet = ti4_content::galaxy::all_systems(ContentStore::embedded(), POK).get(b_home.as_str()).and_then(|s| s.planets().first().map(|p| (*p).to_owned())).expect("a planet");
+    crate::fixtures::put_on_planet(&mut state, &b_home, &ti4_model::id::PlanetId::new(planet), "spacedock", &b(), 1);
+    crate::fixtures::put(&mut state, &ring, "carrier", &a(), 1);
+    let commander = "leader:arborec:arboreccommander:SYSTEM_ACTIVATED:after";
+    let before = total(&state, &b_home, &b(), Some("cruiser"));
+    let done = play(state.clone(), &hub.galaxy, &[TACTICAL_ACTION_ID, b_home.as_str(), commander, "build|cruiser|1"], |_| {});
+    assert_eq!(done.counts("tactical::activate"), (1, 0), "the core followed the activation and the commander's production: {:?}", done.reasons);
+    assert_eq!(total(&done.state, &b_home, &b(), Some("cruiser")), before + 1, "the commander produced the cruiser");
+    // Declined: the same window, no production.
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, b_home.as_str(), "decline"], |_| {});
+    assert_eq!(done.counts("tactical::activate"), (1, 0), "{:?}", done.reasons);
+    assert_eq!(total(&done.state, &b_home, &b(), Some("cruiser")), before);
+}
+
 // -- the documented bails: the string result stands and the reason is counted ---------------------------------------
 
 fn bails(state: GameState, hub: &crate::fixtures::Hub, target: &SystemId, label: &str, reason: &str) {
@@ -588,6 +619,25 @@ fn nova_seed_the_sardakk_hero_and_a_floating_factory_keep_the_close_on_the_strin
     let mut factory = base();
     crate::fixtures::put(&mut factory, &target, "saar_spacedock", &a(), 1);
     closes(factory, &hub, &target, "Floating Factory");
+}
+
+/// Found by the soak (`std_100000_5_all` seed 100004: `tactical::finish` `Closed.system`, string 81, core 76): the Muaat hero (Adjudicator Ba'al, Nova Seed) is used in the
+/// reply to the end of the movement and replaces the active system's tile with the Nova Seed tile. The guard of the close only knew the edits of EARLIER uses (the marks),
+/// so the core followed a close in which the tile changed under it and closed the old system. The use is read off the string's run.
+#[test]
+fn nova_seed_used_inside_the_close_keeps_the_close_on_the_string() {
+    let content = ContentStore::embedded();
+    let ids: Vec<String> = crate::fixtures::plain_systems(80).into_iter().filter(|id| !crate::seating::is_mecatol(id) && !ti4_content::galaxy::is_home_system(content, id, POK)).take(7).collect();
+    let hub = crate::fixtures::hub_from(&ids);
+    let (origin, target) = (SystemId::new(hub.outer[0].clone()), SystemId::new(hub.outer[1].clone()));
+    let mut state = table(&[("a", "muaat"), ("b", "hacan")]);
+    state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("muaathero"), ti4_model::state::LeaderStatus::Unlocked);
+    crate::fixtures::put(&mut state, &origin, "muaat_warsun", &a(), 1);
+    let hero = "leader:muaat:muaathero:MOVEMENT_FINISHED:after";
+    let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &id(&origin, 0), "done_moving", hero], |_| {});
+    assert!(done.state.board.contains_key(&SystemId::new(crate::movement::NOVA_SEED)), "the hero was used: the tile was replaced: {:?} {:?} {:?}", done.game_events, done.reasons, done.counts);
+    assert_eq!(done.counts("tactical::finish"), (0, 1), "{:?}", done.reasons);
+    assert!(done.reasons.iter().any(|r| r.contains("map edits")), "{:?}", done.reasons);
 }
 
 #[test]

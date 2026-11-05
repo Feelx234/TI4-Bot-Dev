@@ -2263,3 +2263,40 @@ fn a_leaders_production_discards_the_holders_prophecy_of_ixth_unless_two_fighter
     assert!(!holds(&miasmiala_builds(Unit::DestroyerI, 1, law(0))), "a ship that is no fighter discards it");
     assert!(holds(&miasmiala_builds(Unit::DestroyerI, 1, law(1))), "the law of another seat stays");
 }
+
+// ---- lane core-lent-gaps: the Deepgloom Executable (Thunder's Edge) in the faction menu ----
+
+/// Found by the Thunder's Edge lane of the soak (`te_100000_6_driver`, seed 100002: 3051 `turn::menu` differences): the Deepgloom Executable lets the Yssaril owner allow
+/// the other seats to use its Stall Tactics, a component action of THOSE seats (`yssaril::component_actions`, the option `faction|yssaril|bt_stall|{owner}`). The core
+/// lists no such option, so the menu of a seat that could be offered it differed from the string's. A listing the core does not hold is the counted gap
+/// (`MenuGap::Faction`), never a menu without the option; a seat that could not be offered it (no card to discard, the owner itself, no owner) is listed as before.
+#[test]
+fn a_seat_that_could_be_offered_the_deepgloom_executable_is_the_counted_gap_of_the_faction_menu() {
+    use ti4_engine_core::driver::menu_faction::faction;
+    use ti4_engine_core::generated::{ActionCard, Breakthrough};
+    let roster: &'static ti4_engine_core::query::tech::UnitRoster = Box::leak(Box::default());
+    let owned = |hand: bool, owner: bool| {
+        let sc = Scenario::new(&[Faction::TheYssarilTribes, Faction::TheFederationOfSol]).phase(Phase::Action).active(Some(1));
+        let (mut s, k) = (if hand { sc.hand(1, &[ActionCard::ALL[0]]) } else { sc }).build();
+        if owner {
+            s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.breakthrough = Some(Breakthrough::DeepgloomExecutable);
+        }
+        (s, k)
+    };
+    let (s, k) = owned(true, true);
+    assert_eq!(faction(&s, &k, roster, Seat(1)), Err(MenuGap::Faction(Faction::TheYssarilTribes)), "a card to discard and an owner at the table");
+    let (s, k) = owned(false, true);
+    assert!(faction(&s, &k, roster, Seat(1)).is_ok(), "nothing to discard: the string offers nothing either");
+    let (s, k) = owned(true, false);
+    assert!(faction(&s, &k, roster, Seat(1)).is_ok(), "nobody holds the breakthrough");
+    let (s, k) = owned(true, true);
+    assert!(faction(&s, &k, roster, Seat(0)).is_ok(), "the owner's own menu is not the gap (its Stall Tactics is listed)");
+    // The holder's own component actions of the other breakthroughs with an ACTION (Psychospore, Deorbit Barrage, Vaults of the Heir) are not listed either.
+    for (seat_faction, bt) in [(Faction::TheArborec, Breakthrough::Psychospore), (Faction::TheClanOfSaar, Breakthrough::DeorbitBarrage), (Faction::TheMahactGeneSorcerers, Breakthrough::VaultsOfTheHeir)] {
+        let (mut s, k) = Scenario::new(&[seat_faction, Faction::TheFederationOfSol]).phase(Phase::Action).active(Some(0)).build();
+        assert!(faction(&s, &k, roster, Seat(0)).is_ok(), "{bt:?}: not held yet");
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.breakthrough = Some(bt);
+        assert_eq!(faction(&s, &k, roster, Seat(0)), Err(MenuGap::Faction(seat_faction)), "{bt:?}");
+        assert!(faction(&s, &k, roster, Seat(1)).is_ok(), "{bt:?}: another seat's menu is its own");
+    }
+}
