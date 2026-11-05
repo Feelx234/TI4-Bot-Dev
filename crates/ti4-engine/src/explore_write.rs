@@ -57,7 +57,16 @@ mod real {
 
     /// `exploration::draw`. The outer `None` is a bail.
     pub fn draw(gs: &mut GameState, deck: &str) -> Option<Option<String>> {
-        let kind = explore_type(Slice::Decks, deck).ok()?;
+        // A text that names no exploration deck (the Crown of Emphidia explores into the first PLANET TYPE of a planet printed without a trait:
+        // `FACTION` of a home planet, `MR` of Mecatol Rex; B5-copy-04): the string has no such deck and draws nothing, writes nothing. That is the
+        // core's answer too, and not an unmapped value of the state (`try_explore_type` does not count one).
+        let Some(kind) = crate::core_sync::conv::try_explore_type(deck) else {
+            if gs.exploration_decks.contains_key(deck) {
+                crate::dual::note_bail_here(crate::dual::reason::UNKNOWN_ID);
+                return None;
+            }
+            return Some(None);
+        };
         lend(gs, None, |core, _| rules::draw(core, kind).map(|c| c.as_str().to_owned()))
     }
 
@@ -910,7 +919,13 @@ mod tests {
         let mask = AreaMask::STRING.with(Area::ExplorationRelics, Backend::Dual);
         with_mask(mask, || {
             let mut state = seated();
-            assert!(super::draw(&mut state.clone(), "WEIRD").is_none());
+            // A text that names no deck, with no such deck in the string's state either, is the answer "nothing to draw" (B5-copy-04: the Crown of
+            // Emphidia on a home planet); a deck the string holds under a key the tables do not know is the bail.
+            assert_eq!(super::draw(&mut state.clone(), "WEIRD"), Some(None));
+            assert_eq!(super::draw(&mut state.clone(), "FACTION"), Some(None));
+            let mut holds_weird = state.clone();
+            holds_weird.exploration_decks.insert("WEIRD".to_owned(), vec!["minent".into()]);
+            assert!(super::draw(&mut holds_weird, "WEIRD").is_none());
             assert!(super::gain_fragment(&mut state.clone(), &me(), "WEIRD").is_none());
             let unknown = "x".repeat(3);
             assert!(super::attach(&mut state.clone(), &PlanetId::new("lazulrex"), &unknown).is_none());
