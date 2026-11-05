@@ -812,6 +812,39 @@ fn pillage_of_the_trade_good_future_sight_pays_is_followed_without_a_map_in_lock
     assert_eq!(goods(&g.state, "a"), 3, "nobody pillages a seat that is no neighbour");
 }
 
+/// Heavy fix 1 (zero-bail of the int-26 heavy run, golden-lent game 16): a Letnev who voted another outcome plays Deadly Plot when the Censure the Nomad
+/// voted for would resolve. The core window's first run found the tape dry at the Letnev's reaction slot, went on with its default (the decline), paid
+/// Future Sight in that speculative rest of the run, and the neighbouring Mentak's Pillage then read a fact the window is not lent (the map; the string's
+/// Pillage never asked, the agenda being discarded): `Unknown::MissingFact`, kept although the run was rolled back. With the answer the agenda is
+/// discarded and Future Sight pays nothing, in both engines; the unknown of a dry run's rest is no longer kept (`Tape::take_unknown`).
+#[test]
+fn deadly_plot_before_future_sight_and_a_neighbouring_pillage_is_followed_in_lockstep() {
+    let hub = crate::fixtures::plain_hub();
+    let centre = ti4_model::id::SystemId::new(hub.centre.clone());
+    let (g, compared, bailed, diff) = lockstep(|| {
+        let mut s = position_of(&[("a", "nomad"), ("b", "mentak"), ("c", "letnev")]);
+        for system in s.board.values_mut() {
+            system.units.clear();
+            system.planet_units.clear();
+            system.planet_control.clear();
+        }
+        // Future Sight would pay the Nomad one: three, the bar Pillage needs; the Nomad and the Mentak share a system.
+        s.player_mut(&p("a")).unwrap().trade_goods = 2;
+        crate::fixtures::put(&mut s, &centre, "destroyer", &p("a"), 1);
+        crate::fixtures::put(&mut s, &centre, "destroyer", &p("b"), 1);
+        hand(&mut s, "c", &["deadly_plot"]);
+        let w = VoteWindow::finished("censure", &["a", "b", "c"], &[("a", "a"), ("c", "c")], &[("a", 2), ("c", 1)], Some("a"));
+        let mut g = game(s, &[]).with_galaxy(hub.galaxy.clone());
+        g.put_vote(w);
+        assert_eq!(g.close_vote().error, None);
+        g
+    });
+    ok(compared, bailed, &diff);
+    assert_eq!(goods(&g.state, "a"), 2, "a discarded agenda pays no Future Sight, so there is nothing to pillage");
+    assert!(g.state.player(&p("c")).unwrap().action_cards.is_empty(), "Deadly Plot was played");
+    assert!(g.state.agenda_log.last().is_some_and(|rec| rec.discarded));
+}
+
 // -- Galactic Threat (package W9): the Nekro's payout for a correct prediction ------------------------------------------------
 
 fn nekro_position() -> GameState {

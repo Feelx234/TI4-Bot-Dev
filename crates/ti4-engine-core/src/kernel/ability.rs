@@ -1161,6 +1161,11 @@ pub struct Tape {
     state_at: Option<Box<CoreState>>,
     /// A condition the core could not answer (`CondCx::unknown`); survives the rewind of a re-run.
     pub unknown: std::cell::Cell<Option<Unknown>>,
+    /// What [`Self::unknown`] held when the run found the tape dry (`None`: not dry). The rest of that run follows the default pick
+    /// of the unanswered question (the decline) and is rolled back, so a condition it could not answer belongs to a path that may
+    /// never be taken (heavy fix 1: a Future Sight paid in the dry run of a close before the Deadly Plot that discards the agenda
+    /// was answered, whose Pillage read a fact the window was not lent). [`Self::take_unknown`] reports the value of that moment.
+    unknown_at_dry: Option<Option<Unknown>>,
     /// The events a hook of the table emitted at the top level of the window that called it (`AbilityTable::after_play`: the
     /// `SHIP_DESTROYED` of what a played card staged): the window records them as its own, like the events of its steps.
     pub emitted: Vec<EventRec>,
@@ -1172,15 +1177,21 @@ impl Tape {
         self.rewind();
     }
 
-    /// The reason a condition could not be answered since the last call, if any.
+    /// The reason a condition could not be answered since the last call, if any; in a run that found the tape dry, only a reason
+    /// noted before the unanswered question (what the speculative rest of the run noted is dropped with the rollback).
     pub fn take_unknown(&self) -> Option<Unknown> {
-        self.unknown.take()
+        let noted = self.unknown.take();
+        match self.unknown_at_dry {
+            Some(at_dry) => at_dry,
+            None => noted,
+        }
     }
 
     /// Start reading from the first answer again (a re-run of the step).
     pub fn rewind(&mut self) {
         self.used = 0;
         self.needed = None;
+        self.unknown_at_dry = None;
         self.facts = None;
         self.state_at = None;
     }
@@ -1227,6 +1238,7 @@ impl Tape {
         }
         if self.needed.is_none() {
             self.needed = Some(choice.clone());
+            self.unknown_at_dry = Some(self.unknown.get());
             self.facts = facts;
             self.state_at = Some(Box::new(state.clone()));
         }
@@ -1657,5 +1669,57 @@ mod table_clone_tests {
         assert!(c.of_slot(Slot(4)).is_none() && a.of_slot(Slot(4)).is_some());
         a.add_forbid(7, |_, _, _| false);
         assert!(c.forbids.is_empty() && a.forbids.len() == 1);
+    }
+}
+
+#[cfg(test)]
+mod tape_tests {
+    use super::*;
+    use crate::choice::{Choice, Ctx, Opts, Origin};
+
+    fn question() -> Choice {
+        let (relation, event) = (Relation::When, EventKind::AgendaResolved);
+        let mut opts = Opts::default();
+        opts.push(crate::choice::Opt::Cards(crate::choice::cards::Opt::Card(crate::generated::ActionCard::DeadlyPlot)));
+        opts.push(crate::choice::Opt::Decline);
+        Choice {
+            actor: Seat(2),
+            ask: crate::choice::Ask::Cards(crate::choice::cards::Ask::PlayCard { relation, event }),
+            ctx: Ctx {
+                origin: Origin::Rule(crate::choice::generic::Rule::R22_1),
+                subtype: crate::choice::Subtype::Cards(crate::choice::cards::Subtype::PlayReaction { relation, event }),
+                optional: true,
+                target: None,
+                outstanding: crate::containers::SmallList::new(),
+                space_battle: false,
+                invasion_seq: None,
+            },
+            opts,
+        }
+    }
+
+    /// Heavy fix 1: what a condition could not answer in the rest of a run that found the tape dry belongs to a path the rollback
+    /// undoes (the default pick of the unanswered question); only what was noted before the question is reported. A run that is not
+    /// dry reports what it noted, and the next run starts clean.
+    #[test]
+    fn the_unknown_of_a_dry_runs_speculative_rest_is_dropped_and_one_noted_before_the_question_is_kept() {
+        let state = CoreState::default();
+        let mut tape = Tape::default();
+        tape.rewind();
+        let _ = tape.pick_with(&state, &question(), None);
+        assert!(tape.needed().is_some(), "the tape is dry");
+        tape.unknown.set(Some(Unknown::MissingFact));
+        assert_eq!(tape.take_unknown(), None, "noted after the unanswered question: dropped");
+        tape.rewind();
+        tape.unknown.set(Some(Unknown::MissingFact));
+        let _ = tape.pick_with(&state, &question(), None);
+        tape.unknown.set(Some(Unknown::CardCost));
+        assert_eq!(tape.take_unknown(), Some(Unknown::MissingFact), "noted before the question: kept");
+        tape.rewind();
+        tape.push(Pick::Opt(crate::choice::Opt::Decline));
+        let _ = tape.pick_with(&state, &question(), None);
+        tape.unknown.set(Some(Unknown::CardCost));
+        assert_eq!(tape.take_unknown(), Some(Unknown::CardCost), "a run with every answer reports what it noted");
+        assert_eq!(tape.take_unknown(), None);
     }
 }
