@@ -1,0 +1,20 @@
+[package]
+name = "ti4-engine-core-setup"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Layer L7: game setup that builds the typed core position (CoreState) directly (docs/SETUP_NATIVE_DESIGN.md). No string GameState, no Codec::load, no legacy crate."
+
+[dependencies]
+ti4-model.workspace = true
+ti4-content.workspace = true
+ti4-engine-core.workspace = true
+ti4-engine-core-factions.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

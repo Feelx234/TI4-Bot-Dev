@@ -13,6 +13,7 @@ ti4-model.workspace = true
 ti4-content.workspace = true
 ti4-engine-core.workspace = true
 ti4-engine-core-factions.workspace = true
+ti4-engine-core-setup.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 rand = { version = "0.9", default-features = false }

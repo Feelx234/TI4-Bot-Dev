@@ -5,20 +5,11 @@
 use std::collections::BTreeMap;
 
 use ti4_content::ContentStore;
-use ti4_model::content_types::{ContentType, Source, SourceSet};
+use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlayerId, StrategyCardId};
 use ti4_model::state::GameState;
 
 use crate::deck::build_starting_decks;
-
-/// The strategy-card set to use for a source scope, most recent expansion first.
-///
-/// Order matters: Thunder's Edge replaces the `PoK` set, which replaces the base set.
-const STRATEGY_CARD_SETS: [(Source, &str); 3] = [
-    (Source::ThundersEdge, "te"),
-    (Source::Pok, "pok"),
-    (Source::Base, "base_game"),
-];
 
 /// Something went wrong setting a game up.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -45,7 +36,7 @@ pub const fn cards_per_player(player_count: usize) -> usize {
 /// corpus as `base4`, `pok4construction`, and `te4construction`. Taking every card the
 /// sources allow yields twelve cards and an initiative order with duplicates — a game that
 /// is not TI4. The corpus records the real sets in `strategy_card_sets`, so the choice is
-/// read rather than reconstructed.
+/// read rather than reconstructed. (The reading is the setup crate's: `ti4_engine_core_setup::strategy`.)
 ///
 /// # Errors
 /// [`SetupError::NoStrategyCardSet`] if no set matches the sources.
@@ -53,12 +44,7 @@ pub fn strategy_card_setup(
     content: &ContentStore,
     sources: SourceSet,
 ) -> Result<(Vec<StrategyCardId>, BTreeMap<StrategyCardId, i32>), SetupError> {
-    let chosen = STRATEGY_CARD_SETS
-        .iter()
-        .filter(|(source, _)| sources.contains(*source))
-        .find_map(|(_, alias)| content.get(ContentType::StrategyCardSets, alias))
-        .ok_or(SetupError::NoStrategyCardSet)?;
-    card_setup_from_record(content, chosen)
+    ti4_engine_core_setup::strategy::strategy_card_setup(content, sources, None).ok_or(SetupError::NoStrategyCardSet)
 }
 
 /// The eight strategy cards of the named set (`te`, `pok`, `base_game`, `base_game_codex1`),
@@ -70,32 +56,7 @@ pub fn strategy_card_setup_for_set(
     content: &ContentStore,
     alias: &str,
 ) -> Result<(Vec<StrategyCardId>, BTreeMap<StrategyCardId, i32>), SetupError> {
-    let chosen = content
-        .get(ContentType::StrategyCardSets, alias)
-        .ok_or(SetupError::NoStrategyCardSet)?;
-    card_setup_from_record(content, chosen)
-}
-
-fn card_setup_from_record(
-    content: &ContentStore,
-    chosen: &ti4_content::Record,
-) -> Result<(Vec<StrategyCardId>, BTreeMap<StrategyCardId, i32>), SetupError> {
-    let mut ids = Vec::new();
-    let mut initiative = BTreeMap::new();
-    for card_id in chosen.strings("scIDs") {
-        // Read initiative from the whole corpus, not the scoped view: a set may name a
-        // card whose own source tag is narrower than the set's.
-        let Some(card) = content.get(ContentType::StrategyCards, card_id) else {
-            continue;
-        };
-        let id = StrategyCardId::new(card_id);
-        initiative.insert(
-            id.clone(),
-            i32::try_from(card.int("initiative").unwrap_or(99)).unwrap_or(99), // mutants:skip (a card without initiative does not exist in the corpus)
-        );
-        ids.push(id);
-    }
-    Ok((ids, initiative))
+    ti4_engine_core_setup::strategy::strategy_card_setup(content, ti4_model::content_types::SourceSet::default(), Some(alias)).ok_or(SetupError::NoStrategyCardSet)
 }
 
 /// A game at the start of its first strategy phase.

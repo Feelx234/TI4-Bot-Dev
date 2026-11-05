@@ -3,12 +3,11 @@
 
 use std::collections::BTreeMap;
 
-use ti4_content::ContentStore;
-use ti4_engine_core::generated::{Faction, FactionTag, TechType, Technology, UnitBaseType, Source as CoreSource};
+use ti4_engine_core::generated::{Faction, FactionTag, TechType, Technology};
 use ti4_engine_core::query::tech::{self as q, Colours};
 use ti4_engine_core::state::TechSet;
-use ti4_engine_core::tables::{Scope, source_bit};
-use ti4_model::content_types::{Source, SourceSet};
+use ti4_engine_core::tables::source_bit;
+use ti4_model::content_types::SourceSet;
 use ti4_model::id::TechnologyId;
 
 use crate::generated::IdStr;
@@ -20,21 +19,7 @@ pub fn tech(alias: &str) -> Option<Technology> {
     <Technology as IdStr>::from_id(alias)
 }
 
-/// The scope mask of a source set (`core_adapter::scope` without the text round trip).
-#[must_use]
-pub fn scope(sources: SourceSet) -> Scope {
-    Scope(sources.iter().fold(0, |mask, s| {
-        mask | source_bit(match s {
-            Source::Base => CoreSource::Base,
-            Source::Codex1 => CoreSource::Codex1,
-            Source::Codex2 => CoreSource::Codex2,
-            Source::Codex3 => CoreSource::Codex3,
-            Source::Codex4 => CoreSource::Codex4,
-            Source::Pok => CoreSource::Pok,
-            Source::ThundersEdge => CoreSource::ThundersEdge,
-        })
-    }))
-}
+pub use ti4_engine_core_setup::roster::scope;
 
 /// The corpus spelling of a research track (`technology::COLOURS`).
 #[must_use]
@@ -101,36 +86,7 @@ pub fn active_aliases(sources: SourceSet) -> std::collections::BTreeSet<Technolo
 // --- the string state as a research context ----------------------------------------------------
 
 
-/// The faction units of a source scope, resolved by the store's reprint rules; built once per scope
-/// (`None`: a store that is not the embedded one, whose catalogue the cache cannot share).
-pub fn roster_for(content: &ContentStore, sources: SourceSet) -> Option<&'static q::UnitRoster> {
-    static ROSTERS: [std::sync::OnceLock<Option<q::UnitRoster>>; 128] = [const { std::sync::OnceLock::new() }; 128];
-    if !content.is_embedded() {
-        return None;
-    }
-    let slot = ROSTERS.get(usize::try_from(sources.as_u32()).ok()?)?;
-    slot.get_or_init(|| {
-        let embedded = ContentStore::embedded();
-        let mut roster = q::UnitRoster::default();
-        for faction in Faction::ALL {
-            for base in UnitBaseType::ALL {
-                let found = ti4_content::units::faction_unit(
-                    embedded,
-                    <Faction as IdStr>::as_str(faction),
-                    <UnitBaseType as IdStr>::as_str(base),
-                    sources,
-                );
-                let unit = match found {
-                    Some(u) => Some(<ti4_engine_core::generated::Unit as IdStr>::from_id(u.id())?),
-                    None => None,
-                };
-                roster.set(faction, base, unit);
-            }
-        }
-        Some(roster)
-    })
-    .as_ref()
-}
+pub use ti4_engine_core_setup::roster::roster_for;
 
 // --- the string state at setup as a research context (D2-9b: the thin crate has no string engine to ask) ----------------------------
 

@@ -44,6 +44,9 @@ use crate::wire::rng::{GameRng, RngPositions};
 
 mod asker;
 mod rolls;
+mod start;
+
+pub use start::GameStart;
 
 use asker::TableAsker;
 

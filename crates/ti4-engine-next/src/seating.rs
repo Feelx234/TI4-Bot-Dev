@@ -13,50 +13,12 @@ use ti4_model::id::{FactionId, PlanetId, PlayerId, SystemId, TechnologyId};
 use ti4_model::state::GameState;
 use ti4_model::units::Unit;
 
-/// Mecatol Rex, which sits at the centre of the board: the base tile.
-pub const MECATOL: &str = "18";
-
-/// The Thunder's Edge Mecatol Rex tile, whose planet (`mrte`) is legendary (The Galactic Council).
-/// Placed instead of [`MECATOL`] whenever Thunder's Edge content is in scope.
-pub const MECATOL_TE: &str = "112";
-
-/// Whether `system` is Mecatol Rex, either printing.
-#[must_use]
-pub fn is_mecatol(system: &str) -> bool {
-    system == MECATOL || system == MECATOL_TE
-}
-
-/// Whether `planet` is the planet Mecatol Rex, either printing.
-#[must_use]
-pub fn is_mecatol_planet(planet: &str) -> bool {
-    planet == "mr" || planet == "mrte"
-}
-
-/// The Mecatol Rex tile a new board uses under `sources`: the Thunder's Edge printing when it is
-/// available, else the base tile.
-#[must_use]
-pub fn mecatol_for(content: &ContentStore, sources: SourceSet) -> &'static str {
-    if all_systems(content, sources).contains_key(MECATOL_TE) {
-        MECATOL_TE
-    } else {
-        MECATOL
-    }
-}
+pub use ti4_engine_core_setup::mecatol::{MECATOL, MECATOL_TE, is_mecatol, is_mecatol_planet, mecatol_for, mecatol_in_galaxy};
 
 /// The Mecatol Rex tile on this board (the base tile when neither is present).
 #[must_use]
 pub fn mecatol_on(state: &GameState) -> &'static str {
     if state.board.contains_key(ti4_model::id::text(&MECATOL_TE)) {
-        MECATOL_TE
-    } else {
-        MECATOL
-    }
-}
-
-/// The Mecatol Rex tile placed on this map (the base tile when neither is placed).
-#[must_use]
-pub fn mecatol_in_galaxy(galaxy: &Galaxy) -> &'static str {
-    if galaxy.coord_of(MECATOL_TE).is_some() {
         MECATOL_TE
     } else {
         MECATOL

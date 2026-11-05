@@ -184,6 +184,31 @@ impl Ctx {
         Ok(Self { owners, texts: Texts::default(), keys, resolver: None, owner_table, extra: extra.iter().map(|e| (*e).to_owned()).collect() })
     }
 
+    /// The tables of a core that was built, not loaded (`ti4_engine_core_setup::start_game`): its owner table and its text tables.
+    ///
+    /// # Errors
+    /// More than 16 owners, or an owner id that is not text.
+    pub fn of_core(core: &CoreState) -> R<Self> {
+        let ids = core
+            .owners
+            .iter()
+            .map(|id| std::str::from_utf8(id).map(str::to_owned).map_err(|_| bad(Slice::Seats, "owner id is not text", "")))
+            .collect::<R<Vec<_>>>()?;
+        if ids.len() > 16 {
+            return Err(bad(Slice::Seats, "more than 16 owners", ids.len()));
+        }
+        let owners = Owners { ids };
+        let mut keys = KeysCodec::default();
+        keys.owners = key_owners(&owners);
+        if keys.owners.is_none() {
+            // XF-6: the key order cannot represent an owner id that is a proper prefix of another one.
+            crate::product::refused(&bad(Slice::Seats, "an owner id that is a prefix of another", owners.ids().join(",")));
+        }
+        let mut cx = Self { owners, texts: Texts::default(), keys, resolver: None, owner_table: core.owners.clone(), extra: Vec::new() };
+        cx.texts.inner = core.texts.clone();
+        Ok(cx)
+    }
+
     /// Check that `state` still has the owners of this table: players are fixed for a game, the
     /// table of a state never changes (D2-3).
     ///
