@@ -127,9 +127,7 @@ fn sync_clock(r: &mut Resolver, core: &CoreState) {
 /// seat places, the research it opens, the Mahact pools; they change every step, so they are computed here, never kept in the `Env`).
 fn table_at(core: &CoreState, env: &Env<'_>) -> AbilityTable {
     let mut table = env.table.clone();
-    if let Some(provider) = &table.facts.plays_provider {
-        table.facts.plays = (provider.0)(core, env.kernel);
-    }
+    table.facts.arm_plays(core, env.kernel);
     table
 }
 

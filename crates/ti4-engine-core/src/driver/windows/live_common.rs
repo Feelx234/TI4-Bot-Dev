@@ -28,9 +28,7 @@ pub enum After {
 #[must_use]
 pub fn table_at(core: &CoreState, env: &Env<'_>) -> AbilityTable {
     let mut table = env.table.clone();
-    if let Some(provider) = &table.facts.plays_provider {
-        table.facts.plays = (provider.0)(core, env.kernel);
-    }
+    table.facts.arm_plays(core, env.kernel);
     table
 }
 

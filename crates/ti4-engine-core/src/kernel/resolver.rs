@@ -185,6 +185,8 @@ impl Registry {
     /// Register abilities in the supplied order. Duplicate ids are retained (the oracle's registry does
     /// not reject them).
     pub fn register(&mut self, abilities: impl IntoIterator<Item = AbilityDef>) {
+        let abilities = abilities.into_iter();
+        self.abilities.reserve(abilities.size_hint().0);
         for ability in abilities {
             let index = u32::try_from(self.abilities.len()).expect("fewer than 2^32 abilities");
             let key = (ability.event, ability.relation);

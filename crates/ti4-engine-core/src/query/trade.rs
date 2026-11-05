@@ -63,12 +63,10 @@ pub struct Cx<'a> {
 /// controls a planet.
 #[must_use]
 pub fn presence(core: &CoreState, seat: Seat) -> SysSet {
-    let mut out = super::board::systems_with_units_of(core, seat);
-    for (planet, cell) in core.board().planets() {
-        if cell.control == Some(seat) || cell.units.as_slice().iter().any(|u| u.owner() == seat) {
-            if let Some(system) = cell.placed_in.or(planet.data().system) {
-                out.insert(system.index());
-            }
+    let mut out = super::board::systems_with_units_anywhere(core, seat);
+    for i in core.board().planet_index().controlled[usize::from(seat.0)].iter() {
+        if let Some(system) = crate::generated::Planet::from_index(i).and_then(|planet| super::board::home_system(core, planet)) {
+            out.insert(system.index());
         }
     }
     out

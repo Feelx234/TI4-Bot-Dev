@@ -83,9 +83,25 @@ pub fn tag_is(tag: FactionTag, faction: Faction) -> bool {
 /// `technology::replaced_for_faction`: the faction owns an upgrade whose `baseUpgrade` is `tech`.
 #[must_use]
 pub fn replaced_for_faction(faction: Faction, tech: Technology) -> bool {
-    Technology::ALL.iter().any(|t| {
-        let d = t.data();
-        d.base_upgrade == Some(tech) && d.faction.is_some_and(|tag| tag_is(tag, faction))
+    replaced_table()[faction.index()].contains(tech)
+}
+
+/// For each faction, the technologies it owns an upgrade of (the definition of [`replaced_for_faction`], computed once from the technology data).
+fn replaced_table() -> &'static [TechSet; Faction::COUNT] {
+    static TABLE: std::sync::OnceLock<[TechSet; Faction::COUNT]> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        let mut table = [TechSet::default(); Faction::COUNT];
+        for faction in Faction::ALL {
+            for t in Technology::ALL {
+                let d = t.data();
+                if let Some(base) = d.base_upgrade
+                    && d.faction.is_some_and(|tag| tag_is(tag, faction))
+                {
+                    table[faction.index()].insert(base);
+                }
+            }
+        }
+        table
     })
 }
 
@@ -556,15 +572,26 @@ fn unit_in_scope(scope: Scope, unit: Unit) -> Option<&'static crate::generated::
     scope.unit(unit)
 }
 
+/// The units of each base type, in id order (`Unit::ALL` filtered once): `unlocked_upgrade` is asked for every seat and base type at many steps, and a
+/// scan of all the units for the few of one base type was a tenth of a game.
+fn units_by_base() -> &'static [Vec<Unit>; UnitBaseType::COUNT] {
+    static TABLE: std::sync::OnceLock<[Vec<Unit>; UnitBaseType::COUNT]> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        let mut table: [Vec<Unit>; UnitBaseType::COUNT] = std::array::from_fn(|_| Vec::new());
+        for unit in Unit::ALL {
+            table[unit.data().base_type as usize].push(unit);
+        }
+        table
+    })
+}
+
 /// `ti4_content::units::unlocked_upgrade`: the first unit (in id order) of the base type, generic
 /// or this faction's own, whose required technology is held.
 #[must_use]
 pub fn unlocked_upgrade(scope: Scope, base: UnitBaseType, faction: Faction, held: &TechSet) -> Option<Unit> {
-    Unit::ALL.into_iter().find(|u| {
+    units_by_base()[base as usize].iter().copied().find(|u| {
         unit_in_scope(scope, *u).is_some_and(|d| {
-            d.base_type == base
-                && d.faction.is_none_or(|tag| tag_is(tag, faction))
-                && matches!(d.required_technology, Requirement::Known(t) if held.contains(t))
+            d.faction.is_none_or(|tag| tag_is(tag, faction)) && matches!(d.required_technology, Requirement::Known(t) if held.contains(t))
         })
     })
 }
@@ -712,5 +739,53 @@ mod tests {
         assert!(open_to_faction(Faction::TheBaronyOfLetnev, Technology::CarrierII));
         assert!(!open_to_faction(Faction::TheFederationOfSol, Technology::CarrierII));
         assert!(!open_to_faction(Faction::TheBaronyOfLetnev, Technology::AdvancedCarrierII));
+    }
+}
+
+#[cfg(test)]
+mod unlocked_upgrade_tests {
+    use super::*;
+
+    /// The per-base table finds what the scan of every unit found (the definition it replaced), for every scope, base type, faction and a spread of held techs.
+    #[test]
+    fn unlocked_upgrade_agrees_with_the_scan_of_all_units() {
+        let scan = |scope: Scope, base: UnitBaseType, faction: Faction, held: &TechSet| {
+            Unit::ALL.into_iter().find(|u| {
+                unit_in_scope(scope, *u).is_some_and(|d| {
+                    d.base_type == base
+                        && d.faction.is_none_or(|tag| tag_is(tag, faction))
+                        && matches!(d.required_technology, Requirement::Known(t) if held.contains(t))
+                })
+            })
+        };
+        let all: TechSet = Technology::ALL.iter().copied().collect();
+        let mut some = TechSet::default();
+        for (i, t) in Technology::ALL.iter().enumerate() {
+            if i % 3 != 0 {
+                some.insert(*t);
+            }
+        }
+        let mut checked = 0;
+        for faction in Faction::ALL {
+            for tech in Technology::ALL {
+                let scan = Technology::ALL.iter().any(|t| {
+                    let d = t.data();
+                    d.base_upgrade == Some(tech) && d.faction.is_some_and(|tag| tag_is(tag, faction))
+                });
+                assert_eq!(replaced_for_faction(faction, tech), scan, "{faction:?} {tech:?}");
+                checked += 1;
+            }
+        }
+        for scope in [Scope(u32::MAX), Scope(1), Scope(source_bit(Unit::ALL[0].data().source))] {
+            for held in [&TechSet::default(), &all, &some] {
+                for base in UnitBaseType::ALL {
+                    for faction in Faction::ALL {
+                        assert_eq!(unlocked_upgrade(scope, base, faction, held), scan(scope, base, faction, held), "{base:?} {faction:?}");
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert!(checked > 1_000);
     }
 }

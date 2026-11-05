@@ -1,0 +1,12 @@
+### ti4_engine::live::env::env_for
+    51.18 MB   11268  branch < grow_amortized < grow_one < push_mut < push < register < register < ti4_engine::live::env::env_for < new
+    18.32 MB    2504  with_capacity_in < with_capacity_in < with_capacity_in < to_vec < to_vec_in < <alloc::vec::Vec as core::clone::Clone>::clone < clone < ti4_engine::live::env::env_for < new
+    10.10 MB    7512  branch < grow_amortized < grow_one < add < insert_mut < insert < register < register < ti4_engine::live::env::env_for
+     5.93 MB  157755  branch < grow_amortized < grow_one < non_null < ptr < ptr < as_mut_ptr < push_mut < push
+### ti4_engine_core::kernel::ability::AbilityTable::registry
+    51.19 MB   11269  branch < grow_amortized < grow_one < non_null < ptr < ptr < as_mut_ptr < push_mut < push
+### ti4_engine_core::containers::log::Log::push
+     7.53 MB    1046  branch < grow_amortized < grow_one < add < push_mut < push < ti4_engine_core::containers::log::Log::push < eq < next
+     7.25 MB    2048  with_capacity_in < with_capacity_in < with_capacity_in < to_vec < to_vec_in < <alloc::vec::Vec as core::clone::Clone>::clone < write < clone_one < clone_to_uninit
+     2.70 MB     370  branch < grow_amortized < grow_one < add < push_mut < push < ti4_engine_core::containers::log::Log::push < ti4_engine_core::kernel::fx::plain < eq
+     0.68 MB      93  branch < grow_amortized < grow_one < add < push_mut < push < ti4_engine_core::containers::log::Log::push < ti4_engine_core::kernel::fx::plain < announce_passed

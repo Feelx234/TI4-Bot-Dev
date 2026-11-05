@@ -1,0 +1,37 @@
+process start: live 0 kB, rss 7776 kB
+after setup:   live 4639 kB, rss 21384 kB
+4p seed 1 sol: Finished, 1251 steps, 1250 decisions, peak live during play 1.17 MB over the start
+step marks (step, live heap kB, rss kB):
+       0      4639     21384
+     250      4959     23176
+     500      5154     23176
+     750      5337     23176
+    1000      5532     23176
+    1251      5730     23176
+end position, one owner each (fields moved out of the state and dropped):
+  ledger: 2162 events, 23 dice, 3 vp rows, 0 relic rows; size_of Emit 232 B, RollRec 40 B, VpRec 8 B
+  ledger.events size_of      0 B   heap freed on drop    963152 B
+  ledger.dice  size_of      0 B   heap freed on drop      1400 B
+  ledger.vp    size_of      0 B   heap freed on drop        72 B
+  ledger.relics size_of      0 B   heap freed on drop         0 B
+  board        size_of    200 B   heap freed on drop     11710 B
+  map          size_of     16 B   heap freed on drop         0 B
+  players      size_of     72 B   heap freed on drop      3000 B
+  decks        size_of    152 B   heap freed on drop       907 B
+  cards        size_of     40 B   heap freed on drop       528 B
+  objectives   size_of    304 B   heap freed on drop        40 B
+  agenda       size_of    328 B   heap freed on drop         0 B
+  strategy     size_of    296 B   heap freed on drop         0 B
+  explore      size_of    160 B   heap freed on drop       360 B
+  trade        size_of    280 B   heap freed on drop       680 B
+  marks        size_of      8 B   heap freed on drop        40 B
+  transient    size_of    376 B   heap freed on drop       496 B
+  pending      size_of    360 B   heap freed on drop      1640 B
+  rng          size_of     16 B   heap freed on drop       376 B
+  ledger       size_of     96 B   heap freed on drop         0 B
+  texts        size_of     64 B   heap freed on drop       608 B
+  meta         size_of     64 B   heap freed on drop         0 B
+  seats        size_of     34 B   heap freed on drop         0 B
+  state total live before the drops 5734 kB; left in the (emptied) state 4753 kB
+size_of CoreState 2880 B
+VmHWM:	   23176 kB (peak resident set of the process, setup included)

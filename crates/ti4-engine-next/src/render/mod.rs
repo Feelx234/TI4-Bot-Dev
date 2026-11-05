@@ -97,6 +97,10 @@ pub struct Render {
     ability_ids: RefCell<std::collections::HashMap<u64, ti4_engine_core::choice::reaction::AbilityId, std::hash::BuildHasherDefault<KeyMix>>>,
     /// The values of `AbilityTable::codes` this `Render` gave the table (the same texts always get the same codes).
     table_codes: std::cell::Cell<Option<ti4_engine_core::kernel::ability::Codes>>,
+    /// The values of `AbilityTable::codes.explore` this `Render` gave the table (same reason as [`Self::table_codes`]).
+    explore_codes: std::cell::Cell<Option<ti4_engine_core::kernel::ability::ExploreCodes>>,
+    /// The live `Env` of the last call (`live::env::env_with_plays`) with the facts it was built from; reused while they hold. A new `Render` starts empty.
+    pub(crate) env_template: RefCell<Option<crate::live::env::Template>>,
 }
 
 /// The key of [`Render::ability_id_memo`]: the rule's slot, the owner seat, the lender seat (255: none), the owner's and the lender's faction (255: none), packed.
@@ -128,7 +132,7 @@ impl std::hash::Hasher for KeyMix {
 impl Render {
     #[must_use]
     pub fn new(seats: Vec<String>) -> Self {
-        Self { seats, factions: Vec::new(), codes: RefCell::new(ti4_engine_core::containers::Interner::default()), position: RefCell::new(None), shapes: RefCell::new(Vec::new()), free: RefCell::new(Vec::new()), ability_ids: RefCell::new(std::collections::HashMap::default()), table_codes: std::cell::Cell::new(None) }
+        Self { seats, factions: Vec::new(), codes: RefCell::new(ti4_engine_core::containers::Interner::default()), position: RefCell::new(None), shapes: RefCell::new(Vec::new()), free: RefCell::new(Vec::new()), ability_ids: RefCell::new(std::collections::HashMap::default()), table_codes: std::cell::Cell::new(None), explore_codes: std::cell::Cell::new(None), env_template: RefCell::new(None) }
     }
 
     /// The memoized id of a registered ability, or the result of `build` (kept for the next call).
@@ -145,6 +149,17 @@ impl Render {
     #[must_use]
     pub fn cached_table_codes(&self) -> Option<ti4_engine_core::kernel::ability::Codes> {
         self.table_codes.get()
+    }
+
+    /// The `AbilityTable::codes.explore` this `Render` computed before, if it did.
+    #[must_use]
+    pub fn cached_explore_codes(&self) -> Option<ti4_engine_core::kernel::ability::ExploreCodes> {
+        self.explore_codes.get()
+    }
+
+    /// Remember the `AbilityTable::codes.explore` computed from this `Render`.
+    pub fn cache_explore_codes(&self, codes: ti4_engine_core::kernel::ability::ExploreCodes) {
+        self.explore_codes.set(Some(codes));
     }
 
     /// Remember the `AbilityTable::codes` computed from this `Render`.

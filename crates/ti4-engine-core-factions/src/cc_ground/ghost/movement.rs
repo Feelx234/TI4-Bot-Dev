@@ -20,7 +20,9 @@ pub fn register(t: &mut HookTable) {
 /// "This ship's system contains a delta wormhole." Space area only, as the string hook reads it.
 fn extra_wormholes(s: &CoreState) -> ExtraWormholes {
     let mut out = ExtraWormholes::new();
-    for (sys, cell) in s.board().systems() {
+    // (Only the systems that hold a unit at all: the board's index names them.)
+    for sys in ti4_engine_core::query::board::systems_of(ti4_engine_core::query::board::systems_with_any_units(s)) {
+        let cell = s.board().sys(sys);
         if cell.units.as_slice().iter().any(|p| flagship_has_text(s, p.owner(), p.kind(), Unit::HilColish)) {
             out.push((sys, Wormhole::Delta));
         }

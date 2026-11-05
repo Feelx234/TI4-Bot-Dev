@@ -480,7 +480,7 @@ pub fn follow(r: &Render, gs: &GameState, script: &Recording) -> Result<Option<F
     let Some(cfg) = script.cfg.as_ref() else {
         return Err("nested activity without a resolver".to_owned());
     };
-    table.facts.plays = play_facts(r, gs, &cfg.sources);
+    table.facts.plays = play_facts(r, gs, &cfg.sources).into();
     // The unit forms of the factions: what a production by an ability (the Arborec flagship and commander) builds. A window that explores keeps its own (`keep_exploration`).
     table.facts.roster = crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), cfg.sources.clone());
     // Salvage Operations reads the units its owner may build (`production::buildable_for`, in the string's order).
@@ -738,7 +738,7 @@ impl Follow {
     pub(crate) fn armed(r: &Render, gs: &GameState, resolver: Resolver) -> Self {
         let sources = if gs.thunders_edge { ti4_model::content_types::FULL } else { ti4_model::content_types::POK };
         let mut table = table();
-        table.facts.plays = play_facts(r, gs, &sources);
+        table.facts.plays = play_facts(r, gs, &sources).into();
         Self { table, resolver, sources }
     }
 

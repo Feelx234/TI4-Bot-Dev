@@ -536,16 +536,111 @@ impl core::fmt::Debug for PlaysProvider {
     }
 }
 
+/// What a [`PlaysProvider`] reads besides the position it is given: the kernel (a `'static` one, the game's) and the unit roster of its scope.
+/// With it the facts of a call are computed when first read, from a snapshot of the position the call started from.
+#[derive(Clone, Copy)]
+pub struct PlaysSource {
+    pub kernel: &'static Kernel,
+    /// What the provider answers for `PlayFacts::roster` (`None`: it answers `None` altogether).
+    pub roster: Option<&'static crate::query::tech::UnitRoster>,
+}
+
+impl core::fmt::Debug for PlaysSource {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("PlaysSource")
+    }
+}
+
+/// The facts of one call, computed on the first read: the position the call started from (a clone: persistent, three allocations), the provider and
+/// its kernel. The value is a function of those alone, so reading it later in the call gives what computing it at the start gave.
+struct LazyPlays {
+    at: CoreState,
+    provider: PlaysProvider,
+    kernel: &'static Kernel,
+    value: std::sync::OnceLock<Option<PlayFacts>>,
+}
+
+/// [`AdapterFacts::plays`]: an `Option<PlayFacts>` that may be computed on first use. `as_ref` / `as_mut` / `is_some` / `is_none` read like the
+/// `Option`'s; a clone of the table shares the one computation.
+#[derive(Clone, Default)]
+pub struct Plays {
+    eager: Option<PlayFacts>,
+    lazy: Option<std::sync::Arc<LazyPlays>>,
+}
+
+impl Plays {
+    /// The facts of a given value (a test's, or a provider that was called at once).
+    #[must_use]
+    pub fn of(value: Option<PlayFacts>) -> Self {
+        Self { eager: value, lazy: None }
+    }
+
+    #[must_use]
+    pub fn as_ref(&self) -> Option<&PlayFacts> {
+        match &self.lazy {
+            Some(lazy) => lazy.value.get_or_init(|| (lazy.provider.0)(&lazy.at, lazy.kernel)).as_ref(),
+            None => self.eager.as_ref(),
+        }
+    }
+
+    /// Mutable access (tests): a deferred value is computed first and kept as the table's own.
+    pub fn as_mut(&mut self) -> Option<&mut PlayFacts> {
+        if self.lazy.is_some() {
+            self.eager = self.as_ref().cloned();
+            self.lazy = None;
+        }
+        self.eager.as_mut()
+    }
+
+    #[must_use]
+    pub fn is_some(&self) -> bool {
+        self.as_ref().is_some()
+    }
+
+    #[must_use]
+    pub fn is_none(&self) -> bool {
+        self.as_ref().is_none()
+    }
+
+    /// Whether the value is still to be computed (nobody read it).
+    #[must_use]
+    pub fn is_pending(&self) -> bool {
+        self.lazy.as_ref().is_some_and(|lazy| lazy.value.get().is_none())
+    }
+}
+
+impl core::fmt::Debug for Plays {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match &self.lazy {
+            Some(lazy) => match lazy.value.get() {
+                Some(value) => value.fmt(f),
+                None => f.write_str("<deferred>"),
+            },
+            None => self.eager.fmt(f),
+        }
+    }
+}
+
+impl From<Option<PlayFacts>> for Plays {
+    fn from(value: Option<PlayFacts>) -> Self {
+        Self::of(value)
+    }
+}
+
 /// Facts the adapter computes for the window and the core cannot (no galaxy is lent to the windows that follow
 /// abilities): the systems adjacent to a system as one seat sees them (`PlayerAdjacency::neighbours`).
 #[derive(Debug, Clone, Default)]
 pub struct AdapterFacts {
     reach: Vec<(Seat, crate::generated::System, Vec<crate::generated::System>)>,
-    /// The play of action cards (B6).
-    pub plays: Option<PlayFacts>,
+    /// The play of action cards (B6). Readers use `plays.as_ref()` as with an `Option`; the live loop's value is computed from its position on the
+    /// first read (see [`Plays`]).
+    pub plays: Plays,
     /// The live loop's source of [`Self::plays`]: facts that change with the position (what a seat places, the research a card opens,
     /// the Mahact pools) are computed from the core position every time a live driver is built (`driver::live`), not once per game.
     pub plays_provider: Option<PlaysProvider>,
+    /// What the provider reads besides the position, when it reads nothing that outlives its game: lets [`AdapterFacts::arm_plays`] defer the
+    /// computation to the first read of [`Self::plays`]. `None`: the provider is called at once, as before.
+    pub plays_source: Option<PlaysSource>,
     /// `supply::staging_enabled` of the position (a registered faction module is seated): losses are announced and a Direct
     /// Hit removes the exact sustained ship.
     pub staging: bool,
@@ -632,6 +727,28 @@ impl RerollFacts {
 }
 
 impl AdapterFacts {
+    /// The facts of the call that starts at `core` with `kernel`: asked of the provider at once, or, when the provider reads nothing but the
+    /// position and its own kernel ([`Self::plays_source`], the same kernel as the call's), at the first read.
+    pub fn arm_plays(&mut self, core: &CoreState, kernel: &Kernel) {
+        let Some(provider) = &self.plays_provider else { return };
+        self.plays = match self.plays_source {
+            Some(source) if std::ptr::eq(source.kernel, kernel) => {
+                Plays { eager: None, lazy: Some(std::sync::Arc::new(LazyPlays { at: core.clone(), provider: provider.clone(), kernel: source.kernel, value: std::sync::OnceLock::new() })) }
+            }
+            _ => Plays::of((provider.0)(core, kernel)),
+        };
+    }
+
+    /// The unit roster the provider's facts carry for `core` (`None`: no roster, or no provider): without computing the facts when the source is known.
+    #[must_use]
+    pub fn provider_roster(&self, core: &CoreState, kernel: &Kernel) -> Option<&'static crate::query::tech::UnitRoster> {
+        let provider = self.plays_provider.as_ref()?;
+        match self.plays_source {
+            Some(source) if std::ptr::eq(source.kernel, kernel) => source.roster,
+            _ => (provider.0)(core, kernel)?.roster,
+        }
+    }
+
     /// The kernel a use of PRODUCTION an ability runs reads, for the source scope `host` plays: the adapter's production kernel of that scope, else
     /// the one it lent for payments.
     #[must_use]
@@ -866,8 +983,10 @@ impl Spec {
 /// The rules behind the abilities the resolver's registry lists, by slot.
 #[derive(Clone, Default)]
 pub struct AbilityTable {
-    specs: Vec<Spec>,
-    forbids: Vec<(u32, Forbids)>,
+    /// The rules, shared between the copies of a table: `AbilityTable::clone` runs about five times per step and the specs are 10 KB, so a copy
+    /// is a reference count and `register*` copy the vector only when it is shared (`Arc::make_mut`).
+    specs: std::sync::Arc<Vec<Spec>>,
+    forbids: std::sync::Arc<Vec<(u32, Forbids)>>,
     /// Political Secret (`laws::political_secret_bars`): no faction ability for this seat. Set by the rules
     /// package that owns it (the kernel cannot import the agenda area).
     pub bars: Option<fn(&CoreState, Seat) -> bool>,
@@ -886,7 +1005,7 @@ pub struct AbilityTable {
     /// The calls a window makes into other rule areas (child windows, the research queries): areas do not import each
     /// other, so the layer that may (`driver::children::register`) fills them. Empty by default.
     pub links: super::children::AreaLinks,
-    card_plays: Vec<CardPlay>,
+    card_plays: std::sync::Arc<Vec<CardPlay>>,
     /// A seat that has nothing to resolve in a reaction window was looked at once (`Table::window_skipped` of the string): the log the
     /// wrapper drains after the step. `None` records nothing.
     pub skipped: Option<SkippedLog>,
@@ -919,7 +1038,7 @@ impl AbilityTable {
 
     /// Register the effect of some reaction cards.
     pub fn add_card_play(&mut self, play: CardPlay) {
-        self.card_plays.push(play);
+        std::sync::Arc::make_mut(&mut self.card_plays).push(play);
     }
 
     /// The registered effect that plays `card`, if any.
@@ -930,12 +1049,12 @@ impl AbilityTable {
 
     pub fn add(&mut self, spec: Spec) {
         debug_assert!(self.of_slot(spec.slot).is_none(), "slot {:?} registered twice", spec.slot);
-        self.specs.push(spec);
+        std::sync::Arc::make_mut(&mut self.specs).push(spec);
     }
 
     /// The predicate of the cannot whose `arg` is given.
     pub fn add_forbid(&mut self, arg: u32, f: Forbids) {
-        self.forbids.push((arg, f));
+        std::sync::Arc::make_mut(&mut self.forbids).push((arg, f));
     }
 
     #[must_use]
@@ -979,7 +1098,8 @@ impl AbilityTable {
         order: &[Seat],
         name: &mut dyn FnMut(&Spec, Seat, Option<Seat>) -> AbilityId,
     ) -> Vec<AbilityDef> {
-        let mut out = Vec::new();
+        // (Sized for a table of a few hundred rows in one allocation: growing from empty by doubling re-allocated it nine times per call.)
+        let mut out = Vec::with_capacity(self.specs.len() * order.len());
         // The pair rules the string registers first (`leads`), borrower by borrower, then each lender in seat order.
         for &borrower in order {
             for &lender in order {
@@ -1507,5 +1627,35 @@ impl Runner for Inline<'_, '_> {
             Some(after) => after(&mut *self.host, &mut *self.resolver).map(|()| true),
             None => Ok(false),
         }
+    }
+}
+
+#[cfg(test)]
+mod table_clone_tests {
+    use super::*;
+
+    fn spec(slot: u16) -> Spec {
+        Spec::new(Slot(slot), AbilityKind::Ability, EventKind::TradeGoodsGained, Relation::After, no_effect)
+    }
+
+    /// A table clone shares the specs (a reference count, not a copy of 10 KB); a registration on the copy leaves the original as it was
+    /// and a registration on the original (once it stopped being shared) leaves the copy as it was.
+    #[test]
+    fn a_clone_shares_the_specs_and_registering_copies_on_write() {
+        let mut a = AbilityTable::default();
+        a.add(spec(1));
+        a.add(spec(2));
+        let mut b = a.clone();
+        assert!(std::sync::Arc::ptr_eq(&a.specs, &b.specs), "a clone is a reference count");
+        b.add(spec(3));
+        assert_eq!((a.len(), b.len()), (2, 3), "the registration on the copy did not reach the original");
+        assert!(!std::sync::Arc::ptr_eq(&a.specs, &b.specs));
+        assert!(a.of_slot(Slot(3)).is_none() && b.of_slot(Slot(3)).is_some());
+        let c = a.clone();
+        a.add(spec(4));
+        assert_eq!((a.len(), c.len()), (3, 2), "the registration on the original did not reach the earlier copy");
+        assert!(c.of_slot(Slot(4)).is_none() && a.of_slot(Slot(4)).is_some());
+        a.add_forbid(7, |_, _, _| false);
+        assert!(c.forbids.is_empty() && a.forbids.len() == 1);
     }
 }

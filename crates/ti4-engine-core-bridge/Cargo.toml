@@ -33,6 +33,8 @@ mimalloc.workspace = true
 ti4-perf-alloc = { path = "../ti4-perf-alloc" }
 
 [features]
+# `perf_kernel`: the counting allocator (counts, bytes, live, peak) instead of plain mimalloc.
+perf-count = []
 # Count the view calls of the string bot per decision subtype (`ti4_model::count`); `bot_shadow` prints them.
 observed-count = ["ti4-engine-legacy/observed-count", "ti4-model/observed-count"]
 

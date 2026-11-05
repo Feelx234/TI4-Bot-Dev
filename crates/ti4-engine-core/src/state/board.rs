@@ -1,6 +1,9 @@
 //! `Board`: systems and planets as chunked copy-on-write arrays indexed by the generated enums.
 //! A clone bumps 25 refcounts; a unit move copies one chunk of 16 cells.
 
+use std::sync::{Arc, OnceLock};
+
+use crate::bits::{Bits, SysSet};
 use crate::containers::{Chunked, SeatSet, SmallList};
 use crate::generated::{Attachment, Planet, System};
 use crate::ids::Seat;
@@ -89,11 +92,118 @@ pub struct PlanetCell {
 const SYS_CHUNKS: usize = System::COUNT.div_ceil(16);
 const PLANET_CHUNKS: usize = Planet::COUNT.div_ceil(16);
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// A set of planets.
+pub type PlanetSet = Bits<{ Planet::COUNT.div_ceil(64) }>;
+
+/// Owners are `Seat`s below 16 (`Piece` stores the owner in four bits).
+const OWNERS: usize = 16;
+
+/// What the planet cells say, as sets, so that "the planets the seat controls" and "where the seat has units" are a copy of one set and not a scan of
+/// the 159 cells (`Board::planet_index`). A function of the cells: it is built from them on first use and dropped by the next edit access.
+#[derive(Debug, Clone)]
+pub struct PlanetIndex {
+    /// Planets with a `placed_in` (an effect put them into another system).
+    pub placed: PlanetSet,
+    /// Planets with the `EXHAUSTED` flag.
+    pub exhausted: PlanetSet,
+    /// `controlled[seat]`: the planets whose `control` is the seat.
+    pub controlled: [PlanetSet; OWNERS],
+    /// `with_units[seat]`: the planets holding a unit of the seat.
+    pub with_units: [PlanetSet; OWNERS],
+}
+
+/// The same for the system cells.
+#[derive(Debug, Clone)]
+pub struct SysIndex {
+    /// `with_units[seat]`: the systems whose space area holds a unit of the seat.
+    pub with_units: [SysSet; OWNERS],
+    /// `with_token[seat]`: the systems holding a command token of the seat.
+    pub with_token: [SysSet; OWNERS],
+}
+
+impl PlanetIndex {
+    fn of(planets: &Chunked<PlanetCell, 16, PLANET_CHUNKS>) -> Self {
+        let mut ix = Self { placed: PlanetSet::EMPTY, exhausted: PlanetSet::EMPTY, controlled: [PlanetSet::EMPTY; OWNERS], with_units: [PlanetSet::EMPTY; OWNERS] };
+        for (i, cell) in planets.iter().take(Planet::COUNT).enumerate() {
+            if cell.placed_in.is_some() {
+                ix.placed.insert(i);
+            }
+            if cell.flags.has(PlanetFlags::EXHAUSTED) {
+                ix.exhausted.insert(i);
+            }
+            if let Some(seat) = cell.control {
+                ix.controlled[usize::from(seat.0)].insert(i);
+            }
+            for owner in owners(cell.units.as_slice()).iter() {
+                ix.with_units[owner].insert(i);
+            }
+        }
+        ix
+    }
+}
+
+impl SysIndex {
+    fn of(systems: &Chunked<SysCell, 16, SYS_CHUNKS>) -> Self {
+        let mut ix = Self { with_units: [SysSet::EMPTY; OWNERS], with_token: [SysSet::EMPTY; OWNERS] };
+        for (i, cell) in systems.iter().take(System::COUNT).enumerate() {
+            for owner in owners(cell.units.as_slice()).iter() {
+                ix.with_units[owner].insert(i);
+            }
+            for seat in 0..OWNERS {
+                if cell.cmd.contains(Seat(seat as u8)) {
+                    ix.with_token[seat].insert(i);
+                }
+            }
+        }
+        ix
+    }
+}
+
+/// The owners of a unit list, as a mask over the owner numbers.
+fn owners(units: &[Piece]) -> OwnerMask {
+    OwnerMask(units.iter().fold(0u16, |m, p| m | p.owner().bit()))
+}
+
+#[derive(Clone, Copy)]
+struct OwnerMask(u16);
+
+impl OwnerMask {
+    fn iter(self) -> impl Iterator<Item = usize> {
+        let mut rest = self.0;
+        std::iter::from_fn(move || {
+            if rest == 0 {
+                return None;
+            }
+            let bit = rest.trailing_zeros() as usize;
+            rest &= rest - 1;
+            Some(bit)
+        })
+    }
+}
+
+/// The board. Next to the cells it keeps two **derived indexes** (`PlanetIndex`, `SysIndex`): built from the cells on first use, shared by the clones
+/// of a board (an `Arc`, so a clone still allocates nothing), and **dropped by `planet_mut` / `sys_mut`**, the only ways to write a cell (the fields are
+/// private), so an index is never read after an edit it does not show. They are not part of the state: `Debug` and `==` see the cells only.
+#[derive(Clone, Default)]
 pub struct Board {
     sys: Chunked<SysCell, 16, SYS_CHUNKS>,
     planet: Chunked<PlanetCell, 16, PLANET_CHUNKS>,
+    planet_ix: OnceLock<Arc<PlanetIndex>>,
+    sys_ix: OnceLock<Arc<SysIndex>>,
 }
+
+impl std::fmt::Debug for Board {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Board").field("sys", &self.sys).field("planet", &self.planet).finish()
+    }
+}
+
+impl PartialEq for Board {
+    fn eq(&self, other: &Self) -> bool {
+        self.sys == other.sys && self.planet == other.planet
+    }
+}
+impl Eq for Board {}
 
 impl Board {
     #[must_use]
@@ -102,6 +212,7 @@ impl Board {
     }
 
     pub fn sys_mut(&mut self, s: System) -> &mut SysCell {
+        self.sys_ix.take();
         self.sys.edit(s.index())
     }
 
@@ -111,7 +222,28 @@ impl Board {
     }
 
     pub fn planet_mut(&mut self, p: Planet) -> &mut PlanetCell {
+        self.planet_ix.take();
         self.planet.edit(p.index())
+    }
+
+    /// The sets the planet cells add up to (see [`PlanetIndex`]): equal to what a scan of [`Board::planets`] finds.
+    #[must_use]
+    pub fn planet_index(&self) -> &PlanetIndex {
+        self.planet_ix.get_or_init(|| Arc::new(PlanetIndex::of(&self.planet)))
+    }
+
+    /// The sets the system cells add up to (see [`SysIndex`]).
+    #[must_use]
+    pub fn sys_index(&self) -> &SysIndex {
+        self.sys_ix.get_or_init(|| Arc::new(SysIndex::of(&self.sys)))
+    }
+
+    /// The indexes recomputed from the cells (the definition they must agree with; the check of the random-play test).
+    #[must_use]
+    pub fn indexes_agree_with_a_scan(&self) -> bool {
+        let (p, s) = (self.planet_index(), self.sys_index());
+        let (fp, fs) = (PlanetIndex::of(&self.planet), SysIndex::of(&self.sys));
+        p.placed == fp.placed && p.exhausted == fp.exhausted && p.controlled == fp.controlled && p.with_units == fp.with_units && s.with_units == fs.with_units && s.with_token == fs.with_token
     }
 
     /// Every system cell in system order (cells past `System::COUNT` are padding).

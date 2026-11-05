@@ -188,7 +188,7 @@ fn construction_survives_every_answer_policy() {
 fn with_roster(table: &mut ti4_engine_core::kernel::stage::AbilityTable, rules_version: u32) {
     use ti4_engine_core::kernel::ability::{PlayFacts, SharedPlay};
     let roster: &'static ti4_engine_core::query::tech::UnitRoster = Box::leak(Box::default());
-    table.facts.plays = Some(PlayFacts {
+    table.facts.plays = ti4_engine_core::kernel::ability::Plays::of(Some(PlayFacts {
         scope: 0,
         blanked: false,
         action_card: Code(0),
@@ -202,7 +202,7 @@ fn with_roster(table: &mut ti4_engine_core::kernel::stage::AbilityTable, rules_v
         rules_version,
         tech_order: |a, b| a.cmp(&b),
         shared: SharedPlay::default(),
-    });
+    }));
 }
 
 /// Seat 0 (Muaat) controls two planets and holds `goods` trade goods; with `minister` it was elected Minister of Industry.

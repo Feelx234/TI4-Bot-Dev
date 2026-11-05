@@ -857,11 +857,14 @@ fn infantry_of(who: Seat) -> impl Fn(&crate::state::Piece) -> bool {
 fn infantry_sites(s: &CoreState, who: Seat) -> Vec<(System, Option<Planet>)> {
     let is_infantry = infantry_of(who);
     let mut sites = Vec::new();
-    for (system, cell) in s.board().systems() {
+    let placed = board::placed_planets(s);
+    // (Only the systems where `who` has a unit at all can hold an infantry of `who`.)
+    for system in board::systems_of(board::systems_with_units_anywhere(s, who)) {
+        let cell = s.board().sys(system);
         if cell.units.as_slice().iter().any(&is_infantry) {
             sites.push((system, None));
         }
-        let mut planets: Vec<Planet> = board::planets_of(s, system).collect();
+        let mut planets: Vec<Planet> = board::planets_of_in(s, &placed, system).collect();
         planets.sort_unstable();
         for planet in planets {
             if s.board().planet(planet).units.as_slice().iter().any(&is_infantry) {
@@ -870,6 +873,15 @@ fn infantry_sites(s: &CoreState, who: Seat) -> Vec<(System, Option<Planet>)> {
         }
     }
     sites
+}
+
+/// Whether `infantry_sites(s, who)` is non-empty, without building the list (one yes/no per paid research): the same locations, the first hit ends it.
+fn has_infantry_site(s: &CoreState, who: Seat) -> bool {
+    let is_infantry = infantry_of(who);
+    let placed = board::placed_planets(s);
+    board::systems_of(board::systems_with_units_anywhere(s, who)).any(|system| {
+        s.board().sys(system).units.as_slice().iter().any(&is_infantry) || board::planets_of_in(s, &placed, system).any(|planet| s.board().planet(planet).units.as_slice().iter().any(&is_infantry))
+    })
 }
 
 impl Research {
@@ -917,7 +929,7 @@ impl Research {
     /// The paid research begins: Doctor Sucaban is offered first, before the affordability gate (the whole point of the card is to make a research
     /// affordable that was not), then the research is paid for the cost that is left.
     fn begin_paid(&mut self, s: &mut CoreState, k: &Kernel) {
-        if self.cost > 0 && !infantry_sites(s, self.who).is_empty() {
+        if self.cost > 0 && has_infantry_site(s, self.who) {
             self.sucaban = sucaban_sources(s, self.who);
         }
         self.next_offer(s, k);
@@ -1335,7 +1347,7 @@ impl Window for Research {
                 },
                 RStage::Trade => {
                     // (`while reduced > 0`, and `sites.is_empty()` ends the trade.)
-                    if self.cost > 0 && !infantry_sites(sx.state, self.who).is_empty() {
+                    if self.cost > 0 && has_infantry_site(sx.state, self.who) {
                         return Next::Continue(self.trade_choice(sx.state).ask);
                     }
                     self.after_offers(sx.state, sx.kernel);
