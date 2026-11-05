@@ -13417,17 +13417,17 @@
         "rules_version": 36
       },
       "termination": "victory",
-      "winner": 0,
+      "winner": 2,
       "vp": [
-        10,
+        9,
         7,
-        6,
-        8
+        10,
+        9
       ],
-      "rounds": 6,
-      "decisions": 2070,
+      "rounds": 8,
+      "decisions": 2557,
       "wall_ms": 3914.3247269999997,
-      "hash": "0f5a4356b536f6a8"
+      "hash": "a317aabe9380c701"
     },
     {
       "spec": {
@@ -13786,7 +13786,7 @@
       "rounds": 9,
       "decisions": 2993,
       "wall_ms": 20653.763611,
-      "hash": "d3dac39dbcd83498"
+      "hash": "19fbc2265c2ddc21"
     },
     {
       "spec": {

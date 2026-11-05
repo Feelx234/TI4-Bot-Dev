@@ -58,6 +58,36 @@ fn rin_trading_replaces_the_technology_and_keeping_changes_nothing_but_still_cou
     let _ = keep.replay();
 }
 
+/// Heavy fix 1 (bench seeds v2/69, v4/7, v5/99, v5/10 of the int-26 heavy run): since lane core-lent-gaps a swap re-forms the seat's units
+/// (90.8, the string's `apply_unit_upgrades` after each swap) whenever the window holds the faction roster, which the native play always lends.
+/// A plain mech on the board of a Jol-Nar seat becomes its own mech; without the roster nothing changes. This is the rules change that moved
+/// the four bench games; the baselines were re-recorded for it (docs/HEAVYFIX1_RESUME.md).
+#[test]
+fn rin_re_forms_the_seats_units_after_a_swap_when_the_roster_is_held() {
+    covers!("rules::leader_windows::RinHero");
+    let (system, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let build = |roster: bool| {
+        let sc = Scenario::new(&[Faction::TheUniversitiesOfJolNar, Faction::TheArborec])
+            .tech(0, Technology::GravityDrive)
+            .unit(system, Some(planet), Unit::FactionlessMech, 0, 1);
+        let mut rig = Rig::new(sc, RinHero::new(Seat(0), all_techs(), all_techs()));
+        if roster {
+            let mut table = ti4_engine_core::kernel::ability::AbilityTable::default();
+            let mut units = ti4_engine_core::query::tech::UnitRoster::default();
+            units.set(Faction::TheUniversitiesOfJolNar, UnitBaseType::Mech, Some(Unit::ShieldPaling));
+            table.facts.roster = Some(Box::leak(Box::new(units)));
+            rig = rig.with_table(table);
+        }
+        rig.run();
+        let Opt::Leaders(LOpt::Trade(_)) = rig.opts()[0] else { panic!("a trade first") };
+        rig.pick(0);
+        assert!(rig.is_done() && rig.driver.window.used);
+        rig.state.board().planet(planet).units.as_slice().iter().map(|u| u.kind()).collect::<Vec<_>>()
+    };
+    assert_eq!(build(true), vec![Unit::ShieldPaling], "the plain mech became the faction's own after the swap");
+    assert_eq!(build(false), vec![Unit::FactionlessMech], "without the roster the window cannot re-form (the lent windows that hold none)");
+}
+
 #[test]
 fn rin_with_nothing_to_swap_is_not_used_and_unit_upgrades_are_not_swapped() {
     covers!("rules::leader_windows::RinHero");
