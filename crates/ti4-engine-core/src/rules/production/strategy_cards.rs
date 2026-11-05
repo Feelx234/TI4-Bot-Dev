@@ -858,7 +858,9 @@ fn infantry_sites(s: &CoreState, who: Seat) -> Vec<(System, Option<Planet>)> {
     let is_infantry = infantry_of(who);
     let mut sites = Vec::new();
     let placed = board::placed_planets(s);
-    for (system, cell) in s.board().systems() {
+    // (Only the systems where `who` has a unit at all can hold an infantry of `who`.)
+    for system in board::systems_of(board::systems_with_units_anywhere(s, who)) {
+        let cell = s.board().sys(system);
         if cell.units.as_slice().iter().any(&is_infantry) {
             sites.push((system, None));
         }
@@ -877,8 +879,8 @@ fn infantry_sites(s: &CoreState, who: Seat) -> Vec<(System, Option<Planet>)> {
 fn has_infantry_site(s: &CoreState, who: Seat) -> bool {
     let is_infantry = infantry_of(who);
     let placed = board::placed_planets(s);
-    s.board().systems().any(|(system, cell)| {
-        cell.units.as_slice().iter().any(&is_infantry) || board::planets_of_in(s, &placed, system).any(|planet| s.board().planet(planet).units.as_slice().iter().any(&is_infantry))
+    board::systems_of(board::systems_with_units_anywhere(s, who)).any(|system| {
+        s.board().sys(system).units.as_slice().iter().any(&is_infantry) || board::planets_of_in(s, &placed, system).any(|planet| s.board().planet(planet).units.as_slice().iter().any(&is_infantry))
     })
 }
 

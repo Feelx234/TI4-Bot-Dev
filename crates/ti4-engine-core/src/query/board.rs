@@ -57,20 +57,25 @@ pub fn planets_in(core: &CoreState, scope: Scope, system: System) -> PlanetList 
     }
     // The string side lists the planets in record (id text) order, which is the enum order.
     out.as_mut_slice().sort_unstable();
-    for (planet, cell) in core.board().planets() {
-        if cell.placed_in == Some(system) {
-            out.push(planet);
-        }
+    for (planet, _) in placed_in(core, system) {
+        out.push(planet);
     }
     out
+}
+
+/// The planets an effect placed into `system` (with the system), in planet order: the placed set of the board's index, a few cells.
+fn placed_in(core: &CoreState, system: System) -> impl Iterator<Item = (Planet, System)> + '_ {
+    core.board().planet_index().placed.iter().filter_map(move |i| {
+        let planet = Planet::from_index(i)?;
+        (core.board().planet(planet).placed_in == Some(system)).then_some((planet, system))
+    })
 }
 
 /// Every planet whose entries live in this system (printed or placed), scope-free. These are the
 /// planets `SystemState::{planet_control, planet_units}` can hold.
 pub fn planets_of(core: &CoreState, system: System) -> impl Iterator<Item = Planet> + '_ {
-    system.data().planets.iter().copied().filter(move |p| core.board().planet(*p).placed_in.is_none()).chain(
-        core.board().planets().filter(move |(_, c)| c.placed_in == Some(system)).map(|(p, _)| p),
-    )
+    let placed = &core.board().planet_index().placed;
+    system.data().planets.iter().copied().filter(move |p| !placed.contains(p.index())).chain(placed_in(core, system).map(|(p, _)| p))
 }
 
 /// Every planet an effect placed into a system (Mirage and the like), with the system, in planet order: one scan of the board. [`planets_of`] runs
@@ -78,12 +83,66 @@ pub fn planets_of(core: &CoreState, system: System) -> impl Iterator<Item = Plan
 /// the list once and asks [`planets_of_in`].
 #[must_use]
 pub fn placed_planets(core: &CoreState) -> Vec<(Planet, System)> {
-    core.board().planets().filter_map(|(p, c)| c.placed_in.map(|s| (p, s))).collect()
+    core.board().planet_index().placed.iter().filter_map(|i| Planet::from_index(i).and_then(|p| core.board().planet(p).placed_in.map(|s| (p, s)))).collect()
 }
 
 /// [`planets_of`] with the board's placed planets given (`placed` is [`placed_planets`] of the same position): the same planets in the same order.
 pub fn planets_of_in<'a>(core: &'a CoreState, placed: &'a [(Planet, System)], system: System) -> impl Iterator<Item = Planet> + 'a {
     system.data().planets.iter().copied().filter(move |p| core.board().planet(*p).placed_in.is_none()).chain(placed.iter().filter(move |(_, s)| *s == system).map(|(p, _)| *p))
+}
+
+/// The systems where the seat has a unit, in the space area or on one of the system's planets (the planet's home system, [`home_system`]): what a loop over
+/// `systems()` finds with "the space area or a planet of the system holds a unit of the seat", taken from the board's indexes.
+#[must_use]
+pub fn systems_with_units_anywhere(core: &CoreState, seat: Seat) -> SysSet {
+    let board = core.board();
+    let mut out = board.sys_index().with_units[usize::from(seat.0)];
+    for i in board.planet_index().with_units[usize::from(seat.0)].iter() {
+        if let Some(system) = Planet::from_index(i).and_then(|planet| home_system(core, planet)) {
+            out.insert(system.index());
+        }
+    }
+    out
+}
+
+/// The systems whose space area holds a unit of any owner.
+#[must_use]
+pub fn systems_with_any_units(core: &CoreState) -> SysSet {
+    let mut out = SysSet::EMPTY;
+    for set in &core.board().sys_index().with_units {
+        out.union_with(set);
+    }
+    out
+}
+
+/// The planets holding a unit of any owner.
+#[must_use]
+pub fn planets_with_any_units(core: &CoreState) -> crate::state::PlanetSet {
+    let mut out = crate::state::PlanetSet::EMPTY;
+    for set in &core.board().planet_index().with_units {
+        out.union_with(set);
+    }
+    out
+}
+
+/// The planets of a set in planet order.
+pub fn planets_of_set(set: crate::state::PlanetSet) -> impl Iterator<Item = Planet> {
+    let mut rest = set;
+    std::iter::from_fn(move || {
+        let i = rest.iter().next()?;
+        rest.remove(i);
+        Planet::from_index(i)
+    })
+}
+
+/// The systems of a set in board order.
+pub fn systems_of(set: SysSet) -> impl Iterator<Item = System> {
+    let mut rest = set;
+    std::iter::from_fn(move || {
+        let i = rest.iter().next()?;
+        rest.remove(i);
+        System::from_index(i)
+    })
 }
 
 /// Who controls the planet.
@@ -103,10 +162,9 @@ pub fn controls(core: &CoreState, seat: Seat, planet: Planet) -> bool {
 #[must_use]
 pub fn controlled_planets(core: &CoreState, seat: Seat) -> Controlled {
     let mut out = Controlled::new();
-    for (planet, cell) in core.board().planets() {
-        if cell.control == Some(seat)
-            && let Some(system) = cell.placed_in.or(planet.data().system)
-        {
+    for i in core.board().planet_index().controlled[usize::from(seat.0)].iter() {
+        let Some(planet) = Planet::from_index(i) else { continue };
+        if let Some(system) = core.board().planet(planet).placed_in.or(planet.data().system) {
             out.push((system, planet));
         }
     }
@@ -117,7 +175,7 @@ pub fn controlled_planets(core: &CoreState, seat: Seat) -> Controlled {
 /// The number of planets the seat controls.
 #[must_use]
 pub fn controlled_count(core: &CoreState, seat: Seat) -> usize {
-    core.board().planets().filter(|(_, c)| c.control == Some(seat)).count()
+    core.board().planet_index().controlled[usize::from(seat.0)].len()
 }
 
 /// `SystemState::controls_a_planet`.
@@ -159,34 +217,23 @@ pub fn has_token(core: &CoreState, system: System, seat: Seat) -> bool {
 /// `GameState::systems_with_token`.
 #[must_use]
 pub fn systems_with_token(core: &CoreState, seat: Seat) -> SysSet {
-    let mut out = SysSet::EMPTY;
-    for (system, cell) in core.board().systems() {
-        if cell.cmd.contains(seat) {
-            out.insert(system.index());
-        }
-    }
-    out
+    core.board().sys_index().with_token[usize::from(seat.0)]
 }
 
 /// `GameState::systems_with_units_of`.
 #[must_use]
 pub fn systems_with_units_of(core: &CoreState, seat: Seat) -> SysSet {
-    let mut out = SysSet::EMPTY;
-    for (system, cell) in core.board().systems() {
-        if cell.units.as_slice().iter().any(|u| u.owner() == seat) {
-            out.insert(system.index());
-        }
-    }
-    out
+    core.board().sys_index().with_units[usize::from(seat.0)]
 }
 
 /// `GameState::systems_with_ships_other_than`: systems whose space area holds a unit of another owner.
 #[must_use]
 pub fn systems_with_units_other_than(core: &CoreState, seat: Seat) -> SysSet {
+    let ix = core.board().sys_index();
     let mut out = SysSet::EMPTY;
-    for (system, cell) in core.board().systems() {
-        if cell.units.as_slice().iter().any(|u| u.owner() != seat) {
-            out.insert(system.index());
+    for (other, set) in ix.with_units.iter().enumerate() {
+        if other != usize::from(seat.0) {
+            out.union_with(set);
         }
     }
     out

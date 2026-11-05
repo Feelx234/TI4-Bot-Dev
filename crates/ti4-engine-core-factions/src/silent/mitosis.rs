@@ -60,7 +60,8 @@ fn moves(s: &CoreState, k: &Kernel, who: Seat) -> Vec<Move> {
         }
     }
     if box_form(s, k, who, UnitBaseType::Mech).is_some() {
-        for system in System::ALL {
+        // (An infantry of `who` stands only where `who` has a unit at all.)
+        for system in board::systems_of(board::systems_with_units_anywhere(s, who)) {
             let mut planets: Vec<Planet> = board::planets_of(s, system).collect();
             planets.sort_unstable();
             for planet in planets {

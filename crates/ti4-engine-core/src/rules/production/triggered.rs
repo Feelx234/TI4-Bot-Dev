@@ -91,7 +91,9 @@ pub fn sling_candidates(c: &Cx<'_>, who: Seat, buildable: &[Option<Unit>; 9]) ->
     let affordable = super::available(c, who, Spend::Resources, &Extras::default());
     let core = c.core();
     let mut out = SmallList::new();
-    for (system, cell) in core.board().systems() {
+    // (A dock of `who` stands only in a system where `who` has a unit at all.)
+    for system in board::systems_of(board::systems_with_units_anywhere(core, who)) {
+        let cell = core.board().sys(system);
         let is_dock = |p: &crate::state::Piece| p.owner() == who && p.kind().data().base_type == UnitBaseType::Spacedock;
         let dock_planets: SmallList<Planet, 8> = {
             let mut v = SmallList::new();

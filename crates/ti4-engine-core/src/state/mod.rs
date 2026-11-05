@@ -40,7 +40,7 @@ mod turn_job;
 
 pub use aftermath::{AFight, AStage, Aftermath, Before, CombatFields, CombatPend, CombatStep, HitPhase, NoteHold, PauseLimit};
 pub use agenda::{AgendaCastRec, AgendaRec, AgendaState, Outcome, Prediction};
-pub use board::{Board, PlanetCell, PlanetFlags, SysCell, SysFlags, UnitList};
+pub use board::{Board, PlanetCell, PlanetFlags, PlanetIndex, PlanetSet, SysCell, SysFlags, SysIndex, UnitList};
 pub use cards::{CardRef, CardZones, DeckReserve, DeckSegment, NoteKey, NoteMap, RESERVE_IDLE, RESERVE_LIVE, RESERVE_OPEN, ReserveDeck, ReservedDraw};
 pub use decks::Decks;
 pub use event::{Key, List, Payload, Tally, Val};

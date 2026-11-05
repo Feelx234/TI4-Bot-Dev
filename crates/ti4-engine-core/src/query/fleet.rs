@@ -40,11 +40,16 @@ fn in_scope(scope: Scope, unit: Unit) -> bool {
 pub fn held_on_board(core: &CoreState, scope: Scope, seat: Seat, base: UnitBaseType) -> i64 {
     let matches = |u: Unit| in_scope(scope, u) && u.data().base_type == base;
     let mut total = 0;
-    for (_, cell) in core.board().systems() {
-        total += cell.units.as_slice().iter().filter(|p| p.owner() == seat && matches(p.kind())).count() as i64;
+    let board = core.board();
+    for i in board.sys_index().with_units[usize::from(seat.0)].iter() {
+        if let Some(system) = System::from_index(i) {
+            total += board.sys(system).units.as_slice().iter().filter(|p| p.owner() == seat && matches(p.kind())).count() as i64;
+        }
     }
-    for (_, cell) in core.board().planets() {
-        total += cell.units.as_slice().iter().filter(|p| p.owner() == seat && matches(p.kind())).count() as i64;
+    for i in board.planet_index().with_units[usize::from(seat.0)].iter() {
+        if let Some(planet) = Planet::from_index(i) {
+            total += board.planet(planet).units.as_slice().iter().filter(|p| p.owner() == seat && matches(p.kind())).count() as i64;
+        }
     }
     for captor in core.players().iter() {
         total +=

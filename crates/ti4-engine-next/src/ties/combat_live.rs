@@ -140,10 +140,12 @@ pub fn space_cannon_kinds(core: &CoreState) -> Vec<Unit> {
             }
         }
     };
-    for (_, cell) in board.systems() {
-        note(&cell.units);
+    // (Only the cells that hold a unit at all: the board's index names them.)
+    for system in ti4_engine_core::query::board::systems_of(ti4_engine_core::query::board::systems_with_any_units(core)) {
+        note(&board.sys(system).units);
     }
-    for (planet, cell) in board.planets() {
+    for planet in ti4_engine_core::query::board::planets_of_set(ti4_engine_core::query::board::planets_with_any_units(core)) {
+        let cell = board.planet(planet);
         // A planet's units are listed under the system `planets_of` names it for: where it was placed, else its printed system.
         if !cell.units.is_empty() && (cell.placed_in.is_some() || planet.data().system.is_some()) {
             note(&cell.units);

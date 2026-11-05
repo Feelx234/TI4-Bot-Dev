@@ -15,7 +15,8 @@
 //! perf_kernel mem   <players> <seed> [faction]        memory: live heap / RSS at step marks, peak, heap per state field at the end
 //! perf_kernel micro <players> <seed> [faction] [at]   the per-step pieces on the live core after `at` steps (default 600), each in a loop
 //! ```
-//! Environment: `PERF_KERNEL_NOSTATE=1` skips the final state hash.
+//! Environment: `PERF_KERNEL_NOSTATE=1` skips the final state hash. `PERF_KERNEL_CHECK=1` runs the consistency checks of the perf changes after every step
+//! (board indexes against a scan of the cells; see `checks`), `cargo test --bin perf_kernel` plays a set of games with them on.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -138,6 +139,96 @@ struct Game {
     /// (step, live heap bytes, rss kB) at the memory marks.
     marks: Vec<(usize, u64, u64)>,
     sample: bool,
+    /// Run `checks::after_step` after every step (the board indexes against the scans they replace).
+    check: bool,
+}
+
+/// What the perf changes must never change, checked against the definitions they replaced (the cell scans), on the live position of a random game.
+mod checks {
+    use ti4_engine_core::generated::{Planet, System, UnitBaseType};
+    use ti4_engine_core::query::{board, fleet, trade};
+    use ti4_engine_core::state::CoreState;
+    use ti4_engine_core::tables::Scope;
+    use ti4_engine_core::{Seat, SysSet};
+
+    /// The scans the board queries used to be (`query::board` before the indexes).
+    pub fn after_step(core: &CoreState, step: usize) {
+        let b = core.board();
+        assert!(b.indexes_agree_with_a_scan(), "step {step}: a board index differs from the scan of the cells");
+        // The set queries are cheap and run at every step; the per-system scans (systems x planets) every fourth.
+        let seats: Vec<Seat> = core.players().iter().map(|p| p.seat).collect();
+        for &seat in &seats {
+            let mut with_units = SysSet::EMPTY;
+            let mut with_token = SysSet::EMPTY;
+            let mut other = SysSet::EMPTY;
+            for (system, cell) in b.systems() {
+                if cell.units.as_slice().iter().any(|u| u.owner() == seat) {
+                    with_units.insert(system.index());
+                }
+                if cell.cmd.contains(seat) {
+                    with_token.insert(system.index());
+                }
+                if cell.units.as_slice().iter().any(|u| u.owner() != seat) {
+                    other.insert(system.index());
+                }
+            }
+            assert_eq!(board::systems_with_units_of(core, seat), with_units, "step {step}: systems_with_units_of {seat:?}");
+            assert_eq!(board::systems_with_token(core, seat), with_token, "step {step}: systems_with_token {seat:?}");
+            assert_eq!(board::systems_with_units_other_than(core, seat), other, "step {step}: systems_with_units_other_than {seat:?}");
+            let mut controlled: Vec<(System, Planet)> = b.planets().filter(|(_, c)| c.control == Some(seat)).filter_map(|(p, c)| c.placed_in.or(p.data().system).map(|s| (s, p))).collect();
+            controlled.sort_unstable();
+            assert_eq!(board::controlled_planets(core, seat).as_slice(), controlled.as_slice(), "step {step}: controlled_planets {seat:?}");
+            assert_eq!(board::controlled_count(core, seat), b.planets().filter(|(_, c)| c.control == Some(seat)).count(), "step {step}: controlled_count {seat:?}");
+            // `systems_with_units_anywhere` and `presence` against the loops over systems and planets.
+            let mut anywhere = SysSet::EMPTY;
+            let mut present = with_units;
+            for (system, _) in b.systems() {
+                let space = b.sys(system).units.as_slice().iter().any(|u| u.owner() == seat);
+                let planets = board::planets_of(core, system).any(|p| b.planet(p).units.as_slice().iter().any(|u| u.owner() == seat));
+                if space || planets {
+                    anywhere.insert(system.index());
+                }
+            }
+            for (planet, cell) in b.planets() {
+                if cell.control == Some(seat) || cell.units.as_slice().iter().any(|u| u.owner() == seat) {
+                    if let Some(system) = cell.placed_in.or(planet.data().system) {
+                        present.insert(system.index());
+                    }
+                }
+            }
+            assert_eq!(board::systems_with_units_anywhere(core, seat), anywhere, "step {step}: systems_with_units_anywhere {seat:?}");
+            assert_eq!(trade::presence(core, seat), present, "step {step}: presence {seat:?}");
+            for base in UnitBaseType::ALL {
+                let mut total = 0i64;
+                for (_, cell) in b.systems() {
+                    total += cell.units.as_slice().iter().filter(|p| p.owner() == seat && p.kind().data().base_type == base).count() as i64;
+                }
+                for (_, cell) in b.planets() {
+                    total += cell.units.as_slice().iter().filter(|p| p.owner() == seat && p.kind().data().base_type == base).count() as i64;
+                }
+                for captor in core.players().iter() {
+                    total += captor.misc.captured_units.as_slice().iter().filter(|(owner, unit)| *owner == seat && unit.data().base_type == base).count() as i64;
+                }
+                assert_eq!(fleet::held_on_board(core, Scope(u32::MAX), seat, base), total, "step {step}: held_on_board {seat:?} {base:?}");
+            }
+        }
+        assert_eq!(ti4_engine::ties::combat_live::space_cannon_kinds(core), ti4_engine::ties::combat_live::space_cannon_kinds_by_systems(core), "step {step}: space_cannon_kinds");
+        if step % 4 == 0 {
+            let placed: Vec<(Planet, System)> = b.planets().filter_map(|(p, c)| c.placed_in.map(|s| (p, s))).collect();
+            assert_eq!(board::placed_planets(core), placed, "step {step}: placed_planets");
+            for system in System::ALL {
+                let scan: Vec<Planet> = system
+                    .data()
+                    .planets
+                    .iter()
+                    .copied()
+                    .filter(|p| b.planet(*p).placed_in.is_none())
+                    .chain(b.planets().filter(|(_, c)| c.placed_in == Some(system)).map(|(p, _)| p))
+                    .collect();
+                assert_eq!(board::planets_of(core, system).collect::<Vec<_>>(), scan, "step {step}: planets_of {system:?}");
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -159,7 +250,7 @@ impl Game {
         let (core, cx, render, _base, kernel, seeds, sources) = g.probe();
         let mut fresh = Render::new(cx.owners.ids().to_vec()).with_codes(render.codes_snapshot());
         fresh.factions.clone_from(&render.factions);
-        Ok(Self { core: core.clone(), render: fresh, sources, seeds, kernel, seed, decided: 0, steps: 0, chain: 0xcbf2_9ce4_8422_2325, after_glue: false, ph: Phases::default(), marks: Vec::new(), sample: false })
+        Ok(Self { core: core.clone(), render: fresh, sources, seeds, kernel, seed, decided: 0, steps: 0, chain: 0xcbf2_9ce4_8422_2325, after_glue: false, ph: Phases::default(), marks: Vec::new(), sample: false, check: std::env::var_os("PERF_KERNEL_CHECK").is_some() })
     }
 
     /// The seeded weighted random pick over the typed options. `None` for a question with no option.
@@ -270,6 +361,9 @@ impl Game {
         let render = std::mem::take(&mut self.render);
         let r = self.step_with(&env, &render);
         self.render = render;
+        if self.check {
+            checks::after_step(&self.core, self.steps);
+        }
         r
     }
 
@@ -557,5 +651,25 @@ fn main() {
             println!("{{\"loop\":true,\"games\":{games},\"loop_ms\":{loop_ms:.0}}}");
         }
         _ => eprintln!("usage: perf_kernel game <players> <seed> [faction] | suite [reps] | loop <seconds> | mem <players> <seed> [faction]"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Random play of many games (3p to 6p, several factions) with the checks of `checks::after_step` after every step: the board indexes and the
+    /// queries built on them agree with the scans of the cells at every position the games reach.
+    #[test]
+    fn board_indexes_agree_with_a_scan_after_random_play_of_many_games() {
+        let mut steps = 0;
+        for &(players, seed, faction) in SUITE.iter().take(8).chain(&[(4, 7, "hacan"), (4, 8, "ghost"), (3, 9, "empyrean"), (5, 10, "saar"), (6, 11, "arborec")]) {
+            let mut g = Game::new(players, seed, faction).expect("builds");
+            g.check = true;
+            let end = g.play(20_000);
+            assert!(matches!(end, End::Finished), "{players}p seed {seed} {faction}: {end:?}");
+            steps += g.steps;
+        }
+        assert!(steps > 5_000, "{steps} steps checked");
     }
 }

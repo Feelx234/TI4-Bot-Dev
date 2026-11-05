@@ -145,13 +145,12 @@ type Place = (System, Option<Planet>);
 fn sites(s: &CoreState, f: &AdapterFacts, owner: Seat, actor: Seat) -> Result<Vec<Place>, ()> {
     let has = |u: &ti4_engine_core::state::Piece| u.owner() == actor;
     let placed = board::placed_planets(s);
-    let occupied: Vec<System> = System::ALL
-        .iter()
-        .copied()
+    // (Where `actor` has a unit at all: the systems it can be said to occupy; the same for `owner` and its mechs.)
+    let occupied: Vec<System> = board::systems_of(board::systems_with_units_anywhere(s, actor))
         .filter(|sys| board::space_units(s, *sys).iter().any(has) || board::planets_of_in(s, &placed, *sys).any(|pl| board::planet_units(s, pl).iter().any(has)))
         .collect();
     let mut out = Vec::new();
-    for sys in System::ALL.iter().copied() {
+    for sys in board::systems_of(board::systems_with_units_anywhere(s, owner)) {
         let is_mech = |u: &ti4_engine_core::state::Piece| u.owner() == owner && u.kind() == Unit::Watcher;
         let space = board::space_units(s, sys).iter().any(is_mech);
         let mut planets: Vec<Planet> = board::planets_of_in(s, &placed, sys).filter(|pl| board::planet_units(s, *pl).iter().any(is_mech)).collect();
