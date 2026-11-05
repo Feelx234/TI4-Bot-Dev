@@ -205,3 +205,52 @@ fn the_games_the_host_creates_are_the_games_the_legacy_setup_made() {
     let made = lines.iter().filter(|l| l.contains("=> ok:")).count();
     assert!(made * 2 > lines.len(), "only {made} of {} created a game", lines.len());
 }
+
+/// The digest of a table made by the native setup (`ti4_host::setup::create_start`), in the format of [`digest_with`]; `None` for a table
+/// that starts from a scenario or a start preset (hand edits of a string position, which [`create`] makes).
+fn native_digest(setup: &TableSetup) -> Option<String> {
+    let content = ContentStore::embedded();
+    let players = ids(setup.player_count);
+    let drawn = draw(setup, &vec![None; setup.player_count]).ok()?;
+    let text = match ti4_host::setup::create_start(content, setup, &players, &drawn) {
+        Ok(None) => return None,
+        Ok(Some(start)) => {
+            let mut state = start.opening_state().expect("the opening is shown");
+            state.rules_version = RECORDED_RULES_VERSION;
+            let json = serde_json::to_string(&state).expect("serialises");
+            format!("{json}\n{state:?}\n{:?}", start.raw_galaxy())
+        }
+        Err(message) => format!("ERR {message}"),
+    };
+    let mut hash = Sha256::new();
+    hash.update(text.as_bytes());
+    let hex = hash.finalize().iter().fold(String::new(), |mut out, byte| {
+        let _ = write!(out, "{byte:02x}");
+        out
+    });
+    Some(format!("{}:{}", if text.starts_with("ERR") { "err" } else { "ok" }, &hex[..32]))
+}
+
+/// The plain tables of the golden file (no scenario, no start preset) are made by the native setup too, with the very digests the legacy
+/// setup recorded; the Thunder's Edge rows are refused as before.
+#[test]
+fn the_native_setup_makes_the_games_of_the_golden_file() {
+    let golden: Vec<&str> = GOLDEN.lines().collect();
+    let rows = matrix();
+    assert_eq!(golden.len(), rows.len());
+    let (mut native, mut refused, mut string_only) = (0_usize, 0_usize, 0_usize);
+    for ((key, setup), line) in rows.iter().zip(&golden) {
+        let Some(digest) = native_digest(setup) else {
+            string_only += 1;
+            continue;
+        };
+        if digest.starts_with("err") {
+            assert!(key.contains("te=true"), "{key}: only a Thunder's Edge table is refused: {digest}");
+            refused += 1;
+            continue;
+        }
+        assert_eq!(format!("{key} => {digest}"), *line, "{key}: the native setup makes another game than the legacy one recorded");
+        native += 1;
+    }
+    assert_eq!((native, refused, string_only), (252, 252, 901), "plain tables / Thunder's Edge tables / presets and scenarios");
+}

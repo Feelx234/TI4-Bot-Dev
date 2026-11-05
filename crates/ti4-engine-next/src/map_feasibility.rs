@@ -103,7 +103,7 @@ mod tests {
     use super::*;
     use crate::deck::build_starting_decks;
     use crate::setup::start_game_seeded;
-    use ti4_content::galaxy::Galaxy;
+    use ti4_content::galaxy::{Galaxy, System, all_systems};
     use ti4_model::content_types::POK;
     use ti4_model::id::{FactionId, PlayerId};
 

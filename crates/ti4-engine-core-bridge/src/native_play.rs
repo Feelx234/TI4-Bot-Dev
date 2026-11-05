@@ -347,8 +347,42 @@ impl NativeGame {
     /// # Errors
     /// A spec that does not build, or [`Self::from_game`].
     pub fn from_spec(spec: &GameSpec) -> Result<Self, String> {
-        let game = spec.build()?;
+        // The product's tables are set up straight into the typed core: no string position, no `Codec::load`.
+        if let Some(start) = spec.start()? {
+            return Self::from_start(start);
+        }
+        let game = spec.build_string()?;
         Self::from_game(&game, spec.seed)
+    }
+
+    /// Own the core a native setup built (`ti4_engine::core_setup::GameStart`).
+    ///
+    /// # Errors
+    /// A position the string side cannot show (never for a table the setup builds).
+    pub fn from_start(start: ti4_engine::core_setup::GameStart) -> Result<Self, String> {
+        let sources = ti4_model::content_types::POK;
+        let parts = start.into_parts().map_err(|e| e.to_string())?;
+        let ti4_engine::core_setup::StartParts { core, cx, state, galaxy: _, seed } = parts;
+        let factions = cx.owners.ids().iter().map(|id| state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned())).collect();
+        let render = Render::new(cx.owners.ids().to_vec()).with_factions(factions).with_codes(core.texts.codes.clone());
+        let seats = cx.owners.ids().to_vec();
+        Ok(Self {
+            seeds: Rc::new(TextSeeds::of(&cx)),
+            kernel: live::kernel::kernel_for(sources),
+            base: state,
+            core,
+            cx,
+            render,
+            sources,
+            seats,
+            seed,
+            decided: 0,
+            steps: 0,
+            events: Vec::new(),
+            chain: String::new(),
+            quiet: false,
+            after_glue: false,
+        })
     }
 
     /// An independent copy that plays on identically (the checkpoint is a `CoreState` clone; the render is rebuilt from its code table).

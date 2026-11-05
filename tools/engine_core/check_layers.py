@@ -8,6 +8,8 @@ core:   every module of `crates/ti4-engine-core/src` (and `ti4-engine-core-facti
         belongs to a layer; a module may import only from LOWER layers (or its own subtree), and the
         files of `rules/` (L4 areas) may not import each other: they talk through `Next`.
         L3 (`kernel`) never imports L6. Test code (`#[cfg(test)] mod` blocks, `tests/`) is ignored.
+setup:  (docs/SETUP_NATIVE_DESIGN.md) `crates/ti4-engine-core-setup/src` is layer L7: it may use every layer of the core and the
+        factions crate (L6), and it must name neither the thin crate `ti4_engine` nor the legacy crate nor the host. Exit 1 on a violation.
 thin:   (D2-9 lane 9a) `crates/ti4-engine-next/src` may name `ti4_engine_legacy` only inside the module `lend_string`
         (file `lend_string.rs` or directory `lend_string/`), and `lib.rs` must declare it as
         `#[cfg(feature = "lend-string")] pub mod lend_string;`. Exit 1 on a violation (today: red, the facade glue
@@ -136,6 +138,30 @@ def check_core(core_root, factions_root):
     return bad, units
 
 
+SETUP_FORBIDDEN = (r'\bti4_engine\b', r'ti4_engine_legacy', r'ti4_host', r'ti4_engine_core_bridge', r'ti4_server', r'ti4_wasm', r'ti4_rule_bot', r'ti4_selfplay')
+
+
+def check_setup(src):
+    """The setup crate (L7): imports only downwards. Test code is ignored. Also checks Cargo.toml for the forbidden dependencies."""
+    bad, units = [], 0
+    for path in rs_files(src):
+        units += 1
+        text = strip_tests(open(path, encoding='utf-8').read())
+        rel = os.path.relpath(path, REPO)
+        for pat in SETUP_FORBIDDEN:
+            if re.search(pat, text):
+                bad.append(f'{rel}: names {pat.strip(chr(92) + "b")}, which the setup crate (L7) must not depend on')
+        for t, _ in targets(text, 'ti4_engine_core'):
+            if t[:1].islower() and t not in CORE_LAYER and t not in ('self', 'super', 'hooks'):   # CamelCase names are the root re-exports
+                bad.append(f'{rel}: ti4_engine_core::{t} is no module of the core')
+    cargo = os.path.join(os.path.dirname(src), 'Cargo.toml')
+    deps = open(cargo, encoding='utf-8').read().split('[dev-dependencies]')[0]
+    for name in ('ti4-engine ', 'ti4-engine=', 'ti4-engine.', 'ti4-engine-legacy', 'ti4-host', 'ti4-engine-core-bridge', 'ti4-server', 'ti4-wasm'):
+        if re.search(r'^' + re.escape(name), deps, re.M):
+            bad.append(f'{os.path.relpath(cargo, REPO)}: depends on {name.strip(" =.")}')
+    return bad, units
+
+
 def check_engine(root):
     tier = {}
     for name, mods in TIERS.items():
@@ -204,6 +230,13 @@ def main():
         for b in bad:
             print('LAYER', b)
         print(f'check_layers core: {units} files checked, {len(bad)} violations')
+        sys.exit(1 if bad else 0)
+    elif mode == 'setup':
+        root = sys.argv[2] if len(sys.argv) > 2 else os.path.join(REPO, 'crates/ti4-engine-core-setup/src')
+        bad, units = check_setup(root)
+        for b in bad:
+            print('SETUP', b)
+        print(f'check_layers setup: {units} files checked, {len(bad)} violations')
         sys.exit(1 if bad else 0)
     elif mode == 'thin':
         root = sys.argv[2] if len(sys.argv) > 2 else os.path.join(REPO, 'crates/ti4-engine-next/src')

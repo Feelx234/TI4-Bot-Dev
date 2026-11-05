@@ -21,13 +21,15 @@ use crate::wire::rng::GameRng;
 
 /// A table set up by the setup crate, with the tables the core needs to be played ([`Game::from_start`]) or shown as a string state
 /// ([`GameStart::opening_state`]).
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct GameStart {
     start: CoreStart,
     cx: Ctx,
     /// A `GameState` with the seats of the table and nothing else: the codecs store every slice over it.
     shell: GameState,
     seed: u64,
+    /// The board as the host built it, before the laws and the lanes were applied (what a server stores and draws).
+    raw: Galaxy,
 }
 
 impl GameStart {
@@ -36,19 +38,20 @@ impl GameStart {
     /// # Errors
     /// The message of the setup's refusal (an unknown faction, Thunder's Edge content, ...) or of a position the string side cannot show.
     pub fn new(spec: &TableSpec<'_>, galaxy: Galaxy) -> Result<Self, String> {
+        let raw = galaxy.clone();
         let start = ti4_engine_core_setup::start_game(spec, galaxy).map_err(|e| e.to_string())?;
-        Self::of(start, spec.seed)
+        Self::of(start, spec.seed, raw)
     }
 
     /// Wrap a position the setup crate built.
     ///
     /// # Errors
     /// More than 16 owners, an owner id that is no text.
-    pub fn of(start: CoreStart, seed: u64) -> Result<Self, String> {
+    pub fn of(start: CoreStart, seed: u64, raw: Galaxy) -> Result<Self, String> {
         let cx = Ctx::of_core(&start.core).map_err(|e| e.to_string())?;
         let players: Vec<PlayerId> = start.core.players().iter().filter_map(|p| cx.owners.id(p.seat)).map(PlayerId::new).collect();
         let shell = GameState::new(&players, &[], BTreeMap::new(), None, 0);
-        Ok(Self { start, cx, shell, seed })
+        Ok(Self { start, cx, shell, seed, raw })
     }
 
     /// The table as `ti4_host::setup::create` returns it: the string state a server stores as the opening of a game, for replay and
@@ -67,6 +70,12 @@ impl GameStart {
         &self.start.galaxy
     }
 
+    /// The board as the host built it (what `ti4_host::setup::create` returns with the state).
+    #[must_use]
+    pub const fn raw_galaxy(&self) -> &Galaxy {
+        &self.raw
+    }
+
     /// The seed of the game.
     #[must_use]
     pub const fn seed(&self) -> u64 {
@@ -77,6 +86,32 @@ impl GameStart {
     #[must_use]
     pub const fn core_start(&self) -> &CoreStart {
         &self.start
+    }
+}
+
+/// The pieces of a [`GameStart`] a driver of the core alone (the bridge's `NativeGame`) takes over: no `Game` is made.
+pub struct StartParts {
+    /// The loaded core.
+    pub core: ti4_engine_core::state::CoreState,
+    /// The owner and text tables of the core.
+    pub cx: Ctx,
+    /// The string mirror of the core (the position `Game::state` would hold).
+    pub state: GameState,
+    /// The board, the laws and the lanes applied.
+    pub galaxy: Galaxy,
+    pub seed: u64,
+}
+
+impl GameStart {
+    /// Take the start apart for a driver that plays the core itself.
+    ///
+    /// # Errors
+    /// [`GameError::Core`] when the core cannot be shown as a string state.
+    pub fn into_parts(self) -> Result<StartParts, GameError> {
+        let Self { start, cx, shell, seed, raw: _ } = self;
+        let CoreStart { core, opening: _, galaxy } = start;
+        let state = materialize::materialize(&core, &cx, &shell).map_err(|e| GameError::Core(format!("the position cannot be shown: {e}")))?;
+        Ok(StartParts { core, cx, state, galaxy, seed })
     }
 }
 
@@ -96,7 +131,7 @@ impl<'a> Game<'a> {
     /// # Errors
     /// As [`Game::from_start`].
     pub fn from_start_with_table(start: GameStart, content: &'a ContentStore, table: Table) -> Result<Self, GameError> {
-        let GameStart { start, cx, shell, seed } = start;
+        let GameStart { start, cx, shell, seed, raw: _ } = start;
         let CoreStart { core, opening: _, galaxy } = start;
         let state = materialize::materialize(&core, &cx, &shell).map_err(|e| GameError::Core(format!("the position cannot be shown: {e}")))?;
         // (The options that name a seat by faction -- Politics' speaker, Trade's refreshed seats -- need the faction texts.)

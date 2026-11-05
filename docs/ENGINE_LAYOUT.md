@@ -8,10 +8,11 @@
 | `crates/ti4-engine` | `ti4-engine-legacy` | The old string engine. Directory name kept on purpose; dev/oracle crate, kept until D4, never in the production set. Do not confuse with the stub `crates/ti4-legacy`. |
 | `crates/ti4-engine-core` | `ti4-engine-core` | Typed core: no JSON, no id strings; generated ids (`cargo xtask gen-cards`), state, kernel, rules. |
 | `crates/ti4-engine-core-factions` | `ti4-engine-core-factions` | Layer L6: faction modules filling the kernel's hook table. Depends on the core only. |
+| `crates/ti4-engine-core-setup` | `ti4-engine-core-setup` | Layer L7: the game setup that builds the typed core position directly (`start_game(spec, galaxy) -> CoreStart`), no string `GameState`, no `Codec::load`; plus the pure setup data it shares with the thin crate (decks, strategy sets, leaders, map feasibility, live kernel, unit roster, typed galaxy). Depends on the core, the factions crate, content and model only (`docs/SETUP_NATIVE_DESIGN.md`, `check_layers.py setup`). |
 | `crates/ti4-engine-core-bridge` | `ti4-engine-core-bridge` | Adapter string ids <-> typed core, oracle/dual/golden checks, `bot_shadow`. Links legacy. `crates/ti4-bridge` is a separate small crate on the thin engine. |
 | `crates/ti4-engine-core-tests` | `ti4-engine-core-tests` | D4 kit: oracle-free typed tests (Scenario, Rig, delta, covers!). Test-only. |
 
-Layers: model/content/calc -> core (L0..L5) -> factions (L6) -> thin `ti4-engine` -> host -> server/wasm/rule-bot. Legacy and the bridge sit beside this stack as oracle and tooling.
+Layers: model/content/calc -> core (L0..L5) -> factions (L6) -> setup (L7) -> thin `ti4-engine` -> host -> server/wasm/rule-bot. Legacy and the bridge sit beside this stack as oracle and tooling.
 
 ## Where to run what
 

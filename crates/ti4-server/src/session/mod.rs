@@ -177,6 +177,9 @@ pub struct SessionConfig {
     /// (`ti4_host::view::scenario::Opening`): the worker answers the questions of its seat until
     /// it stops. Only a game with no decisions plays it.
     pub opening: Option<ti4_host::view::scenario::Opening>,
+    /// The table of a new game as the native setup built it (`ti4_host::setup::create_start`): the worker plays it without loading a
+    /// string position. `state` is its opening state (what the init record stores). A restart replays from `state` instead.
+    pub start: Option<ti4_engine::core_setup::GameStart>,
 }
 
 impl batch::ReplayBasis for SessionConfig {
@@ -240,6 +243,7 @@ impl SessionConfig {
             random_bot_delay_ms: None,
             resume: None,
             opening: None,
+            start: None,
         }
     }
 
@@ -270,6 +274,13 @@ impl SessionConfig {
             self.galaxy.as_ref().expect("galaxy just assigned"),
             ti4_model::content_types::POK,
         );
+        self
+    }
+
+    /// Start the game from the table the native setup built.
+    #[must_use]
+    pub fn with_start(mut self, start: ti4_engine::core_setup::GameStart) -> Self {
+        self.start = Some(start);
         self
     }
 
@@ -321,9 +332,13 @@ pub struct GameSession {
 impl GameSession {
     /// Starts a new session worker thread with the given configuration.
     #[must_use]
-    pub fn start(config: SessionConfig) -> Self {
+    pub fn start(mut config: SessionConfig) -> Self {
         let game_id = config.game_id.clone();
+        // The worker plays the table once; a restart replays the stored opening state (`restart_config`), so the copy of the session
+        // does not keep the core of the start alive (nor is it cloned).
+        let start = config.start.take();
         let initial_config = config.clone();
+        config.start = start;
         let (shared, handle) = spawn_session_worker(config);
 
         Self {
@@ -1194,6 +1209,8 @@ impl GameSession {
         config.resume = None;
         // The opening of a scenario is played once: its answers are in the decisions now.
         config.opening = None;
+        // A restart replays the stored opening state, as every recovery does.
+        config.start = None;
         // A rewind or a batch starts a new worker; what each seat asked for survives it.
         {
             let lock = self.shared.lock().expect("shared lock");

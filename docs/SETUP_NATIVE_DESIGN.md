@@ -121,7 +121,8 @@ phase), so the tables compare equal.
 
 * Start presets (`preset::apply`, 17 of them with suffixes) and the 15+ scenarios: they are hand edits of a finished
   string position (cards in hands, units on the board, custom decks). Dev/test tables; kept as they are, with
-  `Codec::load` at the first step. They are 1 153 of the 1 405 golden rows; the 252 plain rows go native.
+  `Codec::load` at the first step. They are 901 of the 1 405 golden rows (and 252 are Thunder's Edge tables, refused as before);
+  the 252 plain rows go native.
 * `Codec::load` stays for stored games (recovery, replay, resume) and for the fork-and-edit paths of the host.
 * The oracle: `ti4_engine::setup::start_game_seeded_with_card_set` + `seating::deploy` + `map_feasibility::apply` +
   `starting_tech::open` are the reference the parity test compares with.

@@ -342,3 +342,115 @@ fn a_native_start_is_the_game_of_the_string_state_to_the_first_decisions_and_bey
     }
     assert!(played > 1000);
 }
+
+// ---------------------------------------------------------------------------------------------
+// the pieces the setup crate owns, against the thin crate's originals
+
+#[test]
+fn the_speaker_of_the_setup_crate_is_the_seeded_speaker_of_the_thin_crate() {
+    for seats in 0..=8_usize {
+        let table = ids(seats);
+        for seed in (0..320_u64).chain([u64::MAX, 1 << 40, 0xDEAD_BEEF]) {
+            let thin = ti4_engine::seeded_speaker(&table, seed).map(|p| p.to_string());
+            let new = ti4_engine_core_setup::rng::seeded_speaker_index(seats, seed).map(|i| table[i].to_string());
+            assert_eq!(new, thin, "{seats} seats seed {seed}");
+        }
+    }
+}
+
+#[test]
+fn the_typed_galaxy_of_the_setup_crate_is_the_one_the_thin_crate_loads() {
+    let content = ContentStore::embedded();
+    let mut boards = 0;
+    for count in 2..=8_usize {
+        for seed in [1_u64, 2, 3] {
+            let setup = table(count, seed, "pok", false, SpeakerOrder::Seat, MapChoice::Random);
+            let players = ids(count);
+            let drawn = draw(&setup, &vec![None; count]).expect("draws");
+            let (_, mut galaxy) = create(content, &setup, &players, &drawn).expect("table");
+            ti4_engine::laws::apply_to_galaxy(&ti4_model::state::GameState::new(&players, &[], Default::default(), None, 1), &mut galaxy);
+            let thin = ti4_engine::ties::core_adapter::typed_map(&galaxy).expect("expressible");
+            let (typed, adjacency) = ti4_engine_core_setup::galaxy::typed_map(&galaxy).expect("expressible");
+            assert_eq!(*typed, *thin.galaxy, "{count}p seed {seed}");
+            assert_eq!(*adjacency, *thin.adjacency, "{count}p seed {seed}");
+            boards += 1;
+        }
+    }
+    assert_eq!(boards, 21);
+}
+
+#[test]
+fn the_tribuni_check_of_the_setup_crate_says_what_the_thin_crate_says() {
+    let aliases = ["sol", "mentak", "xxcha", "argent", "keleresm", "keleresx", "keleresa", "hacan"];
+    for a in aliases {
+        for b in aliases {
+            for c in aliases {
+                let seats = [a, b, c];
+                let thin = ti4_engine::seating::validate_tribuni(seats).map_err(|e| e.to_string());
+                let new = ti4_engine_core_setup::factions::validate_tribuni(seats);
+                assert_eq!(new, thin, "{seats:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_wide_roster_and_the_strategy_sets_are_shared_with_the_thin_crate() {
+    let content = ContentStore::embedded();
+    assert_eq!(ti4_engine_core_setup::factions::MODULE_ALIASES, ti4_engine::builders::factions::MODULE_ALIASES);
+    for sources in [ti4_model::content_types::BASE, POK, ti4_model::content_types::FULL] {
+        for set in [None, Some("te"), Some("pok"), Some("base_game"), Some("base_game_codex1"), Some("nope")] {
+            let new = ti4_engine_core_setup::strategy::strategy_card_setup(content, sources, set);
+            let thin = match set {
+                Some(alias) => ti4_engine::setup::strategy_card_setup_for_set(content, alias),
+                None => ti4_engine::setup::strategy_card_setup(content, sources),
+            };
+            assert_eq!(new, thin.ok(), "{sources:?} {set:?}");
+        }
+    }
+}
+
+#[test]
+fn the_setup_crate_refuses_what_the_product_refuses() {
+    use ti4_engine_core_setup::SetupError;
+    let content = ContentStore::embedded();
+    let players = ids(4);
+    let factions: Vec<FactionId> = ["sol", "hacan", "letnev", "xxcha"].iter().map(|f| FactionId::new(*f)).collect();
+    let setup = table(4, 1, "pok", false, SpeakerOrder::Seat, MapChoice::Random);
+    let drawn = draw(&setup, &vec![None; 4]).expect("draws");
+    let (_, galaxy) = create(content, &setup, &players, &drawn).expect("table");
+    let ok = TableSpec { content, players: &players, factions: &factions, seed: 1, card_set: Some("pok"), deck_sources: POK, speaker: SpeakerChoice::Seat(0), starting_tech: false, rules_version: None };
+    start_game(&ok, galaxy.clone()).expect("a plain table");
+    let refused = |spec: &TableSpec<'_>| start_game(spec, galaxy.clone()).expect_err("refused");
+    assert_eq!(refused(&TableSpec { deck_sources: ti4_model::content_types::FULL, ..ok }), SetupError::ThundersEdge);
+    assert_eq!(refused(&TableSpec { players: &[], factions: &[], ..ok }), SetupError::NoPlayers);
+    assert_eq!(refused(&TableSpec { factions: &factions[..3], ..ok }), SetupError::FactionCount { players: 4, factions: 3 });
+    assert_eq!(refused(&TableSpec { card_set: Some("nope"), ..ok }), SetupError::NoStrategyCardSet);
+    assert_eq!(refused(&TableSpec { speaker: SpeakerChoice::Seat(4), ..ok }), SetupError::SpeakerSeat(4));
+    let nine = ids(9);
+    let nine_factions: Vec<FactionId> = (0..9).map(|_| FactionId::new("sol")).collect();
+    assert_eq!(refused(&TableSpec { players: &nine, factions: &nine_factions, ..ok }), SetupError::TooManyPlayers(9));
+    let twins = [PlayerId::new("p1"), PlayerId::new("p1"), PlayerId::new("p2"), PlayerId::new("p3")];
+    assert!(matches!(refused(&TableSpec { players: &twins, ..ok }), SetupError::Seating(_)));
+    let unknown: Vec<FactionId> = ["sol", "hacan", "letnev", "nobody"].iter().map(|f| FactionId::new(*f)).collect();
+    assert_eq!(refused(&TableSpec { factions: &unknown, ..ok }), SetupError::UnknownFaction("nobody".to_owned()));
+    let mentak: Vec<FactionId> = ["sol", "hacan", "mentak", "keleresm"].iter().map(|f| FactionId::new(*f)).collect();
+    assert!(matches!(refused(&TableSpec { factions: &mentak, ..ok }), SetupError::Seating(_)));
+}
+
+#[test]
+fn the_stream_names_of_the_setup_crate_are_the_ones_the_codec_and_the_string_engine_use() {
+    use ti4_engine_core::state::{RngDomain as D, Texts};
+    let texts = Texts::default();
+    let domains = [
+        D::Dice, D::Objectives, D::Agendas, D::ActionCards, D::Secrets, D::Relics, D::Galaxy, D::Exploration, D::Map, D::Speaker, D::Fracture, D::Neuraloop,
+        D::YssarilHero, D::Direct, D::DeckA, D::DeckB, D::RetryProbe, D::SeatingFactionAssignment, D::SeatingLobbyDraw, D::WideRoster, D::KeleresVariant, D::YinAscendant,
+    ];
+    for d in domains {
+        let ours = ti4_engine_core_setup::rng::domain_text(d).expect("a literal domain");
+        assert_eq!(ti4_engine::core_sync::codec::rng::domain_text_in(&texts, d).expect("the codec knows it"), ours, "{d:?}");
+        // and the seed of the stream is the string engine's
+        assert_eq!(ti4_engine_core_setup::rng::derive_seed(42, ours), ti4_engine::rng::GameRng::derive_seed(42, ours));
+    }
+    assert!(ti4_engine_core_setup::rng::domain_text(D::Dyn(3, 0)).is_none());
+}

@@ -11,6 +11,7 @@ use rand::seq::SliceRandom;
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
+use ti4_engine::core_setup::{GameStart, SpeakerChoice, TableSpec};
 use ti4_engine::game::Game;
 use ti4_engine::seating::LOBBY_FACTIONS;
 use ti4_host::map::create_game_with_template_seated_in;
@@ -100,6 +101,73 @@ impl GameSpec {
     /// # Errors
     /// A message when the table is not one the host builds.
     pub fn build(&self) -> Result<Game<'static>, String> {
+        if let Some(start) = self.start()? {
+            return Game::from_start(start, ContentStore::embedded()).map_err(|e| e.to_string());
+        }
+        self.build_string()
+    }
+
+    /// The table of the spec set up straight into the typed core (`ti4-engine-core-setup`), for the games of the product: the newest rules
+    /// version, no Thunder's Edge content. `None` for the others, which only the string setup ([`GameSpec::build`]) makes.
+    ///
+    /// # Errors
+    /// A message when the table is not one the host builds.
+    pub fn start(&self) -> Result<Option<GameStart>, String> {
+        if self.thunders_edge || self.rules_version.is_some_and(|v| v != ti4_model::state::RULES_VERSION) {
+            return Ok(None);
+        }
+        let content = ContentStore::embedded();
+        let (ids, factions) = self.seats()?;
+        let assignments: std::collections::BTreeMap<_, _> = ids.iter().cloned().zip(factions.iter().cloned()).collect();
+        let template = (self.map != "random").then_some(self.map.as_str());
+        let speaker = match self.speaker.as_str() {
+            "seat" => SpeakerChoice::Seat(0),
+            "random" => SpeakerChoice::Seeded,
+            other => {
+                let seat: usize = other
+                    .parse()
+                    .map_err(|_| format!("speaker '{other}': use seat, random or a seat number"))?;
+                if seat >= ids.len() {
+                    return Err(format!("speaker seat {seat} is not at the table"));
+                }
+                SpeakerChoice::Seat(seat)
+            }
+        };
+        let galaxy = ti4_host::map::build_galaxy(content, &ids, self.seed, template, &assignments)?;
+        let table = TableSpec {
+            content,
+            players: &ids,
+            factions: &factions,
+            seed: self.seed,
+            card_set: Some(self.card_set.as_deref().unwrap_or(card_set::DEFAULT)),
+            deck_sources: POK,
+            speaker,
+            starting_tech: self.starting_tech,
+            rules_version: None,
+        };
+        GameStart::new(&table, galaxy).map(Some)
+    }
+
+    /// The seats of the table: the ids and the factions of the lobby draw.
+    fn seats(&self) -> Result<(Vec<PlayerId>, Vec<ti4_model::id::FactionId>), String> {
+        if !(MIN_PLAYERS..=MAX_PLAYERS).contains(&self.players) {
+            return Err(format!("{} players: use {MIN_PLAYERS} to {MAX_PLAYERS}", self.players));
+        }
+        if self.factions.len() != self.players {
+            return Err(format!("{} factions for {} seats", self.factions.len(), self.players));
+        }
+        let ids: Vec<PlayerId> = SEATS[..self.players].iter().map(|s| PlayerId::new(*s)).collect();
+        let chosen: Vec<Option<String>> = self.factions.iter().cloned().map(Some).collect();
+        let factions = lobby_seat_factions(&chosen, self.seed)?;
+        Ok((ids, factions))
+    }
+
+    /// The game of the spec on the string setup (`create_game_with_template_seated_in` and the writes of the host on the string
+    /// position): the oracle of [`GameSpec::start`], and the way to make a table the core refuses (old rules versions, Thunder's Edge).
+    ///
+    /// # Errors
+    /// A message when the table is not one the host builds.
+    pub fn build_string(&self) -> Result<Game<'static>, String> {
         let content = ContentStore::embedded();
         if !(MIN_PLAYERS..=MAX_PLAYERS).contains(&self.players) {
             return Err(format!(
@@ -120,11 +188,9 @@ impl GameSpec {
             .collect();
         let chosen: Vec<Option<String>> = self.factions.iter().cloned().map(Some).collect();
         let template = (self.map != "random").then_some(self.map.as_str());
-        let assignments: std::collections::BTreeMap<_, _> = ids
-            .iter()
-            .cloned()
-            .zip(lobby_seat_factions(&chosen, self.seed)?)
-            .collect();
+        let factions = lobby_seat_factions(&chosen, self.seed)?;
+        let assignments: std::collections::BTreeMap<_, _> =
+            ids.iter().cloned().zip(factions.iter().cloned()).collect();
         // The first seat opens (the speaker is set below).
         let (mut state, galaxy) = create_game_with_template_seated_in(
             content,

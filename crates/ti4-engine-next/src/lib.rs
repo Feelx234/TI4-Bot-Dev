@@ -214,7 +214,7 @@ pub mod native;
 // or `Game` now speaks these; the legacy modules of the glob that still name the legacy types are listed in docs/D28D_RESUME.md.
 /// The native setup (`ti4-engine-core-setup`): a table becomes the typed core position directly (docs/SETUP_NATIVE_DESIGN.md).
 pub mod core_setup {
-    pub use crate::native::GameStart;
+    pub use crate::native::{GameStart, StartParts};
     pub use ti4_engine_core_setup::{CoreStart, SetupError, SpeakerChoice, TableSpec, start_game};
 }
 pub mod game {

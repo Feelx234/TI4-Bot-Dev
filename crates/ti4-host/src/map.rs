@@ -374,6 +374,66 @@ fn deal_notes_after_seating(state: &mut GameState, content: &ContentStore) {
     ti4_engine::promissory::deal(state, content, POK);
 }
 
+/// The seeded random-filler board of a table (no template): the home systems of the seats' factions in seat order, filler tiles
+/// between. A board is no game position; the state of a table is built separately.
+///
+/// # Errors
+/// A seating failure (an unknown faction, too few filler tiles).
+pub fn random_galaxy(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    assignments: &std::collections::BTreeMap<PlayerId, ti4_model::id::FactionId>,
+) -> Result<Galaxy, SeatingError> {
+    let filler = seating::map_filler(content, 36, POK, seed);
+    let filler_refs: Vec<&str> = filler.iter().map(SystemId::as_str).collect();
+    // `build_board` places homes in key order. Real player ids sort arbitrarily, so key the
+    // table by seat number instead: seat order, not id order, decides who sits where, which is
+    // what a lobby's map preview (made before anyone has an id) can show.
+    let by_seat: std::collections::BTreeMap<PlayerId, _> = player_ids
+        .iter()
+        .enumerate()
+        .map(|(seat, player)| {
+            (
+                PlayerId::new(format!("seat_{seat:02}")),
+                assignments[player].clone(),
+            )
+        })
+        .collect();
+    seating::build_board(content, &by_seat, &filler_refs, POK)
+}
+
+/// The board of a table: the predefined template `template` when one is named (`None`: the seeded random-filler board), with
+/// the home system of every seat's faction in its place. No game position is involved, so the typed setup uses it as it is.
+///
+/// # Errors
+/// A message for an unknown template, or any seating/galaxy failure.
+pub fn build_galaxy(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+    assignments: &std::collections::BTreeMap<PlayerId, ti4_model::id::FactionId>,
+) -> Result<Galaxy, String> {
+    let Some(alias) = template else {
+        return random_galaxy(content, player_ids, seed, assignments).map_err(|e| e.to_string());
+    };
+    let loader = crate::maps::TemplateLoader::load()?;
+    let template = loader
+        .get(alias)
+        .ok_or_else(|| crate::maps::TemplateError::Unknown(alias.to_owned()).to_string())?;
+    let homes: Vec<SystemId> = player_ids
+        .iter()
+        .map(|player| {
+            let one =
+                std::collections::BTreeMap::from([(player.clone(), assignments[player].clone())]);
+            seating::home_systems(content, &one).map(|mut homes| homes.remove(0))
+        })
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    crate::maps::build_template_galaxy(content, template, &homes, seed, POK).map_err(|e| e.to_string())
+}
+
 /// The seeded random-filler board of [`create_game_with_template_seated`] (no template).
 fn create_game_with_random_board(
     content: &ContentStore,
@@ -392,22 +452,7 @@ fn create_game_with_random_board(
     }
     deal_notes_after_seating(&mut state, content);
 
-    let filler = seating::map_filler(content, 36, POK, seed);
-    let filler_refs: Vec<&str> = filler.iter().map(SystemId::as_str).collect();
-    // `build_board` places homes in key order. Real player ids sort arbitrarily, so key the
-    // table by seat number instead: seat order, not id order, decides who sits where, which is
-    // what a lobby's map preview (made before anyone has an id) can show.
-    let by_seat: std::collections::BTreeMap<PlayerId, _> = player_ids
-        .iter()
-        .enumerate()
-        .map(|(seat, player)| {
-            (
-                PlayerId::new(format!("seat_{seat:02}")),
-                assignments[player].clone(),
-            )
-        })
-        .collect();
-    let galaxy = seating::build_board(content, &by_seat, &filler_refs, POK)?;
+    let galaxy = random_galaxy(content, player_ids, seed, assignments)?;
     // Setup rule: objectives this board can never satisfy are dealt out of the decks.
     ti4_engine::map_feasibility::apply(&mut state, content, POK, &galaxy);
 

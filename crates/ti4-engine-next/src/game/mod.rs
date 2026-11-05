@@ -46,7 +46,7 @@ mod asker;
 mod rolls;
 mod start;
 
-pub use start::GameStart;
+pub use start::{GameStart, StartParts};
 
 use asker::TableAsker;
 
