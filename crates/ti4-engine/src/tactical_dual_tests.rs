@@ -659,3 +659,63 @@ fn a_magen_defense_grid_places_an_infantry_beside_each_structure_of_an_activated
     assert_eq!(done.counts("tactical::activate"), (1, 0), "{:?}", done.reasons);
     assert_eq!(total(&done.state, &target, &b(), Some("infantry")), 0);
 }
+
+// -- the abilities of an activation that touch more than the window's own slices (docs/DUAL_REST_RESUME.md) --------------------------
+
+/// Golden dual games 10, 12 and 13: the Ghosts' Icarus Drive ("after any player activates a system: remove this unit from the board to place or
+/// move a Creuss wormhole token into its system") runs inside the activation. The token is the window's `Explore` slice, which the window lent but
+/// did not take back, so the core's tokens stayed as they were before the activation: `wormhole_tokens.BETA` string = the mech's system, core = absent.
+#[test]
+fn an_icarus_drive_inside_an_activation_places_the_token_on_both_sides() {
+    let (hub, origin, target) = hub();
+    let mech_system = hub
+        .outer
+        .iter()
+        .map(|id| SystemId::new(id.as_str()))
+        .find(|system| *system != origin && !ti4_content::galaxy::planets_in(ContentStore::embedded(), system.as_str(), POK).is_empty())
+        .expect("a ring system with a planet");
+    let planet = ti4_model::id::PlanetId::new(ti4_content::galaxy::planets_in(ContentStore::embedded(), mech_system.as_str(), POK).into_iter().next().expect("a planet").id());
+    let mut state = table(&[("a", "sol"), ("b", "ghost")]);
+    crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+    crate::fixtures::put_on_planet(&mut state, &mech_system, &planet, "ghost_mech", &b(), 1);
+    let before = state.wormhole_tokens.clone();
+    let script = [TACTICAL_ACTION_ID, target.as_str(), "unit:ghost:ghost_mech:SYSTEM_ACTIVATED:after", &format!("BETA|{mech_system}")];
+    let done = play(state, &hub.galaxy, &script, |_| {});
+    assert_eq!(done.counts("tactical::activate"), (1, 0), "{:?}", done.reasons);
+    assert_ne!(done.state.wormhole_tokens, before, "the token was placed");
+    assert_eq!(done.state.wormhole_tokens.get("BETA"), Some(&mech_system));
+    assert_eq!(total(&done.state, &mech_system, &b(), Some("ghost_mech")), 0, "the mech left the board");
+}
+
+/// Golden dual game 7 (`tactical::move`, `context.hit`): an Experimental Battlestation played after the active player's move rolls three dice
+/// that the ledger keeps as the roll of an ability with the hit number 5 (`nested.ability_dice`: string `(Some(5), faces)`), and the casualty
+/// question of the active player is described as a hit of the holder's (cause other, not a destruction, no restriction).
+#[test]
+fn an_experimental_battlestation_after_a_move_is_followed_in_dice_and_casualty_question() {
+    let (hub, origin, target) = hub();
+    // The dock stands on a planet (the card's dock is a structure on a planet, as the string reads it) of a ring system beside the active one.
+    let (next, planet) = hub
+        .outer
+        .iter()
+        .filter(|id| **id != origin.as_str())
+        .find_map(|id| ti4_content::galaxy::planets_in(ContentStore::embedded(), id, POK).into_iter().next().map(|p| (SystemId::new(id.as_str()), ti4_model::id::PlanetId::new(p.id()))))
+        .expect("a ring system with a planet");
+    let mut lost = 0;
+    let mut events = Vec::new();
+    for seed in 0..8_u64 {
+        let mut state = sol_hacan();
+        state.rng_seed = seed;
+        crate::fixtures::put(&mut state, &origin, "carrier", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "destroyer", &a(), 1);
+        // The holder is the active seat (game 7: it shoots its own fleet; the card says "choose 1 of YOUR space docks").
+        crate::fixtures::put_on_planet(&mut state, &next, &planet, "spacedock", &a(), 1);
+        state.player_mut(&a()).unwrap().action_cards.push(ti4_model::id::ActionCardId::new("experimental"));
+        let mv = id(&origin, 0);
+        let done = play(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv, "reaction:sol:SHIP_MOVED:after"], |_| {});
+        assert_eq!(done.counts("tactical::move"), (1, 0), "seed {seed}: {:?}", done.reasons);
+        lost += 3 - total(&done.state, &target, &a(), None);
+        events = done.game_events;
+    }
+    assert!(lost > 0, "a dock hits a fleet of three ships in some of eight seeds: {events:?}");
+}

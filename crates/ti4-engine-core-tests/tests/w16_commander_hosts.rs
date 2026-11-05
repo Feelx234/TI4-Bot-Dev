@@ -143,6 +143,24 @@ fn a_redraw_drops_the_adjustment_the_die_carried_and_a_declined_walk_changes_not
     assert_eq!(hits, Some(1));
 }
 
+/// Dual game 16 (docs/DUAL_REST_RESUME.md): the commander's question about a bombardment names the invasion in progress (`invasion_seq`), as every
+/// string question about the system of an invasion does; a question while another system is invaded does not.
+#[test]
+fn the_commanders_question_about_a_bombardment_names_the_invasion_in_progress() {
+    covers!("kernel::commander_walk::Walk");
+    use ti4_engine_core::containers::Cow;
+    use ti4_engine_core::state::ActiveInvasion;
+    let run = |invaded: System| {
+        let mut rig = bombard_rig(5, true, staged(&[&[2, 6]], 5));
+        rig.state.transient_mut().invasion.active =
+            Some(Cow::new(ActiveInvasion { system: invaded, invader: Seat(0), seq: 112, phase: Code(1), planet: None, defender: None, ground_round: 0, last_step: None }));
+        rig.run();
+        rig.asked().ctx.invasion_seq
+    };
+    assert_eq!(run(sys()), Some(112), "the system of the bombardment is the one invaded");
+    assert_eq!(run(dest()), None, "another system is invaded: the question is an ordinary one");
+}
+
 #[test]
 fn a_bombardment_without_the_commander_or_without_dice_asks_nothing() {
     covers!("rules::invasion::bombard_roll::BombardRolled");

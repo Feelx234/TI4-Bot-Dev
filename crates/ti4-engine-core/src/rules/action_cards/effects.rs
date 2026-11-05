@@ -474,6 +474,8 @@ const COURAGEOUS_DICE: u8 = 2;
 pub const COURAGEOUS_ROLLS: u16 = 30_001;
 const BATTLESTATION_DICE: u8 = 3;
 const BATTLESTATION_HITS_ON: u32 = 5;
+/// The ledger purpose of Experimental Battlestation's three dice (`RollPurpose::Ability`, the number after Courageous To The End's).
+pub const BATTLESTATION_ROLLS: u16 = 30_002;
 
 fn sorted(mut spots: SmallList<(System, Planet), 16>) -> SmallList<(System, Planet), 16> {
     spots.as_mut_slice().sort_unstable();
@@ -2524,11 +2526,17 @@ impl Play {
     }
 
     /// The dice the card's effect rolled as an ability does (the string `Dice::roll_by` inside the effect of a played card is noted as
-    /// the roll of an ability): the holder and the faces, no hit number. Only Courageous To The End, the one card of a reaction slot that
-    /// rolls (Spy, Plague and Brilliance are component actions, Experimental Battlestation is not played from a window).
+    /// the roll of an ability): the holder, the faces and the hit number the string notes (none for Courageous To The End, 5 for the
+    /// space cannon of Experimental Battlestation). The two cards of a reaction slot that roll (Spy, Plague and Brilliance are component
+    /// actions; Experimental Battlestation is played inside the window after the active player's move, as the dual games 3, 4 and 7 show).
     #[must_use]
-    pub fn ability_roll(&self) -> Option<(Seat, Vec<u8>)> {
-        (self.fx == Fx::Courageous && !self.faces.as_slice().is_empty()).then(|| (self.who, self.faces.as_slice().iter().map(|f| u8::try_from(*f).unwrap_or(u8::MAX)).collect()))
+    pub fn ability_roll(&self) -> Option<(Seat, Vec<u8>, Option<u8>)> {
+        let hits_on = match self.fx {
+            Fx::Courageous => None,
+            Fx::Battlestation => u8::try_from(BATTLESTATION_HITS_ON).ok(),
+            _ => return None,
+        };
+        (!self.faces.as_slice().is_empty()).then(|| (self.who, self.faces.as_slice().iter().map(|f| u8::try_from(*f).unwrap_or(u8::MAX)).collect(), hits_on))
     }
 
     /// Whether the position held something the window does not express (its result is not to be compared).

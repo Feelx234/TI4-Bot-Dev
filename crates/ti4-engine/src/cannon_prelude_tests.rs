@@ -747,9 +747,14 @@ fn over_run(seed: u64, winner: Option<PlayerId>, rounds: u32, setup: impl Fn(&mu
 
 /// [`over_run`] with the losing side's owner and ship type named.
 fn over_run_against(seed: u64, winner: Option<PlayerId>, rounds: u32, loser: (PlayerId, &str), setup: impl Fn(&mut GameState, &SystemId)) -> (GameState, (bool, bool), Vec<String>, crate::dual::DualReport) {
+    over_run_seated(&[("a", "sol"), ("b", "hacan")], seed, winner, rounds, loser, setup)
+}
+
+/// [`over_run_against`] at a table of the given factions.
+fn over_run_seated(factions: &[(&str, &str)], seed: u64, winner: Option<PlayerId>, rounds: u32, loser: (PlayerId, &str), setup: impl Fn(&mut GameState, &SystemId)) -> (GameState, (bool, bool), Vec<String>, crate::dual::DualReport) {
     let _guard = crate::dual::tests::serial();
     let _ = take_report();
-    let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], ti4_model::content_types::DEFAULT);
+    let mut state = crate::fixtures::seated_game(factions, ti4_model::content_types::DEFAULT);
     state.promissory_notes.clear();
     state.promissory_faceup.clear();
     state.rng_seed = seed;
@@ -797,6 +802,39 @@ fn the_end_of_a_won_fight_runs_in_the_core_with_the_win_the_scratch_and_the_enfo
     assert!(state.active_space_combat.is_none() && state.last_combat_sides.as_ref().is_some_and(|(_, sides)| sides == &vec![b()]));
     assert_eq!(log, ["SPACE_COMBAT_RESOLVED"]);
     assert!(state.system_state(&crate::fixtures::a_placed_planet().0).units.len() < 9, "the stranded fighters went");
+}
+
+/// Golden dual game 9 (docs/DUAL_REST_RESUME.md): a Mahact that wins takes its opponent's command token into its fleet pool (Edict, "when you win") and
+/// the enforcement that follows judges the fleet by the pool as it is NOW. The window's kernel (the combat one) did not hold the hook that counts the
+/// foreign tokens of a fleet pool, so the core's limit stayed at the seat's own tokens (3 against 4 in the game) and the core asked the Mahact to
+/// remove a ship the string did not. Fails without the hook: one question more than the string.
+#[test]
+fn the_end_of_a_fight_won_by_the_mahact_judges_the_fleet_by_the_pool_edict_filled() {
+    let (state, (holds, _), _, r) = over_run_seated(&[("a", "mahact"), ("b", "hacan")], 1, Some(a()), 2, (b(), "cruiser"), |s, _| {
+        // One token of its own in the pool: two cruisers fit only with the opponent's token Edict adds.
+        s.player_mut(&a()).unwrap().fleet_tokens = 1;
+    });
+    assert!(holds);
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.windows.get(OVER).map_or(0, |w| w.compared) >= 1, "the core window ran: {:?}", r.windows);
+    assert_eq!(state.faction_marks.get("mahact:fleet:a").map(String::as_str), Some("b"), "Edict took b's token");
+    assert_eq!(state.system_state(&crate::fixtures::a_placed_planet().0).units.iter().filter(|u| u.owner == a()).count(), 2, "both cruisers stay");
+}
+
+/// Golden dual game 12 (docs/DUAL_REST_RESUME.md): Mentak's commander (S'ula Mentarion, "after you win a space combat: force your opponent to give you
+/// 1 promissory note from their hand") offers the opponent's own Support for the Throne only while it is home. The Supports that are lent out
+/// (`support_holders`, the trade slice) were not lent to the window that follows an ability, so the core offered `support:b` that the string did not.
+#[test]
+fn the_opponent_of_the_mentak_commander_is_not_offered_a_support_that_is_lent_out() {
+    let (state, _, _, r) = over_run_seated(&[("a", "mentak"), ("b", "hacan"), ("c", "sol")], 1, Some(a()), 2, (b(), "cruiser"), |s, _| {
+        s.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("mentakcommander"), ti4_model::state::LeaderStatus::Unlocked);
+        // b holds c's Ceasefire (a note to give) and its own Support for the Throne is c's.
+        s.promissory_notes.insert("cf:sol".to_owned(), b());
+        s.support_holders.insert(b(), PlayerId::new("c"));
+    });
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.windows.get(OVER).map_or(0, |w| w.compared) >= 1, "the core window ran: {:?}", r.windows);
+    assert_eq!(state.promissory_notes.get("cf:sol"), Some(&a()), "b gave the note that was in its hand; its Support is not in it");
 }
 
 /// Package W11: the end of a fight won against the neutral force (its last ship fell) runs in the core, with the neutral owner in the

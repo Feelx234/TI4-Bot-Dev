@@ -3892,7 +3892,7 @@ impl<'a> Game<'a> {
             |state: &mut GameState| {
                 // The table was asked before the window (the checkpoint of an activation needs it so); the recording
                 // is told what was asked and answered.
-                crate::dual_window::note_ask(choice, &Ok(answer.clone()));
+                crate::dual_window::note_asked_before(choice, &Ok(answer.clone()));
                 std::mem::swap(&mut self.state, state);
                 let result = self.apply_tactical(window, choice, answer);
                 std::mem::swap(&mut self.state, state);
@@ -18235,6 +18235,64 @@ mod tests {
         });
         let report = take_report();
         assert!(asked, "b played Reparations");
+        assert_eq!(report.total_differences(), 0, "{:?}", report.differences.first());
+        let (compared, bailed) = local_windows("invasion::finish_control_gain");
+        assert!(compared > 0 && bailed == 0, "{compared} compared, {bailed} bailed: {:?}", report.windows);
+    }
+
+    /// Golden dual games 12 and 14 (docs/DUAL_REST_RESUME.md): Naaz-Rokha's Dart and Tai ("after you gain control of a planet that was controlled by
+    /// another player: explore that planet") explores INSIDE the window of the capture, as the reaction to the event. The window was lent neither the
+    /// decks nor the explore state, so the core did not see the planet as explorable and asked nothing (string: the offer, the card, the reward
+    /// question; core: none).
+    #[cfg(feature = "typed-core")]
+    #[test]
+    fn dart_and_tai_explores_inside_the_control_window_and_the_core_follows() {
+        use crate::dual::{AreaMask, Backend, local_windows, take_report, with_mask};
+        let _serial = crate::dual::tests::serial();
+        let _ = take_report();
+        let (mut state, _, _) = tactical_fixture();
+        let content = ContentStore::embedded();
+        // A hub whose centre holds a planet with a trait (the fixture's first systems hold none).
+        let (system, planet) = ti4_content::galaxy::all_systems(content, POK)
+            .iter()
+            .filter(|(_, system)| !system.is_anomaly() && !system.is_hyperlane())
+            .find_map(|(id, _)| {
+                ti4_content::galaxy::planets_in(content, id, POK)
+                    .into_iter()
+                    .find(|p| !p.traits().is_empty() && !ti4_content::galaxy::is_space_station(content, p.id(), POK))
+                    .map(|p| (SystemId::new(*id), PlanetId::new(p.id())))
+            })
+            .expect("a system with a planet that has a trait");
+        let mut ring = vec![system.to_string()];
+        ring.extend(crate::fixtures::plain_systems(12).into_iter().filter(|id| id != system.as_str()).take(6));
+        let galaxy = crate::fixtures::hub_from(&ring).galaxy;
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        for (p, faction) in ["a", "b"].iter().zip(["naaz", "letnev"]) {
+            state.player_mut(&PlayerId::new(*p)).unwrap().faction = ti4_model::id::FactionId::new(faction);
+        }
+        crate::promissory::deal(&mut state, content, POK);
+        state.player_mut(&a).unwrap().leaders.insert(ti4_model::id::LeaderId::new("naazcommander"), ti4_model::state::LeaderStatus::Unlocked);
+        crate::fixtures::put(&mut state, &system, "destroyer", &a, 1);
+        crate::fixtures::put(&mut state, &system, "dreadnought", &a, 1);
+        crate::fixtures::put(&mut state, &system, "infantry", &a, 1);
+        state.system_mut(&system).set_control(planet.clone(), b.clone());
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 1);
+        let mut reactions = std::collections::BTreeMap::new();
+        reactions.insert(a.clone(), "leader:naaz:naazcommander:PLANET_CONTROL_GAINED:after".to_owned());
+        let table = Table::with_default(Box::new(InvasionDecider { system: system.clone(), commit: planet.clone(), reactions }));
+        let mask = AreaMask::parse("driver=dual,invasion=dual", AreaMask::all(Backend::String)).unwrap();
+        with_mask(mask, || {
+            let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+            game.dice = Dice::from_faces([6]);
+            let mut guard = 0;
+            while !game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") && guard < 80 {
+                assert_eq!(game.step().error, None, "log: {:?}", game.events);
+                guard += 1;
+            }
+            assert!(game.state.controlled_planets(&a).iter().any(|(_, held)| **held == planet), "a took the planet");
+        });
+        let report = take_report();
         assert_eq!(report.total_differences(), 0, "{:?}", report.differences.first());
         let (compared, bailed) = local_windows("invasion::finish_control_gain");
         assert!(compared > 0 && bailed == 0, "{compared} compared, {bailed} bailed: {:?}", report.windows);

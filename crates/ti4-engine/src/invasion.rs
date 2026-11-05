@@ -5538,7 +5538,7 @@ impl InvasionWindow {
                 "invasion::bombard_answer",
                 state,
                 |s: &mut GameState| {
-                    crate::dual_window::note_ask(choice, &Ok(option.clone()));
+                    crate::dual_window::note_asked_before(choice, &Ok(option.clone()));
                     let cursor = cursor.borrow_mut().take().expect("run once");
                     cell.borrow_mut().answer_bombardment_target(s, &mut **ctx.borrow_mut(), option, cursor);
                     crate::dual::Run::new(cell.borrow().bombard_output(kills_before, scoring_before))
@@ -5715,7 +5715,7 @@ impl InvasionWindow {
                 "invasion::answer_custodians",
                 state,
                 |s: &mut GameState| {
-                    crate::dual_window::note_ask(choice, &Ok(option.clone()));
+                    crate::dual_window::note_asked_before(choice, &Ok(option.clone()));
                     let result = self.answer_custodians(s, ctx, option);
                     failed.set(result.is_err());
                     outcome = Some(result);
@@ -5826,7 +5826,7 @@ impl InvasionWindow {
                 "invasion::commit_one",
                 state,
                 |s: &mut GameState| {
-                    crate::dual_window::note_ask(choice, &Ok(option.clone()));
+                    crate::dual_window::note_asked_before(choice, &Ok(option.clone()));
                     let (extras, temps) = {
                         let me = cell.borrow();
                         (me.extra_commits.len(), me.temporary_space_commits.values().map(Vec::len).sum::<usize>())

@@ -6866,7 +6866,18 @@ impl CombatWindow {
                 let result = self.settle_string(s, ctx);
                 failed.set(result.is_err() || self.machine_bail);
                 failed_why.set(if result.is_err() { "the string settle ended in an error" } else { self.machine_bail_why });
-                let dice: Vec<(u32, Vec<u32>)> = ctx.dice.history().iter().skip(history_start).map(|roll| (roll.hits_on.unwrap_or(0), roll.faces.clone())).collect();
+                // The dice of the machine: what an ability played inside the settle rolled (Courageous to the End) is the ability's, and the
+                // dual compares it as `nested.ability_dice`.
+                let abilities = crate::dual_window::effect_roll_places();
+                let dice: Vec<(u32, Vec<u32>)> = ctx
+                    .dice
+                    .history()
+                    .iter()
+                    .enumerate()
+                    .skip(history_start)
+                    .filter(|(at, _)| !abilities.contains(at))
+                    .map(|(_, roll)| (roll.hits_on.unwrap_or(0), roll.faces.clone()))
+                    .collect();
                 let value = self.settle_out(dice, ctx.rng.positions());
                 outcome = Some(result);
                 crate::dual::Run::new(value)
@@ -7846,7 +7857,7 @@ impl CombatWindow {
             "combat::answer",
             state,
             |s: &mut GameState| {
-                crate::dual_window::note_ask(choice, &Ok(option.clone()));
+                crate::dual_window::note_asked_before(choice, &Ok(option.clone()));
                 self.machine_bail = false;
                 self.machine_bail_why = "";
                 let result = self.resolve_answer_string(s, ctx, option);
@@ -11192,6 +11203,31 @@ mod tests {
             }
         }
         assert!(played > 0, "a Courageous to the End was played");
+    }
+
+    /// Golden dual game 6 (`winnu,titans,mentak,ghost`, hyperlanes, seed 7) showed one `combat::settle` difference: the string's list of
+    /// the dice of the settle had a group `(0, [8, 7])` the core's lacked. It is the two dice of a Courageous to the End the holder played
+    /// when the ship the hits destroyed was its only one (no casualty question, so the card is played inside the settle, not inside the
+    /// answer of a question): an ability's dice, which the dual compares as `nested.ability_dice` (equal), not a die of the machine. The list
+    /// of the settle leaves the ability's dice out. Fails without that (the first run of this test showed the difference).
+    #[test]
+    fn a_courageous_to_the_end_played_inside_a_settle_adds_no_die_to_the_machines_dice() {
+        let (mut played, mut compared) = (0, 0);
+        for seed in 1..=30_u64 {
+            for (attacker_hand, hand) in [(&[][..], &["courageous"][..]), (&["courageous"][..], &[][..])] {
+                let (_, _, bails, plays) = cards_fight_with(seed, ["sol", "hacan"], attacker_hand, hand, false, false, &|s, system| {
+                    // The holder's only ship is the one the other side's hits destroy: a forced casualty, no question in between.
+                    let (holder, other) = if hand.is_empty() { (attacker(), defender()) } else { (defender(), attacker()) };
+                    s.system_mut(system).units.clear();
+                    put(s, system, "destroyer", &holder, 1);
+                    put(s, system, "dreadnought", &other, 3);
+                });
+                played += plays.iter().filter(|c| *c == "courageous").count();
+                compared += usize::from(bails.iter().any(|k| k == "combat::settle"));
+            }
+        }
+        assert!(played > 0, "a Courageous to the End was played");
+        assert!(compared > 0, "the settle was compared");
     }
 
     /// Scramble Frequency played against an anti-fighter barrage (package W15): the window stages the roller's dice before the event

@@ -172,7 +172,7 @@ impl Dice {
             source: None,
         };
         self.history.push(record.clone());
-        crate::dual_window::note_dice(&record);
+        crate::dual_window::note_dice(&record, self.history.len() - 1);
         record
     }
 

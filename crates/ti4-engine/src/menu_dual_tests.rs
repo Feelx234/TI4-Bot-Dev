@@ -46,3 +46,57 @@ fn the_hooks_between_the_steps_of_a_turn_end_are_counted_as_lent_by_name() {
     }
     assert!(r.windows.get("fleet::enforce_everywhere").map_or(0, |w| w.compared) >= 1, "the sweep ran in the core: {:?}", r.windows.keys().collect::<Vec<_>>());
 }
+
+/// Golden dual games 4, 10 and 14 (docs/DUAL_REST_RESUME.md, class B): Cabal's Vortex stood in the string's Mapped source and in the core's Faction
+/// source (`menu_faction::faction` lists the mapped actions after the plain ones), so the typed menu the dual rendered listed it twice
+/// (`options[6]` = `faction|cabal|vortex` against `component|leader|cabalhero`, 26 to 34 menus a game). Neither engine was wrong; the adapter put the
+/// string's Mapped ids next to the core's Faction options.
+#[test]
+fn cabals_vortex_is_listed_once_by_the_typed_menu() {
+    use ti4_model::id::{PlayerId, SystemId, TechnologyId};
+    let _guard = crate::dual::tests::serial();
+    let _ = take_report();
+    let hub = crate::fixtures::plain_hub();
+    // The dock stands on a planet of a ring system (as it does in a game), the Hacan cruiser in the centre.
+    let (dock_at, dock_planet) = hub
+        .outer
+        .iter()
+        .find_map(|id| ti4_content::galaxy::planets_in(ContentStore::embedded(), id, ti4_model::content_types::POK).into_iter().next().map(|p| (SystemId::new(id.as_str()), ti4_model::id::PlanetId::new(p.id()))))
+        .expect("a ring system with a planet");
+    let target = SystemId::new(hub.centre.clone());
+    let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+    let mut state = crate::fixtures::seated_game(&[("a", "cabal"), ("b", "hacan")], ti4_model::content_types::POK);
+    crate::promissory::deal(&mut state, ContentStore::embedded(), ti4_model::content_types::POK);
+    for system in state.board.values_mut() {
+        system.units.clear();
+        system.planet_units.clear();
+    }
+    state.phase = ti4_model::state::Phase::Action;
+    state.active = Some(a.clone());
+    state.player_mut(&a).unwrap().technologies.insert(TechnologyId::new("vtx"));
+    crate::fixtures::put_on_planet(&mut state, &dock_at, &dock_planet, "spacedock", &a, 1);
+    crate::fixtures::put(&mut state, &target, "cruiser", &b, 1);
+    /// Passes, and remembers the ids of the first menu it is shown.
+    struct Passes(std::rc::Rc<std::cell::RefCell<Vec<String>>>);
+    impl crate::choice::Decider for Passes {
+        fn choose(&mut self, c: &crate::choice::Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+            if self.0.borrow().is_empty() {
+                *self.0.borrow_mut() = c.options.iter().map(|o| o.id.clone()).collect();
+            }
+            c.options.first().cloned().ok_or_else(|| crate::choice::IllegalChoice::NoOptions { player: c.player.clone(), prompt: c.prompt.clone() })
+        }
+    }
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let table = crate::choice::Table::with_default(Box::new(Passes(seen.clone())));
+    with_mask(AreaMask::STRING.with(Area::Driver, Backend::Dual), || {
+        let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(hub.galaxy.clone());
+        let r = game.step();
+        assert!(r.error.is_none(), "{:?}", r.error);
+    });
+    let r = report();
+    let _ = take_report();
+    let menu = seen.borrow().clone();
+    assert_eq!(menu.iter().filter(|id| id.as_str() == "faction|cabal|vortex").count(), 1, "the string lists Vortex once: {menu:?}");
+    assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+    assert!(r.windows.get("turn::menu.choice").is_some_and(|w| w.compared >= 1), "the action menu was compared: {:?}", r.windows);
+}

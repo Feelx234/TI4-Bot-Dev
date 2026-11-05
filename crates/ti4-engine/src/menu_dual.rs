@@ -38,7 +38,7 @@ mod real {
     use ti4_engine_core::choice::turn::Opt as TOpt;
     use ti4_engine_core::driver::menu::{self, Entry, Source};
     use ti4_engine_core::driver::menu_sources;
-    use ti4_engine_core::generated::{Leader, StrategyCard, Technology};
+    use ti4_engine_core::generated::{Leader, Relic, StrategyCard, Technology};
     use ti4_engine_core::state::Code;
 
     use super::{Choice, ClosingEntry, GameState, MenuParts, PlayerId, SourceSet};
@@ -110,6 +110,12 @@ mod real {
         Some(typed.rendered)
     }
 
+    /// The ids the table renders for `options` of `source` (the core's native options, no lent one among them).
+    fn rendered_ids(state: &GameState, r: &crate::render::Render, seat: ti4_engine_core::ids::Seat, source: Source, options: &[TOpt]) -> Vec<String> {
+        let choice = menu::action_menu(seat, &[(source, options.to_vec())], false, &[]);
+        Typed::new(r, choice, crate::render::generic::core_phase(state.phase), state.round).rendered.options.into_iter().map(|o| o.id).collect()
+    }
+
     pub fn check_action_menu(state: &GameState, sources: SourceSet, galaxy: Option<&ti4_content::galaxy::Galaxy>, parts: &MenuParts, thunders_edge: bool, failed: &[String], string: &Choice) {
         if backend(Area::Driver) != Backend::Dual {
             return;
@@ -125,10 +131,24 @@ mod real {
         };
         let mut lent = Lent::default();
         // The strategic action and the leaders are listed by the core from the position; the other sources are the string's ids.
-        let native = crate::menu_sources_view::native(state, &mut cx, sources, seat, galaxy);
+        let mut native = crate::menu_sources_view::native(state, &mut cx, sources, seat, galaxy);
+        // Known string bug S8: the string never offers the Nano-Forge action; the core's relics source lists it once a planet can take it.
+        if let Some(native) = native.as_mut()
+            && let Some(at) = native.relics.iter().position(|o| *o == TOpt::UseRelic(Relic::NanoForge))
+        {
+            native.relics.remove(at);
+            crate::dual::note_known_string_bug(MENU, "S8", "Nano-Forge is not an action of the string");
+        }
         if native.is_none() && crate::core_sync::unsupported::find(state).is_none() {
             note_bail(MENU, "the position is not one the core lists the menu sources of");
         }
+        // The string lists Cabal's Vortex in its Mapped source, the core in the Faction one (`menu_faction::faction`: "mapped actions come after every
+        // plain one"): a natively listed option leaves the string's Mapped source, or the core's menu would show it twice.
+        let faction_ids: Vec<String> = native
+            .as_ref()
+            .and_then(|native| native.faction.as_ref())
+            .map(|list| rendered_ids(state, &r, seat, Source::Faction, list))
+            .unwrap_or_default();
         let typed_parts: Vec<(Source, Vec<TOpt>)> = parts
             .iter()
             .filter_map(|(i, ids)| {
@@ -142,12 +162,33 @@ mod real {
                     (Some(native), Source::Transactions) => native.transactions.clone(),
                     (Some(native), Source::Faction) if native.faction.is_some() => native.faction.clone().unwrap_or_default(),
                     (Some(native), Source::ActionCards) if native.cards.is_some() => native.cards.clone().unwrap_or_default(),
+                    (_, Source::Mapped) => ids.iter().filter(|id| !faction_ids.contains(id)).map(|id| lent.typed(state, &active, id)).collect(),
                     _ => ids.iter().map(|id| lent.typed(state, &active, id)).collect(),
                 };
                 Some((source, options))
             })
             .collect();
-        let typed_failed: Vec<TOpt> = failed.iter().map(|id| lent.typed(state, &active, id)).collect();
+        // A component action that failed this turn is dropped from the menu by its id: the option the core lists natively under that id is the
+        // one to drop (a lent copy of the id is another option to the core's equality).
+        let natives: Vec<(Source, &Vec<TOpt>)> = native
+            .as_ref()
+            .map(|native| {
+                let mut all = vec![(Source::Strategic, &native.strategic), (Source::Leaders, &native.leaders), (Source::Technology, &native.technology)];
+                all.extend([(Source::Relics, &native.relics), (Source::Exploration, &native.exploration), (Source::Transactions, &native.transactions)]);
+                all.extend(native.faction.as_ref().map(|list| (Source::Faction, list)));
+                all.extend(native.cards.as_ref().map(|list| (Source::ActionCards, list)));
+                all
+            })
+            .unwrap_or_default();
+        let typed_failed: Vec<TOpt> = failed
+            .iter()
+            .map(|id| {
+                natives
+                    .iter()
+                    .find_map(|(source, list)| list.iter().find(|option| rendered_ids(state, &r, seat, *source, std::slice::from_ref(*option)).contains(id)).copied())
+                    .unwrap_or_else(|| lent.typed(state, &active, id))
+            })
+            .collect();
         let core = menu::action_menu(seat, &typed_parts, thunders_edge, &typed_failed);
         let Some(rendered) = render(state, string, core, &lent) else {
             note_bail(MENU, "an option the string does not list");

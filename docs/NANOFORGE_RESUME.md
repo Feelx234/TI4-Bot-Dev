@@ -16,3 +16,6 @@ The attachment record `nanoforge` (+2/+2) already existed (attachments.json, `At
 - The string engine does not offer or play it. A shadow game that holds Nano-Forge with a legal target would differ at the menu (core offers `relic|nanoforge`); the Z-gate (3,4,5,6 players x 8 seeds x all factions, shadow) was green with zero differences, so no shadow game reached it and no KNOWN_NANOFORGE recognizer was added.
 - The string test `the_use_dispatch_and_the_action_list_run_in_lockstep_with_the_core` (ti4-engine/src/relics.rs) does not hold Nano-Forge in its hand; not run here (legacy test binary is heavy).
 - `driver/turn/relic.rs::routed` is unused by callers (pre-existing); the NanoForge entry in it has no test.
+- Update (lane core-dual-rest, 2026-11-05): the shadow games did reach it after all: golden dual games 4, 9 and 19 hold Nano-Forge with a legal target and the core's menu offers `relic|nanoforge`. It is the
+  documented string gap **S8** (`docs/STRING_ENGINE_BUGS.md`); the dual run cuts the relic from the core's side of `relics::action_relics` and of the action menu (counted as `[known string bug S8 ...]`),
+  the core backend keeps it. `docs/DUAL_REST_RESUME.md`.

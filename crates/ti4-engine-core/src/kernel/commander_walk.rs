@@ -99,6 +99,9 @@ impl Walk {
     #[must_use]
     pub fn ask(&self, state: &CoreState) -> Option<Choice> {
         let (ask, opt) = self.question(state)?;
+        // A question about the system of the invasion in progress names it (the string `DecisionContext::about_invasion`: a question about a
+        // battle does not, and neither does one about another system).
+        let invasion_seq = state.transient().invasion.active.as_ref().filter(|a| a.system == self.system).map(|a| a.seq);
         Some(Choice {
             actor: self.who,
             ask: Ask::Combat(ask),
@@ -109,7 +112,7 @@ impl Walk {
                 target: Some(Target::System(self.system)),
                 outstanding: SmallList::new(),
                 space_battle: false,
-                invasion_seq: None,
+                invasion_seq,
             },
             opts: Opts([Opt::Combat(opt), Opt::Decline].into_iter().collect()),
         })
