@@ -3279,7 +3279,10 @@ mod tests {
             state.active_space_combat = Some((ti4_model::id::SystemId::new("26"), player(), PlayerId::new("b")));
             let none = crate::dual_window::Recording::default();
             assert!(crate::leaders_core::l1z1x_hero(&mut state, &player(), None, POK, &none).is_none());
-            // Rin with units not in the form the owned upgrades demand: the string re-forms them after a swap.
+            // Rin with units not in the form the owned upgrades demand: the string re-forms them after a swap, and since
+            // lane core-lent-gaps (dc009b69e) the core window re-forms them too (it brings the faction units' roster), so the
+            // core no longer bails here; `rin_re_forms_a_plain_mech_on_the_home_planet_like_the_string_and_the_core_follows`
+            // guards the parity. Kept as a positive check that this former bail stays native.
             let mut state = seated_clean(&[("a", "sol"), ("b", "hacan")]);
             let content = ContentStore::embedded();
             crate::fixtures::put(&mut state, &ti4_model::id::SystemId::new("26"), "mech", &player(), 1);
@@ -3287,7 +3290,7 @@ mod tests {
             let mut formed = state.clone();
             crate::technology::apply_unit_upgrades(&mut formed, content, POK, &player());
             assert!(!formed.identical(&state), "the owned upgrade changes the units' form");
-            assert!(crate::leaders_core::jolnar_hero(&mut state, content, &player(), POK, &none).is_none());
+            assert!(crate::leaders_core::jolnar_hero(&mut state, content, &player(), POK, &none).is_some(), "Rin's re-form is native since core-lent-gaps");
             // I48S: a favour keeps a diplomacy promise: string (the Naaz mech's announcement is the core's since package W3).
             let mut state = seated_clean(&[("a", "l1z1x"), ("b", "sol")]);
             let system = ti4_model::id::SystemId::new("26");
