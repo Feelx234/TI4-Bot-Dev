@@ -1,0 +1,67 @@
+# Scratch profiles for docs/PERF_FLAGS.md. NOT part of the workspace manifest: pass with
+# `cargo build --config docs/perf_flags_data/profiles.toml --profile <name> ...`.
+# g-* inherit `gate` (opt 3, no LTO, 16 cgu), r-* inherit `release` (thin LTO, 1 cgu), w-* inherit `wasm-release`.
+# Every profile has debug-assertions = false and overflow-checks = false (the release defaults) unless the name says otherwise.
+
+[profile.g-o1]
+inherits = "gate"
+opt-level = 1
+[profile.g-o2]
+inherits = "gate"
+opt-level = 2
+[profile.g-os]
+inherits = "gate"
+opt-level = "s"
+[profile.g-oz]
+inherits = "gate"
+opt-level = "z"
+[profile.g-cgu1]
+inherits = "gate"
+codegen-units = 1
+[profile.g-cgu4]
+inherits = "gate"
+codegen-units = 4
+[profile.g-thin]
+inherits = "gate"
+lto = "thin"
+[profile.g-fat]
+inherits = "gate"
+lto = "fat"
+
+[profile.r-o2]
+inherits = "release"
+opt-level = 2
+[profile.r-fat]
+inherits = "release"
+lto = "fat"
+[profile.r-abort]
+inherits = "release"
+panic = "abort"
+[profile.r-ovf]
+inherits = "release"
+overflow-checks = true
+[profile.r-dbg]
+inherits = "release"
+overflow-checks = true
+debug-assertions = true
+# gate with panic = abort (what the sweeps would run)
+[profile.g-abort]
+inherits = "gate"
+panic = "abort"
+
+# wasm
+[profile.w-os]
+inherits = "wasm-release"
+opt-level = "s"
+[profile.w-o2]
+inherits = "wasm-release"
+opt-level = 2
+[profile.w-o3]
+inherits = "wasm-release"
+opt-level = 3
+[profile.w-thin]
+inherits = "wasm-release"
+lto = "thin"
+[profile.w-unwind]
+inherits = "wasm-release"
+panic = "unwind"
