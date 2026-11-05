@@ -15,7 +15,7 @@
       ],
       "map_policy": "cycle",
       "seeds": "1..101",
-      "rules_version": 11
+      "rules_version": 36
     },
     {
       "name": "6p",
@@ -26,7 +26,7 @@
       ],
       "map_policy": "cycle",
       "seeds": "1..101",
-      "rules_version": 11
+      "rules_version": 36
     }
   ]
 }
