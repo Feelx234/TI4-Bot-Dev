@@ -24,7 +24,7 @@ setups and gives each setup its own seed range, so (lane, games, first seed) nam
 |---|---|---|
 | `std` | 38 | rules version 35 (newest; not pinned, so it follows the model), Thunder's Edge off, 3-8 players (10/25/15/25/10/15 %), every template map that builds for the count (hyperlane maps included) plus the seeded random board (`map_policy: random`, the seed picks), the lobby's faction draw |
 | `te` | 14 | the same, Thunder's Edge on |
-| `old` | 14 | 18 older rules versions (0, 1, 3, 5, 8, 12, 16, 19, 21, 22, 23, 26, 29, 30, 31, 32, 33, 34; every gate boundary just under 35), 3-6 players, alternating Thunder's Edge |
+| `old` | 14 | 18 older rules versions (0, 1, 3, 5, 8, 12, 16, 19, 21, 22, 23, 26, 29, 30, 31, 32, 33, 34; every gate boundary just under 35), 3-6 players, alternating Thunder's Edge. **Not in the default plan since 2026-11-05** (lane core-lent-gaps): the core refuses every rules version below the newest (`MIN_SUPPORTED_RULES_VERSION`, `docs/RULES_VERSION.md`), so the product never asks it the menus and rules of an older version, and the first game of the lane showed 646 `turn::menu` differences at version 1 (an action card's listing and the Thunder's Edge breakthrough actions). `soak_corpus.py lanes --all` lists it, `LANES=old` and `gen old` still make it |
 | `factions` | 18 | each of the 24 lobby factions pinned on seat a, 3-8 players, alternating Thunder's Edge; the other seats drawn |
 | `bot-v1`, `bot-v3`, `bot-v5` | 5/5/6 | the rule bot at version 1, 3, 5 (matrix `bot: {bot_version}`), which plays other lines (other attacks, other purchases) than the shipped version 6 |
 

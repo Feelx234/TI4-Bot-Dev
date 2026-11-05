@@ -3210,6 +3210,44 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Found by the dual-lent run (golden-lent game 12): the string's agenda effect "a mech onto a home planet" places the plain `mech` for every seat but the Naaz,
+    /// and the next technology a seat gains re-forms its units (`apply_unit_upgrades`), so a Jol-Nar who swaps with Rin finds its plain mech turned into
+    /// `jolnar_mech`. The core window swapped the technologies only and the boards differed (`planet_units.jol[1].type_id`); the pre-check that should have declined
+    /// the position compared `GameState::identical`, which leaves the units on planets out. The window now re-forms the units like the string.
+    #[test]
+    fn rin_re_forms_a_plain_mech_on_the_home_planet_like_the_string_and_the_core_follows() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let before_counts = window_counts("leaders::jolnarhero");
+        let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual);
+        let state = with_mask(mask, || {
+            let content = ContentStore::embedded();
+            let mut state = seated_clean(&[("a", "jolnar"), ("b", "sol")]);
+            holding(&mut state, "jolnarhero", LeaderStatus::Unlocked);
+            let generic: Vec<String> = content
+                .from_sources(ContentType::Technologies, POK)
+                .filter(|r| r.text("faction").is_none_or(str::is_empty) && !r.strings("types").contains(&"UNITUPGRADE") && !r.strings("types").is_empty())
+                .filter_map(|r| r.text("alias").map(str::to_owned))
+                .step_by(5)
+                .take(2)
+                .collect();
+            for alias in &generic {
+                state.player_mut(&player()).unwrap().technologies.insert(ti4_model::id::TechnologyId::new(alias.as_str()));
+            }
+            crate::fixtures::put_on_planet(&mut state, &ti4_model::id::SystemId::new("12"), &ti4_model::id::PlanetId::new("jol"), "mech", &player(), 1);
+            assert!(use_scripted(&mut state, "jolnarhero", None, vec![]), "every swap taken");
+            state
+        });
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let counts = window_counts("leaders::jolnarhero");
+        assert_eq!((counts.0 - before_counts.0, counts.1 - before_counts.1), (1, 0), "the core followed: {r:?}");
+        let kinds: Vec<String> = state.system_state(&ti4_model::id::SystemId::new("12")).planet_units.get(&ti4_model::id::PlanetId::new("jol")).map_or_else(Vec::new, |units| units.iter().map(|u| u.type_id.to_string()).collect());
+        assert!(kinds.iter().any(|k| k == "jolnar_mech") && !kinds.iter().any(|k| k == "mech"), "the plain mech became the faction's own: {kinds:?}");
+        let _ = take_report();
+    }
+
     /// The documented bails of the questioning agents: a question inside a battle, diplomacy promises, a Cabal
     /// at the table. The string arm answers alone; nothing is compared and nothing differs.
     #[test]

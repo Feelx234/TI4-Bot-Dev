@@ -559,6 +559,7 @@ pub struct AdapterFacts {
     /// The faction units of the scope (the form Assimilate places; set by the live `Env`).
     pub roster: Option<&'static crate::query::tech::UnitRoster>,
     adjacent: Vec<(crate::generated::System, crate::generated::System, bool)>,
+    neighbours: Vec<(Seat, Seat, bool)>,
     buildable: Vec<(Seat, Vec<crate::generated::Unit>)>,
     /// The texts of the staged rerolls (Fire Team, Scramble Frequency), set by the adapter of a window that stages dice.
     pub reroll: Option<RerollFacts>,
@@ -655,8 +656,9 @@ impl AdapterFacts {
         self.reach.push((who, system, neighbours));
     }
 
-    /// Record the systems Skilled Retreat may withdraw `who` to from `system` (the map's part: the adapter computed them).
-    /// One play is named by its player, the system and the combat round sequence (a window can hold several plays, the map changes
+    /// Record the systems Skilled Retreat may withdraw `who` to from `system` (the map's part: the adapter computed them): the adjacent systems the movement
+    /// rules let the fleet enter, whether another player's ships stand there or not (the card reads the position for those).
+    /// One play is named by its player, the system and the combat round sequence (a window can hold several plays, the ships change
     /// between them).
     pub fn set_withdraw(&mut self, who: Seat, system: crate::generated::System, round_seq: u32, destinations: Vec<crate::generated::System>) {
         self.withdraw.retain(|(w, s, n, _)| !(*w == who && *s == system && *n == round_seq));
@@ -674,6 +676,20 @@ impl AdapterFacts {
         if !self.adjacent.iter().any(|(x, y, _)| *x == a && *y == b) {
             self.adjacent.push((a, b, adjacent));
         }
+    }
+
+    /// Record that `a` and `b` are neighbours (or not) as the string's map has it (`transactions::are_neighbours`): an input of Pillage in a
+    /// window that is lent no map. The first answer of a window stands.
+    pub fn set_neighbours(&mut self, a: Seat, b: Seat, neighbours: bool) {
+        if !self.neighbours.iter().any(|(x, y, _)| *x == a && *y == b) {
+            self.neighbours.push((a, b, neighbours));
+        }
+    }
+
+    /// Whether `a` and `b` are neighbours, if the string's ability asked it.
+    #[must_use]
+    pub fn neighbours(&self, a: Seat, b: Seat) -> Option<bool> {
+        self.neighbours.iter().find(|(x, y, _)| *x == a && *y == b).map(|(_, _, v)| *v)
     }
 
     /// The units `who` may build now (`production::buildable_for`, in the string's order): an input of Salvage Operations.

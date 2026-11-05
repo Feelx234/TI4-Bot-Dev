@@ -28,7 +28,9 @@ mod real {
     use crate::dual_window::{apply_staged, drive_with, Recording};
 
     /// What the windows read and write: the tokens, the trade good and the exhausted cards (Players), the planets (Board).
-    const WINDOW: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Players, Slice::Board]);
+    /// (Marks, read only: the command tokens in a Mahact fleet pool are not in the reinforcements the Predictive Intelligence question shows,
+    /// `kernel::fx::tokens_held_by_mahact` counts none where the marks are not lent.)
+    const WINDOW: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Marks, Slice::Pending], &[Slice::Players, Slice::Board]);
 
     fn owned_ready(gs: &GameState, player: &PlayerId, alias: &str, ready_only: bool) -> bool {
         gs.player(player).is_some_and(|p| {
@@ -573,6 +575,27 @@ mod tests {
             run_end(&mut state, &[]);
         });
         assert_eq!(counts, (1, 0));
+    }
+
+    /// Found by the dual-lent run (`golden-lent.json`, a Mahact at the table; soak slice `std_100000_5_all`): the Predictive Intelligence question
+    /// shows the tokens in the seat's reinforcements, and a token in a Mahact fleet pool is not one of them. The window did not lend the marks, so
+    /// the core counted none of them and showed one reinforcement too many (`details.reinforcements` n + 1).
+    #[test]
+    fn predictive_intelligence_counts_a_token_in_a_mahact_pool_out_of_the_reinforcements_in_lockstep() {
+        let (state, counts, bails) = lockstep("technology::end_turn", || {
+            let mut state = game(&["pi"], &[]);
+            {
+                let seat = state.player_mut(&a()).unwrap();
+                (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens) = (3, 2, 1);
+            }
+            // Two tokens of `a` sit in the fleet pool of the Mahact `b`.
+            state.faction_marks.insert("mahact:fleet:b".to_owned(), "a,a".to_owned());
+            assert_eq!(state.tokens_in_reinforcements(&a()), 16 - 6 - 2);
+            run_end(&mut state, &["tactic|fleet", "done"]);
+            state
+        });
+        assert_eq!(counts, (1, 0), "{bails:?}");
+        assert!(state.player(&a()).unwrap().exhausted_technologies.contains(&TechnologyId::new("pi")));
     }
 
     #[test]

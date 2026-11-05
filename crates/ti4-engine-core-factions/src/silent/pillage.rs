@@ -12,7 +12,7 @@ use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype
 use ti4_engine_core::containers::SmallList;
 use ti4_engine_core::generated::{Faction, PromissoryNote};
 use ti4_engine_core::ids::Seat;
-use ti4_engine_core::kernel::ability::{AbilityTable, CondCx, Eff, Slot, Spec};
+use ti4_engine_core::kernel::ability::{AbilityTable, AdapterFacts, CondCx, Eff, Slot, Spec, Unknown};
 use ti4_engine_core::kernel::resolver::TimingError;
 use ti4_engine_core::kernel::{fx, Kernel};
 use ti4_engine_core::query::trade;
@@ -40,10 +40,11 @@ fn protected(s: &CoreState, target: Seat) -> bool {
     s.cards().promissory.get(&note) == Some(&target) && s.cards().promissory_faceup.contains_key(&note)
 }
 
-/// `pillage_targets`: the neighbours of `owner` the event concerns that may be pillaged now, in the string's order.
-fn targets(s: &CoreState, k: &Kernel, event: &EventRec, owner: Seat, transaction: Code) -> Vec<Seat> {
+/// `pillage_targets`: the neighbours of `owner` the event concerns that may be pillaged now, in the string's order. `Err`: the position is
+/// lent without its map and the string did not say whether two of the seats are neighbours (a window the string's Pillage never asked).
+fn targets(s: &CoreState, k: &Kernel, facts: &AdapterFacts, event: &EventRec, owner: Seat, transaction: Code) -> Result<Vec<Seat>, ()> {
     if !is_mentak(s, owner) {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let p = &event.payload;
     let concerned: Vec<Seat> = match event.kind {
@@ -51,33 +52,47 @@ fn targets(s: &CoreState, k: &Kernel, event: &EventRec, owner: Seat, transaction
         EventKind::TransactionResolved => [Key::Proposer, Key::Partner].into_iter().filter_map(|key| p.seat(key)).collect(),
         _ => Vec::new(),
     };
-    // (A position lent without its map has no neighbours, as the string without a galaxy has none.)
-    if !s.loaded.has(ti4_engine_core::state::Slice::Map) {
-        return Vec::new();
-    }
-    let Some(adj) = s.map().adjacency() else { return Vec::new() };
+    // A position that holds the map (the native play) reads it. A window that follows abilities is lent none: the string says who the neighbours
+    // are (`AdapterFacts::set_neighbours`, noted where its Pillage asked). Neither: the core cannot say, which is not "no neighbours".
+    let mapped = s.loaded.has(ti4_engine_core::state::Slice::Map).then(|| s.map().adjacency()).flatten();
     let env = KernelEnv { core: s, kernel: k };
-    // The limits are not read by the neighbour queries.
-    let cx = trade::Cx { core: s, adj, mecatol: ti4_engine_core::query::objectives::mecatol_in_galaxy(s), limits: trade::Limits { per_action: 0, per_round: 0 }, env: &env };
-    concerned
-        .into_iter()
-        .filter(|target| *target != owner)
-        .filter(|target| event.kind != EventKind::TransactionResolved || !transaction_gain_pending(s, *target, transaction))
-        .filter(|target| trade::are_neighbours(&cx, owner, *target))
-        .filter(|target| s.players().by_seat(*target).is_some_and(|p| p.econ.trade_goods >= 3))
-        .filter(|target| !protected(s, *target))
-        .collect()
+    let cx = mapped.map(|adj| {
+        // The limits are not read by the neighbour queries.
+        trade::Cx { core: s, adj, mecatol: ti4_engine_core::query::objectives::mecatol_in_galaxy(s), limits: trade::Limits { per_action: 0, per_round: 0 }, env: &env }
+    });
+    let mut out = Vec::new();
+    for target in concerned {
+        if target == owner || (event.kind == EventKind::TransactionResolved && transaction_gain_pending(s, target, transaction)) {
+            continue;
+        }
+        let near = match (&cx, facts.neighbours(owner, target)) {
+            (Some(cx), _) => trade::are_neighbours(cx, owner, target),
+            (None, Some(near)) => near,
+            (None, None) => return Err(()),
+        };
+        if near && s.players().by_seat(target).is_some_and(|p| p.econ.trade_goods >= 3) && !protected(s, target) {
+            out.push(target);
+        }
+    }
+    Ok(out)
 }
 
 fn condition(c: &CondCx<'_>) -> bool {
-    !targets(c.state, c.kernel, c.event, c.def.owner, c.codes.not_from_supply[0]).is_empty()
+    match targets(c.state, c.kernel, c.facts, c.event, c.def.owner, c.codes.not_from_supply[0]) {
+        Ok(found) => !found.is_empty(),
+        Err(()) => c.unknown(Unknown::MissingFact),
+    }
 }
 
 fn pillage(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     let me = eff.owner();
     let found = {
         let (s, k) = eff.read();
-        targets(s, k, eff.event, me, eff.codes().not_from_supply[0])
+        targets(s, k, eff.adapter_facts(), eff.event, me, eff.codes().not_from_supply[0])
+    };
+    let Ok(found) = found else {
+        eff.unknown(Unknown::MissingFact);
+        return Ok(());
     };
     let mut options: Vec<(bool, Seat)> = Vec::new();
     for target in &found {

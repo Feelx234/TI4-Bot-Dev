@@ -55,6 +55,7 @@ impl Owners {
             ids.extend(p.duress_by.iter().map(|x| x.as_str()));
             ids.extend(p.captured_units.iter().map(|(o, _)| o.as_str()));
         }
+        transient_owners(state, &mut ids);
         ids.extend(state.scored_objectives.keys().map(|p| p.as_str()));
         ids.extend(state.promissory_notes.values().map(|p| p.as_str()));
         ids.extend(state.support_holders.iter().flat_map(|(a, b)| [a.as_str(), b.as_str()]));
@@ -91,6 +92,57 @@ impl Owners {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.ids.is_empty()
+    }
+}
+
+/// The owners the transient part of the position names: the last fight's sides and casualties, the invasion's defender, the plays of the turn. The board no longer
+/// holds the neutral force once its last unit fell, but the record of that fight still names it (`last_combat_sides`, `last_ship_destroyed`, the presentation of the
+/// round), and the `Transient` codec has to find every one of them in the table it is loaded with.
+fn transient_owners<'a>(state: &'a GameState, ids: &mut BTreeSet<&'a str>) {
+    let mut add = |p: &'a ti4_model::id::PlayerId| {
+        ids.insert(p.as_str());
+    };
+    state.reroll_staging.keys().for_each(&mut add);
+    state.last_reroll_player.iter().for_each(&mut add);
+    state.last_committed_unit.iter().for_each(|(p, _, _, u)| {
+        add(p);
+        add(&u.owner);
+    });
+    state.last_sustain.iter().for_each(|(_, o, _, p, _)| {
+        add(o);
+        add(p);
+    });
+    state.pending_destructions.iter().for_each(|(_, o, _, _, _)| add(o));
+    state.last_ship_destroyed.iter().for_each(|(_, o, _)| add(o));
+    state.last_control_gained.iter().for_each(|(_, _, g, f)| {
+        add(g);
+        f.iter().for_each(&mut add);
+    });
+    state.last_combat_sides.iter().for_each(|(_, sides)| sides.iter().for_each(&mut add));
+    state.active_space_combat.iter().for_each(|(_, a, d)| {
+        add(a);
+        add(d);
+    });
+    state.combat_round_hits.keys().for_each(&mut add);
+    state.combat_round_dice.iter().for_each(|d| add(&d.player));
+    let presentation = &state.combat_presentation;
+    presentation.round_start.iter().chain(&presentation.barrage_start).for_each(|u| add(&u.owner));
+    presentation.barrage_hits.keys().for_each(&mut add);
+    presentation.barrage_dice.iter().for_each(|d| add(&d.player));
+    presentation.remaining_hits.keys().for_each(&mut add);
+    state.pending_reflective_hits.iter().for_each(|(_, v, _)| add(v));
+    state.last_action_discarded.iter().for_each(|(p, _)| add(p));
+    state.action_card_plays.iter().chain(&state.declared_card_plays).for_each(|(p, _)| add(p));
+    state.last_strategy_choice.iter().for_each(|(p, _)| add(p));
+    state.starting_tech_picks.iter().for_each(|pick| add(&pick.player));
+    if let Some(invasion) = &state.active_invasion {
+        add(&invasion.invader);
+        invasion.defender.iter().for_each(&mut add);
+        if let Some(step) = &invasion.last_step {
+            step.before.iter().chain(&step.after).for_each(|u| add(&u.owner));
+            step.dice.iter().for_each(|d| add(&d.player));
+            step.hits.keys().for_each(&mut add);
+        }
     }
 }
 

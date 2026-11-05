@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The differential-test corpus of the soak (docs/ENGINE_SOAK.md): selfplay matrices for `dual_run`.
 
-  soak_corpus.py lanes                                  the lanes, their weights and what each varies
+  soak_corpus.py lanes [--all]                          the lanes of the default plan, their weights and what each varies (--all: the refused ones too)
   soak_corpus.py gen LANE GAMES FIRST_SEED [--out F]    one matrix (stdout or F) of GAMES games, seeds FIRST_SEED..
   soak_corpus.py profiles [DIR]                         write the committed tier files (100/300/1000 games per lane)
   soak_corpus.py coverage SPECS.jsonl...                faction / map / player-count histogram of `dual_run --specs` output
@@ -126,6 +126,13 @@ LANES = {
 }
 
 
+# Lanes the product no longer plays: the core refuses a game below the newest rules version (`MIN_SUPPORTED_RULES_VERSION`, docs/RULES_VERSION.md "Versions below the
+# newest are refused"), so a dual run of the string at an older version against the core asks the core a question it is not built to answer (the core's windows carry
+# the gates of the versions they were ported with, not the menus and the rules of all of them). Still generated on request (`gen old ..`, `LANES=old`), left out of the
+# default plan (`lanes`; `lanes --all` lists them too).
+REFUSED = {"old"}
+
+
 def gen(lane, games, first):
     make, _, _ = LANES[lane]
     bot = getattr(make, "bot", {})
@@ -139,7 +146,9 @@ def main(argv):
     cmd, rest = argv[0], argv[1:]
     if cmd == "lanes":
         for name, (_, w, doc) in LANES.items():
-            print(f"{name:10} weight {w:3}  {doc}")
+            if name in REFUSED and "--all" not in rest:
+                continue
+            print(f"{name:10} weight {w:3}  {doc}" + ("  (refused by the product: not in the default plan)" if name in REFUSED else ""))
         return 0
     if cmd == "gen":
         out = None

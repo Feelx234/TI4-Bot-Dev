@@ -995,8 +995,15 @@ pub fn open_retreat_destinations(
                 !cell.units.iter().any(|u| u.owner() != seat)
                     && !planets_of_sorted(rd.s, *n).iter().any(|p| rd.s.board().planet(*p).units.iter().any(|u| u.owner() != seat))
             } else {
-                !cell.units.iter().any(|u| u.owner() != seat && rd.is_ship(u.kind()))
+                !retreat_blocked_by_ships(rd, seat, *n)
             }
         })
         .collect()
+}
+
+/// Another player's ship stands in `destination` (78.7c: a retreat cannot end there). The half of a retreat's destinations the position decides; the other half
+/// is the map's (adjacency, the movement rules).
+#[must_use]
+pub fn retreat_blocked_by_ships(rd: Rd<'_>, seat: Seat, destination: System) -> bool {
+    rd.s.board().sys(destination).units.iter().any(|u| u.owner() != seat && rd.is_ship(u.kind()))
 }

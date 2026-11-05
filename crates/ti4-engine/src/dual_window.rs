@@ -138,6 +138,8 @@ pub struct Recording {
     pub order: Vec<Pushed>,
     /// The pairs of systems the string's abilities asked the map about (`near`): `(a, b, adjacent)`; the core is lent no galaxy.
     pub adjacent: Vec<(String, String, bool)>,
+    /// Whether two seats are neighbours, as the string's Pillage asked the map: `(owner, target, neighbours)`; the core is lent no galaxy.
+    pub neighbours: Vec<(String, String, bool)>,
     effect_depth: u32,
     in_pick: u32,
     /// The emission depth the window started at: a window may itself run inside an emission (an ability's
@@ -212,6 +214,17 @@ pub fn note_adjacent(a: &str, b: &str, adjacent: bool) {
         if let Some(rec) = r.borrow_mut().as_mut() {
             if !rec.adjacent.iter().any(|(x, y, _)| x == a && y == b) {
                 rec.adjacent.push((a.to_owned(), b.to_owned(), adjacent));
+            }
+        }
+    });
+}
+
+/// Pillage asked the map whether `owner` and `target` are neighbours (`transactions::are_neighbours`): an input of the core's Pillage.
+pub fn note_neighbours(owner: &str, target: &str, neighbours: bool) {
+    REC.with(|r| {
+        if let Some(rec) = r.borrow_mut().as_mut() {
+            if !rec.neighbours.iter().any(|(x, y, _)| x == owner && y == target) {
+                rec.neighbours.push((owner.to_owned(), target.to_owned(), neighbours));
             }
         }
     });
@@ -832,6 +845,12 @@ pub fn drive_windowed<W: Window>(
                     }
                 } else if driver.nested_state().is_some() && courageous_casualty(&choice) {
                     courageous_hit(r, &choice, driver.nested_state().unwrap_or(core), gs, &mut rendered);
+                } else if driver.nested_state().is_some() && matches!(choice.ctx.origin, ti4_engine_core::choice::Origin::ActionCard(ti4_engine_core::generated::ActionCard::RevealPrototype)) {
+                    // Reveal Prototype's research is asked through the timing context: the battle and the invasion the position is in WHEN it is asked (a card played
+                    // in a combat window names the combat, with its system as the target).
+                    let at = driver.nested_state().unwrap_or(core);
+                    let pos = if at.loaded.has(Slice::Transient) { NestedPos::of_core(r, at) } else { NestedPos::of_gs(gs) };
+                    rendered.context = rendered.context.take().map(|ctx| nested_position(&choice, ctx, &pos));
                 } else if driver.nested_state().is_some() && matches!(choice.ask, ti4_engine_core::choice::Ask::Cards(_)) {
                     // A question a played card's effect asks (Reparations: the planet to exhaust, the planet to ready) belongs to no event, so
                     // it comes with no facts; the string still puts it through `Table::ask_seeing`, which names the invasion the position is in.
@@ -879,6 +898,7 @@ fn courageous_hit(r: &Render, choice: &CoreChoice, core: &ti4_engine_core::state
         });
     let Some(holder) = holder else { return };
     let Some(context) = rendered.context.take() else { return };
+    let position = if core.loaded.has(Slice::Transient) { NestedPos::of_core(r, core) } else { NestedPos::of_gs(gs) };
     rendered.context = Some(
         context
             .with_hit(crate::decision_context::HitDetail {
@@ -887,8 +907,10 @@ fn courageous_hit(r: &Render, choice: &CoreChoice, core: &ti4_engine_core::state
                 restriction: crate::decision_context::HitRestriction::Any,
                 producer: Some(PlayerId::new(holder)),
             })
-            .about_battle(gs)
-            .about_invasion(gs),
+            // The string names the battle and the invasion the position is in when the question is asked (`TimingContext::ask_seeing`): the combat
+            // can be over by then (the last ship fell), which the core's own position at the question knows and the position the window started in does not.
+            .about_battle_in(position.combat_system.clone())
+            .about_invasion_in(position.invasion.clone()),
     );
 }
 
@@ -1023,11 +1045,14 @@ fn compare_ability_dice(core: &CoreState, script: &Recording) {
 /// * `Slice::Trade`: the Supports for the Throne that are lent out (`support_holders`) are read by Mentak's S'ula Mentarion (the opponent gives a note
 ///   from the hand "then their own Support while it is home") and written when one is given, so a window that follows it must lend the slice, or
 ///   the core offers a Support that is out already (game 12, `aftermath::fight_over`: `support:naaz`).
+/// * `Slice::Decks`: Suffi An (and Ssruu's copy of it) draws an action card for the Mentak and the pillaged seat, the Nekro commander draws one too; a
+///   window that follows them without the deck found it empty and never offered the exchange (soak `factions_100000_8_wide` seed 100004,
+///   `invasion::finish_control_gain`: the string asked Suffi An, the core did not).
 #[must_use]
 pub(crate) const fn ability_fp() -> Footprint {
     Footprint::new(
-        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Explore, Slice::Trade],
-        &[Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Cards, Slice::Pending, Slice::Explore, Slice::Trade],
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Explore, Slice::Trade, Slice::Decks],
+        &[Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Cards, Slice::Pending, Slice::Explore, Slice::Trade, Slice::Decks],
     )
 }
 
@@ -4126,7 +4151,7 @@ pub fn control_gained(gs: &mut GameState, a: &ControlArgs<'_>, script: &Recordin
     let system = <ti4_engine_core::generated::System as IdStr>::from_id(a.system.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
     let planet = <ti4_engine_core::generated::Planet as IdStr>::from_id(a.planet.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
     let before = gs.clone();
-    let env = crate::core_invasion::ground_env(&before, &cx, a.sources).why("the invasion environment could not be built from the position")?;
+    let mut env = crate::core_invasion::ground_env(&before, &cx, a.sources).why("the invasion environment could not be built from the position")?;
     let roster = crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), a.sources);
     let facts = Facts { invader, system, planet, previous, infiltrate_fix: gs.rules_version >= ti4_model::state::RULES_INFILTRATE_FIX, announce: a.announce };
     let mut seats = vec![invader];
@@ -4134,6 +4159,13 @@ pub fn control_gained(gs: &mut GameState, a: &ControlArgs<'_>, script: &Recordin
     // Naaz-Rokha's Dart and Tai ("after you gain control of a planet that was controlled by another player: explore that planet") explores INSIDE the
     // window, as a reaction to the event: the window needs what an exploration needs (the decks, the explore state, the words of a log row).
     let exploring = explores_in_ability(script);
+    if exploring {
+        // The exploration reads the economy hooks of the factions (Distant Suns' second card, the bar on placing a mech, what a seat does after it explored);
+        // the kernel of the ground rules carries the combat's subset only.
+        let mut native = ti4_engine_core::hooks::HookTable::new();
+        ti4_engine_core_factions::register_all(&mut native);
+        env.kernel.hooks.economy = native.economy;
+    }
     let table = if exploring { crate::exploring_dual::table(&r, ti4_content::ContentStore::embedded(), a.sources) } else { AbilityTable::default() };
     let fp = nested_fp(CONTROL_GAINED, script);
     let fp = if exploring { fp.union(crate::exploring_dual::FP) } else { fp };
@@ -4146,7 +4178,9 @@ pub fn control_gained(gs: &mut GameState, a: &ControlArgs<'_>, script: &Recordin
                 crate::exploring_dual::question_details(c, &before, ti4_content::ContentStore::embedded(), a.invader, rendered);
             }
         };
-        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &details);
+        // An exploration inside the window can end in a production (the reward of a card): its options read the costs and the spots of the position they are asked in.
+        let position = exploring.then(|| crate::production_view::kernel_of(a.sources));
+        let driven = drive_positioned(&mut driver, core, &env.kernel, position, &r, &before, script, &details);
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
     })
@@ -5322,5 +5356,24 @@ mod resolver_state_tests {
     #[test]
     fn a_window_that_followed_no_nested_activity_is_not_compared() {
         assert_eq!(run(false, &[("ability:x", "Round(1)")]), (0, 1), "nothing compared, nothing stored");
+    }
+}
+
+#[cfg(test)]
+mod nested_footprint_tests {
+    use super::*;
+
+    /// A window that follows nested activity lends the decks and takes them back: Suffi An's draw (soak `factions_100000_8_wide` seed 100004,
+    /// `invasion::finish_control_gain`) found no card in the deck the window was not lent, and the exchange was never offered. A window that followed none
+    /// lends only what it was built with.
+    #[test]
+    fn a_window_that_follows_nested_activity_lends_the_decks_the_abilities_draw_from() {
+        let base = Footprint::new(&[Slice::Meta, Slice::Players], &[Slice::Players]);
+        let quiet = Recording::default();
+        let nested = Recording { nested: true, ..Recording::default() };
+        let plain = nested_fp(base, &quiet);
+        assert!(!plain.reads.has(Slice::Decks) && !plain.writes.has(Slice::Decks), "no nested activity: the window keeps its footprint");
+        let followed = nested_fp(base, &nested);
+        assert!(followed.reads.has(Slice::Decks) && followed.writes.has(Slice::Decks), "nested abilities draw cards (Suffi An, the Nekro commander)");
     }
 }

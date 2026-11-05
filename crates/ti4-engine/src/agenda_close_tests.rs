@@ -755,6 +755,63 @@ fn artuno_copies_a_gain_from_the_supply_onto_its_card_in_lockstep() {
     assert_eq!(pile(&g.state) + pile(&g2.state), 1, "the card holds the one trade good the Future Sight gain made");
 }
 
+// -- Pillage in the close (lane core-lent-gaps) -------------------------------------------------------------------------------
+
+/// Found by the dual-lent run (`golden-lent.json`, games 0, 2, 4, 6, 14, 15, 17, 18; the soak slice `std_100000_5_all`): the trade good Future Sight pays a
+/// Nomad is a gain a neighbouring Mentak may Pillage. The core window is lent no map, so Pillage found no neighbours, never offered the use, and the chain
+/// behind it (the take, Suffi An, Ssruu's copy, Scheming's discard) was never asked: one question for the string's six, a trade good and the cards of two draws
+/// missing. The neighbours are now the string's own answer (`AdapterFacts::neighbours`, noted where its Pillage asked the map); the take is built by hand in the
+/// string, so its context carries no trigger.
+#[test]
+fn pillage_of_the_trade_good_future_sight_pays_is_followed_without_a_map_in_lockstep() {
+    let hub = crate::fixtures::plain_hub();
+    let centre = ti4_model::id::SystemId::new(hub.centre.clone());
+    // Nobody stands anywhere but where the test puts them (the homes of the seats are not on the hub).
+    let bare = || {
+        let mut s = position_of(&[("a", "nomad"), ("b", "mentak"), ("c", "arborec")]);
+        for system in s.board.values_mut() {
+            system.units.clear();
+            system.planet_units.clear();
+            system.planet_control.clear();
+        }
+        // Future Sight pays the Nomad one: three, the bar Pillage needs.
+        s.player_mut(&p("a")).unwrap().trade_goods = 2;
+        s
+    };
+    // The Nomad and the Mentak share a system, so they are neighbours.
+    let position = || {
+        let mut s = bare();
+        crate::fixtures::put(&mut s, &centre, "destroyer", &p("a"), 1);
+        crate::fixtures::put(&mut s, &centre, "destroyer", &p("b"), 1);
+        s
+    };
+    let mentak_before = goods(&position(), "b");
+    let (g, compared, bailed, diff) = lockstep(|| {
+        // The default answers take the first option: Artuno, the Pillage, a trade good, Suffi An.
+        let mut g = game(position(), &[]).with_galaxy(hub.galaxy.clone());
+        g.put_vote(law_vote("checks", Some("for")));
+        assert_eq!(g.close_vote().error, None);
+        g
+    });
+    ok(compared, bailed, &diff);
+    assert_eq!(goods(&g.state, "a"), 2, "paid one by Future Sight, robbed of one");
+    assert_eq!(goods(&g.state, "b"), mentak_before + 1, "the Mentak took it");
+    // The same close at a table where the two are not neighbours: no Pillage in either engine.
+    let (g, compared, bailed, diff) = lockstep(|| {
+        let mut s = bare();
+        // Two ring systems on opposite sides of the centre: no shared system, not adjacent.
+        let (here, there) = (hub.outer[0].clone(), hub.across(&hub.outer[0]));
+        crate::fixtures::put(&mut s, &ti4_model::id::SystemId::new(here), "destroyer", &p("a"), 1);
+        crate::fixtures::put(&mut s, &ti4_model::id::SystemId::new(there), "destroyer", &p("b"), 1);
+        let mut g = game(s, &[]).with_galaxy(hub.galaxy.clone());
+        g.put_vote(law_vote("checks", Some("for")));
+        assert_eq!(g.close_vote().error, None);
+        g
+    });
+    ok(compared, bailed, &diff);
+    assert_eq!(goods(&g.state, "a"), 3, "nobody pillages a seat that is no neighbour");
+}
+
 // -- Galactic Threat (package W9): the Nekro's payout for a correct prediction ------------------------------------------------
 
 fn nekro_position() -> GameState {

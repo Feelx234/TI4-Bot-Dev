@@ -1025,6 +1025,11 @@ mod edges {
         let mut r = rig(Scenario::new(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan]), edit, gained.clone());
         r.pick(0);
         assert_eq!(r.state.players().by_seat(Seat(0)).unwrap().cards.hand.as_slice(), &[ActionCard::ALL[0]], "the unofficial card did not come");
+        // Below rules version 30 the two unofficial cards stay in the deck, as in every other draw of the core (`action_cards::draw` of the string): the card on top comes
+        // (found by the dual-lent run, whose games play version 23: the deck of the string kept Veto 3 and 4, the core's ability draw dropped them).
+        let mut old = rig(Scenario::new(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan]).rules(23), edit, gained.clone());
+        old.pick(0);
+        assert_eq!(old.state.players().by_seat(Seat(0)).unwrap().cards.hand.as_slice(), &[ActionCard::Veto3], "version 23: the unofficial card is a card like any other");
         // A Yssaril copy draws with Scheming: its discard needs the printed-name groups; without them the draw is a gap (and nothing is drawn).
         let (system, planets) = two_planet_system();
         let pillage = fx::event(EventKind::TradeGoodsGained, Payload::new().with(Key::Player, Val::Seat(Seat(1))));

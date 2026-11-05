@@ -1099,6 +1099,11 @@ impl Window for RinHero {
                 let Some(p) = sx.state.players_mut().by_seat_mut(self.who) else { return Err(Illegal) };
                 p.tech.owned.remove(held);
                 p.tech.owned.insert(t);
+                // 90.8: a technology that arrives re-forms the seat's units to what it is now entitled to (`technology::apply_unit_upgrades`, which the string runs after
+                // each swap). The roster of the faction units is the adapter's (the play facts of a live game, the facts of a lent window).
+                if let Some(roster) = sx.table.facts.roster.or_else(|| sx.table.facts.plays.as_ref().and_then(|p| p.roster)) {
+                    crate::kernel::fx_strategy::apply_unit_upgrades(sx.state, sx.kernel, scope(sx.kernel), roster, self.who);
+                }
             }
             _ => return Err(Illegal),
         }

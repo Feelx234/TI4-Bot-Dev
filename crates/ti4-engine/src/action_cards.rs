@@ -2437,7 +2437,10 @@ fn skilled_retreat(context: &mut crate::timing::TimingContext<'_>, player: &Play
         player,
         &system,
     );
-    crate::dual_window::note_withdraw(player.as_str(), system.as_str(), context.state.combat_round_seq, &destinations);
+    // The core window is told what the map and the rules say (the adjacent systems the fleet may enter); the ships standing there change between two plays of the
+    // card in one round, so the core looks at its own position for them.
+    let candidates = crate::combat::skilled_retreat_candidates(context.state, context.content, context.sources, galaxy, player, &system);
+    crate::dual_window::note_withdraw(player.as_str(), system.as_str(), context.state.combat_round_seq, &candidates);
     let Some(first) = destinations.first().cloned() else {
         return;
     };

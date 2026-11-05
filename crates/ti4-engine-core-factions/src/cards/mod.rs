@@ -165,7 +165,12 @@ fn skilled_retreat(host: &mut RulesHost<'_>, resolver: &mut Resolver, who: Seat,
     let Some(system) = host.state.meta().active_system else { return Ok(()) };
     let round = host.state.meta().combat_round_seq;
     let listed = match host.table.facts.withdraw(who, system, round) {
-        Some(noted) => noted.to_vec(),
+        // The string's read of the map: the adjacent systems the movement rules let the fleet enter. Which of them are free of another player's ships is
+        // the position's, and the position changes between two plays of the card in one round (the same seat, the same system, the same round).
+        Some(noted) => {
+            let rd = Rd::new(&*host.state, host.kernel).with_blanked(reach::blanked(&*host.state));
+            noted.iter().copied().filter(|n| !combat::retreat_blocked_by_ships(rd, who, *n)).collect::<Vec<System>>()
+        }
         // A live game (the table has a play provider) holds the galaxy itself: the destinations are the position's own map, as the string
         // finds them (`combat::skilled_retreat_destinations`). Without a note and without a live game there is no map to read.
         None if host.table.facts.plays_provider.is_some() => open_destinations(host, who, system),
@@ -854,6 +859,31 @@ mod tests {
         assert_eq!((mine(&s, a), mine(&s, b)), (3, 0), "the fleet went to the destination of round 3");
     }
 
+    /// Found by the dual-lent run (golden-lent game 17): one seat played the card twice in one round of one system, and between the plays another seat's ships
+    /// came to stand in a system the first play could enter. The note is the map's list, one per key, and the ships are read where the card is played; before, the
+    /// note held the final list of the LAST play and the first play lost a destination.
+    #[test]
+    fn skilled_retreat_leaves_out_the_noted_systems_where_another_player_has_a_ship_now() {
+        let (a, b) = (System::ALL[1], System::ALL[2]);
+        let (mut s, t, _) = retreat_fight(&[a, b]);
+        let (unknown, asked) = play(&mut s, &t, ActionCard::SkilledRetreat1);
+        assert_eq!(unknown, None);
+        let q = asked.expect("two free destinations: a question");
+        assert_eq!(q.opts.as_slice().len(), 2);
+        // A rival ship in b: one destination left, no question, the fleet goes to a.
+        let (mut s, t, _) = retreat_fight(&[a, b]);
+        s.board_mut().sys_mut(b).units.push(Piece::new(Unit::CruiserI, Seat(1)));
+        let (unknown, asked) = play(&mut s, &t, ActionCard::SkilledRetreat1);
+        assert_eq!((unknown, asked.is_none()), (None, true), "one destination is not a question");
+        let mine = |s: &CoreState, sys: System| s.board().sys(sys).units.iter().filter(|p| p.owner() == Seat(0)).count();
+        assert_eq!((mine(&s, a), mine(&s, b)), (3, 0));
+        // Ground forces of the rival do not bar it (78.7c names ships).
+        let (mut s, t, _) = retreat_fight(&[a, b]);
+        s.board_mut().sys_mut(b).units.push(Piece::new(Unit::InfantryI, Seat(1)));
+        let (_, asked) = play(&mut s, &t, ActionCard::SkilledRetreat1);
+        assert!(asked.is_some(), "ground forces in the space area are no ships: both destinations stay");
+    }
+
     /// A live game holds the galaxy: with no note of the adapter (the table has a play provider and the position a map) the card's destinations are the
     /// adjacent systems of the plain map the movement rules let the fleet enter and that hold none of another player's ships. Before, the card did
     /// nothing in a live game: the string withdrew the fleet.
@@ -927,7 +957,8 @@ mod tests {
         s.board_mut().planet_mut(planet).units.push(Piece::new(Unit::EidolonMaximum, Seat(0)));
         s.board_mut().sys_mut(system).units.push(Piece::new(Unit::ZGravEidolonNaazMechSpace, Seat(0)));
         s.board_mut().sys_mut(to).units.push(Piece::new(Unit::ZGravEidolonNaazMechSpace, Seat(0)));
-        s.board_mut().sys_mut(to).units.push(Piece::new(Unit::ZGravEidolonNaazMechSpace, Seat(1)));
+        // (The rival's Z-Grav stands in the fight, not in the destination: a destination holds none of another player's ships, which the card reads from the position.)
+        s.board_mut().sys_mut(system).units.push(Piece::new(Unit::ZGravEidolonNaazMechSpace, Seat(1)));
         let (unknown, _) = play(&mut s, &t, ActionCard::SkilledRetreat1);
         assert_eq!(unknown, None);
         let kinds = |s: &CoreState, sys: System, who: Seat| s.board().sys(sys).units.iter().filter(|p| p.owner() == who).map(|p| p.kind()).collect::<Vec<_>>();
@@ -935,7 +966,7 @@ mod tests {
         let landed = kinds(&s, to, Seat(0));
         assert!(landed.contains(&Unit::EidolonMaximum), "{landed:?}");
         assert!(landed.contains(&Unit::Eidolon) && !landed.contains(&Unit::ZGravEidolonNaazMechSpace), "the Z-Grav forms took their ground form where they landed: {landed:?}");
-        assert_eq!(kinds(&s, to, Seat(1)), [Unit::ZGravEidolonNaazMechSpace], "another player's units are not flipped");
+        assert_eq!(kinds(&s, system, Seat(1)), [Unit::CruiserI, Unit::ZGravEidolonNaazMechSpace], "another player's units stay as they are");
         assert_eq!(kinds(&s, system, Seat(0)), [], "the fleet left");
     }
 

@@ -666,21 +666,20 @@ mod real {
         Some(CoreWindow { run: Run::new(driver.window.used).with_events_vec(Vec::new()), questions: driven.rendered })
     }
 
-    const PLAYERS: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Pending], &[Slice::Players]);
+    /// What Rin's window reads and writes: the technologies (Players) and the forms of the seat's units the new technologies entitle it to (Board).
+    const RIN: Footprint = Footprint::new(&[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Pending], &[Slice::Players, Slice::Board]);
 
-    /// The core half of `leaders::jolnar_hero` (Rin). `None` where `apply_unit_upgrades` would change the
-    /// position (the units are not in the form the owned upgrades demand: the string re-forms them after a swap
-    /// and the core does not), and as [`xxcha_agent`] otherwise.
+    /// The core half of `leaders::jolnar_hero` (Rin), as [`xxcha_agent`]. The units are re-formed after each swap, as the string's `apply_unit_upgrades` does it (the
+    /// window brings the roster of the faction units).
     pub fn jolnar_hero(gs: &mut GameState, content: &ti4_content::ContentStore, player: &PlayerId, sources: SourceSet, script: &Recording) -> Option<CoreWindow<bool>> {
         if let Some(why) = crate::dual_window::outside_why(gs, script) {
             crate::dual::note_bail_here(why);
             return None;
         }
-        let mut formed = gs.clone();
-        crate::technology::apply_unit_upgrades(&mut formed, content, sources, player);
-        if !formed.identical(gs) {
+        let Some(roster) = crate::technology_core::roster_for(content, sources) else {
+            crate::dual::note_bail_here("no unit roster of the sources in play");
             return None;
-        }
+        };
         // The corpus file's order of the technologies (the string lists replacements in it).
         let order: Vec<_> = content
             .from_sources(ti4_model::content_types::ContentType::Technologies, sources)
@@ -692,8 +691,10 @@ mod real {
         let seat = r.seat(player.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let kernel = kernel(sources)?;
         let before = gs.clone();
-        let mut driver = crate::window_driver::driver_for(RinHero::new(seat, order, by_alias), Resolver::new(&[seat], Some(seat)), AbilityTable::default(), 1);
-        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), PLAYERS, |core, _| {
+        let mut table = AbilityTable::default();
+        table.facts.roster = Some(roster);
+        let mut driver = crate::window_driver::driver_for(RinHero::new(seat, order, by_alias), Resolver::new(&[seat], Some(seat)), table, 1);
+        let driven = crate::core_sync::with_core(gs, &mut cx, Sources::default(), RIN, |core, _| {
             crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script)
         })
         .why(crate::dual::reason::NOT_LENDABLE)?

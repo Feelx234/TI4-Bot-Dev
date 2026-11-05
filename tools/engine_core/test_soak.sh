@@ -12,6 +12,9 @@ fail=0; ok() { echo "ok   $*"; }; bad() { echo "FAIL $*"; fail=1; }
 # --- corpus ---------------------------------------------------------------------------------------------------
 python3 "$here/soak_corpus.py" gen old 20 777 > "$tmp/a.json"; python3 "$here/soak_corpus.py" gen old 20 777 > "$tmp/b.json"
 cmp -s "$tmp/a.json" "$tmp/b.json" && ok "gen is deterministic" || bad "gen is deterministic"
+# the lane the product refuses (rules versions below the newest) is not in the default plan, but still there on request
+python3 "$here/soak_corpus.py" lanes | grep -q '^old ' && bad "lane old is in the default plan" || ok "lane old is not in the default plan"
+python3 "$here/soak_corpus.py" lanes --all | grep -q '^old ' && ok "lane old is listed by lanes --all" || bad "lane old is listed by lanes --all"
 python3 - "$here" <<'PY' && ok "tier files cover players 3-8, hyperlane maps, Thunder's Edge, rules versions 31-34, 24 factions" || bad "tier coverage"
 import json, sys, glob, os
 sys.path.insert(0, sys.argv[1]); import soak_corpus as c
