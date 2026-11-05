@@ -78,4 +78,4 @@ Caveats: the emulation is only the order (S2's round-flip windows and the status
   `crates/ti4-engine-core-factions/src/{cards/mod.rs, ce_movement/nomad/{query,timing}.rs}`, `crates/ti4-engine/src/{combat_live.rs, invasion_live.rs}` (legacy crate: tests and the dual copy),
   `crates/ti4-engine-next/src/ties/combat_live.rs`.
 * Tests: see the table. New helper scripts: `tools/engine_profile/bench_rv36/{unchanged_streams.py, prepare_native_record.sh}`; `compare_hashes.py` takes the verify and base dirs as arguments.
-* Work dir (kept, small): `/root/deploytmp/rv36/` (`ver-stops1/` = first verify, 2 residual groups; `ver-stops2/` = final; `native36-rb/` = prepared recording; `s1b-bench.json` = the S1 emulation run; logs).
+* Work dir (kept, small): `/root/deploytmp/rv36/` (`ver-stops2/` = the final verify output, the first one was deleted; `native36-rb/` = prepared recording; `s1b-bench.json` = the S1 emulation run; logs).
