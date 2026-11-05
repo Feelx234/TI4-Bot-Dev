@@ -366,6 +366,7 @@ impl Scenario {
     /// The state and the kernel.
     #[must_use]
     pub fn build(self) -> (CoreState, Kernel) {
+        crate::covers::install_probe();
         let mut s = self.base;
         for op in &self.ops {
             apply(&mut s, op);

@@ -82,6 +82,7 @@ impl<W: Window> Rig<W> {
     /// A rig on the position `scenario` builds; the window runs for the seats in seat order, `scenario`'s active player active.
     #[must_use]
     pub fn new(scenario: Scenario, window: W) -> Self {
+        crate::covers::install_probe();
         let (state, kernel) = scenario.build();
         Self::from_parts(state, kernel, window)
     }

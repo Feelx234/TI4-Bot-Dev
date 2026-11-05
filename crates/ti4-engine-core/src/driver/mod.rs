@@ -28,6 +28,7 @@ pub mod menu;
 pub mod menu_cards;
 pub mod menu_faction;
 pub mod menu_sources;
+pub mod probe;
 pub mod session;
 pub mod step;
 pub mod tactical_tail;
@@ -242,12 +243,14 @@ impl<W: Window> Driver<W> {
             }
             match outcome? {
                 Flow::Ask(choice) => {
+                    probe::seen(&self.window);
                     self.facts = None;
                     self.facts_state = None;
                     self.awaiting = Awaiting::Stage(choice.clone());
                     return Ok(Status::Asking(choice));
                 }
                 Flow::Done => {
+                    probe::seen(&self.window);
                     self.finished = true;
                     self.awaiting = Awaiting::Nothing;
                     return Ok(Status::Done);
@@ -261,6 +264,7 @@ impl<W: Window> Driver<W> {
     }
 
     fn once(&mut self, s: &mut CoreState, k: &Kernel, op: &Op) -> Result<Flow, DriverError> {
+        probe::seen(&self.window);
         let mut sx = Sx {
             state: s,
             kernel: k,

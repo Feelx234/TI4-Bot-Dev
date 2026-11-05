@@ -7,7 +7,7 @@ use ti4_engine_core::choice::leaders::{Ask as LAsk, Opt as LOpt};
 use ti4_engine_core::choice::strategy::Pool;
 use ti4_engine_core::generated::{ActionCard, UnitBaseType};
 use ti4_engine_core::kernel::stage::AbilityTable;
-use ti4_engine_core::rules::leader_windows::{ArmageddonRelay, LetaniOspha, NekroMalleon, RiftwalkerMeian, SwapFacts};
+use ti4_engine_core::rules::leader_windows::{ArmageddonRelay, LetaniOspha, NekroMalleon, RiftwalkerMeian, SwapFacts, ZeuAction};
 use ti4_engine_core::state::Code;
 use ti4_engine_core_tests::prelude::*;
 use ti4_engine_core_tests::scenario::plain_systems;
@@ -292,4 +292,43 @@ fn letani_ospha_asks_the_holder_which_ship_when_several_qualify_and_skips_fighte
     let mut nobox = Rig::new(sc(), LetaniOspha::new(Seat(0), vec![]));
     nobox.run();
     assert!(nobox.is_done() && !nobox.driver.window.used, "the owner has no form to replace with");
+}
+
+// ---- Z'eu -------------------------------------------------------------------------------------
+
+fn zeu_rig(systems: &[System]) -> Rig<ZeuAction> {
+    Rig::new(Scenario::new(&[Faction::TheNaaluCollective, Faction::TheEmiratesOfHacan]), ZeuAction::new(Seat(0), systems.to_vec()))
+}
+
+#[test]
+fn zeu_asks_the_systems_the_seat_could_activate_or_the_decline_and_a_pick_is_the_system_of_the_free_action() {
+    covers!("rules::leader_windows::ZeuAction");
+    let s = plain_systems();
+    let mut rig = zeu_rig(&[s[1], s[2]]);
+    rig.run();
+    assert!(matches!(rig.asked().ask, Ask::Leaders(LAsk::ZeuSystem)));
+    assert_eq!(rig.asked().actor, Seat(0), "the Naalu seat itself is the player");
+    assert_eq!(rig.opts(), [l(LOpt::System(s[1])), l(LOpt::System(s[2])), Opt::Decline], "the systems in the order given, the decline last");
+    rig.assert_options_sound();
+    rig.expect_illegal(Pick::Opt(l(LOpt::System(s[3]))));
+    rig.pick_opt(l(LOpt::System(s[2])));
+    assert!(rig.is_done());
+    assert_eq!(rig.driver.window.chosen, Some(s[2]));
+    assert_eq!(delta(rig.start_state(), &rig.state), "", "the window itself writes nothing: the caller exhausts the card and begins the action");
+    smoke("leader_windows_agents/zeu", || zeu_rig(&[s[1], s[2]]));
+}
+
+#[test]
+fn zeu_declined_chooses_nothing_and_with_no_system_the_question_still_stands_as_the_decline_alone() {
+    covers!("rules::leader_windows::ZeuAction");
+    let s = plain_systems();
+    let mut rig = zeu_rig(&[s[1]]);
+    rig.run().pick_opt(Opt::Decline);
+    assert!(rig.is_done());
+    assert_eq!(rig.driver.window.chosen, None);
+    let mut none = zeu_rig(&[]);
+    none.run();
+    assert_eq!(none.opts(), [Opt::Decline], "the string asks it with the decline alone");
+    none.pick_opt(Opt::Decline);
+    assert!(none.is_done() && none.driver.window.chosen.is_none());
 }

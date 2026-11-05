@@ -132,6 +132,49 @@ fn a_silent_table_asks_the_speaker_and_the_answer_closes_the_vote() {
     assert_eq!(s.agenda().log.last().map(|r| (r.outcome, r.speaker_decided)), Some((Some(Outcome::Against), true)));
 }
 
+/// The vote of seat 0 backing "for" with its planet: the position a held vote reaches the trade goods and Predictive Intelligence stages from.
+fn backed_with_planet(s: &mut CoreState, k: &Kernel, spender: bool) -> Live {
+    let env = env(k);
+    let mut vote = Vote::new(Agenda::ChecksAndBalances, &[Outcome::For, Outcome::Against], &[Seat(0), Seat(1), Seat(2)], Facts::of_core(s, k));
+    if spender {
+        vote = vote.with_spender(Seat(0));
+    }
+    vote.settle(s, k);
+    open(s, &VotingWin::new(vote, SmallList::new()));
+    let (live, _) = advance::<VotingWin>(s, &env, Some(back(Outcome::For))).unwrap();
+    let Live::Asks(asked) = live else { panic!("the planets stage asks") };
+    let planet = asked.choice.opts.as_slice().iter().find_map(|o| if let Opt::Agenda(AOpt::Exhaust { .. }) = o { Some(*o) } else { None }).expect("a planet to exhaust");
+    advance::<VotingWin>(s, &env, Some(Pick::Opt(planet))).unwrap().0
+}
+
+#[test]
+fn a_held_vote_offers_the_spender_its_trade_goods_after_the_planets_and_a_decline_banks_the_planet_votes() {
+    covers!("driver::agenda::VotingWin");
+    let k = Kernel::plain();
+    let mut s = table();
+    s.players_mut().edit(0).econ.trade_goods = 2;
+    let Live::Asks(asked) = backed_with_planet(&mut s, &k, true) else { panic!("the spender is asked about its trade goods") };
+    assert_eq!(asked.choice.actor, Seat(0));
+    assert!(matches!(asked.choice.ask, Ask::Agenda(ti4_engine_core::choice::agenda::Ask::TradeGoods { .. })), "{:?}", asked.choice.ask);
+    let (live, _) = advance::<VotingWin>(&mut s, &env(&k), Some(Pick::Opt(Opt::Decline))).unwrap();
+    let Live::Asks(next) = live else { panic!("the next voter is asked") };
+    assert_eq!(next.choice.actor, Seat(1), "the trade goods were declined: the vote moves on");
+}
+
+#[test]
+fn a_held_vote_offers_predictive_intelligence_after_a_cast_vote_and_spends_it_when_cast() {
+    covers!("driver::agenda::VotingWin");
+    let k = Kernel::plain();
+    let mut s = table();
+    s.players_mut().edit(0).tech.owned.insert(Technology::PredictiveIntelligence);
+    let Live::Asks(asked) = backed_with_planet(&mut s, &k, false) else { panic!("Predictive Intelligence is offered") };
+    assert_eq!(asked.choice.actor, Seat(0));
+    assert!(asked.choice.opts.as_slice().contains(&Opt::Agenda(AOpt::CastPredictive)), "{:?}", asked.choice.opts);
+    let (live, _) = advance::<VotingWin>(&mut s, &env(&k), Some(Pick::Opt(Opt::Agenda(AOpt::CastPredictive)))).unwrap();
+    let Live::Asks(next) = live else { panic!("the next voter is asked") };
+    assert_eq!(next.choice.actor, Seat(1));
+}
+
 // -- the job that opens the phase ------------------------------------------------------------------------------------------------------
 
 use ti4_engine_core::driver::agenda::advance_agenda;
