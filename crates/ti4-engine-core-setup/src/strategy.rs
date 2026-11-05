@@ -25,7 +25,8 @@ pub fn strategy_card_setup(content: &ContentStore, sources: SourceSet, card_set:
             continue;
         };
         let id = StrategyCardId::new(card_id);
-        initiative.insert(id.clone(), i32::try_from(card.int("initiative").unwrap_or(99)).unwrap_or(99));
+        // (A card without an initiative does not exist in the corpus.)
+        initiative.insert(id.clone(), i32::try_from(card.int("initiative").unwrap_or(99)).unwrap_or(99)); // mutants:skip
         ids.push(id);
     }
     Some((ids, initiative))

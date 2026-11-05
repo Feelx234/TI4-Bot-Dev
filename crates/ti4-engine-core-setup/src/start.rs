@@ -385,7 +385,6 @@ pub fn start_game(spec: &TableSpec<'_>, galaxy: Galaxy) -> Result<CoreStart, Set
     d.agenda = Deck::new(piles.agenda);
     d.relic = Deck::new(piles.relic);
     d.objective = Deck::new(piles.objective);
-    d.explore_present = 0;
     for (t, cards) in piles.explore {
         d.explore[t as usize] = Deck::new(cards);
         d.explore_present |= 1 << t as u8;
@@ -433,13 +432,15 @@ pub fn start_game(spec: &TableSpec<'_>, galaxy: Galaxy) -> Result<CoreStart, Set
     // What `Game::with_galaxy` did: Thunder's Edge's Mecatol registered on the board, a frontier token in every planetless system,
     // the laws and the printed lanes onto the map. Then the map slice.
     if mecatol_in_galaxy(&galaxy) == MECATOL_TE {
-        core.board.sys_mut(id::<System>("system", MECATOL_TE)?).flags.set(SysFlags::TOUCHED, true);
+        // (A board with the Thunder's Edge Mecatol is built only under that scope, which the setup refuses.)
+        core.board.sys_mut(id::<System>("system", MECATOL_TE)?).flags.set(SysFlags::TOUCHED, true); // mutants:skip
     }
     for system in frontier_systems(content, &galaxy) {
         core.explore.frontier.insert(id::<System>("system", &system)?);
     }
     let mut galaxy = galaxy;
-    galaxy.hyperlane_lanes = version >= ti4_model::state::RULES_HYPERLANE_LANES;
+    // (`>=` and `>` agree: the only version the core plays is 36, above the 22 that introduced the lanes.)
+    galaxy.hyperlane_lanes = version >= ti4_model::state::RULES_HYPERLANE_LANES; // mutants:skip
     galaxy.wormholes_off = false;
     galaxy.wormholes_all_linked = false;
     galaxy.wormhole_star_links = false;

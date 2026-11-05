@@ -11,7 +11,8 @@ ti4-model.workspace = true
 ti4-content.workspace = true
 ti4-engine-core.workspace = true
 ti4-engine-core-factions.workspace = true
-rand.workspace = true
+# Default features off, as the thin crate and the core have them: no OS entropy (the wasm build has no backend for it).
+rand = { version = "0.9", default-features = false }
 rand_chacha.workspace = true
 sha2.workspace = true
 thiserror.workspace = true

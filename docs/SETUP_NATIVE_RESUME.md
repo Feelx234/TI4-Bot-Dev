@@ -44,19 +44,23 @@ Start presets (17, with suffixes) and the scenarios: hand edits of a finished st
 (`create_start` and `start_game` refuse; the 252 TE rows of the golden still read `err`). Pinned older rules versions: refused (as `Game` refuses them).
 The old string setup (`start_game_seeded_with_card_set`, `seating::deploy`, `map_feasibility::apply`, `starting_tech::open`) is the oracle of the tests.
 
-## Proof
+## Proof (all on the tip of this branch; private target `/root/ti4-target-setup-native`, `CARGO_INCREMENTAL=0`)
 
-See the final report of the lane for the numbers; the files are:
+| check | result |
+|---|---|
+| `setup_native_parity` (14 tests): `start_game` core `==` `Codec::load(create + Game::with_seeded_random + with_galaxy)`, whole `CoreState` incl. texts and owner table, plus the Debug text of every slice and the galaxy | 252 plain host rows, every map template (all that the string setup builds), 3 faction sets x 24-27 factions x first/last seat x 3/4/6 seats x tech on/off (more than 100 tables), 3 table sizes x 3 versions x 5 card sets x every speaker seat x template/random (older versions refused as `Game` refuses them), forced and open starting-tech picks: all equal |
+| `Game::from_start` vs the string game, 250 steps each, 6 tables (2-8 seats, with/without starting tech, template/random) | steps, decision records, `Game::state` Debug, board, rng positions, first question: identical; opening state's JSON and Debug equal `create`'s |
+| `host_create_golden` (golden file UNCHANGED, recorded at 04b519e25) | legacy test passes; new test: the 252 plain rows made by `create_start` have the golden digests; 252 Thunder's Edge rows refused; 901 preset/scenario rows string-only (252 + 252 + 901 = 1 405) |
+| quick fingerprint (`wrapper_native`, `native_play` lib test) | `538dc68f23dddcc9`, 1 165 steps |
+| `perf_ab core smart` 3p/4p/5p/6p x seeds 1-6 (24 games, dev profile) | all 24 chain hashes, steps and decisions equal the integration-25 log (`/root/deploytmp/i25-logs/perf-ab.log`); `errors` 0 |
+| `setup_parity` (vs the legacy engine, 28 tests, now through the shared pure code) | pass |
+| rules version | 36 (nothing bumped) |
+| `check_layers.py setup` / `core` / `thin`, `check_production_graph.sh` (strict) | 0 violations each; the new package is not a dev tool and reaches no legacy |
+| `clippy_core.sh` (now with the setup crate) | ok, engine warnings 41 = baseline; `cargo check --workspace --all-targets` (without the torch crates) and `-p ti4-wasm --target wasm32-unknown-unknown` green |
+| tests | setup crate 7; thin lib 359; host lib 308 (+ tests); wasm lib 9 and `--features ts --test it` 38; server `--test it` 332 (lobby start, seat order, replay export included); bridge lib 145; bridge integration as above |
+| mutation (`mutants.sh`, `CRATE=ti4-engine-core-setup TEST_CRATE=ti4-engine-core-bridge TEST_ARGS="--test setup_native_parity"`, 9 tests) | start.rs 76 points: 74 killed, 2 skip-marked equivalents (TE-only Mecatol registration; `>=` vs `>` on the lanes version); rng.rs 5/5; galaxy.rs 6/6; strategy.rs 1/3 killed + 2 skip-marked (initiative default of a card without one). deck, feasibility, leaders, kernel, roster, mecatol moved from the thin crate and keep their `setup_parity` coverage |
 
-* `crates/ti4-engine-core-bridge/tests/setup_native_parity.rs`: whole-`CoreState` equality (`==` and the Debug text of every slice, texts and owner table
-  included) of `start_game` against `create` + `Game::with_seeded_random` + `Codec::load`, for the 252 plain rows of the golden matrix, every map
-  template, every faction at the first and last seat of 3/4/6-seat tables (with and without starting technology), card sets, speakers, pinned versions
-  (refused), the Keleres/Winnu/Argent picks (open and settled); `Game::from_start` against the string game for 250 steps (steps, decisions, state, streams);
-  the opening state against `create`'s state (JSON and Debug); the speaker, the typed galaxy, the Tribuni text, the strategy sets, the stream names
-  against the originals; the refusals.
-* `crates/ti4-engine-core-bridge/tests/host_create_golden.rs`: unchanged golden; a second test makes the 252 plain rows by `create_start` and compares
-  the digests with the golden lines (legacy-recorded at 04b519e25), and counts 252 native / 252 refused / 901 string-only.
-* Mutation check of the new files (`tools/engine_core/mutants.sh`, `CRATE=ti4-engine-core-setup TEST_CRATE=ti4-engine-core-bridge`).
+Not run (heavy, out of lane, by order): dual-all, ratchet, soak, census, golden/wide dual, bench verify, web e2e, the wasm size gate.
 
 ## What remains
 

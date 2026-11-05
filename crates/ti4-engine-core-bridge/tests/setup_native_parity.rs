@@ -430,8 +430,13 @@ fn the_setup_crate_refuses_what_the_product_refuses() {
     let nine = ids(9);
     let nine_factions: Vec<FactionId> = (0..9).map(|_| FactionId::new("sol")).collect();
     assert_eq!(refused(&TableSpec { players: &nine, factions: &nine_factions, ..ok }), SetupError::TooManyPlayers(9));
-    let twins = [PlayerId::new("p1"), PlayerId::new("p1"), PlayerId::new("p2"), PlayerId::new("p3")];
-    assert!(matches!(refused(&TableSpec { players: &twins, ..ok }), SetupError::Seating(_)));
+    for twins in [
+        [PlayerId::new("p1"), PlayerId::new("p1"), PlayerId::new("p2"), PlayerId::new("p3")],
+        [PlayerId::new("p1"), PlayerId::new("p2"), PlayerId::new("p3"), PlayerId::new("p3")],
+        [PlayerId::new("p2"), PlayerId::new("p1"), PlayerId::new("p3"), PlayerId::new("p3")],
+    ] {
+        assert!(matches!(refused(&TableSpec { players: &twins, ..ok }), SetupError::Seating(_)), "{twins:?}");
+    }
     let unknown: Vec<FactionId> = ["sol", "hacan", "letnev", "nobody"].iter().map(|f| FactionId::new(*f)).collect();
     assert_eq!(refused(&TableSpec { factions: &unknown, ..ok }), SetupError::UnknownFaction("nobody".to_owned()));
     let mentak: Vec<FactionId> = ["sol", "hacan", "mentak", "keleresm"].iter().map(|f| FactionId::new(*f)).collect();
@@ -453,4 +458,32 @@ fn the_stream_names_of_the_setup_crate_are_the_ones_the_codec_and_the_string_eng
         assert_eq!(ti4_engine_core_setup::rng::derive_seed(42, ours), ti4_engine::rng::GameRng::derive_seed(42, ours));
     }
     assert!(ti4_engine_core_setup::rng::domain_text(D::Dyn(3, 0)).is_none());
+}
+
+/// A board that carries recorded map edits (a replayed swap or replace) keeps its count in the typed map slice.
+#[test]
+fn the_typed_map_of_an_edited_board_carries_the_count_of_its_edits() {
+    use ti4_engine::builders::movement::{MapEdit, apply_map_edit};
+    let content = ContentStore::embedded();
+    let players = ids(6);
+    let setup = table(6, 5, "pok", false, SpeakerOrder::Seat, MapChoice::from_stored(Some("6pStandard")));
+    let drawn = draw(&setup, &vec![None; 6]).expect("draws");
+    let (mut state, mut galaxy) = create(content, &setup, &players, &drawn).expect("table");
+    let before = ti4_engine_core_setup::galaxy::typed_map(&galaxy).expect("expressible").0.edits_applied();
+    assert_eq!(before, galaxy.edits_applied());
+    let target = ti4_host::map::build_board_tiles(content, &galaxy)
+        .into_iter()
+        .find(|tile| tile.special_area.is_none() && !tile.planets.is_empty() && tile.system_id != "18")
+        .expect("a system with planets");
+    apply_map_edit(&mut state, &mut galaxy, content, POK, &MapEdit::Replace { old: target.system_id, new: ti4_engine::builders::movement::NOVA_SEED.to_owned() }).expect("edit applies");
+    assert!(galaxy.edits_applied() > 0, "the edit was recorded");
+    let (typed, _) = ti4_engine_core_setup::galaxy::typed_map(&galaxy).expect("expressible");
+    assert_eq!(typed.edits_applied(), galaxy.edits_applied());
+    // The map slice the codec loads for the same board is the one the setup crate makes.
+    let mut cx = Ctx::of(&state).expect("owners");
+    let mut core = CoreState::with_loaded(SliceSet::EMPTY);
+    cx.attach(&mut core);
+    Codec::load_slice(&mut cx, &state, Sources { galaxy: Some(&galaxy), rng: None }, ti4_engine_core::state::Slice::Map, &mut core).expect("the map loads");
+    let (typed, adjacency) = ti4_engine_core_setup::galaxy::typed_map(&galaxy).expect("expressible");
+    assert_eq!(core.map, ti4_engine_core::state::MapSlice::of(typed, adjacency));
 }
