@@ -124,7 +124,7 @@ impl Announce {
     /// The dice the effect rolled as an ability does, to be kept in the ledger when the play was inside a window (see
     /// [`Play::ability_roll`]).
     #[must_use]
-    pub fn ability_roll(&self) -> Option<(Seat, Vec<u8>)> {
+    pub fn ability_roll(&self) -> Option<(Seat, Vec<u8>, Option<u8>)> {
         match &self.effect {
             Effect::Play(play) => play.ability_roll(),
             _ => None,
@@ -308,16 +308,17 @@ pub fn play_inline<R: Runner>(rt: &mut R, who: Seat, card: ActionCard) -> Result
     let played = announce.run_inline(rt)?;
     // Inside a window the string notes the dice of a card's effect as the roll of an ability (`nested.ability_dice`); the component action
     // (the play window of the action-card area) notes none. A window lent no ledger keeps none.
-    if let Some((owner, faces)) = announce.ability_roll()
+    if let Some((owner, faces, hits_on)) = announce.ability_roll()
         && rt.state().loaded.has(crate::state::Slice::Ledger)
     {
+        let purpose = if hits_on.is_some() { super::effects::BATTLESTATION_ROLLS } else { super::effects::COURAGEOUS_ROLLS };
         rt.state().ledger_mut().dice.push(crate::state::RollRec {
-            purpose: crate::state::RollPurpose::Ability(super::effects::COURAGEOUS_ROLLS),
+            purpose: crate::state::RollPurpose::Ability(purpose),
             owner: Some(owner),
             unit: None,
             planet: None,
             scene: None,
-            hits_on: None,
+            hits_on,
             faces: faces.into_iter().collect(),
             rerolled: 0,
         });

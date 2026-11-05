@@ -1263,6 +1263,34 @@ mod tests {
         let _ = take_report();
     }
 
+    /// Golden dual game 19 (docs/DUAL_REST_RESUME.md): with the composed driver on, the string's combat answers its questions through an inner window
+    /// (`combat::answer`) that used to tell the recording of the OUTER window (the hero) about the question again, so every sustain question of the
+    /// fight stood twice on the string side (5 questions against the core's 3) and the core stopped following. Dreadnoughts on both sides make
+    /// the sustain questions.
+    #[test]
+    fn the_hero_fight_on_the_composed_driver_records_each_sustain_question_once() {
+        use crate::dual::{Area, AreaMask, Backend, report, take_report, thread_window_counts, with_mask};
+        let _guard = crate::dual::tests::serial();
+        let _native = crate::dual::tests::native();
+        let _ = take_report();
+        crate::dual::reset_thread_windows();
+        for seed in 0..8_u64 {
+            let (mut state, hub, origin, destination) = hero_game();
+            state.promissory_notes.clear();
+            state.promissory_faceup.clear();
+            crate::fixtures::put(&mut state, &origin, "dreadnought", &a(), 2);
+            crate::fixtures::put(&mut state, &destination, "dreadnought", &b(), 2);
+            let mask = AreaMask::STRING.with(Area::LeadersAbilities, Backend::Dual).with(Area::Driver, Backend::Dual);
+            let done = with_mask(mask, || use_hero_seeded(&mut state, &hub, &[], seed));
+            assert_eq!(done, Ok(Some(true)), "seed {seed}");
+        }
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences.first());
+        let (ran, bailed) = thread_window_counts("factions::mahact::hero");
+        assert!(ran >= 1, "the window ran: {ran} ran, {bailed} bailed: {r:?}");
+        let _ = take_report();
+    }
+
     /// Package W14, the dice of the hero: the core draws them from the state's streams (`DiceSeeds`), so a fight rolled with test faces
     /// (`Dice::from_faces`: only a unit test hands a roll faces), a pending restore of the streams (a turn redo, a dropped feature) or a seed that is
     /// not the state's has no core window and is a counted bail outside the product; in the product (`TI4_CORE_STRICT`, the gates, the nightly

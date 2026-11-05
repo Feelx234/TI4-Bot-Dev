@@ -878,6 +878,9 @@ pub fn combat_kernel(sources: SourceSet) -> Option<Kernel> {
     );
     // Naaz at the start of a space combat round: the Eidolon Maximum is repaired and Supercharge is offered.
     kernel.hooks.general.space_combat_round_started.push(ti4_engine_core_factions::cd_registry::naaz::space_round_started);
+    // Mahact's Edict puts the opponents' command tokens into its fleet pool: the enforcement of the fleets that follows a win judges by the pool as
+    // it is now, so the tokens must count (`driver::windows::tactical::fleet_limit`; the golden dual game 9, `aftermath::fight_over`).
+    kernel.hooks.direct.mahact_foreign_tokens.push(ti4_engine_core_factions::cc_ground::mahact::query::foreign_tokens);
     // The agents' exhaustion is announced to a Nomad that listens (the round agents read it).
     kernel.hooks.direct.nomad_agents_watches_roll_step.push(ti4_engine_core_factions::ce_movement::nomad::query::watches_roll_step);
     kernel.hooks.direct.nomad_watches_agent_exhaustion.push(ti4_engine_core_factions::ce_movement::nomad::query::watches_agent_exhaustion);

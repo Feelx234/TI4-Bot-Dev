@@ -7857,7 +7857,7 @@ impl CombatWindow {
             "combat::answer",
             state,
             |s: &mut GameState| {
-                crate::dual_window::note_ask(choice, &Ok(option.clone()));
+                crate::dual_window::note_asked_before(choice, &Ok(option.clone()));
                 self.machine_bail = false;
                 self.machine_bail_why = "";
                 let result = self.resolve_answer_string(s, ctx, option);

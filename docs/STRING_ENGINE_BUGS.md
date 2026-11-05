@@ -153,6 +153,25 @@ control: Return the committed units to the space area."
 * What a fix of the string would need (not done, user rule): the per-step list of landed units and the end of the commit step in `InvasionWindow`; behind a `RULES_VERSION`
   (36, `RULES_CRATER_PARLEY`).
 
+## S8. Nano-Forge is a relic with an ACTION the string never offers or plays
+
+Found by the probe of the 20 golden dual games (lane core-dual6, 2026-11-05; games 4, 9 and 19; `docs/DUAL_REST_RESUME.md`). Printed card (`relics.json`, alias `nanoforge`):
+"ACTION: Attach this card to a non-legendary, non-home planet you control, its resource and influence values are increased by 2 and it is a legendary planet. This action cannot
+be performed once attached."
+
+* What the string does: the relic is drawn, held and counted, and nothing else. `relics::action_aliases()` does not list it, `use_relic` has no arm for it (`UseArm::Unresolved`),
+  so `action_relics_text` filters it out of the list of relics with an action and the menu never shows `relic|nanoforge`.
+* What the core does (`docs/NANOFORGE_RESUME.md`): `query::relic::action_relics` offers it while the holder controls a planet that is not a printed or seated home, not legendary
+  (printed or by the attachment) and not destroyed; the window asks the planet (no decline once chosen), attaches the `nanoforge` attachment (+2 resources, +2 influence) and the
+  planet counts as legendary (`query::board::is_legendary`, read by Stellar Converter's targets and the two legendary-planet objectives).
+* Who is right: the core (the card text above; the user decision of 2026-11-03/04 is to port it).
+* The harness recognises it on the DUAL run only (`dual::note_known_string_bug`, counted as a COMPARED window `<label> [known string bug S8: ...]`, never a bail and never a
+  difference, so a zero-bail run does not fail on it): `relics::action_relics` drops `nanoforge` from the core's list before the comparison, and `menu_dual` drops
+  `Opt::UseRelic(NanoForge)` from the core's relics source of the action menu. The core backend (the product) keeps the relic. Tests:
+  `relics::tests::nano_forge_is_cut_from_the_cores_list_on_the_dual_run_only`.
+* What a fix of the string would need (not done, user rule): an arm in `use_relic` and an entry in `action_aliases` (the attachment record and its +2/+2 exist); it adds an option
+  to the menu of recorded games, so behind a `RULES_VERSION`.
+
 ## Harness limits found on the way (the shadow's, not the engines')
 
 * H1. A game the string has not stepped yet carries its galaxy with `hyperlane_lanes` off (`laws::apply_to_galaxy` runs at the start of every step). The core

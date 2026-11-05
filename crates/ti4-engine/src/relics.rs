@@ -1561,10 +1561,30 @@ fn action_relics(state: &GameState, player: &PlayerId, enigmatic: bool, stellar:
     crate::dual_typed!(
         crate::dual::Area::ExplorationRelics,
         "relics::action_relics",
-        crate::cards_typed!(state, v => v.action_relics(player, enigmatic, stellar)),
+        without_the_strings_nano_forge_gap(crate::cards_typed!(state, v => v.action_relics(player, enigmatic, stellar))),
         action_relics_text(state, player, enigmatic, stellar)
     )
 }
+
+/// Known string bug S8 (`docs/STRING_ENGINE_BUGS.md`): the string engine has no Nano-Forge action (no `use_relic` arm, not in
+/// [`action_aliases`]), the core offers it once the holder controls a planet it may attach to. On the dual run only, the core's list is
+/// cut down to the string's before the comparison (counted as `relics::action_relics [known string bug S8 ...]`); the product's core
+/// backend keeps the relic.
+fn without_the_strings_nano_forge_gap(core: Option<Vec<String>>) -> Option<Vec<String>> {
+    if crate::dual::backend(crate::dual::Area::ExplorationRelics) != crate::dual::Backend::Dual {
+        return core;
+    }
+    core.map(|mut list| {
+        if let Some(at) = list.iter().position(|relic| relic == NANO_FORGE) {
+            list.remove(at);
+            crate::dual::note_known_string_bug("relics::action_relics", "S8", "Nano-Forge is not an action of the string");
+        }
+        list
+    })
+}
+
+/// The alias of the Nano-Forge relic (the string knows it as a card and an attachment, not as an action).
+const NANO_FORGE: &str = "nanoforge";
 
 fn action_relics_text(state: &GameState, player: &PlayerId, enigmatic: bool, stellar: bool) -> Vec<String> {
     let held = state
@@ -3020,6 +3040,39 @@ mod relic_window_tests {
         let r = report();
         assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
         assert!(r.total_calls() >= 3 * aliases.len() as u64, "the core half ran: {r:?}");
+        let _ = take_report();
+    }
+
+    /// Known string bug S8 (`docs/STRING_ENGINE_BUGS.md`): the string never offers Nano-Forge, the core does once a planet can take it. The dual run
+    /// cuts the relic from the core's list (counted under `[known string bug S8 ...]`, never a difference or a bail); the core's own list keeps it.
+    #[test]
+    fn nano_forge_is_cut_from_the_cores_list_on_the_dual_run_only() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let core_list = |state: &GameState| crate::explore_core::CardsView::of(state).and_then(|view| view.action_relics(&me(), false, false));
+        // A planet the core accepts as a target: controlled, not a home, not legendary.
+        let mut found = None;
+        for (id, planet) in ti4_content::galaxy::all_planets(ti4_content::ContentStore::embedded(), POK) {
+            let Some(system) = planet.system_id().filter(|_| !planet.is_placed_during_play()) else { continue };
+            let (system, planet) = (SystemId::new(system), PlanetId::new(id));
+            let mut state = seated();
+            state.system_mut(&system).set_control(planet.clone(), me());
+            state.player_mut(&me()).unwrap().relics = vec![RelicId::new(NANO_FORGE)];
+            if core_list(&state) == Some(vec![NANO_FORGE.to_owned()]) {
+                found = Some(state);
+                break;
+            }
+        }
+        let state = found.expect("a planet the core lets the Nano-Forge attach to");
+        // The dual run: the string's list stands, the cut is counted, nothing differs.
+        let listed = dual(|| action_relics(&state, &me(), false, false));
+        assert!(listed.is_empty(), "the string does not list it: {listed:?}");
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let label = "relics::action_relics [known string bug S8: Nano-Forge is not an action of the string]";
+        assert_eq!(r.windows.get(label).map(|w| (w.compared, w.bailed)), Some((1, 0)), "{:?}", r.windows);
+        // The core's own answer is untouched.
+        assert_eq!(core_list(&state), Some(vec![NANO_FORGE.to_owned()]));
         let _ = take_report();
     }
 

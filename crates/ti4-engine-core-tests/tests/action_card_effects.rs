@@ -313,7 +313,7 @@ fn plague_destroys_one_infantry_for_each_die_that_shows_six_or_more() {
         let faces = rig.driver.window.faces().to_vec();
         assert_eq!(faces.len(), 2, "one die for each infantry on the planet");
         assert!(faces.iter().all(|f| (1..=10).contains(f)));
-        assert_eq!(rig.driver.window.ability_roll(), None, "W15: only Courageous To The End's dice are noted as the roll of an ability");
+        assert_eq!(rig.driver.window.ability_roll(), None, "W15: only the dice of Courageous To The End and Experimental Battlestation are noted as the roll of an ability");
         let killed = faces.iter().filter(|f| **f >= 6).count();
         assert_eq!(units_on(&rig.state, target, 2).len(), 2 - killed, "seed {seed}");
         some |= killed > 0;
@@ -497,7 +497,7 @@ fn courageous_to_the_end_hands_its_two_dice_to_the_host_as_the_roll_of_an_abilit
         rig.run();
         rig.auto(ti4_engine_core_tests::rig::Policy::First);
         let faces: Vec<u8> = rig.driver.window.faces().iter().map(|f| u8::try_from(*f).unwrap()).collect();
-        assert_eq!(rig.driver.window.ability_roll(), Some((Seat(0), faces)), "seed {seed}");
+        assert_eq!(rig.driver.window.ability_roll(), Some((Seat(0), faces, None)), "seed {seed}");
     }
     let mut other = four().map_ring(4).unit(sys_of(1), None, Unit::CruiserI, 1, 2).state();
     other.transient_mut().combat.last_ship_destroyed = Some((sys_of(1), Seat(2), Unit::DreadnoughtI));
@@ -519,6 +519,10 @@ fn experimental_battlestation_fires_three_dice_at_five_for_each_hit_the_active_p
         assert!(rig.is_done());
         let faces = rig.driver.window.faces().to_vec();
         assert_eq!(faces.len(), 3, "SPACE CANNON 5 (x3)");
+        // Golden dual games 3, 4 and 7: played inside a window the three dice are the roll of an ability with the hit number 5, the holder's (the
+        // string's `nested.ability_dice` is `(Some(5), faces)`); the host keeps them in the ledger.
+        let faces_u8: Vec<u8> = faces.iter().map(|f| u8::try_from(*f).unwrap()).collect();
+        assert_eq!(rig.driver.window.ability_roll(), Some((Seat(0), faces_u8, Some(5))), "seed {seed}");
         let hits = faces.iter().filter(|f| **f >= 5).count();
         seen[hits] = true;
         assert_eq!(count_in(&rig.state, sys_of(1), 1, Unit::CruiserI), 4 - hits, "seed {seed}");

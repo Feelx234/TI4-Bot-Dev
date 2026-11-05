@@ -144,7 +144,7 @@ mod real {
 
     /// The display facts only the string knows: the commodity standing of the four commodity cards (`COMMODITY_REWARDS`) and the offer card of
     /// the infantry that pays (`pay_offer`).
-    fn question_details(c: &ti4_engine_core::choice::Choice, before: &GameState, content: &ti4_content::ContentStore, player: &PlayerId, rendered: &mut crate::choice::Choice) {
+    pub fn question_details(c: &ti4_engine_core::choice::Choice, before: &GameState, content: &ti4_content::ContentStore, player: &PlayerId, rendered: &mut crate::choice::Choice) {
         use ti4_engine_core::choice::explore::{Ask as EAsk, PayReward, Step};
         match c.ask {
             ti4_engine_core::choice::Ask::Explore(EAsk::Reward(Step::AbandonedWarehouses | Step::MerchantStation | Step::FunctioningBase | Step::LocalFabricators)) => {

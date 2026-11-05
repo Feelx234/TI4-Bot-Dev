@@ -88,6 +88,8 @@ impl Pushed {
 #[derive(Debug, Clone, Default)]
 pub struct Recording {
     pub questions: Vec<Asked>,
+    /// The last question of `questions` was put by the table (`Table::ask*` noted it), not told by a window that answers it ([`note_asked_before`]).
+    pub last_by_table: bool,
     pub emits: Vec<Event>,
     /// Something happened inside an emission of the window (a reaction window's question, an event an
     /// ability caused): the abilities are string-only for now, so a core window cannot follow.
@@ -311,14 +313,60 @@ pub fn census_plain(label: &str, plain: &[String]) {
     crate::dual::note_plain(label, plain.iter().map(|t| plain_name(t)));
 }
 
+thread_local! {
+    /// How many windows run their string side inside the recording of an outer window (`dual::run_dual_window` found one running).
+    static INSIDE: Cell<u32> = const { Cell::new(0) };
+}
+
+/// The guard of a window whose string side runs inside the recording of an outer window.
+pub struct InsideWindow;
+
+impl InsideWindow {
+    #[must_use]
+    pub fn enter() -> Self {
+        INSIDE.with(|c| c.set(c.get() + 1));
+        Self
+    }
+}
+
+impl Drop for InsideWindow {
+    fn drop(&mut self) {
+        INSIDE.with(|c| c.set(c.get().saturating_sub(1)));
+    }
+}
+
+/// The question a window's string side was ASKED BEFORE the window began (the table was asked, then the window answers it) is told to the recording
+/// of that window ([`note_ask`]). A window that runs inside the recording of an outer window has no recording of its own: when the table asked the
+/// question during the outer window it noted it already, and telling it again made the outer window's string side seem to ask it twice (golden dual
+/// game 19, `factions::mahact::hero`: every sustain question of the Mahact hero's fight stood twice). So inside another window the question is told
+/// only when it is not the one the table just recorded; a question the table never recorded (asked before the outer window began, or answered for a
+/// neutral side without asking) is told as before.
+pub fn note_asked_before(choice: &Choice, answer: &Result<ChoiceOption, IllegalChoice>) {
+    if INSIDE.with(Cell::get) > 0 {
+        let answered = answer.as_ref().ok().map(|o| o.id.as_str());
+        let just_recorded = REC.with(|r| {
+            r.borrow().as_ref().and_then(|rec| rec.questions.last().map(|last| rec.last_by_table && last.choice == *choice && last.answer.as_deref() == answered))
+        });
+        if just_recorded == Some(true) {
+            return;
+        }
+    }
+    note_ask_as(choice, answer, false);
+}
+
 /// A question was put (`Table::ask*`).
 pub fn note_ask(choice: &Choice, outcome: &Result<ChoiceOption, IllegalChoice>) {
+    note_ask_as(choice, outcome, true);
+}
+
+fn note_ask_as(choice: &Choice, outcome: &Result<ChoiceOption, IllegalChoice>, by_table: bool) {
     let depth = DEPTH.with(Cell::get);
     REC.with(|r| {
         if let Some(rec) = r.borrow_mut().as_mut() {
             let answer = outcome.as_ref().ok().map(|o| o.id.clone());
             if rec.base == depth {
                 rec.questions.push(Asked { choice: choice.clone(), answer, nested: false });
+                rec.last_by_table = by_table;
             } else if depth > rec.base {
                 rec.nested = true;
                 rec.nested_kinds.push(format!("ask:{}", choice.prompt));
@@ -326,6 +374,7 @@ pub fn note_ask(choice: &Choice, outcome: &Result<ChoiceOption, IllegalChoice>) 
                     rec.foreign = true;
                 }
                 rec.questions.push(Asked { choice: choice.clone(), answer, nested: true });
+                rec.last_by_table = by_table;
             }
         }
     });
@@ -788,6 +837,10 @@ pub fn drive_windowed<W: Window>(
                     // it comes with no facts; the string still puts it through `Table::ask_seeing`, which names the invasion the position is in.
                     rendered.context = rendered.context.take().map(|ctx| ctx.about_invasion(gs));
                 }
+                // The casualty of an Experimental Battlestation played inside the window (its hits go through the ordinary absorb window).
+                if battlestation_casualty(&choice, script) {
+                    battlestation_hit(r, script.questions.get(out.questions.len() - 1), &mut rendered);
+                }
                 out.rendered.push(rendered);
                 let Some(id) = script.questions.get(out.questions.len() - 1).and_then(|q| q.answer.clone()) else {
                     return Ok(out);
@@ -837,6 +890,35 @@ fn courageous_hit(r: &Render, choice: &CoreChoice, core: &ti4_engine_core::state
             .about_battle(gs)
             .about_invasion(gs),
     );
+}
+
+/// The casualty question of an Experimental Battlestation played inside a window: the hits of the dock go through the combat area's absorb window,
+/// whose casualty question is the ordinary one (rule 78.4), so the card is known from the string run: it announced `experimental` as played.
+fn battlestation_casualty(choice: &CoreChoice, script: &Recording) -> bool {
+    matches!(choice.ask, ti4_engine_core::choice::Ask::Combat(ti4_engine_core::choice::combat::Ask::AssignHit))
+        && matches!(choice.ctx.origin, ti4_engine_core::choice::Origin::Rule(_))
+        && script.played.iter().any(|card| card == "experimental")
+}
+
+/// The hit an Experimental Battlestation makes the active player choose (string `experimental_battlestation`: `HitCause::Other`, a hit, not a
+/// destruction, no restriction, the holder producing it) described on the rendered casualty question. The cause, the kind and the restriction
+/// are the card's; the holder is the seat that played it, which the question the core puts does not carry (the card's play window knows it, the
+/// child window that that absorbs the hits asks only the active seat), so the producer is read off the string's question and must be a seat of the
+/// table (the holder may be the active seat itself, who then shoots its own fleet, as game 7 shows): anything else leaves the context as it is and
+/// the comparison shows it.
+fn battlestation_hit(r: &Render, recorded: Option<&Asked>, rendered: &mut Choice) {
+    let producer = recorded
+        .and_then(|q| q.choice.context.as_ref())
+        .and_then(|ctx| ctx.hit.as_ref())
+        .and_then(|hit| hit.producer.clone())
+        .filter(|producer| r.seats.iter().any(|seat| seat == producer.as_str()));
+    let (Some(producer), Some(context)) = (producer, rendered.context.take()) else { return };
+    rendered.context = Some(context.with_hit(crate::decision_context::HitDetail {
+        cause: crate::decision_context::HitCause::Other,
+        destroy: false,
+        restriction: crate::decision_context::HitRestriction::Any,
+        producer: Some(producer),
+    }));
 }
 
 /// The casualty question of a Courageous To The End played inside a window.
@@ -933,12 +1015,19 @@ fn compare_ability_dice(core: &CoreState, script: &Recording) {
     crate::dual::compare_value(crate::dual::Area::Driver, "nested.ability_dice", &script.dice, &core_dice);
 }
 
-/// The footprint of a window that follows nested activity: what the abilities of the table read and write.
+/// The footprint of a window that follows nested activity: what the abilities of the table read and write. Two slices were missing, and each showed
+/// as a golden dual difference once an ability used it:
+/// * `Slice::Explore`: the Creuss wormhole tokens are read and written by the Ghosts' Icarus Drive (a reaction to every activation: the mech goes, a
+///   token comes), so a window that follows it must lend and take back the slice, or the core's tokens stay as they were before the window
+///   (games 10, 12 and 13, `tactical::activate`).
+/// * `Slice::Trade`: the Supports for the Throne that are lent out (`support_holders`) are read by Mentak's S'ula Mentarion (the opponent gives a note
+///   from the hand "then their own Support while it is home") and written when one is given, so a window that follows it must lend the slice, or
+///   the core offers a Support that is out already (game 12, `aftermath::fight_over`: `support:naaz`).
 #[must_use]
 pub(crate) const fn ability_fp() -> Footprint {
     Footprint::new(
-        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending],
-        &[Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Cards, Slice::Pending],
+        &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Agenda, Slice::Cards, Slice::Pending, Slice::Explore, Slice::Trade],
+        &[Slice::Players, Slice::Board, Slice::Transient, Slice::Marks, Slice::Cards, Slice::Pending, Slice::Explore, Slice::Trade],
     )
 }
 
@@ -4015,6 +4104,12 @@ const CONTROL_GAINED: Footprint = Footprint::new(
     &[Slice::Transient, Slice::Pending, Slice::Board, Slice::Players, Slice::Marks],
 );
 
+/// Whether an ability of the string run explores a planet (Naaz-Rokha's agent and commander): the abilities that were eligible or ran in the
+/// window, by their ids (`leader:naaz:naazcommander:...`, Ssruu's copies included).
+fn explores_in_ability(script: &Recording) -> bool {
+    script.nested && script.effects.iter().chain(&script.eligible).any(|id| id.contains("naaz"))
+}
+
 /// The core half of the chain `InvasionWindow::finish_control_gain` runs before the exploration. `None` for the positions of
 /// [`control_gain_unported`], an Assimilate seat whose unit roster is not known, nested activity the table does not carry and a position
 /// the codecs refuse.
@@ -4036,10 +4131,22 @@ pub fn control_gained(gs: &mut GameState, a: &ControlArgs<'_>, script: &Recordin
     let facts = Facts { invader, system, planet, previous, infiltrate_fix: gs.rules_version >= ti4_model::state::RULES_INFILTRATE_FIX, announce: a.announce };
     let mut seats = vec![invader];
     seats.extend(previous);
-    let mut driver = crate::window_driver::driver_for(ControlGained::new(facts, roster), Resolver::new(&seats, Some(invader)), AbilityTable::default(), 1);
+    // Naaz-Rokha's Dart and Tai ("after you gain control of a planet that was controlled by another player: explore that planet") explores INSIDE the
+    // window, as a reaction to the event: the window needs what an exploration needs (the decks, the explore state, the words of a log row).
+    let exploring = explores_in_ability(script);
+    let table = if exploring { crate::exploring_dual::table(&r, ti4_content::ContentStore::embedded(), a.sources) } else { AbilityTable::default() };
+    let fp = nested_fp(CONTROL_GAINED, script);
+    let fp = if exploring { fp.union(crate::exploring_dual::FP) } else { fp };
+    let mut driver = crate::window_driver::driver_for(ControlGained::new(facts, roster), Resolver::new(&seats, Some(invader)), table, 1);
     let mut staged = Vec::new();
-    let driven = with_core(gs, &mut cx, Sources::default(), nested_fp(CONTROL_GAINED, script), |core, _| {
-        let driven = drive(&mut driver, core, &env.kernel, &r, &before, script);
+    let driven = with_core(gs, &mut cx, Sources::default(), fp, |core, _| {
+        // The commodity standing the exploration's reward questions show is the string's to read (Abandoned Warehouses ...).
+        let details = |c: &CoreChoice, _: &ti4_engine_core::state::CoreState, rendered: &mut Choice| {
+            if exploring {
+                crate::exploring_dual::question_details(c, &before, ti4_content::ContentStore::embedded(), a.invader, rendered);
+            }
+        };
+        let driven = drive_with(&mut driver, core, &env.kernel, &r, &before, script, &details);
         staged = std::mem::take(&mut core.pending_mut().staged);
         driven
     })

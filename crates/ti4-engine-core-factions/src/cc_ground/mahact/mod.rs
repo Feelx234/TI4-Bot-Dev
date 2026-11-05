@@ -6,7 +6,7 @@ use ti4_engine_core::hooks::HookTable;
 
 mod observe;
 mod offer;
-pub(crate) mod query;
+pub mod query;
 pub mod timing;
 
 /// Every tier, in the order movement, query, observe, offer.

@@ -3699,7 +3699,7 @@ impl ProductionWindow {
                     "ProductionWindow::step",
                     state,
                     |s: &mut GameState| {
-                        crate::dual_window::note_ask(&choice, &Ok(answer.clone()));
+                        crate::dual_window::note_asked_before(&choice, &Ok(answer.clone()));
                         outcome = self.resolve_step(s, ctx, answer.clone());
                         crate::dual::Run::new(self.snap())
                     },

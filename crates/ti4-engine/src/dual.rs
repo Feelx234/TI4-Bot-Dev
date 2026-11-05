@@ -664,6 +664,37 @@ fn note_call(area: Area) {
     with_report(|r| r.areas.entry(area).or_default().calls += 1);
 }
 
+/// `TI4_DUAL_TRACE=N` prints the call stack of the first N differences of a run to stderr (a debugging aid for the dual run: the report
+/// names the window and the path, not who called it). Needs a binary with symbols (`CARGO_PROFILE_RELEASE_STRIP=false`).
+#[cfg(not(target_arch = "wasm32"))]
+fn trace_difference(d: &Difference) {
+    static LEFT: AtomicU64 = AtomicU64::new(u64::MAX);
+    if LEFT.load(Ordering::Relaxed) == u64::MAX {
+        let n = std::env::var("TI4_DUAL_TRACE").ok().and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+        let _ = LEFT.compare_exchange(u64::MAX, n, Ordering::Relaxed, Ordering::Relaxed);
+    }
+    if LEFT.load(Ordering::Relaxed) > 0 && LEFT.load(Ordering::Relaxed) != u64::MAX {
+        LEFT.fetch_sub(1, Ordering::Relaxed);
+        eprintln!("DUAL TRACE {d}\n{}", std::backtrace::Backtrace::force_capture());
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn trace_difference(_: &Difference) {}
+
+/// Whether `TI4_DUAL_TRACE` is set (the question lists of a differing window are printed too).
+fn trace_on() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| std::env::var("TI4_DUAL_TRACE").is_ok_and(|v| v != "0" && !v.is_empty()))
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        false
+    }
+}
+
 fn tally(area: Area, category: Category, label: &str, found: Vec<(String, String, String)>) -> bool {
     let fail = fail_fast();
     let mut first = None;
@@ -675,6 +706,7 @@ fn tally(area: Area, category: Category, label: &str, found: Vec<(String, String
         }
         for (path, string_side, core_side) in found {
             let d = Difference { area, category, label: label.to_owned(), path, string_side, core_side };
+            trace_difference(&d);
             if first.is_none() {
                 first = Some(d.clone());
             }
@@ -1000,6 +1032,10 @@ pub fn compare_choice(area: Area, label: &str, string_side: Option<&Choice>, cor
             diffs.push(("context.canonical()".into(), format!("{cx:?}"), format!("{cy:?}")));
         }
     }
+    if !diffs.is_empty() && trace_on() {
+        let show = |c: Option<&Choice>| c.map_or_else(|| "none".to_owned(), |c| format!("{:?} asks {:?}: {:?}", c.player, c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>()));
+        eprintln!("DUAL TRACE choices at {label}\n  string: {}\n  core:   {}", show(string_side), show(core_side));
+    }
     let ok = tally(area, Category::Decision, label, diffs);
     let hashes = match (string_side, core_side) {
         (Some(x), Some(y)) => compare_records(area, label, &record_of(x, ""), &record_of(y, "")),
@@ -1271,6 +1307,7 @@ pub fn run_dual_window<R: PartialEq + Debug>(
 ) -> R {
     if !crate::dual_window::start() {
         // A window inside a window: the outer one compares the whole.
+        let _inside = crate::dual_window::InsideWindow::enter();
         return string(state).value;
     }
     let mut core_state = state.clone();
@@ -1296,6 +1333,13 @@ pub fn run_dual_window<R: PartialEq + Debug>(
         string_run.order = Some(recording.order.clone());
     }
     let ok = compare_value(area, &format!("{label}.questions"), &recording.questions.len(), &core_run.questions.len());
+    if !ok && trace_on() {
+        for (who, list) in [("string", recording.questions.iter().map(|q| (&q.choice, q.answer.clone())).collect::<Vec<_>>()), ("core", core_run.questions.iter().map(|c| (c, None)).collect())] {
+            for (c, answer) in list {
+                eprintln!("DUAL TRACE {label} {who} question: {:?} asks {:?}: {:?} answer {answer:?} context {:?} details {:?}", c.player, c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), c.context.as_ref().map(|c| c.canonical()), c.details);
+            }
+        }
+    }
     if ok {
         for (asked, rendered) in recording.questions.iter().zip(&core_run.questions) {
             compare_choice(area, label, Some(&asked.choice), Some(rendered));
@@ -1403,6 +1447,13 @@ pub fn bail_difference(label: &str, why: &str) {
     if bail_is_failure() {
         tally(Area::Driver, Category::Value, &format!("bail::{label} [{why}]"), vec![(String::new(), "no bail".to_owned(), why.to_owned())]);
     }
+}
+
+/// Count a place where the core's side was cut down to what the string can express because the string has a documented bug there
+/// (`docs/STRING_ENGINE_BUGS.md`, `id` = `S8`...): `"<label> [known string bug <id>: <why>]"`, a COMPARED window (the rest of the call was
+/// compared as usual), never a bail, so a zero-bail run does not fail on it. The cut is the caller's and only ever applies on `Dual`.
+pub fn note_known_string_bug(label: &str, id: &str, why: &str) {
+    note_window(&format!("{label} [known string bug {id}: {why}]"), true);
 }
 
 /// Count a position the string runs bare because a gate of the call site excludes it from the window (no window opened, so
