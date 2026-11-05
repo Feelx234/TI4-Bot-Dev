@@ -16,7 +16,7 @@
 //! perf_kernel micro <players> <seed> [faction] [at]   the per-step pieces on the live core after `at` steps (default 600), each in a loop
 //! ```
 //! Environment: `PERF_KERNEL_NOSTATE=1` skips the final state hash. `PERF_KERNEL_CHECK=1` runs the consistency checks of the perf changes after every step
-//! (board indexes against a scan of the cells; see `checks`), `cargo test --bin perf_kernel` plays a set of games with them on.
+//! (board indexes against a scan of the cells, the deferred play facts against the eager ones, the kept `Env` against one built from scratch; see `checks`), `cargo test --bin perf_kernel` plays a set of games with them on.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -356,6 +356,9 @@ impl Game {
     fn step(&mut self) -> Result<bool, String> {
         let t = Instant::now();
         let a0 = counts();
+        if self.check {
+            live::env::verify_cache(true);
+        }
         let env = live::env::env_with_plays(&self.render, &self.core, self.kernel, self.seeds.clone(), self.sources);
         self.ph.env.add(t, a0);
         // The deferred play facts: armed on the position the step starts from, read after the step has changed the position, they equal the facts

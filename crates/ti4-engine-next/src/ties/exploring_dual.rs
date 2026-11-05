@@ -48,6 +48,16 @@ pub fn words(core: &mut CoreState, r: &RowIn) -> Option<RowOut> {
 /// The event texts of an exploration, in the render table.
 #[must_use]
 pub fn codes(r: &Render) -> ExploreCodes {
+    // (The same texts always get the same codes in one `Render`: after the first call the table takes them as they were.)
+    if let Some(codes) = r.cached_explore_codes() {
+        return codes;
+    }
+    let codes = codes_uncached(r);
+    r.cache_explore_codes(codes);
+    codes
+}
+
+fn codes_uncached(r: &Render) -> ExploreCodes {
     let mut codes = ExploreCodes { filled: true, goods: r.code("exploration"), trade_agreement: r.code("trade_agreement"), ..ExploreCodes::default() };
     for deck in ExploreType::ALL {
         codes.decks[deck as usize] = r.code(&explore_key(deck));
