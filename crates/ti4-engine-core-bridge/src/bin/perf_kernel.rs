@@ -358,9 +358,22 @@ impl Game {
         let a0 = counts();
         let env = live::env::env_with_plays(&self.render, &self.core, self.kernel, self.seeds.clone(), self.sources);
         self.ph.env.add(t, a0);
+        // The deferred play facts: armed on the position the step starts from, read after the step has changed the position, they equal the facts
+        // the provider computes at once at the start (and the roster shortcut equals the provider's roster).
+        let armed = self.check.then(|| {
+            let mut table = env.table.clone();
+            table.facts.arm_plays(&self.core, self.kernel);
+            assert!(table.facts.plays.is_pending(), "the live env defers the play facts");
+            let provider = env.table.facts.plays_provider.clone().expect("the live env has a provider");
+            (table, format!("{:?}", (provider.0)(&self.core, self.kernel)), format!("{:?}", env.table.facts.provider_roster(&self.core, self.kernel)), format!("{:?}", (provider.0)(&self.core, self.kernel).and_then(|p| p.roster)))
+        });
         let render = std::mem::take(&mut self.render);
         let r = self.step_with(&env, &render);
         self.render = render;
+        if let Some((table, eager, roster, eager_roster)) = armed {
+            assert_eq!(format!("{:?}", table.facts.plays.as_ref()), eager, "step {}: deferred play facts differ from the eager ones", self.steps);
+            assert_eq!(roster, eager_roster, "step {}: provider_roster differs from the provider's roster", self.steps);
+        }
         if self.check {
             checks::after_step(&self.core, self.steps);
         }
@@ -661,7 +674,7 @@ mod tests {
     /// Random play of many games (3p to 6p, several factions) with the checks of `checks::after_step` after every step: the board indexes and the
     /// queries built on them agree with the scans of the cells at every position the games reach.
     #[test]
-    fn board_indexes_agree_with_a_scan_after_random_play_of_many_games() {
+    fn the_perf_changes_agree_with_what_they_replaced_after_random_play_of_many_games() {
         let mut steps = 0;
         for &(players, seed, faction) in SUITE.iter().take(8).chain(&[(4, 7, "hacan"), (4, 8, "ghost"), (3, 9, "empyrean"), (5, 10, "saar"), (6, 11, "arborec")]) {
             let mut g = Game::new(players, seed, faction).expect("builds");

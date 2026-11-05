@@ -327,7 +327,7 @@ mod tests {
         }
         let (a, b) = (ActionCard::FlankSpeed1 as usize, ActionCard::FlankSpeed2 as usize);
         groups[b] = u8::try_from(a).unwrap();
-        table.facts.plays = Some(crate::kernel::ability::PlayFacts {
+        table.facts.plays = crate::kernel::ability::Plays::of(Some(crate::kernel::ability::PlayFacts {
             scope: u32::MAX,
             blanked: false,
             action_card: crate::state::Code(0),
@@ -341,7 +341,7 @@ mod tests {
             rules_version: u32::MAX,
             tech_order: |x, y| x.cmp(&y),
             shared: crate::kernel::ability::SharedPlay::default(),
-        });
+        }));
         let k = Kernel::plain();
         let mut resolver = Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
         let order = [Seat(0), Seat(1)];

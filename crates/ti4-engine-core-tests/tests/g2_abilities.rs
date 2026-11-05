@@ -586,7 +586,7 @@ fn the_notes_of_the_winnu_go_with_either_note_and_reclamation_needs_the_models_i
 
 fn with_note_order(mut t: AbilityTable) -> AbilityTable {
     use ti4_engine_core::kernel::ability::{PlayFacts, SharedPlay};
-    t.facts.plays = Some(PlayFacts {
+    t.facts.plays = ti4_engine_core::kernel::ability::Plays::of(Some(PlayFacts {
         scope: 0,
         blanked: false,
         action_card: ti4_engine_core::state::Code(0),
@@ -600,7 +600,7 @@ fn with_note_order(mut t: AbilityTable) -> AbilityTable {
         rules_version: 35,
         tech_order: |a, b| a.cmp(&b),
         shared: SharedPlay::default(),
-    });
+    }));
     t
 }
 

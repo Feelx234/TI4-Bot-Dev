@@ -163,6 +163,5 @@ fn pick_opt(pick: Pick) -> Opt {
 
 /// The unit roster of the game's sources (the play facts the table computes from the position).
 fn roster_of(core: &CoreState, env: &Env<'_>) -> Option<&'static crate::query::tech::UnitRoster> {
-    let provider = env.table.facts.plays_provider.as_ref()?;
-    (provider.0)(core, env.kernel)?.roster
+    env.table.facts.provider_roster(core, env.kernel)
 }

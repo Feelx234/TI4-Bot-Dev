@@ -4,7 +4,8 @@
 //!
 //! The PLAY FACTS of an action card played inside a window (`AbilityTable::facts.plays`: the unit a seat places, Reveal Prototype's
 //! research set, the Mahact pools, the blanked laws) are position-dependent, so they are not kept here: [`env_with_plays`] hangs the
-//! provider of `live::plays` on the table and the core's `driver::live` computes them from the position at every call. [`env_for`]
+//! provider of `live::plays` on the table and the core's `driver::live` computes them from the position at every call (on the first
+//! read of the call, from a snapshot of the position it started from: most calls read none). [`env_for`]
 //! alone leaves them out: a card played inside such an `Env`'s window stops the step with `LiveError::Unknown(PlayFacts)`, which the
 //! playthrough counts as a bail (never a silent skip).
 
@@ -58,6 +59,9 @@ pub fn env_with_plays<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seed
     // The faction units of the game's own scope: a game without Thunder's Edge places the Naalu mech, not its reprint (`env_for` names the full scope,
     // which the buildable units of a production step and the form an Assimilate seat places would follow).
     env.table.facts.roster = crate::ties::technology_core::roster_for(ti4_content::ContentStore::embedded(), sources);
+    // The provider reads the position, this kernel and this roster only: with a live kernel the facts of a call are computed when first read
+    // (`AdapterFacts::arm_plays`); a kernel built by hand keeps the facts computed at once.
+    env.table.facts.plays_source = super::kernel::exact_static(kernel).map(|kernel| ti4_engine_core::kernel::ability::PlaysSource { kernel, roster: env.table.facts.roster });
     // Losses are announced when some seat's faction has a module (`supply::staging_enabled`): fixed by the seating, set once.
     env.table.facts.staging = super::plays::staging_enabled(core);
     env

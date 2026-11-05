@@ -406,7 +406,7 @@ mod tests {
 
     fn plays_table() -> AbilityTable {
         let mut t = AbilityTable::default();
-        t.facts.plays = Some(crate::kernel::ability::PlayFacts {
+        t.facts.plays = crate::kernel::ability::Plays::of(Some(crate::kernel::ability::PlayFacts {
             scope: u32::MAX,
             blanked: false,
             action_card: Code(0),
@@ -420,7 +420,7 @@ mod tests {
             rules_version: u32::MAX,
             tech_order: |a, b| a.cmp(&b),
             shared: crate::kernel::ability::SharedPlay::default(),
-        });
+        }));
         t
     }
 

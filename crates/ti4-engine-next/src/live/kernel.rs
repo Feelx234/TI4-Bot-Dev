@@ -13,6 +13,12 @@ pub fn static_of(k: &Kernel) -> &'static Kernel {
     KERNELS.iter().filter_map(std::sync::OnceLock::get).find(|c| std::ptr::eq(*c, k)).unwrap_or_else(|| kernel_for(ti4_model::content_types::FULL))
 }
 
+/// `k` itself as a `'static` live kernel, when it is one of them (the same object, not an equal one): `None` for a kernel built by hand.
+#[must_use]
+pub fn exact_static(k: &Kernel) -> Option<&'static Kernel> {
+    KERNELS.iter().filter_map(std::sync::OnceLock::get).find(|c| std::ptr::eq(*c, k))
+}
+
 /// The live kernel of a source scope.
 #[must_use]
 pub fn kernel_for(sources: SourceSet) -> &'static Kernel {
