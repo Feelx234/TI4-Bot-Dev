@@ -78,6 +78,13 @@ fn ctx() -> Ctx {
     }
 }
 
+/// The system the position keeps a planet's entries under: the one it was placed in, else the one it is printed in. A spot may name the tile
+/// beside the map (the Wormhole Nexus is the locked tile `82a` on the map, its open planet Mallice is printed in `82b`); an entry in a system nothing touched
+/// cannot be shown ("planet entry in an untouched system"), so what lands on the planet touches the planet's own system.
+fn home(s: &CoreState, system: System, planet: Planet) -> System {
+    s.board().planet(planet).placed_in.or(planet.data().system).unwrap_or(system)
+}
+
 impl YinHero {
     #[must_use]
     pub fn new(who: Seat, facts: YinFacts) -> Self {
@@ -88,7 +95,7 @@ impl YinHero {
     fn land(&mut self, sx: &mut Sx<'_>) {
         let scope = crate::tables::Scope(u32::from(sx.kernel.sources.0));
         for (system, planet) in &self.chosen {
-            let _ = fx::place_counted(sx.state, sx.kernel, scope, self.who, *system, Some(*planet), Some(self.facts.infantry), 1);
+            let _ = fx::place_counted(sx.state, sx.kernel, scope, self.who, home(sx.state, *system, *planet), Some(*planet), Some(self.facts.infantry), 1);
         }
         for spot in &self.chosen {
             if !self.order.contains(spot) {
@@ -122,7 +129,8 @@ impl YinHero {
                 continue;
             }
             sx.state.board_mut().planet_mut(planet).control = Some(self.who);
-            sx.state.board_mut().sys_mut(system).flags.set(SysFlags::TOUCHED, true);
+            let home = home(sx.state, system, planet);
+            sx.state.board_mut().sys_mut(home).flags.set(SysFlags::TOUCHED, true);
             fx::exhaust_planet(sx.state, planet);
             // Everything that reads "when you gain control of a planet": the Minister of Exploration pays a trade good, and the Crown of
             // Emphidia changes hands when a planet of its owner's home system is taken.

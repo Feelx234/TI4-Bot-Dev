@@ -41,7 +41,6 @@ pub const fn unported_text(why: ti4_engine_core::kernel::ability::Unported) -> &
         U::NoProgress => "the invasion made no progress (a stage that neither asks nor moves on)",
         U::Slumberstate => "Slumberstate Computing (a Thunder's Edge breakthrough)",
         U::RollCannotName => "a pool or unit the ground roll cannot name",
-        U::HitsAddedToARoll => "hits added to a ground roll",
         U::IntegratedEconomy => "Integrated Economy (a triggered production nested in the control gain)",
         U::AssimilateRoster => "an Assimilate seat whose unit forms the core cannot name",
         U::Exploration(why) => {
@@ -377,6 +376,28 @@ mod tests {
             state.system_mut(&system).set_control(planet.clone(), b.clone());
             crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, d);
             check(invader, &state, seed, &system, false, prefer(&[]));
+        }
+    }
+
+    /// Valkyrie Particle Weave ("after making combat rolls during a round of ground combat, if your opponent produced 1 or more hits, you produce 1 additional
+    /// hit"; it was `Unported(HitsAddedToARoll)` and stopped 31 native bench games): the added hit is assigned by the opponent like any other, native and
+    /// string agree, with the weave on the invading side, on the defending side and on both.
+    #[test]
+    fn valkyrie_particle_weave_adds_its_hit_natively_in_lockstep_with_the_string_window() {
+        let _guard = crate::dual::tests::serial();
+        for (seed, (invader, defender)) in (1..=12_u64).zip([("sardakk", "jolnar"), ("hacan", "sardakk"), ("sardakk", "sardakk")].into_iter().cycle()) {
+            let (mut state, system, planet) = game(&[("a", invader), ("b", defender)], seed);
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            for (who, faction) in [(&a, invader), (&b, defender)] {
+                if faction == "sardakk" {
+                    state.player_mut(who).unwrap().technologies.insert(ti4_model::TechnologyId::new("vpw"));
+                }
+            }
+            crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
+            crate::fixtures::put(&mut state, &system, "infantry", &a, 5);
+            state.system_mut(&system).set_control(planet.clone(), b.clone());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 4);
+            check(&format!("{invader} v {defender}"), &state, seed, &system, false, prefer(&[]));
         }
     }
 

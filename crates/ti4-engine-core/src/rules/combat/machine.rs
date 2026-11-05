@@ -403,11 +403,8 @@ impl Machine {
     /// One transition of the flow (announcing, retreating, the hit queue), applied to the fields. `true`: the
     /// loop stops (a decision is pending or the fight is over).
     fn transition(&mut self, sx: &mut Sx<'_>) -> Option<bool> {
-        // (The string leaves the destructions an effect staged pending across the windows of a round and announces them at its four fixed
-        // points: the live machine drains at the same ones, so it goes on with them pending.)
-        if !self.live && !sx.state.transient().combat.pending_destructions.is_empty() {
-            return None;
-        }
+        // (The string leaves the destructions an effect staged pending across the windows of a round and announces them at its four fixed points: the
+        // machine drains at the same ones, so it goes on with them pending, whether the settles are the game's (live) or a fight run to its end by a window.)
         if self.lone_casualty(sx) {
             return Some(false);
         }
@@ -426,10 +423,7 @@ impl Machine {
         }
         let facts = self.flow_facts(sx, over)?;
         let before = self.fields.step.clone();
-        let mut flow = Flow::new(facts, before.clone());
-        if self.live {
-            flow = flow.with_drain((self.env.retreat_cause, self.env.retreat_event));
-        }
+        let mut flow = Flow::new(facts, before.clone()).with_drain((self.env.retreat_cause, self.env.retreat_event));
         let _ = flow.step(sx);
         let out: Out = flow.out.clone()?;
         if let Step::Queue { round, queue, .. } = &before {

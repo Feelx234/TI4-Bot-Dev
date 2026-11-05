@@ -248,13 +248,13 @@ impl super::ability::Runner for Sx<'_> {
         done
     }
 
-    fn after_play(&mut self) -> Result<(), TimingError> {
-        let Some(after) = self.table.after_play else { return Ok(()) };
+    fn after_play(&mut self) -> Result<bool, TimingError> {
+        let Some(after) = self.table.after_play else { return Ok(false) };
         self.tape.emitted.clear();
         let mut host = RulesHost { state: &mut *self.state, kernel: self.kernel, table: self.table, tape: &mut *self.tape, next_id: &mut *self.next_id, seeds: self.seeds };
         let done = after(&mut host, &mut *self.resolver);
         self.emitted.append(&mut self.tape.emitted);
-        done
+        done.map(|()| true)
     }
 }
 

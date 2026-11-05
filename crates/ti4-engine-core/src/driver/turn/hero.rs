@@ -419,6 +419,8 @@ fn yin_spots(sx: &Sx<'_>) -> Vec<(System, crate::generated::Planet)> {
         }
         spots.extend(system.data().planets.iter().filter(|planet| !matches!(**planet, Planet::Mallice | Planet::LockedMallice)).map(|planet| (system, *planet)));
     }
+    // (The spot names the tile that sits beside the map, as the ships' space area does; the planet's own entries are kept under the system it is printed in:
+    // `YinHero` touches that one, see `yin_hero::home`.)
     let nexus = System::MalliceLockedNexus;
     if sx.state.meta().flags.has(crate::state::MetaFlags::NEXUS_UNLOCKED) && galaxy.in_play().contains(nexus.index()) {
         spots.push((nexus, Planet::Mallice));

@@ -2,6 +2,7 @@
 //! (Airo Shir Aur: the pair, the move, the enforcement and the fight as children).
 
 use ti4_engine_core::kernel::children::SeeingLimits;
+use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::keys::MarkKey;
 use ti4_engine_core::rules::combat::end_announce::Codes as EndCodes;
 use ti4_engine_core::rules::combat::fight::FightToEnd;
@@ -20,7 +21,7 @@ fn there() -> System {
     plain_systems()[1]
 }
 
-const KINDS: [Unit; 7] = [Unit::CarrierI, Unit::CruiserI, Unit::DestroyerI, Unit::DestroyerII, Unit::DreadnoughtI, Unit::FighterI, Unit::WarSun];
+const KINDS: [Unit; 8] = [Unit::CarrierI, Unit::CruiserI, Unit::DestroyerI, Unit::DestroyerII, Unit::DreadnoughtI, Unit::FighterI, Unit::VanHauge, Unit::WarSun];
 
 /// The text tables the string side would hand over: every non-empty set of the unit types used, in id order.
 fn groups() -> Vec<(Vec<Unit>, Code, Code)> {
@@ -176,6 +177,37 @@ fn the_decisions_inside_a_combat_are_asked_by_the_window() {
         assert!(!rig.driver.window.unsupported, "{}", rig.transcript());
     }
     assert!(asked > 0, "some seed puts a question");
+}
+
+/// Bench stops (`UnportedAftermath(CombatUnported)`, a Mahact hero fight with the Yin flagship in it): a destruction an ability stages while the round goes on
+/// (Van Hauge takes every ship of the system with it) waits for the string's fixed points of announcement, and the window that fights the combat to its end goes
+/// on with it pending as the game's own machine does. It used to stop the run at the first transition.
+#[test]
+fn a_fight_run_to_its_end_goes_on_with_the_destructions_an_ability_staged() {
+    covers!("rules::combat::fight::FightToEnd");
+    let mut table = AbilityTable::default();
+    ti4_engine_core_factions::cd_registry::yin::timing::register_abilities(&mut table);
+    let (mut chain, mut empty) = (0, 0);
+    for seed in 0..16 {
+        let sc = Scenario::new(&[Faction::TheYinBrotherhood, Faction::TheArborec])
+            .map_from(&[sys(), there()])
+            .tokens(0, 3, 3, 2)
+            .tokens(1, 3, 3, 2)
+            .unit(sys(), None, Unit::VanHauge, 0, 1)
+            .unit(sys(), None, Unit::CruiserI, 0, 1)
+            .unit(sys(), None, Unit::DreadnoughtI, 1, 4);
+        let (state, kernel) = sc.build();
+        let f = fields(&state);
+        let mut rig = Rig::from_parts(state, kernel, FightToEnd::new(env(), f)).with_abilities(table.clone()).seeded(seed);
+        rig.run();
+        answer_first(&mut rig);
+        assert!(rig.is_done(), "seed {seed}: {}", rig.transcript());
+        assert!(!rig.driver.window.unsupported, "seed {seed}: {:?}", rig.driver.window.bailed);
+        let left = |seat: u8| rig.state.board().sys(sys()).units.as_slice().iter().filter(|p| p.owner() == Seat(seat)).count();
+        chain += usize::from(rig.driver.emitted.iter().any(|e| e.kind == EventKind::ShipDestroyed));
+        empty += usize::from(left(0) == 0 && left(1) == 0);
+    }
+    assert!(chain > 0 && empty > 0, "the flagship fell with the fleets in some seed ({chain}, {empty})");
 }
 
 // -- Airo Shir Aur ---------------------------------------------------------------------------------------------------

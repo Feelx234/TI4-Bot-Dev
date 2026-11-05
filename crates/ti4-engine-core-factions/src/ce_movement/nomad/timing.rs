@@ -436,7 +436,9 @@ fn tcs(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         return Ok(());
     }
     let key = MarkKey::NomadTcsNegotiating(me, agent_owner);
-    eff.state().marks_mut().tail.edit().insert(key, MarkVal::Atom(Atom::Num(1))); // mutants:skip (the mark's value is never read, only its presence)
+    // The string stores the text `true` (`nomad:tcs:negotiating:<owner>:<other>`); the position is shown to deciders and mirrored back while the window runs,
+    // and a value the shape of the mark does not know has no text (`Marks: mark without a text`).
+    eff.state().marks_mut().tail.edit().insert(key, super::query::NEGOTIATING); // mutants:skip (the mark's value is never read, only its presence)
     // The window opens with the pair's one transaction spent unless a module exempts it, and runs to its end through the questions of this effect.
     let facts = {
         let (s, k) = eff.read();

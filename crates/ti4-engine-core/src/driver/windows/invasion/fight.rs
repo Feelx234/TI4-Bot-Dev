@@ -257,11 +257,7 @@ impl InvasionMachine {
             }
             break tail;
         };
-        // Hits a faction adds to a roll once the dice are final (Valkyrie Particle Weave).
-        let extra = |who: Seat, hits: u32, other: u32| sx.kernel.hooks.ground.ground_rolls_extra_hits(sx.state, sx.kernel, who, system, planet, hits as usize, other as usize);
-        if extra(invader, tail.hits.0, tail.hits.1) != 0 || extra(defender, tail.hits.1, tail.hits.0) != 0 {
-            return Err(Why::HitsAddedToARoll);
-        }
+        // The hits a faction adds to a roll once the dice are final (Valkyrie Particle Weave) are added in the round's hit step (`GroundRoundHits`).
         let dice: Vec<InvasionDie> = tail.dice.iter().map(|(side, group, face, target, hit)| InvasionDie { planet, player: *side, group: *group, face: *face, target: *target, hit: *hit }).collect();
         let template = InvasionStep { planet, kind: codes.ground_round, round: 0, before, after: Vec::new(), dice, hits: SortedMap::default(), harrow_hits: 0 };
         let harrow = sx.state.players().by_seat(invader).is_some_and(|p| p.faction.data().abilities.contains(&crate::generated::Ability::Harrow));

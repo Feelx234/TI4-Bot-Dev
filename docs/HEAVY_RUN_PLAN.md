@@ -112,6 +112,17 @@ the long steps if the baselines are wanted early: `--only build bench-off`. The 
 run. Reasons a hash may legitimately differ: Parley and Ixthian Artifact (For) only (S7, S6), the two cards version 36 changed. The plain
 `selfplay.sh bench` of int-23 is red until this is done.
 
+**RESULT OF THE LANE (core-bench-rv36, 2026-11-05): stage 1 done, stage 2 FAILED the classification, nothing re-recorded, nothing committed to `tools/rulebot`.**
+See `docs/BENCH_RV36_RESUME.md`. In short: the string recording at 35 is fine (6 x 200 victories, 10 min wall), but the native engine under test (int-24 tip) differs from it in
+1 189 of 1 200 games (not about half), and 61 games (5 %) end in `engine_error` because the core stops (`Unported(HitsAddedToARoll)`, `PendingDestructions`, `NomadTcsNegotiating`
+mark without a text, `UnportedAftermath(CombatUnported)`, `MissingFact`, `planet entry in an untouched system`). A first-difference scan of a sample shows that Parley / Ixthian For explain
+at most a small part of it. Two procedure notes: `verify_benches.sh` looks games up by the whole spec, which carries the rules version, so a recording made at 35 shows "200 not in the
+baseline" at 36 (the compare must ignore the version: `tools/engine_profile/bench_rv36/`); and the string recorder accepts `--rules-version 36` and plays it exactly as 35 (hashes identical).
+The bench steps stay red until the differences are explained or ruled by-design by the user.
+
+**UPDATE (core-bench-stops, 2026-11-05): the 61 native stops are fixed** (`docs/BENCH_STOPS_RESUME.md`): 0 `engine_error` in 6 x 200 games, the decision streams of the games that already worked unchanged. The native
+re-recording of the six baselines is prepared in a copy (`tools/engine_profile/bench_rv36/prepare_native_record.sh`), not adopted. The S1 order explains an early part of the divergence from the string, not all of it (same file).
+
 ## 5. Run A: everything but the ratchet
 
 ```sh
@@ -231,7 +242,7 @@ scratch under `$OUT/mut`: delete it and rerun the module.
    `[(7,[1,7]),(9,[6]),(0,[8,7])]`, the core's lack the last group `(0,[8,7])` (an extra ability roll of the string, no hit threshold). Identical at core-botstops-1.
    With `TI4_DUAL_FAIL_FAST=1` the shard holding game 6 stops there; so dual-all / dual-drv / dual-wide are likely to FAIL in run A unless that is explained first
    (string bug or core gap) -- one agent, one game: `dual_run tools/engine_profile/profile-20.json 20 all=dual --game 6`. The other 17 games were not run.
-2. **Bench steps (15-18)** cannot be green on a string recording at 35: Parley / Ixthian For (section 4). Do the section 4 lane BEFORE run A, so that the committed baselines are the
+2. **Bench steps (15-18)** cannot be green on a string recording at 35. The lane of section 4 was run (core-bench-rv36) and did NOT confirm that Parley / Ixthian For are the only causes: 1 189 of 1 200 games differ, 61 end in a core stop (`docs/BENCH_RV36_RESUME.md`). The bench steps stay red; baselines were not re-recorded. Do the section 4 lane BEFORE run A, so that the committed baselines are the
    version 36 ones; otherwise expect `bench-off`, `bench-resolver`, `bench-state`, `bench-resolver+state` red in the summary of run A (by design, not a core bug).
 3. `corpus` is skipped (section 5), `alpha` is skipped.
 
@@ -240,7 +251,7 @@ scratch under `$OUT/mut`: delete it and rerun the module.
 Either of
 
 * "Start run A" -- run A at once with the four bench steps and possibly the dual steps expected red (item 1 and 2 above), the other steps meaningful; or
-* "Bench lane first, then run A" (recommended) -- one agent does section 4 (record at 35 with the string recorder, native verify, classify the differing games as Parley / Ixthian For,
+* "Bench lane first, then run A" (the lane was run on 2026-11-05 and stopped at the classification, see the result box in section 4) -- one agent does section 4 (record at 35 with the string recorder, native verify, classify the differing games as Parley / Ixthian For,
   re-record natively, one commit), another looks at game 6 (item 1); run A starts when both are done.
 
 ### 12.3 What is run (the coordinator, on the go)

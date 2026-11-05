@@ -20,7 +20,11 @@ use ti4_engine_core::hooks::{BorrowedStats, CombatCtx, CombatUnit, HookTable};
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::seam::{Q, Replacement, SeatSystemSite, Source, Step, Verdict};
 use ti4_engine_core::kernel::{Kernel, Next};
-use ti4_engine_core::keys::MarkKey;
+use ti4_engine_core::keys::{Atom, MarkKey, MarkVal, Word};
+
+/// The value of the `NomadTcsNegotiating` mark while the Temporal Command Suite's transaction runs: the string's text `true`. A value the mark's shape does not
+/// know (a number) has no text, and the position could not be shown to the decider while the window ran.
+pub const NEGOTIATING: MarkVal = MarkVal::Atom(Atom::Word(Word::True));
 use ti4_engine_core::state::{CoreState, LeaderStatus, NoteKey};
 
 use crate::common::{is_faction, mark, player, rec, scope, system, unit};
@@ -148,7 +152,6 @@ pub fn leader_action(s: &CoreState, _: &Kernel, who: Seat, leader: Leader) -> Op
 mod tests {
     use super::*;
     use crate::ce_movement::testkit::table;
-    use ti4_engine_core::keys::{Atom, MarkVal};
     use ti4_engine_core::state::Piece;
 
     const NOMAD: Faction = Faction::TheNomad;
@@ -205,7 +208,7 @@ mod tests {
     fn tcs_reach_is_symmetric() {
         let (mut s, k) = table(&[NOMAD, SOL]);
         assert!(!transaction_reach(&s, &k, Seat(0), Seat(1)));
-        s.marks_mut().tail.edit().insert(MarkKey::NomadTcsNegotiating(Seat(0), Seat(1)), MarkVal::Atom(Atom::Num(1)));
+        s.marks_mut().tail.edit().insert(MarkKey::NomadTcsNegotiating(Seat(0), Seat(1)), NEGOTIATING);
         assert!(transaction_reach(&s, &k, Seat(1), Seat(0)));
     }
 

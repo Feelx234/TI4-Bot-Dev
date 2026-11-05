@@ -67,8 +67,8 @@ pub enum Unknown {
     UnportedCard,
     /// A fact the adapter should have computed for the window is missing (`Facts`).
     MissingFact,
-    /// A card was played while destructions were staged (`pending_destructions`: the announcement of the removals is
-    /// not ported).
+    /// A card was played while destructions were staged and the table has no announcement for them (`AbilityTable::after_play` unset:
+    /// the removals are not announced).
     PendingDestructions,
     /// A card was discarded while the Data Skimmer could take it (a breakthrough's pile).
     DataSkimmer,
@@ -156,7 +156,6 @@ pub enum Unported {
     NoProgress,
     Slumberstate,
     RollCannotName,
-    HitsAddedToARoll,
     IntegratedEconomy,
     AssimilateRoster,
     /// The exploration of a first claim holds something the native window does not carry (`ExploreRun::why`).
@@ -1404,12 +1403,13 @@ pub trait Runner {
     fn run_registered_play(&mut self, _who: Seat, _card: crate::generated::ActionCard) -> Result<(), TimingError> {
         Ok(())
     }
-    /// What follows the discard of a played card: announce what its effect staged (`AbilityTable::after_play`).
+    /// What follows the discard of a played card: announce what its effect staged (`AbilityTable::after_play`). Whether a hook announced it
+    /// (no hook registered: `false`, and what the effect staged is still waiting).
     ///
     /// # Errors
     /// What the resolver refuses with.
-    fn after_play(&mut self) -> Result<(), TimingError> {
-        Ok(())
+    fn after_play(&mut self) -> Result<bool, TimingError> {
+        Ok(false)
     }
 }
 
@@ -1486,10 +1486,10 @@ impl Runner for Inline<'_, '_> {
         }
     }
 
-    fn after_play(&mut self) -> Result<(), TimingError> {
+    fn after_play(&mut self) -> Result<bool, TimingError> {
         match self.host.table.after_play {
-            Some(after) => after(&mut *self.host, &mut *self.resolver),
-            None => Ok(()),
+            Some(after) => after(&mut *self.host, &mut *self.resolver).map(|()| true),
+            None => Ok(false),
         }
     }
 }
