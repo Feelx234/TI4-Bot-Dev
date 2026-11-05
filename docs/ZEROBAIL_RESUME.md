@@ -82,7 +82,20 @@ Fix:
   (`agenda_flow.rs`).
 * No exemption added, no threshold touched. `covers_exempt.txt` is unchanged (3 rows: Keleres, Firmament, diplomacy).
 
-Result: see the end of section 3.
+Result (`tools/engine_core/d4_gate.sh 3 4 5`, `/root/deploytmp/zerobail-out/d4gate.log`, rc 0): step 3 ok, step 4 `coverage: 150/153 windows
+covered` (3 exempt, as before), every area at or above 80 % of stage variants, step 5 `golden check: 51 games, 85168 decisions, 0 failed`.
+The full D4 crate (`--no-fail-fast`, lockstep profile with the step's flags) passes: 160 test binaries, 0 failures. `clippy_core.sh` ok
+(cargo rc 0, engine warnings 41 = baseline). The core lib test of the probe passes.
+
+## 3b. Checks that the change moved no decision
+
+* `native_play --quick --twice` (sol, 4 players, seed 1): 1,165 steps, fingerprint `538dc68f23dddcc9`, deterministic, ZERO GAP (after the probe).
+* `native_play --factions all --players 3,4,5,6`: seeds 1 (96 games) and `--first-seed 2 --seeds 3` (288 games): all finished, 0 gaps.
+* A fresh native sweep, rule bot with the view, `selfplay run --players 3,4,5,6 --games 25 --seed-start 7000` (100 games): 100 % complete,
+  `problems: none`.
+* The fresh `dual-all` of this branch: 0 differences, 34,626,595 calls, 39,747 bails (identical to run A).
+* Not rerun (nothing in them changed): the bench steps (run A's results are used by the zero-bail step), dual-drv, dual-wide, strict, soak, ratchet.
+  The probe is a thread-local read per window step; the perf A/B (+1.5 % budget) was not measured here.
 
 ## 3. Reproduce
 
