@@ -1,7 +1,7 @@
 # dual-lent and soak after the strict panic: what the lent set showed behind it (lane core-lent-gaps, 2026-11-05)
 
 Branch `core-lent-gaps` from `core-duallent-fix` (e8fab2758). Nothing pushed or deployed. Rules version stays 36; the quick fingerprint `538dc68f23dddcc9` is pinned by
-`tests/wrapper_native` (section 5).
+`tests/wrapper_native` (section 1).
 
 Heavy run A failed two steps on the lent set and the ordinary games behind it: `dual-lent` (195 differences in 13 of 19 games, once the strict panic of `docs/DUALLENT_FIX_RESUME.md` was out of the way) and `soak`
 (slices of 85 / 11 / 4 / 3 differences, two slices incomplete: shard panics). This lane root-caused every family. In every family it found, the core (or the adapter that lends it its window) was wrong, not the string; the
@@ -11,10 +11,12 @@ one string quirk met on the way (Rearmament Agreement) is a documented copy (sec
 
 * `dual-lent` standalone (`dual_run tools/rulebot/golden-lent.json 20 all=dual`, 3 shards, slot 2, the exact command of `end_of_d1.sh`): **19 games, 0 differences, `hashes equal: true`, exit 0** (run A after the strict
   fix: 195 differences in 13 games). Log kept as `/root/deploytmp/lentgaps-evidence/dual-lent-final.log`.
-* `soak` (the step's exact command and env, standalone, one round of 40 games): SOAK_RESULT_LINE
-* `dual-all` (the golden 20 games, every area on Dual: the decision streams of the working games): GOLDEN_RESULT_LINE
-* `tests/wrapper_native` (quick fingerprint `538dc68f23dddcc9`): FINGER_RESULT_LINE
-* `clippy_core.sh`: ok, engine warnings 41 = baseline 41 (CLIPPY_RESULT_LINE)
+* `soak` (the step's exact command and env, standalone, one round of 40 games): **PASS** (no INCOMPLETE slice, `soak.sh run` exit 0; 6 slices, 31 games, `hash_changes 0`): `std_100000_5_all` 6 differences, `te_100000_7_driver` 24, `factions_100000_8_wide` 0,
+  `bot-v1_100000_2_all` 0, `bot-v3_100000_2_driver` 0, `bot-v5_100000_3_wide` 1 (run A: 3154 differences, 2 slices incomplete). The slices differ from run A's only by the lane `old` leaving the plan (section 4). Kept as
+  `/root/deploytmp/lentgaps-evidence/soak-run-final5.txt`
+* `dual-all` (the golden 20 games, every area on Dual: the decision streams of the working games): **20 games, 0 differences, `hashes equal: true`, exit 0** (`dual_run tools/engine_profile/profile-20.json 20 all=dual`, 3 shards; `/root/deploytmp/lentgaps-evidence/dual-all-final5.log`)
+* `tests/wrapper_native` (quick fingerprint `538dc68f23dddcc9`): `cargo test --profile lockstep -p ti4-engine-core-bridge --test wrapper_native` green (rc 0), on the final tree
+* `clippy_core.sh`: ok, engine warnings 41 = baseline 41 (`tools/engine_core/clippy_core.sh` rc 0 on the committed code)
 * Not run: the full engine lib suite on Dual (48 min), `board_equivalence`, the benches, the census, the mutation ratchet, the other steps of `end_of_d1.sh`.
 
 ## 2. The families, their causes and their fixes
@@ -24,9 +26,9 @@ Each fix has a regression test that is red without it (section 5 lists the red r
 | # | family (games) | what the trace showed | cause | fix | test |
 |---|---|---|---|---|---|
 | 1 | `game::close_vote` chain after Artuno (lent 0, 2, 4, 6, 14, 15, 17, 18; soak std/factions/bot-v3/bot-v5) and the same chain in `exploration::explore` (14, 16), `invasion::ground_round_hits` | the string asks Artuno, Mentak's Pillage, the take, Suffi An, Ssruu's copy, Scheming's discard and the Nomad reaction to the discard (6 questions); the core asks Artuno and stops | `silent::pillage::targets` returned "no neighbours" for a position lent without the map. The window is lent none (the string's galaxy is not in the position), so the condition was silently false and the whole chain was never reached. "The core stops following a chain after the first answered reaction" was a misreading: the chain was cut one step later, by a false condition. | the string notes the answer of its own Pillage (`dual_window::note_neighbours`, `Recording::neighbours`), `reactions_core::follow` hands it to the table (`AdapterFacts::set_neighbours`); the core reads the position's map when it holds one, else the note, else `Unknown::MissingFact` (a counted bail, never "no neighbours") | `agenda_close_tests::pillage_of_the_trade_good_future_sight_pays_is_followed_without_a_map_in_lockstep` (core: `silent_abilities::pillage_in_a_window_without_a_map_reads_the_neighbours_the_string_noted_and_otherwise_is_a_loud_gap`) |
-| 1b | after (1), the Pillage take differed in `context.trigger` (string none, core a trigger) | `silent::Ask::Pillage.carries_trigger()` was `true`; the string builds the take by hand (`mentak::pillage_effect`), without the trigger of the window | `Pillage => false`; the same test |
-| 1c | after (1), the action card deck differed by the two unofficial cards (Veto 3 and 4) at the lent games' rules version 23 | `g3::draw::draw` (the draws of Suffi An, Ssruu's copy, the Nekro commander) hard-coded "drop the unofficial cards"; the string drops them from rules version 30 on, like every other draw of the core (`Meta::rules_at_least`) | `draw` reads the version | `g3_abilities::edges::a_draw_leaves_the_unofficial_cards_in_the_deck_and_a_table_without_groups_is_a_loud_gap` (a version 23 half added) |
-| 2 | `exploration::explore` | same chain behind a trade good an exploration card gained | same as (1) | same | same |
+| 1b | the Pillage take after (1) | `context.trigger`: string none, core a trigger | `silent::Ask::Pillage.carries_trigger()` was `true`; the string builds the take by hand (`mentak::pillage_effect`), without the trigger of the window | `Pillage => false` | the same test |
+| 1c | the draws after (1), at the lent games' rules version 23 | the action card deck differed by the two unofficial cards (Veto 3 and 4) | `g3::draw::draw` (the draws of Suffi An, Ssruu's copy, the Nekro commander) hard-coded "drop the unofficial cards"; the string drops them from rules version 30 on, like every other draw of the core (`Meta::rules_at_least`) | `draw` reads the version | `g3_abilities::edges::a_draw_leaves_the_unofficial_cards_in_the_deck_and_a_table_without_groups_is_a_loud_gap` (a version 23 half added) |
+| 2 | `exploration::explore` (lent 14, 16) | same chain behind a trade good an exploration card gained | same as (1) | same | same |
 | 3 | `invasion::finish_control_gain` (lent 1, 2; soak std) | Naaz commander reaction answered, then the string asks "Distant Suns: which exploration card to resolve" and the core ends | the exploration Dart and Tai starts inside the window ran on the combat kernel, which holds no economy hook of the factions: `explore_extra_draw` (Distant Suns: a second card when the planet holds the seat's mech) never fired. Not a stop after the first reaction either: the core drew ONE card and asked nothing | `dual_window::control_gained` takes the economy hooks of `register_all` when the string run explored | `game::tests::dart_and_tai_explores_with_the_second_card_of_distant_suns_and_the_core_follows` |
 | 4 | `technology::end_turn` Predictive Intelligence (lent 7, 9; soak std: 19) | `details.reinforcements` n + 1 | the technology windows did not lend `Marks`, so the command tokens in a Mahact fleet pool (`fx::tokens_held_by_mahact`) counted none (silently: the function answers 0 where the marks are not lent) | `technology_dual::WINDOW` reads `Marks` | `technology_dual::tests::predictive_intelligence_counts_a_token_in_a_mahact_pool_out_of_the_reinforcements_in_lockstep` |
 | 5 | `combat::settle` Skilled Retreat destination `42` missing (lent 17) | the LENT_CENSUS row "FIXED" showed again: a second path of the same fault | one seat played the card twice in one round of one system (b, a, b, all `combat_round_seq` 11); the notes were keyed by seat, system and round and the last one won, so the first play lost the destination another seat's ships came to stand in later | the string notes the map's candidates (`combat::skilled_retreat_candidates`: adjacent, no hyperlane, enterable, no Mahact bar), the core takes the position's half itself (`combat::retreat_blocked_by_ships`) | `cards::tests::skilled_retreat_leaves_out_the_noted_systems_where_another_player_has_a_ship_now` (the dual-form test moved the rival's ship out of the destination: a destination with another player's ship is not legal) |
@@ -48,7 +50,7 @@ it gains (`apply_unit_upgrades`) turns it. The core copies the placement (`Facti
 
 Run A: 3154 differences, `te_100000_6_driver` (4 of 6 games) and `old_100000_6_wide` (0 of 6) INCOMPLETE. Its INCOMPLETE slices were the failure of the step (`end_of_d1.sh`: `soak.sh run` always exits 0 on
 differences; the step fails on an incomplete slice). The FACTION/MR panic was fixed on the base; the rest of the panics were the neutral owner (family 7). The differences themselves are reported, not failing, and
-the families above took them down to SOAK_DIFFS.
+the families above took them down to 31 (6 + 24 + 1; section 6 names them).
 
 **A decision that is not a fix** (flag it if you disagree): the lane `old` (rules versions 0..34) is out of the default plan (`soak_corpus.py`: `REFUSED = {"old"}`; `lanes --all`, `LANES=old` and `gen old` still make it). The
 core refuses every version below the newest (`MIN_SUPPORTED_RULES_VERSION`, `docs/RULES_VERSION.md`), so the product never asks it the menus and rules of an old version; the first game of the lane (rules version 1)
@@ -57,8 +59,15 @@ still showed 91 `turn::menu` differences after family 8 ("play Spy", "play Plagi
 
 ## 5. Checks
 
-Regression tests, each RED without its fix: `docs/LENT_GAPS_RESUME.md` is accompanied by `/root/deploytmp/lentgaps-red/` (the fix hunks reversed with `git apply -R`, the tests kept, the tree restored and
-compared): RED_RESULT_LINE
+Regression tests, each RED without its fix. The fix hunks of the 14 non-test files were reversed with `git apply -R` (44 hunks; script `/root/deploytmp/lentgaps-red/{make_patch.py,red.sh}`), the new tests kept, the tests run, the
+tree restored and compared (identical diff against the base). Red, all of them: `action_dispatch::a_seat_that_could_be_offered_the_deepgloom_executable_is_the_counted_gap_of_the_faction_menu`,
+`g3_abilities::edges::a_draw_leaves_the_unofficial_cards_in_the_deck_..` (its version 23 half), `silent_abilities::pillage_in_a_window_without_a_map_reads_the_neighbours_..`,
+`cards::tests::skilled_retreat_leaves_out_the_noted_systems_where_another_player_has_a_ship_now`, `agenda_close_tests::pillage_of_the_trade_good_future_sight_pays_is_followed_without_a_map_in_lockstep`,
+`core_sync::tests_totality::the_owner_table_holds_the_neutral_force_..`, `dual_window::nested_footprint_tests::a_window_that_follows_nested_activity_lends_the_decks_..`,
+`game::tests::dart_and_tai_explores_with_the_second_card_of_distant_suns_and_the_core_follows`, `leaders::tests::rin_re_forms_a_plain_mech_on_the_home_planet_like_the_string_and_the_core_follows`,
+`tactical_dual_tests::nova_seed_used_inside_the_close_keeps_the_close_on_the_string`, `tactical_dual_tests::the_arborec_commander_is_followed_in_the_activation_window_with_its_production_questions`,
+`technology_dual::tests::predictive_intelligence_counts_a_token_in_a_mahact_pool_out_of_the_reinforcements_in_lockstep`. (The thin crate's copy of the owner-table test is the same code as the legacy one; the red run reversed
+the legacy file only. The Courageous and Reveal Prototype context changes and the Freelancers position have no test of their own: soak repros only, listed in section 2.)
 
 Green (lockstep profile): `ti4-engine-core-tests` (`silent_abilities`, `g3_abilities`, `action_dispatch`, `leader_heroes`: the new tests and their neighbours), `ti4-engine-core-factions` `skilled_retreat`, `ti4-engine-legacy`
 (`pillage_of_the_trade_good..`, `predictive_intelligence_counts..`, `dart_and_tai..`, `the_owner_table_holds_the_neutral..`, `rin_..`, `skilled_retreat..`, the Arborec tests, `nova_seed_used_inside..`,
