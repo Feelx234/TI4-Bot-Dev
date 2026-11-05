@@ -233,6 +233,13 @@ mod real {
         announce: bool,
         script: &Recording,
     ) -> Option<CoreWindow<Option<Explored>>> {
+        // A deck text that names no exploration deck (the Crown of Emphidia offers a planet printed with a type and no trait, `FACTION` of a home planet,
+        // `MR` of Mecatol Rex, and the string asks for the deck of that type; B5-copy-04): the string explores nothing (`draw` has no such deck) and
+        // the core's tail (`tactical_tail::explorations`: no `traits_of(..).first()`) opens no window. That is the compared answer, not a bail and
+        // not an unmapped value.
+        if crate::core_sync::conv::try_explore_type(deck).is_none() && !gs.exploration_decks.contains_key(deck) {
+            return Some(CoreWindow { run: Run::new(None), questions: Vec::new() });
+        }
         let deck = explore_type(Slice::Decks, deck).ok().filter(|d| *d != ExploreType::Frontier).why(crate::dual::reason::UNKNOWN_ID)?;
         let planet = typed::<Planet>(planet.as_str()).why(crate::dual::reason::UNKNOWN_ID)?;
         run_window(gs, content, sources, player, |seat| Exploring::planet(seat, planet, EDeck::Fixed(deck), announce), script)

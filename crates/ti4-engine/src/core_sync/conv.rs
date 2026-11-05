@@ -46,11 +46,16 @@ pub fn list<T: IdStr + Copy, const N: usize, S: AsRef<str>>(
 /// The exploration trait of a deck / log key (`"CULTURAL"`, `"FRONTIER"`, ..: the corpus id upper-cased).
 /// Any other spelling is unmapped, so the key text is reproduced exactly on store.
 pub fn explore_type(slice: Slice, text: &str) -> R<ExploreType> {
-    ExploreType::ALL
-        .iter()
-        .copied()
-        .find(|t| explore_key(*t) == text)
-        .ok_or_else(|| bad(slice, "exploration trait", text))
+    try_explore_type(text).ok_or_else(|| bad(slice, "exploration trait", text))
+}
+
+/// [`explore_type`] for a caller that is asking whether a text names an exploration deck, not reading one off a state: the answer "no" is its
+/// own and is NOT a refusal of the codecs, so it is not counted (and does not panic in strict mode). The Crown of Emphidia explores into the
+/// deck named by a planet's first PLANET TYPE (both engines, `docs/ENGINE_KNOWN_ISSUES.md` B5-copy-04), which for a home planet is `FACTION`
+/// and for Mecatol Rex `MR`: those texts are no deck, and a string flow that asks for one draws nothing.
+#[must_use]
+pub fn try_explore_type(text: &str) -> Option<ExploreType> {
+    ExploreType::ALL.iter().copied().find(|t| explore_key(*t) == text)
 }
 
 /// The state's key of an exploration trait.

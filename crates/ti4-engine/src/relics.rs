@@ -2933,6 +2933,91 @@ mod relic_window_tests {
         let _ = take_report();
     }
 
+    /// The Crown holder controls the home planet and Mecatol Rex, planets printed with a type and no trait, besides its traited planets (or, with
+    /// `traited` off, instead of them).
+    fn crown_holder_with_untraited_planets(traited: bool) -> GameState {
+        let mut state = if traited { crown_holder() } else { seated() };
+        if !traited {
+            state.player_mut(&me()).unwrap().relics = vec![RelicId::new("emphidia")];
+            for deck in ["CULTURAL", "HAZARDOUS", "INDUSTRIAL"] {
+                state.exploration_decks.insert(deck.to_owned(), vec!["minent".to_owned()]);
+            }
+        }
+        state.system_mut(&SystemId::new("01")).set_control(ti4_model::id::PlanetId::new("jord"), me());
+        state.system_mut(&SystemId::new("18")).set_control(ti4_model::id::PlanetId::new("mr"), me());
+        state
+    }
+
+    /// The Crown of Emphidia offers every controlled planet with a printed type, a home planet (`FACTION`) and Mecatol Rex (`MR`) included, and
+    /// a pick of one explores into the deck of that type, which does not exist (ENGINE_KNOWN_ISSUES B5-copy-04: both engines do it; the core's tail
+    /// opens no window for it). The sharded dual of the lent set (`dual-lent`) panicked on it: `unmapped (strict mode): Decks: exploration trait "MR"`
+    /// / `"FACTION"`, because the adapters probed the deck text with the counting `explore_type`. A text that names no deck is the answer "nothing to
+    /// draw", compared, in strict mode too: no difference, no bail, no unmapped value.
+    #[test]
+    fn the_crown_of_emphidia_on_a_planet_without_a_trait_runs_in_lockstep_and_strict() {
+        let _guard = crate::dual::tests::serial();
+        let _ = take_report();
+        let _ = crate::core_sync::unmapped::take_thread();
+        let content = ti4_content::ContentStore::embedded();
+        // (the holder also controls a traited planet, the pick, explored, the Crown still ready)
+        for (traited, pick, explored, ready_after) in [
+            (true, "jord", false, false),
+            (true, "mr", false, false),
+            (true, "lodor", true, false),
+            (true, crate::choice::DECLINE_ID, false, true),
+            (false, crate::choice::DECLINE_ID, false, true),
+            (false, "jord", false, false),
+            (false, "mr", false, false),
+        ] {
+            dual(|| {
+                crate::core_sync::unmapped::strict_on_this_thread(|| {
+                    let mut state = crown_holder_with_untraited_planets(traited);
+                    let got = crown_of_emphidia_explore(&mut state, content, POK, &mut table(&[pick]), None, &me());
+                    assert_eq!(got, explored, "{pick}");
+                    assert_eq!(ready(&state, &me(), "emphidia"), ready_after, "{pick}");
+                });
+            });
+        }
+        let r = report();
+        assert_eq!(r.total_differences(), 0, "{:?}", r.differences);
+        let compared = |prefix: &str| r.windows.iter().filter(|(k, _)| k.starts_with(prefix)).map(|(_, w)| w.compared).sum::<u64>();
+        let bailed = |prefix: &str| r.windows.iter().filter(|(k, _)| k.starts_with(prefix)).map(|(_, w)| w.bailed).sum::<u64>();
+        assert_eq!(compared("relics::crown_of_emphidia_choose"), 7, "{:?}", r.windows);
+        assert_eq!(compared("exploration::explore"), 5, "the explorations of the four picks of a home planet / Mecatol Rex and of lodor");
+        assert_eq!(bailed("relics::crown_of_emphidia_choose") + bailed("exploration::explore"), 0, "no bail: {:?}", r.windows);
+        let _ = take_report();
+        assert_eq!(crate::core_sync::unmapped::take_thread().total, 0, "a text that is no exploration deck is a probe, not an unmapped value");
+    }
+
+    /// The probe of the adapters: a text that names no deck is answered without being counted as a refusal of the codecs, and the draw from a deck
+    /// that does not exist is `None` on both sides.
+    #[test]
+    fn a_deck_text_that_is_no_deck_is_a_probe_and_draws_nothing() {
+        use crate::core_sync::conv::{explore_type, try_explore_type};
+        use ti4_engine_core::generated::ExploreType;
+        let _guard = crate::dual::tests::serial();
+        let _ = crate::core_sync::unmapped::take_thread();
+        for text in ["MR", "FACTION", "FAKE", "SPACESTATION", "LIGHTNING", "cultural", ""] {
+            assert_eq!(try_explore_type(text), None, "{text:?}");
+        }
+        assert_eq!(try_explore_type("HAZARDOUS"), Some(ExploreType::Hazardous));
+        assert_eq!(crate::core_sync::unmapped::take_thread().total, 0, "the probe counts nothing");
+        // The reading of a state still counts (and, strict, refuses) the same text.
+        let refused = crate::core_sync::unmapped::allow_unmapped(|| explore_type(ti4_engine_core::state::Slice::Decks, "MR"));
+        assert!(refused.is_err());
+        assert_eq!(crate::core_sync::unmapped::take_thread().total, 1, "reading a deck key off a state is still counted");
+        // The core draw: a deck that is no deck gives nothing, without a bail, and writes nothing.
+        let mut state = crown_holder();
+        let before = state.clone();
+        crate::core_sync::unmapped::strict_on_this_thread(|| {
+            assert_eq!(crate::explore_write::draw(&mut state, "FACTION"), Some(None));
+            assert_eq!(crate::explore_write::draw(&mut state, "MR"), Some(None));
+        });
+        assert!(state == before);
+        assert_eq!(crate::core_sync::unmapped::take_thread().total, 0);
+        assert_eq!(crate::explore_write::draw(&mut state, "CULTURAL"), Some(Some("minent".to_owned())));
+    }
+
     fn rng() -> crate::rng::GameRng {
         crate::rng::GameRng::new(5)
     }
