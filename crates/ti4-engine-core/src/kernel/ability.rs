@@ -850,8 +850,10 @@ impl Spec {
 /// The rules behind the abilities the resolver's registry lists, by slot.
 #[derive(Clone, Default)]
 pub struct AbilityTable {
-    specs: Vec<Spec>,
-    forbids: Vec<(u32, Forbids)>,
+    /// The rules, shared between the copies of a table: `AbilityTable::clone` runs about five times per step and the specs are 10 KB, so a copy
+    /// is a reference count and `register*` copy the vector only when it is shared (`Arc::make_mut`).
+    specs: std::sync::Arc<Vec<Spec>>,
+    forbids: std::sync::Arc<Vec<(u32, Forbids)>>,
     /// Political Secret (`laws::political_secret_bars`): no faction ability for this seat. Set by the rules
     /// package that owns it (the kernel cannot import the agenda area).
     pub bars: Option<fn(&CoreState, Seat) -> bool>,
@@ -870,7 +872,7 @@ pub struct AbilityTable {
     /// The calls a window makes into other rule areas (child windows, the research queries): areas do not import each
     /// other, so the layer that may (`driver::children::register`) fills them. Empty by default.
     pub links: super::children::AreaLinks,
-    card_plays: Vec<CardPlay>,
+    card_plays: std::sync::Arc<Vec<CardPlay>>,
     /// A seat that has nothing to resolve in a reaction window was looked at once (`Table::window_skipped` of the string): the log the
     /// wrapper drains after the step. `None` records nothing.
     pub skipped: Option<SkippedLog>,
@@ -903,7 +905,7 @@ impl AbilityTable {
 
     /// Register the effect of some reaction cards.
     pub fn add_card_play(&mut self, play: CardPlay) {
-        self.card_plays.push(play);
+        std::sync::Arc::make_mut(&mut self.card_plays).push(play);
     }
 
     /// The registered effect that plays `card`, if any.
@@ -914,12 +916,12 @@ impl AbilityTable {
 
     pub fn add(&mut self, spec: Spec) {
         debug_assert!(self.of_slot(spec.slot).is_none(), "slot {:?} registered twice", spec.slot);
-        self.specs.push(spec);
+        std::sync::Arc::make_mut(&mut self.specs).push(spec);
     }
 
     /// The predicate of the cannot whose `arg` is given.
     pub fn add_forbid(&mut self, arg: u32, f: Forbids) {
-        self.forbids.push((arg, f));
+        std::sync::Arc::make_mut(&mut self.forbids).push((arg, f));
     }
 
     #[must_use]
@@ -1492,5 +1494,35 @@ impl Runner for Inline<'_, '_> {
             Some(after) => after(&mut *self.host, &mut *self.resolver).map(|()| true),
             None => Ok(false),
         }
+    }
+}
+
+#[cfg(test)]
+mod table_clone_tests {
+    use super::*;
+
+    fn spec(slot: u16) -> Spec {
+        Spec::new(Slot(slot), AbilityKind::Ability, EventKind::TradeGoodsGained, Relation::After, no_effect)
+    }
+
+    /// A table clone shares the specs (a reference count, not a copy of 10 KB); a registration on the copy leaves the original as it was
+    /// and a registration on the original (once it stopped being shared) leaves the copy as it was.
+    #[test]
+    fn a_clone_shares_the_specs_and_registering_copies_on_write() {
+        let mut a = AbilityTable::default();
+        a.add(spec(1));
+        a.add(spec(2));
+        let mut b = a.clone();
+        assert!(std::sync::Arc::ptr_eq(&a.specs, &b.specs), "a clone is a reference count");
+        b.add(spec(3));
+        assert_eq!((a.len(), b.len()), (2, 3), "the registration on the copy did not reach the original");
+        assert!(!std::sync::Arc::ptr_eq(&a.specs, &b.specs));
+        assert!(a.of_slot(Slot(3)).is_none() && b.of_slot(Slot(3)).is_some());
+        let c = a.clone();
+        a.add(spec(4));
+        assert_eq!((a.len(), c.len()), (3, 2), "the registration on the original did not reach the earlier copy");
+        assert!(c.of_slot(Slot(4)).is_none() && a.of_slot(Slot(4)).is_some());
+        a.add_forbid(7, |_, _, _| false);
+        assert!(c.forbids.is_empty() && a.forbids.len() == 1);
     }
 }
