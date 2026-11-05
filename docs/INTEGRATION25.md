@@ -48,8 +48,8 @@ Both lanes were cut from `df7845b21`, so the branches contain nothing else. Not 
 | host / wasm host (`--features ts`) / server (`--test-threads=2`) | 320 / 58 (3 ignored) / 415 (8 ignored), 0 failed |
 | `state_basics` in the dev profile (debug assertions on) | 14 passed, the guard test asserts the panic |
 | web `tsc --noEmit`, `vitest run` | clean; 278 files passed, 2 skipped; 2,750 tests passed, 4 skipped |
-| golden dual `dual_run profile-20.json 20 all=dual` (3 shards, fail-fast on, as step dual-all) | see DUAL_PLACEHOLDER |
-| `golden check` (200 games, default mask) | see GOLDEN_PLACEHOLDER |
+| golden dual `dual_run profile-20.json 20 all=dual` (3 shards, fail-fast on, as step dual-all) | 20 games, hashes equal, 34,626,595 calls / 35,204,339 comparisons, **0 differences, exit 0** (1,077 s; S8 Nano-Forge counted as a known string bug: 101 compared) |
+| `golden check` (200 games, default mask) | 200 games, 147,781 decisions, 0 failed (39 s) |
 
 ## 5. Not run (heavy run, by order)
 Z-gate, mutation ratchet, dual-drv / dual-wide / dual-lent / strict, soak, census, D4 crate, torch crates. Run A starts from the tip tagged `heavy-base-int25` (see `docs/I25_RESUME.md`).
