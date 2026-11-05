@@ -143,11 +143,16 @@ fn slice_sets_are_bitsets_over_the_seventeen_slices() {
 fn a_state_with_a_slice_missing_refuses_to_read_it_in_debug() {
     let s = CoreState::with_loaded(SliceSet::of(&[Slice::Meta, Slice::Board]));
     assert_eq!(s.meta().round, 0);
-    let r = std::panic::catch_unwind(|| {
-        let s = CoreState::with_loaded(SliceSet::of(&[Slice::Meta]));
-        let _ = s.board();
-    });
-    assert!(r.is_err(), "debug assertions are the unloaded-slice guard (trap T9): the D4 profile must keep them on");
+    // The guard is a `debug_assert!` (trap T9): it exists in the profiles that keep debug assertions (dev, the D4 profile) and is compiled out of the
+    // optimised ones (gate, lockstep, release), where the accessor just reads. So the refusal is asserted exactly where the guard exists; in the optimised
+    // profiles the rest of the test (the loaded set as part of the state) still runs, and nothing is claimed about what an unguarded read returns.
+    if cfg!(debug_assertions) {
+        let r = std::panic::catch_unwind(|| {
+            let s = CoreState::with_loaded(SliceSet::of(&[Slice::Meta]));
+            let _ = s.board();
+        });
+        assert!(r.is_err(), "debug assertions are the unloaded-slice guard (trap T9): the D4 profile must keep them on");
+    }
     let mut m = s.clone();
     m.mark_loaded(Slice::Rng);
     assert!(m.loaded.has(Slice::Rng) && !s.loaded.has(Slice::Rng));
