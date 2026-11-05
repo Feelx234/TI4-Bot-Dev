@@ -145,12 +145,18 @@ step census   "golden lent census: the labels the core bails at (bail probe merg
 step corpus "decision_corpus verify: the recorded corpus played again (CORPUS_SKIP=${CORPUS_SKIP:-1}: skipped by default)" \
   "if [[ '${CORPUS_SKIP:-1}' == 1 ]]; then echo 'SKIPPED: the core plays only rules version 36; the corpus sources are versions 11, 18, 23, 35 (and TE), verify fails on them by construction; the golden sets replay the same games on the string engine in the census step. Decision of core-integration-24; CORPUS_SKIP=0 runs the step.'; exit 0; fi; $T/gate/decision_corpus verify tools/engine_core/decision_corpus --workers 4"
 # The zero-bail acceptance (user rule: a whole game plays in the new engine without a bail, on the agreed content: everything except
-# Thunder's Edge and the dropped factions). Counts every bail and gate by cause in the reports of dual-all and dual-lent (every area on
-# Dual, gate binaries under unsupported::Policy::Panic and strict unmapped mode). ZERO_BAIL=report (default for now: the starting list of
-# the lanes still porting, exit 0) or ZERO_BAIL=enforce (the acceptance run after lanes 9/10: any cause left fails the step).
-# Corpus today: the 20 golden games and the lent set; widening it to every lobby-seatable faction is the soak lane `factions`.
-step zero-bail "zero-bail acceptance: bails and gates by cause over the all=dual reports (ZERO_BAIL=${ZERO_BAIL:-report})" \
-  "python3 -I tools/engine_core/zero_bail.py \$( [[ \"${ZERO_BAIL:-report}\" == enforce ]] && echo --enforce ) $out/dual-all.log \$( [[ -s $out/dual-lent.log ]] && echo $out/dual-lent.log ) | tee $out/zero-bail.txt"
+# Thunder's Edge and the dropped factions). Two parts (docs/ZEROBAIL_RESUME.md):
+#  1. the NATIVE evidence, the rule itself: native_play (whole games on the core alone, every gap counted; the 96 games of seed 1 and the 288 of
+#     seeds 2-4, all lobby factions, 3-6 seats, the `te` card set) must say ZERO GAP, and the bench results of the steps bench-* (rule bot with
+#     the view on the native wrapper, 6 configs x 200 games, agenda phases included) must be all victories with no problem;
+#  2. the DUAL's counters: every bail and gate of the reports of dual-all and dual-lent (every area on Dual) is classified by
+#     tools/engine_core/zero_bail_classes.tsv (census = a string body the core runs natively, adapter = a lent window the dual's adapter
+#     declines that the native path plays, gap = a real gap); an unclassified cause, a bail without a reason, a gap, a cited test that no
+#     longer exists, or a log that is no complete dual report (the step died) fails. ZERO_BAIL=report (exit 0 whatever is left) or enforce.
+step zero-bail "zero-bail acceptance: native games with zero gaps, bench games all won, the dual's bails and gates by class (ZERO_BAIL=${ZERO_BAIL:-report})" \
+  "$T/gate/native_play --factions all --players 3,4,5,6 --seeds 1 > $out/zero-bail-native-a.log 2>&1; $T/gate/native_play --factions all --players 3,4,5,6 --first-seed 2 --seeds 3 > $out/zero-bail-native-b.log 2>&1; \
+   benches=(); for f in $out/bench-*/bench*.json; do [[ -f \$f ]] && benches+=(--bench \$f); done; \
+   python3 -I tools/engine_core/zero_bail.py \$( [[ \"${ZERO_BAIL:-report}\" == enforce ]] && echo --enforce ) --native $out/zero-bail-native-a.log --native $out/zero-bail-native-b.log \"\${benches[@]}\" $out/dual-all.log \$( [[ -e $out/dual-lent.log ]] && echo $out/dual-lent.log ) | tee $out/zero-bail.txt"
 # Strict product mode (TI4_CORE_STRICT=1: the W17 product assertions, docs/todo/D2-remaining.md finding 5) is exercised by a gate here and
 # only here: dual-all itself must stay un-strict (a strict assertion would turn a counted bail into a panic and empty the probe).
 step strict   "TI4_CORE_STRICT=1: the golden replays on core and the driver dual over the golden games (0 product assertions)" \

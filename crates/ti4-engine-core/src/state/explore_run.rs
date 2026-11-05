@@ -112,7 +112,8 @@ pub enum EWhy {
     LinkedAsks,
     /// Freelancers: a unit produced with influence.
     Freelancers,
-    /// Titans' Terragenesis ("after you explore a planet") is not a rule of the core table.
+    /// Titans' Terragenesis ("after you explore a planet"): a rule of the live path's registry (`cd_registry::titans::offer::TERRAGENESIS`), not of
+    /// the table a dual driver without a registry builds (the host counts the bail there).
     Terragenesis,
     /// A replenishment the core does not follow (two seats of one faction).
     Replenish,

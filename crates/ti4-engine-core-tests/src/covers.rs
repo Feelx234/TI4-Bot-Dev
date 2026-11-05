@@ -35,6 +35,37 @@ pub fn register(kind: &str, label: &str, test: &str) {
     }
 }
 
+/// Like [`register`], but only the first time this process sees the pair (the stage probe reports every step of every window: the file
+/// would otherwise grow by a line per step).
+fn register_once(kind: &str, label: &str, test: &str) {
+    let new = REGISTRY.lock().unwrap_or_else(|e| e.into_inner()).insert((kind.to_string(), label.to_string()));
+    if !new {
+        return;
+    }
+    let _guard = FILE.lock().unwrap_or_else(|e| e.into_inner());
+    let path = covers_file();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(f, "{kind}\t{label}\t{test}");
+    }
+}
+
+/// The stage probe of the core (`ti4_engine_core::driver::probe`): every window that runs in a test reports its type and its stage, so a
+/// test that drives a window through `driver::live`, a job of the turn flow or a `Driver` of its own counts as covering it, with the stage
+/// variants it passed (the `Rig` registers the same lines; the report deduplicates).
+fn trace(window: &'static str, stage: &dyn std::fmt::Debug) {
+    let test = std::thread::current().name().unwrap_or("?").to_string();
+    register_once("stage", &format!("{window}::{stage:?}"), &test);
+    register_once("window", window, &test);
+}
+
+/// Install the stage probe on the calling thread (the scenario builder and the rig do it: a test thread that builds a position is traced).
+pub fn install_probe() {
+    ti4_engine_core::driver::probe::set(Some(trace));
+}
+
 /// What this process has registered so far.
 #[must_use]
 pub fn registered() -> Vec<(String, String)> {

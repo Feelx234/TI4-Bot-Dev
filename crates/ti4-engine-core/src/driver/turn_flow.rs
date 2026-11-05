@@ -111,8 +111,9 @@ pub fn strategy_phase_flip(core: &mut CoreState) -> Option<Seat> {
     first
 }
 
-/// The hooks between the steps of `Game::advance_turn_inner` that are still string bodies (they ask questions of the owners of
-/// cards the core does not run), in the order the string runs them. `fleet::enforce_everywhere` between them is a core window
+/// The hooks between the steps of `Game::advance_turn_inner` that the string runs as bodies of its own and the dual counts as
+/// `turn::hooks [bail: <name>]` (a census of the string driver: the core runs each of them natively as a job of `driver::turn::end`,
+/// see `docs/ZEROBAIL_RESUME.md`), in the order the string runs them. `fleet::enforce_everywhere` between them is a core window
 /// (`driver::windows::enforce_all`); the `TURN_PASSED` reaction windows are the A5 shim's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hook {

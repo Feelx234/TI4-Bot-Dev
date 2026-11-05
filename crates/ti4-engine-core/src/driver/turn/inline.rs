@@ -50,6 +50,7 @@ pub fn run<W: Window>(sx: &mut Sx<'_>, w: &mut W) -> Flow {
             return Flow::Halt;
         }
         let mut asked = false;
+        crate::driver::probe::seen(w);
         for next in w.step(sx).flatten() {
             match next {
                 Next::Done | Next::Chain(_) => {}
@@ -82,6 +83,7 @@ pub fn run<W: Window>(sx: &mut Sx<'_>, w: &mut W) -> Flow {
             }
         }
         if !asked {
+            crate::driver::probe::seen(w);
             return Flow::Done;
         }
     }
