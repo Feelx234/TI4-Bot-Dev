@@ -6,7 +6,6 @@
 //! The string side plays `Game::step` until the phase's last event, answering the scripted ids and then the first option; the native side
 //! takes the answers the string was given and runs one `live_step` per step the position's arm names.
 
-use std::rc::Rc;
 
 use ti4_content::ContentStore;
 use ti4_engine_core::driver::session::{step_arm, Arm, Facts};
@@ -16,7 +15,6 @@ use ti4_model::id::{ObjectiveId, RelicId, StrategyCardId, TechnologyId};
 use ti4_model::state::{GameState, Phase};
 
 use super::turn_live_tests::{assert_same, based, pid, string_run_first, Run};
-use crate::core_sync::codec::rng::TextSeeds;
 use crate::core_sync::{materialize, Codec, Ctx, Sources};
 use crate::live::{self, Scripted};
 use crate::render::Render;
@@ -44,7 +42,7 @@ fn native_status(state: &GameState, ids: &[String]) -> Run {
     let mut core = Codec::load(&mut cx, state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("the position loads");
     let sources = DEFAULT;
     let kernel = live::kernel::kernel_for(sources);
-    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
+    let env = live::env::env_with_plays(&render, &core, kernel, sources);
     let lcx = live::Cx::new(&render, &env);
     let mut asker = Scripted::new(ids.iter().cloned());
     for _ in 0..200 {
@@ -217,7 +215,7 @@ fn event_both(state: &GameState, occurrence: u64, timing: crate::secrets::Timing
     let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
     let mut core = Codec::load(&mut cx, state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("the position loads");
     let kernel = live::kernel::kernel_for(DEFAULT);
-    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
+    let env = live::env::env_with_plays(&render, &core, kernel, DEFAULT);
     let lcx = live::Cx::new(&render, &env);
     let order: Vec<_> = ti4_engine_core::query::seats::initiative_order(&core).iter().copied().collect();
     let tim = match timing {

@@ -5,7 +5,6 @@ use ti4_engine_core::generated::Unit;
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::state::{CoreState, Meta, MetaFlags, Phase, Piece, Players, Rng, RngDomain, Seats, Slice, SliceSet};
 use ti4_engine_core_tests::prelude::*;
-use ti4_engine_core_tests::rig::KitSeeds;
 
 // ---- Rng --------------------------------------------------------------------------------------
 
@@ -14,18 +13,18 @@ fn a_die_is_always_within_its_sides() {
     let mut r = Rng::new(1);
     for sides in [1u32, 2, 6, 10, 100] {
         for _ in 0..200 {
-            let d = r.die(RngDomain::Dice, &KitSeeds(0), sides);
+            let d = r.die(RngDomain::Dice, sides);
             assert!((1..=sides).contains(&d), "d{sides} gave {d}");
         }
     }
-    assert_eq!(Rng::new(1).die(RngDomain::Dice, &KitSeeds(0), 1), 1);
+    assert_eq!(Rng::new(1).die(RngDomain::Dice, 1), 1);
 }
 
 #[test]
 fn the_same_seed_gives_the_same_stream_and_another_seed_a_different_one() {
     let faces = |seed: u64| {
         let mut r = Rng::new(seed);
-        (0..40).map(|_| r.die(RngDomain::Dice, &KitSeeds(0), 10)).collect::<Vec<_>>()
+        (0..40).map(|_| r.die(RngDomain::Dice, 10)).collect::<Vec<_>>()
     };
     assert_eq!(faces(5), faces(5));
     assert_ne!(faces(5), faces(6));
@@ -37,28 +36,27 @@ fn streams_of_different_domains_do_not_disturb_each_other() {
     let mut a = Rng::new(9);
     let mut b = Rng::new(9);
     for _ in 0..10 {
-        a.die(RngDomain::Agendas, &KitSeeds(0), 10);
+        a.die(RngDomain::Agendas, 10);
     }
-    let from_a: Vec<u32> = (0..10).map(|_| a.die(RngDomain::Dice, &KitSeeds(0), 10)).collect();
-    let from_b: Vec<u32> = (0..10).map(|_| b.die(RngDomain::Dice, &KitSeeds(0), 10)).collect();
+    let from_a: Vec<u32> = (0..10).map(|_| a.die(RngDomain::Dice, 10)).collect();
+    let from_b: Vec<u32> = (0..10).map(|_| b.die(RngDomain::Dice, 10)).collect();
     assert_eq!(from_a, from_b, "drawing agendas first leaves the dice stream where it was");
-    assert_ne!(RngDomain::Dyn(1, 0), RngDomain::Dyn(1, 1));
 }
 
 #[test]
 fn positions_are_listed_in_domain_order_and_restore_exactly() {
     let mut r = Rng::new(4);
-    r.die(RngDomain::Relics, &KitSeeds(0), 6);
-    r.die(RngDomain::Dice, &KitSeeds(0), 6);
-    r.die(RngDomain::Dyn(2, 5), &KitSeeds(0), 6);
+    r.die(RngDomain::Relics, 6);
+    r.die(RngDomain::Dice, 6);
+    r.die(RngDomain::Neuraloop, 6);
     let pos: Vec<_> = r.positions().collect();
-    assert_eq!(pos.iter().map(|(d, _)| *d).collect::<Vec<_>>(), vec![RngDomain::Dice, RngDomain::Relics, RngDomain::Dyn(2, 5)], "sorted by domain");
-    let next = r.die(RngDomain::Dice, &KitSeeds(0), 6);
+    assert_eq!(pos.iter().map(|(d, _)| *d).collect::<Vec<_>>(), vec![RngDomain::Dice, RngDomain::Relics, RngDomain::Neuraloop], "sorted by domain");
+    let next = r.die(RngDomain::Dice, 6);
     let mut other = Rng::new(4);
-    other.die(RngDomain::Agendas, &KitSeeds(0), 6);
-    other.set_positions(&pos, &KitSeeds(0));
+    other.die(RngDomain::Agendas, 6);
+    other.set_positions(&pos);
     assert_eq!(other.positions().map(|(d, _)| d).collect::<Vec<_>>(), pos.iter().map(|(d, _)| *d).collect::<Vec<_>>(), "streams not listed are dropped");
-    assert_eq!(other.die(RngDomain::Dice, &KitSeeds(0), 6), next);
+    assert_eq!(other.die(RngDomain::Dice, 6), next);
 }
 
 proptest! {
@@ -67,8 +65,8 @@ proptest! {
     fn a_shuffle_is_a_permutation_and_repeatable(seed in any::<u64>(), len in 0usize..60) {
         let mut a: Vec<usize> = (0..len).collect();
         let mut b = a.clone();
-        Rng::new(seed).shuffle(RngDomain::Agendas, &KitSeeds(1), &mut a);
-        Rng::new(seed).shuffle(RngDomain::Agendas, &KitSeeds(1), &mut b);
+        Rng::new(seed).shuffle(RngDomain::Agendas, &mut a);
+        Rng::new(seed).shuffle(RngDomain::Agendas, &mut b);
         prop_assert_eq!(&a, &b);
         let mut sorted = a.clone();
         sorted.sort_unstable();
@@ -78,10 +76,10 @@ proptest! {
     #[test]
     fn a_clone_draws_what_its_original_would(seed in any::<u64>(), warm in 0usize..20, more in 1usize..20) {
         let mut a = Rng::new(seed);
-        for _ in 0..warm { a.die(RngDomain::Dice, &KitSeeds(2), 10); }
+        for _ in 0..warm { a.die(RngDomain::Dice, 10); }
         let mut b = a.clone();
-        let x: Vec<u32> = (0..more).map(|_| a.die(RngDomain::Dice, &KitSeeds(2), 10)).collect();
-        let y: Vec<u32> = (0..more).map(|_| b.die(RngDomain::Dice, &KitSeeds(2), 10)).collect();
+        let x: Vec<u32> = (0..more).map(|_| a.die(RngDomain::Dice, 10)).collect();
+        let y: Vec<u32> = (0..more).map(|_| b.die(RngDomain::Dice, 10)).collect();
         prop_assert_eq!(x, y);
         prop_assert!(a == b);
     }

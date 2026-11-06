@@ -210,7 +210,6 @@ pub(crate) mod tests {
     use ti4_model::state::GameState;
 
     use crate::choice::Choice;
-    use crate::core_sync::codec::rng::TextSeeds;
     use crate::core_sync::{materialize, Codec, Ctx, Sources};
     use crate::dual::{diff_json, take_report, with_mask, AreaMask};
     use crate::game::{Game, TACTICAL_ACTION_ID};
@@ -316,7 +315,7 @@ pub(crate) mod tests {
         let seat = render.seat("a").expect("seat a");
         open_tactical(&mut core, seat);
         let kernel = crate::live::kernel::kernel_for(sources);
-        let env = crate::live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
+        let env = crate::live::env::env_with_plays(&render, &core, kernel, sources);
         let live = Cx::new(&render, &env);
         let queue = Rc::new(RefCell::new(script[1..].iter().map(|s| (*s).to_owned()).collect::<VecDeque<_>>()));
         let seen = Rc::new(RefCell::new(Vec::new()));
@@ -664,7 +663,7 @@ pub(crate) mod tests {
         let seat = render.seat("a").expect("seat a");
         open_tactical(&mut core, seat);
         let kernel = crate::live::kernel::kernel_for(POK);
-        let env = crate::live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), POK);
+        let env = crate::live::env::env_with_plays(&render, &core, kernel, POK);
         let system = <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(target.as_str()).expect("a system");
         let (live, _) = advance(&mut core, &env, None).expect("the activation question");
         assert!(matches!(live, Live::Asks(_)));

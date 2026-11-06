@@ -272,7 +272,8 @@ fn the_defender_is_asked_about_a_retreat_before_the_attacker_and_a_fleet_that_le
     e.neighbors = [vec![(there(), true)], vec![(there(), true)]];
     let sc = || arena(Faction::TheEmbersOfMuaat, Faction::TheArborec).unit(sys(), None, Unit::CruiserI, 0, 1).unit(sys(), None, Unit::CruiserI, 1, 6).unit(there(), None, Unit::CruiserI, 1, 1);
     let (mut left, mut stayed) = (0, 0);
-    for seed in 0..40u64 {
+    // (Six defending cruisers miss the lone attacker in about one round of twenty: enough seeds to see both.)
+    for seed in 0..160u64 {
         let mut fight = Fight::new(sc(), e.clone(), seed);
         // The defender is asked first; answer "announce a retreat" whenever it is asked, "stay" for the attacker (the attacker cannot retreat to a neighbour with the defender's ships).
         fight.state.transient_mut().combat.last_reroll_player = None;

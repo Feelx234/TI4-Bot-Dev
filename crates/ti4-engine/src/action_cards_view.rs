@@ -602,10 +602,6 @@ pub fn play_window(
     let fp = if lends_map { fp.union(MAP) } else { fp };
     let fp = if probe { fp.union(crate::exploring_dual::FP) } else { fp };
     let src = Sources { galaxy: if lends_map { galaxy } else { None }, rng: lent.as_ref().map(|l| &l.before) };
-    let mut driver_seeds = None;
-    if lent.is_some() {
-        driver_seeds = Some(std::rc::Rc::new(crate::dual_window::DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?)));
-    }
     let letnev = gs.player(player).why(crate::dual::reason::NO_SEAT)?.faction.as_str() == "letnev";
     let performing = performing_of(&before, sources, player, seat, card, &r);
     let details = |c: &ti4_engine_core::choice::Choice, core: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
@@ -635,9 +631,6 @@ pub fn play_window(
         }
         let play = rules::effects::Play::of(core, card, seat, env)?;
         let mut driver = crate::window_driver::driver_for(play, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), if probe { probe_table(&r, ti4_content::ContentStore::embedded(), sources) } else { play_table() }, 1);
-        if let Some(seeds) = driver_seeds {
-            driver = driver.with_seeds(seeds);
-        }
         let driven = crate::dual_window::drive_with(&mut driver, core, &kernel, &r, &before, script, &details);
         staged = std::mem::take(&mut core.pending_mut().staged);
         emitted = std::mem::take(&mut driver.emitted);
@@ -800,11 +793,7 @@ pub fn announce_window(
         fp = fp.union(crate::exploring_dual::FP);
     }
     let src = Sources { galaxy: if lends_map { galaxy } else { None }, rng: lent.as_ref().map(|l| &l.before) };
-    let seeds = match lent {
-        Some(_) => Some(std::rc::Rc::new(crate::dual_window::DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?))),
-        None => None,
-    };
-    let rolled = seeds.is_some();
+    let rolled = lent.is_some();
     let performing = performing_of(&before, sources, player, seat, card, &r);
     let driven = crate::core_sync::with_core(gs, &mut cx, src, fp, |core, _| {
         if lends_map && core.galaxy().is_none() {
@@ -825,9 +814,6 @@ pub fn announce_window(
         }
         let announce = announce?;
         let mut driver = crate::window_driver::driver_for(announce, ti4_engine_core::kernel::Resolver::new(&[seat], Some(seat)), if probe { probe_table(&r, ti4_content::ContentStore::embedded(), sources) } else { play_table() }, 1);
-        if let Some(seeds) = seeds {
-            driver = driver.with_seeds(seeds);
-        }
         let battle = |_c: &ti4_engine_core::choice::Choice, _core: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
             // The effect's questions are asked through `ask_seeing`: the battle or invasion the position is in.
             // A payment is asked of the table directly (`production::pay`), which adds neither (found by the golden dual: Reveal

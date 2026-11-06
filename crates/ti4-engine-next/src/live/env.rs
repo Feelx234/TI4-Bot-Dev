@@ -9,7 +9,6 @@
 //! alone leaves them out: a card played inside such an `Env`'s window stops the step with `LiveError::Unknown(PlayFacts)`, which the
 //! playthrough counts as a bail (never a silent skip).
 
-use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use ti4_engine_core::containers::Cow;
@@ -18,17 +17,16 @@ use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::stage::{AbilityTable, Spec};
 use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::kernel::{Kernel, Resolver};
-use ti4_engine_core::state::{CoreState, SeedSource};
+use ti4_engine_core::state::CoreState;
 
 use crate::kernel_sync::text::ability_id;
 use crate::ties::reactions_core::{id_text, set_table_codes, table};
 use crate::render::Render;
 
-/// The environment of a live game at `core`: every seat's abilities in the string order, the table with its codes, the game's
-/// seeds. Built once per game (the registry is derived from the position; call again when the seats' abilities change: a faction
+/// The environment of a live game at `core`: every seat's abilities in the string order, the table with its codes. Built once per game (the registry is derived from the position; call again when the seats' abilities change: a faction
 /// swap, a copied ability).
 #[must_use]
-pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<dyn SeedSource>) -> Env<'a> {
+pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel) -> Env<'a> {
     let order: Vec<Seat> = (0..core.players().len()).filter_map(|i| u8::try_from(i).ok().map(Seat)).collect();
     let faction = |who: Seat| core.players().by_seat(who).map_or_else(String::new, |p| crate::generated::IdStr::as_str(p.faction).to_owned());
     let mut table = table();
@@ -49,7 +47,7 @@ pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<d
     let defs = table.registry(core, &order, &mut name);
     let mut resolver = Resolver::new(&order, None);
     resolver.register(defs);
-    Env { kernel, registry: Cow::new(resolver.registry().clone()), table, seeds }
+    Env { kernel, registry: Cow::new(resolver.registry().clone()), table }
 }
 
 /// [`env_for`] with the play facts: a card played from inside a live window finds the facts of the position it is played in
@@ -59,26 +57,26 @@ pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<d
 /// registry reads. [`env_with_plays_uncached`] builds the same thing from scratch (the definition); with [`verify_cache`] on, every reuse is checked
 /// against it.
 #[must_use]
-pub fn env_with_plays<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<dyn SeedSource>, sources: ti4_model::content_types::SourceSet) -> Env<'a> {
+pub fn env_with_plays<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, sources: ti4_model::content_types::SourceSet) -> Env<'a> {
     let key = Key::of(r, core, kernel, sources);
     let hit = r.env_template.borrow().as_ref().filter(|t| t.key == key).map(|t| (t.registry.clone(), t.table.clone()));
     if let Some((registry, table)) = hit {
-        let env = Env { kernel, registry, table, seeds };
+        let env = Env { kernel, registry, table };
         if VERIFY.load(Ordering::Relaxed) {
-            let fresh = env_with_plays_uncached(r, core, kernel, env.seeds.clone(), sources);
+            let fresh = env_with_plays_uncached(r, core, kernel, sources);
             assert_same(&env, &fresh, core, kernel);
         }
         return env;
     }
-    let env = env_with_plays_uncached(r, core, kernel, seeds, sources);
+    let env = env_with_plays_uncached(r, core, kernel, sources);
     *r.env_template.borrow_mut() = Some(Template { key, registry: env.registry.clone(), table: env.table.clone() });
     env
 }
 
 /// [`env_with_plays`] built from scratch, the cache ignored and left as it was.
 #[must_use]
-pub fn env_with_plays_uncached<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<dyn SeedSource>, sources: ti4_model::content_types::SourceSet) -> Env<'a> {
-    let mut env = env_for(r, core, kernel, seeds);
+pub fn env_with_plays_uncached<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, sources: ti4_model::content_types::SourceSet) -> Env<'a> {
+    let mut env = env_for(r, core, kernel);
     env.table.facts.plays_provider = Some(super::plays::provider(r, sources));
     // The faction units of the game's own scope: a game without Thunder's Edge places the Naalu mech, not its reprint (`env_for` names the full scope,
     // which the buildable units of a production step and the form an Assimilate seat places would follow).

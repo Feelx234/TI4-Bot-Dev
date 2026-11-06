@@ -2,7 +2,6 @@
 //! `advance` to a question or the end, a clone of the position standing for a checkpoint. The lockstep against the string steps is
 //! `ti4-engine`'s `strategic_live_tests`; these tests pin what the arms write, announce and refuse.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::leaders::{Ask as LAsk, Opt as LOpt};
 use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt};
@@ -11,7 +10,6 @@ use ti4_engine_core::driver::live::{ask, is_open, Env, Live, LiveError};
 use ti4_engine_core::driver::windows::strategic::{
     after::open_after, begin::begin_strategic, advance_finished, advance_leader_followers, advance_secondary, ask_leader_followers, ask_secondary, secondary_of, select_leader_strategy_followers, LeaderFollowersWin, SecondaryWin,
 };
-use ti4_engine_core::driver::NoSeeds;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::state::{PlainKind, SecondaryHow, Window as OpenWindow, WindowKind};
@@ -41,7 +39,7 @@ fn env(k: &Kernel) -> Env<'_> {
             shared: SharedPlay::default(),
         })
     })));
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(NoSeeds) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table }
 }
 
 fn kinds(s: &CoreState) -> Vec<PlainKind> {

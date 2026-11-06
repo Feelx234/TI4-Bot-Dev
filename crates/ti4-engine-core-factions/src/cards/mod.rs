@@ -43,7 +43,7 @@ pub fn register_after_play(t: &mut AbilityTable) {
 fn redraw(host: &mut RulesHost<'_>, roller: Seat, picks: &[(usize, usize)], record: bool) {
     use ti4_engine_core::state::RngDomain;
     for (e, d) in picks {
-        let face = host.state.rng_mut().die(RngDomain::Dice, host.seeds, 10);
+        let face = ti4_engine_core::state::rng::die(host.state.rng_mut(), RngDomain::Dice, 10);
         let staging = host.state.transient_mut().combat.reroll_staging.edit();
         let Some((_, set)) = staging.iter_mut().find(|(s, _)| *s == roller) else { continue };
         let system = set.system;
@@ -238,7 +238,6 @@ fn with_sx<R>(host: &mut RulesHost<'_>, resolver: &mut Resolver, f: impl FnOnce(
         tape: &mut *host.tape,
         next_id: &mut *host.next_id,
         emitted: &mut emitted,
-        seeds: host.seeds,
     };
     let done = f(&mut sx);
     // What the helpers emitted at the top level is the events of the window that called the hook (`Tape::emitted`).
@@ -359,7 +358,6 @@ fn parley(host: &mut RulesHost<'_>, _: &mut Resolver, _: Seat, _: ActionCard) ->
 mod tests {
     use super::*;
     use crate::common::testkit::table;
-    use ti4_engine_core::driver::NoSeeds;
     use ti4_engine_core::generated::Unit;
     use ti4_engine_core::kernel::ability::Tape;
     use ti4_engine_core::state::{CoreState, Piece};
@@ -371,7 +369,7 @@ mod tests {
         let mut tape = Tape::default();
         let mut next_id = 1_u64;
         let mut resolver = Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
-        let mut host = RulesHost { state: s, kernel: &kernel, table: &t, tape: &mut tape, next_id: &mut next_id, seeds: &NoSeeds };
+        let mut host = RulesHost { state: s, kernel: &kernel, table: &t, tape: &mut tape, next_id: &mut next_id };
         let play = t.card_play(card).copied().expect("a registered card");
         (play.effect)(&mut host, &mut resolver, who, card)?;
         Ok(tape.take_unknown())
@@ -531,7 +529,7 @@ mod tests {
         let mut tape = Tape::default();
         let mut next_id = 7_u64;
         let mut resolver = Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
-        let mut host = RulesHost { state: &mut s, kernel: &kernel, table: &t, tape: &mut tape, next_id: &mut next_id, seeds: &NoSeeds };
+        let mut host = RulesHost { state: &mut s, kernel: &kernel, table: &t, tape: &mut tape, next_id: &mut next_id };
         (t.after_play.expect("registered"))(&mut host, &mut resolver).unwrap();
         assert_eq!(next_id, 8, "one event was numbered");
         assert!(s.transient().combat.pending_destructions.is_empty(), "the staged loss is spent");
@@ -701,7 +699,7 @@ mod tests {
         let mut tape = Tape::default();
         let mut next_id = 1_u64;
         let mut resolver = Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
-        let mut host = RulesHost { state: s, kernel: &kernel, table: t, tape: &mut tape, next_id: &mut next_id, seeds: &NoSeeds };
+        let mut host = RulesHost { state: s, kernel: &kernel, table: t, tape: &mut tape, next_id: &mut next_id };
         let effect = t.card_play(card).copied().expect("registered").effect;
         effect(&mut host, &mut resolver, Seat(0), card).unwrap();
         (tape.take_unknown(), tape.needed().cloned())
@@ -736,7 +734,7 @@ mod tests {
         use ti4_engine_core::state::{RngDomain, RollPurpose};
         let mut s = rolled(Some(Seat(1)));
         let mut stream = s.rng().clone();
-        let faces: Vec<u8> = (0..5).map(|_| u8::try_from(stream.die(RngDomain::Dice, &NoSeeds, 10)).unwrap()).collect();
+        let faces: Vec<u8> = (0..5).map(|_| u8::try_from(ti4_engine_core::state::rng::die(&mut stream, RngDomain::Dice, 10)).unwrap()).collect();
         assert_eq!(run(&mut s, &registered(), ActionCard::ScrambleFrequency, Seat(0), false), Ok(None));
         let set = s.transient().combat.reroll_staging[0].1.clone();
         assert_eq!(set.rolls[0].faces.to_vec(), faces[0..2].to_vec(), "the faces are the next five draws of the dice stream, in order");
@@ -782,7 +780,7 @@ mod tests {
         let mut tape = Tape::default();
         let mut next_id = 1_u64;
         let mut resolver = Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
-        let mut host = RulesHost { state: &mut s, kernel: &kernel, table: &t, tape: &mut tape, next_id: &mut next_id, seeds: &NoSeeds };
+        let mut host = RulesHost { state: &mut s, kernel: &kernel, table: &t, tape: &mut tape, next_id: &mut next_id };
         let effect = t.card_play(ActionCard::FireTeam).copied().expect("registered").effect;
         effect(&mut host, &mut resolver, Seat(1), ActionCard::FireTeam).unwrap();
         assert_eq!(tape.take_unknown(), None, "the texts are the invasion's");
@@ -799,7 +797,7 @@ mod tests {
         let t = registered();
         let mut tape = Tape::default();
         let mut next_id = 1_u64;
-        let mut host = RulesHost { state: &mut s, kernel: &kernel, table: &t, tape: &mut tape, next_id: &mut next_id, seeds: &NoSeeds };
+        let mut host = RulesHost { state: &mut s, kernel: &kernel, table: &t, tape: &mut tape, next_id: &mut next_id };
         redraw(&mut host, Seat(1), &[(0, 1), (1, 2)], false);
         assert!(s.ledger().dice.is_empty());
         let set = &s.transient().combat.reroll_staging[0].1;

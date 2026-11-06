@@ -1,13 +1,11 @@
 //! Lane B, KP2: the end of a turn as a live job (`driver::turn::end`). Every test runs the job the way the live loop does: a held
 //! window on the stack, `advance` to a question or the end, a clone of the position standing for a checkpoint.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::turn::{Ask as TAsk, Opt as TOpt};
 use ti4_engine_core::containers::Cow;
 use ti4_engine_core::driver::live::{advance, ask, is_open, Env, Live, LiveError};
 use ti4_engine_core::driver::turn::{advance_job, TurnFlowWin};
-use ti4_engine_core::driver::NoSeeds;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::state::{Emit, Outcome, PlainArg, PlainKind, PlainRec, TransientFlags, TurnJob};
@@ -16,7 +14,7 @@ use ti4_engine_core_tests::prelude::*;
 fn env(k: &Kernel) -> Env<'_> {
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(NoSeeds) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table }
 }
 
 fn plain_kinds(s: &CoreState) -> Vec<PlainKind> {

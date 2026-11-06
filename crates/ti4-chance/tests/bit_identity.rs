@@ -1,12 +1,14 @@
 //! Proof tests U (docs/FORK_RNG_THEORY.md 4.7): `ti4-chance` reproduces today's draws bit for bit.
 //!
-//! The reference is the live implementation, not recorded vectors: the core's `state::Rng` seeded by the setup's
+//! The reference is the old implementation, not recorded vectors: the core's `state::Rng` seeded by the setup's
 //! `rng::Literals` (the same `SHA-256(seed_le || text)` as the thin crate's `GameRng`, which the core's own tests and
-//! the dual runs pin against it). Both are dev-dependencies only.
+//! the dual runs pin against it). Since lane C2 the core's streams are this crate's, so the old code is kept as a frozen
+//! copy in `tests/reference` (see there).
 
 use ti4_chance::{Domain, Kind, ModForm, Request, Streams, answer, answer_mut, derive_seed};
-use ti4_engine_core::state::{Rng as OldRng, RngDomain};
-use ti4_engine_core_setup::rng::{Literals, domain_text, seeded_speaker_index};
+mod reference;
+
+use reference::{Literals, Rng as OldRng, RngDomain, domain_text, seeded_speaker_index};
 
 /// The new domain of an old one; exhaustive, so a variant added to either side fails to compile here.
 fn new_of(d: RngDomain) -> Domain {
@@ -33,7 +35,6 @@ fn new_of(d: RngDomain) -> Domain {
         RngDomain::WideRoster => Domain::WideRoster,
         RngDomain::KeleresVariant => Domain::KeleresVariant,
         RngDomain::YinAscendant => Domain::YinAscendant,
-        RngDomain::Dyn(..) => panic!("ti4-chance has no dynamic domains (D3)"),
     }
 }
 
@@ -86,11 +87,11 @@ fn domains_texts_seeds_and_order_are_todays() {
     for (i, old) in OLD.into_iter().enumerate() {
         let new = new_of(old);
         assert_eq!(new, Domain::LITERALS[i], "the literal list is in domain order");
-        assert_eq!(Some(new.text()), domain_text(old), "{old:?}");
+        assert_eq!(new.text(), domain_text(old), "{old:?}");
         assert_eq!(Domain::of_text(new.text()), Some(new));
         for seed in [0, 1, 7, u64::MAX, 0x5eed_1234_abcd] {
             let text = new.text();
-            assert_eq!(derive_seed(seed, text), ti4_engine_core_setup::rng::derive_seed(seed, text));
+            assert_eq!(derive_seed(seed, text), reference::derive_seed(seed, text));
         }
     }
     let all: Vec<RngDomain> = OLD.to_vec();

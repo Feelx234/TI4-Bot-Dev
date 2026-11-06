@@ -16,7 +16,6 @@
 //!
 //! L5: reads and writes the position through the windows it runs.
 
-use std::rc::Rc;
 
 use crate::choice::{Choice, Pick};
 use crate::containers::Cow;
@@ -25,7 +24,7 @@ use crate::driver::{Driver, DriverError, Status};
 use crate::kernel::ability::{NestedFacts, Unknown};
 use crate::kernel::stage::{AbilityTable, Window};
 use crate::kernel::{Kernel, Registry, Resolver};
-use crate::state::{CoreState, EventRec, SeedSource, Window as OpenWindow};
+use crate::state::{CoreState, EventRec, Window as OpenWindow};
 
 pub use crate::kernel::stage::Held;
 
@@ -36,8 +35,6 @@ pub struct Env<'a> {
     /// The abilities of every seat, derived from the position (`AbilityTable::registry`).
     pub registry: Cow<Registry>,
     pub table: AbilityTable,
-    /// The game's random streams (`Sx::die`). A live driver is ALWAYS seeded.
-    pub seeds: Rc<dyn SeedSource>,
 }
 
 /// Why a live call did not return a question or the end.
@@ -134,7 +131,7 @@ fn table_at(core: &CoreState, env: &Env<'_>) -> AbilityTable {
 }
 
 fn driver_of<M: Held>(window: M, core: &CoreState, env: &Env<'_>) -> Driver<M> {
-    let mut d = Driver::from_state(window, core, env.registry.clone(), table_at(core, env)).with_seeds(env.seeds.clone());
+    let mut d = Driver::from_state(window, core, env.registry.clone(), table_at(core, env));
     sync_clock(&mut d.resolver, core);
     d
 }
@@ -594,7 +591,6 @@ mod tests {
     use super::*;
     use crate::choice::reaction::{AbilityId, AbilityKind, Ask as RAsk, Opt as ROpt, Relation};
     use crate::choice::{Ask, Opt};
-    use crate::driver::NoSeeds;
     use crate::generated::Faction;
     use crate::ids::Seat;
     use crate::kernel::resolver::AbilityDef;
@@ -671,7 +667,7 @@ mod tests {
             })
             .optional(),
         );
-        Env { kernel: k, registry: Cow::new(resolver.registry().clone()), table, seeds: Rc::new(NoSeeds) }
+        Env { kernel: k, registry: Cow::new(resolver.registry().clone()), table }
     }
 
     fn goods(s: &CoreState) -> i16 {

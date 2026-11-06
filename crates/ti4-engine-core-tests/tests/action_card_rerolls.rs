@@ -9,7 +9,6 @@ use ti4_engine_core::rules::action_cards::{Env, Facts, Placed, RerollFacts};
 use ti4_engine_core::state::{Code, RerollEntry, RerollSet, RngDomain};
 use ti4_engine_core_tests::inv::ALL_SOURCES;
 use ti4_engine_core_tests::prelude::*;
-use ti4_engine_core_tests::rig::KitSeeds;
 
 const GROUND: Code = Code(1);
 const BOMBARD: Code = Code(2);
@@ -55,7 +54,8 @@ fn set_of(s: &CoreState, seat: u8) -> RerollSet {
 
 fn draws(s: &CoreState, seed: u64, n: usize) -> Vec<u8> {
     let mut probe = s.clone();
-    (0..n).map(|_| u8::try_from(probe.rng_mut().die(RngDomain::Dice, &KitSeeds(seed), 10)).unwrap()).collect()
+    probe.rng = ti4_engine_core_tests::rig::kit_at(seed, s.rng());
+    (0..n).map(|_| u8::try_from(probe.rng_mut().die(RngDomain::Dice, 10)).unwrap()).collect()
 }
 
 fn linked() -> AbilityTable {
@@ -107,11 +107,11 @@ fn fire_team_asks_about_each_die_of_the_holders_ground_roll_and_rolls_the_chosen
     assert!(mine.rolls[0].deltas.is_empty(), "the +1 on a die dies with the die");
     assert_eq!(set_of(&r.state, 1).rolls[0].faces, [3, 3], "the other player's roll is not touched");
     // Only the dice stream moved, by three draws.
-    let mut moved = r.start_state().clone();
+    let mut moved = ti4_engine_core_tests::rig::kit_at(5, r.start_state().rng());
     for _ in 0..3 {
-        moved.rng_mut().die(RngDomain::Dice, &KitSeeds(5), 10);
+        moved.die(RngDomain::Dice, 10);
     }
-    assert_eq!(r.state.rng().positions().collect::<Vec<_>>(), moved.rng().positions().collect::<Vec<_>>());
+    assert_eq!(r.state.rng().positions().collect::<Vec<_>>(), moved.positions().collect::<Vec<_>>());
     assert_eq!(r.driver.window.faces().len(), 7, "the whole group after each draw: 3 after the first, 3 after the second, 1 for the other group");
 }
 

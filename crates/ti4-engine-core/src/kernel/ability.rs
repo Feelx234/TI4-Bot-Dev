@@ -18,7 +18,7 @@ use crate::choice::reaction::{AbilityId, AbilityKind, Frequency, Relation};
 use crate::choice::{Choice, Opt, Pick};
 use crate::generated::Faction;
 use crate::ids::Seat;
-use crate::state::{CoreState, EventKind, EventRec, RngDomain, SeedSource};
+use crate::state::{CoreState, EventKind, EventRec, RngDomain};
 
 /// The identity of an ability *rule*, independent of its owner (`AbilityDef::arg`). Each crate that ports
 /// abilities owns a range: the kernel `0..1000`, the faction packages `1000..` in steps of 1000.
@@ -1280,8 +1280,6 @@ pub struct RulesHost<'a> {
     pub tape: &'a mut Tape,
     /// The next trace id of an event an ability emits.
     pub next_id: &'a mut u64,
-    /// Seeds the random streams (see `Sx::die`).
-    pub seeds: &'a dyn SeedSource,
 }
 
 impl RulesHost<'_> {
@@ -1468,7 +1466,7 @@ impl<'a> Eff<'_, 'a> {
 
     /// Draw a die from the stream of `domain` (`Sx::die`).
     pub fn die(&mut self, domain: RngDomain, sides: u32) -> u32 {
-        self.host.state.rng_mut().die(domain, self.host.seeds, sides)
+        crate::state::rng::die(self.host.state.rng_mut(), domain, sides)
     }
 
     /// Roll `count` dice with `sides` sides from the dice stream and record the roll in the ledger (`Dice::roll_by`
@@ -1520,7 +1518,6 @@ impl<'a> Eff<'_, 'a> {
             tape: &mut *self.host.tape,
             next_id: &mut *self.host.next_id,
             emitted: &mut emitted,
-            seeds: self.host.seeds,
         };
         Some(f(&mut sx))
     }
@@ -1552,8 +1549,6 @@ pub trait Runner {
     fn ask(&mut self, choice: &Choice) -> Pick;
     /// The run cannot be trusted (a documented bail of the rule being run): the adapter falls back to the string.
     fn unknown(&mut self, why: Unknown);
-    /// Change the state with the seeds of the random streams at hand (a rule that rolls while it writes).
-    fn with_seeds<T>(&mut self, f: impl FnOnce(&mut CoreState, &dyn SeedSource) -> T) -> T;
     /// Run `f` with the services of a stage (a window's `Sx`) over this runner: how a rule that is a [`Window`] with a child
     /// window (a payment, a research) is stepped inside an effect or at the close of a window.
     fn with_sx<T>(&mut self, f: impl FnOnce(&mut Sx<'_>) -> T) -> T;
@@ -1622,10 +1617,6 @@ impl Runner for Inline<'_, '_> {
         }
     }
 
-    fn with_seeds<T>(&mut self, f: impl FnOnce(&mut CoreState, &dyn SeedSource) -> T) -> T {
-        f(&mut *self.host.state, self.host.seeds)
-    }
-
     fn with_sx<T>(&mut self, f: impl FnOnce(&mut Sx<'_>) -> T) -> T {
         let mut emitted = Vec::new();
         let mut sx = Sx {
@@ -1636,7 +1627,6 @@ impl Runner for Inline<'_, '_> {
             tape: &mut *self.host.tape,
             next_id: &mut *self.host.next_id,
             emitted: &mut emitted,
-            seeds: self.host.seeds,
         };
         f(&mut sx)
     }

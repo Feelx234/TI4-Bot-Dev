@@ -26,11 +26,25 @@ struct Stream {
 /// The randomness of a game: the seed and the streams drawn from so far (a stream never drawn from is absent and
 /// stands at 0). A clone shares the streams; the first draw after a clone copies the stream table once (a stream is
 /// 136 bytes, and a checkpoint of the core must stay a refcount bump, as with the core's `Cow`).
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct Streams {
     seed: u64,
     /// Sorted by domain.
     streams: Arc<Vec<Stream>>,
+}
+
+/// The text of the core's old `state::Rng` (`Rng { seed: .., streams: Cow([..]) }`), which these streams replaced in lane C2: a hash
+/// over a position's `Debug` text (perf_kernel's state hash, the `775f4136e60a99d5` pin) does not move with the type.
+impl core::fmt::Debug for Streams {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        struct Cowed<'a>(&'a [Stream]);
+        impl core::fmt::Debug for Cowed<'_> {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_tuple("Cow").field(&self.0).finish()
+            }
+        }
+        f.debug_struct("Rng").field("seed", &self.seed).field("streams", &Cowed(&self.streams)).finish()
+    }
 }
 
 /// Why a request or a draw cannot be answered. Every case is a defect of the asking site, not a game event.

@@ -35,7 +35,7 @@ pub fn table_at(core: &CoreState, env: &Env<'_>) -> AbilityTable {
 /// A driver for `window` at `core`, clocked by the position.
 #[must_use]
 pub fn driver_of<M: Window>(window: M, core: &CoreState, env: &Env<'_>) -> Driver<M> {
-    let mut d = Driver::from_state(window, core, env.registry.clone(), table_at(core, env)).with_seeds(env.seeds.clone());
+    let mut d = Driver::from_state(window, core, env.registry.clone(), table_at(core, env));
     let m = core.meta();
     d.resolver.set_phase(m.phase);
     d.resolver.set_active_player(m.active);

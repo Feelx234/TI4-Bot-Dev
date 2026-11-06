@@ -7,15 +7,18 @@ use ti4_engine_core::state::{CoreState, Slice, SliceSet};
 use ti4_model::state::GameState;
 
 use super::codec::{Codec, Sources};
-use super::codec::rng::TextSeeds;
 use super::ctx::Ctx;
 use super::error::R;
 use super::footprint::Footprint;
 
-/// What a ported call gets besides the state: the seeding of random streams (the adapter's domain
-/// texts). The rule tables of the core are static; knobs join here as areas need them.
+/// What a ported call gets besides the state. The rule tables of the core are static and the random streams are a slice of
+/// the state (`ti4_chance::Streams`, lane C2: no seeding by the adapter's texts any more); knobs join here as areas need them.
 pub struct Kernel<'a> {
-    pub seeds: &'a TextSeeds,
+    _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl Kernel<'_> {
+    const NONE: Kernel<'static> = Kernel { _marker: std::marker::PhantomData };
 }
 
 /// Count and time of the loads and stores of one slice.
@@ -103,8 +106,7 @@ impl<'g> Lend<'g> {
         super::unsupported::check(self.gs)?;
         self.cx.refresh(self.gs)?;
         let mut core = load(self.cx, self.gs, self.src, fp.loads(), &mut self.stats)?;
-        let seeds = TextSeeds(core.texts.clone());
-        let out = f(&mut core, &Kernel { seeds: &seeds });
+        let out = f(&mut core, &Kernel::NONE);
         store(self.cx, &core, self.gs, fp.writes, &mut self.stats)?;
         self.cx.adopt(&core);
         self.stats.lends += 1;
@@ -124,8 +126,7 @@ impl<'g> Lend<'g> {
         super::unsupported::check(self.gs)?;
         self.cx.refresh(self.gs)?;
         let core = load(self.cx, self.gs, self.src, fp.loads(), &mut self.stats)?;
-        let seeds = TextSeeds(core.texts.clone());
-        let mut region = Region { core, fp, seeds };
+        let mut region = Region { core, fp };
         let out = f(&mut region);
         let core = region.core;
         store(self.cx, &core, self.gs, fp.writes, &mut self.stats)?;
@@ -151,7 +152,6 @@ impl<'g> Lend<'g> {
 pub struct Region {
     core: CoreState,
     fp: Footprint,
-    seeds: TextSeeds,
 }
 
 impl Region {
@@ -159,7 +159,7 @@ impl Region {
     pub fn call<T>(&mut self, fp: Footprint, f: impl FnOnce(&mut CoreState, &Kernel<'_>) -> T) -> T {
         debug_assert!(self.fp.loads().contains_all(fp.loads()), "call reads a slice the region did not load");
         debug_assert!(self.fp.writes.contains_all(fp.writes), "call writes a slice the region does not store");
-        f(&mut self.core, &Kernel { seeds: &self.seeds })
+        f(&mut self.core, &Kernel::NONE)
     }
 
     #[must_use]

@@ -20,7 +20,6 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
 use std::time::Instant;
 
 use ti4_engine::live::{self, arms};
@@ -128,7 +127,6 @@ struct Game {
     core: CoreState,
     render: Render,
     sources: SourceSet,
-    seeds: Rc<dyn ti4_engine_core::state::SeedSource>,
     kernel: &'static Kernel,
     seed: u64,
     decided: usize,
@@ -247,10 +245,10 @@ impl Game {
     fn new(players: usize, seed: u64, faction: &str) -> Result<Self, String> {
         let spec = lobby_spec(faction, players, seed);
         let g = NativeGame::from_spec(&spec)?;
-        let (core, cx, render, _base, kernel, seeds, sources) = g.probe();
+        let (core, cx, render, _base, kernel, sources) = g.probe();
         let mut fresh = Render::new(cx.owners.ids().to_vec()).with_codes(render.codes_snapshot());
         fresh.factions.clone_from(&render.factions);
-        Ok(Self { core: core.clone(), render: fresh, sources, seeds, kernel, seed, decided: 0, steps: 0, chain: 0xcbf2_9ce4_8422_2325, after_glue: false, ph: Phases::default(), marks: Vec::new(), sample: false, check: std::env::var_os("PERF_KERNEL_CHECK").is_some() })
+        Ok(Self { core: core.clone(), render: fresh, sources, kernel, seed, decided: 0, steps: 0, chain: 0xcbf2_9ce4_8422_2325, after_glue: false, ph: Phases::default(), marks: Vec::new(), sample: false, check: std::env::var_os("PERF_KERNEL_CHECK").is_some() })
     }
 
     /// The seeded weighted random pick over the typed options. `None` for a question with no option.
@@ -359,7 +357,7 @@ impl Game {
         if self.check {
             live::env::verify_cache(true);
         }
-        let env = live::env::env_with_plays(&self.render, &self.core, self.kernel, self.seeds.clone(), self.sources);
+        let env = live::env::env_with_plays(&self.render, &self.core, self.kernel, self.sources);
         self.ph.env.add(t, a0);
         // The deferred play facts: armed on the position the step starts from, read after the step has changed the position, they equal the facts
         // the provider computes at once at the start (and the roster shortcut equals the provider's roster).
@@ -565,7 +563,7 @@ fn micro(players: usize, seed: u64, faction: &str, at: usize) {
     let mut g = Game::new(players, seed, faction).expect("builds");
     let end = g.play(at);
     println!("{players}p seed {seed} {faction}: played {} steps ({end:?}); per-step pieces on this position (tight loops, hot cache):", g.steps);
-    let env = live::env::env_with_plays(&g.render, &g.core, g.kernel, g.seeds.clone(), g.sources);
+    let env = live::env::env_with_plays(&g.render, &g.core, g.kernel, g.sources);
     println!("  ability specs {}, size_of Spec {} B, AbilityDef {} B, AbilityTable {} B, Env {} B, CoreState {} B", env.table.specs().len(), std::mem::size_of::<ti4_engine_core::kernel::ability::Spec>(), std::mem::size_of::<ti4_engine_core::kernel::AbilityDef>(), std::mem::size_of::<ti4_engine_core::kernel::stage::AbilityTable>(), std::mem::size_of::<Env<'_>>(), std::mem::size_of::<CoreState>());
     {
         use ti4_engine_core::kernel::ability::Applies;
@@ -589,7 +587,7 @@ fn micro(players: usize, seed: u64, faction: &str, at: usize) {
         c.ledger.vp.push(ti4_engine_core::state::VpRec { player: ti4_engine_core::Seat(0), delta: 0, reason: ti4_engine_core::state::LedgerReason::Custodians });
         c
     });
-    timeit("env_with_plays (registry + table + codes)", 400, || live::env::env_with_plays(&g.render, &g.core, g.kernel, g.seeds.clone(), g.sources));
+    timeit("env_with_plays (registry + table + codes)", 400, || live::env::env_with_plays(&g.render, &g.core, g.kernel, g.sources));
     timeit("Env::clone (AbilityTable + registry)", 4_000, || env.clone());
     timeit("AbilityTable::clone", 4_000, || env.table.clone());
     timeit("Facts::of_core", 200_000, || Facts::of_core(&g.core, false));

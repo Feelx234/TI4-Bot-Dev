@@ -3,7 +3,6 @@
 //! windows have their own tests; these check what the composers add: the order of the stages, the payload round trip, a clone in the middle, the
 //! hand-off to the invasion, the scoring pauses and the bails.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::production::{Ask as PAsk, Opt as POpt};
 use ti4_engine_core::containers::Cow;
@@ -16,7 +15,6 @@ use ti4_engine_core::kernel::stage::{AbilityTable, Held};
 use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::state::{AFight, AStage, Aftermath, Before, Code, Emit, Feat, NoteHold, PlainKind, WindowKind};
 use ti4_engine_core_tests::prelude::*;
-use ti4_engine_core_tests::rig::KitSeeds;
 use ti4_engine_core_tests::scenario::plain_systems;
 
 fn sys() -> System {
@@ -68,7 +66,7 @@ fn texts(present: &[Unit]) -> CombatTexts {
     t
 }
 
-fn env<'a>(k: &'a Kernel, seed: u64, present: &[Unit]) -> Env<'a> {
+fn env<'a>(k: &'a Kernel, _seed: u64, present: &[Unit]) -> Env<'a> {
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
     table.codes.ground_combat = Code(1);
@@ -81,7 +79,7 @@ fn env<'a>(k: &'a Kernel, seed: u64, present: &[Unit]) -> Env<'a> {
     table.codes.production.production = Code(902);
     table.codes.production.units = Code(903);
     table.facts.combat = texts(present);
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(KitSeeds(seed)) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table }
 }
 
 /// Seat 0 (active) against seat 1 in the two-planet system; the head has written the sides.

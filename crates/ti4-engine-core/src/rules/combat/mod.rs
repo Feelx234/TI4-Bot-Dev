@@ -320,7 +320,6 @@ pub const DIE_SIDES: u32 = 10;
 pub fn roll_fleet(
     rd: Rd<'_>,
     rng: &mut crate::state::Rng,
-    seeds: &dyn crate::state::SeedSource,
     player: Seat,
     system: System,
 ) -> Vec<FleetRoll> {
@@ -334,14 +333,14 @@ pub fn roll_fleet(
             continue;
         }
         let hits_on = u32::try_from(value).unwrap_or(u32::MAX);
-        let faces: Vec<u32> = (0..count).map(|_| rng.die(RngDomain::Dice, seeds, DIE_SIDES)).collect();
+        let faces: Vec<u32> = (0..count).map(|_| crate::state::rng::die(rng, RngDomain::Dice, DIE_SIDES)).collect();
         let misses: Vec<usize> = faces.iter().enumerate().filter(|(_, f)| **f < hits_on).map(|(i, _)| i).collect();
         out.push(FleetRoll { hits_on, faces: faces.clone(), rerolled: Vec::new() });
         if munitions && !misses.is_empty() {
             let mut again = faces;
             let rerolled = misses.iter().map(|i| *i as u32).collect();
             for i in misses {
-                again[i] = rng.die(RngDomain::Dice, seeds, DIE_SIDES);
+                again[i] = crate::state::rng::die(rng, RngDomain::Dice, DIE_SIDES);
             }
             out.push(FleetRoll { hits_on, faces: again, rerolled });
         }
@@ -885,7 +884,6 @@ pub fn cannon_plan(rd: Rd<'_>, system: System, active: Seat, opponent: Option<Se
 pub fn roll_barrage(
     rd: Rd<'_>,
     rng: &mut crate::state::Rng,
-    seeds: &dyn crate::state::SeedSource,
     player: Seat,
     system: System,
 ) -> Vec<FleetRoll> {
@@ -894,7 +892,7 @@ pub fn roll_barrage(
         .into_iter()
         .map(|r| FleetRoll {
             hits_on: u32::try_from(r.hits_on).unwrap_or(u32::MAX),
-            faces: (0..r.dice).map(|_| rng.die(RngDomain::Dice, seeds, DIE_SIDES)).collect(),
+            faces: (0..r.dice).map(|_| crate::state::rng::die(rng, RngDomain::Dice, DIE_SIDES)).collect(),
             rerolled: Vec::new(),
         })
         .collect()

@@ -38,12 +38,10 @@
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
-use std::rc::Rc;
 use std::sync::Mutex;
 
 use serde_json::{json, Value};
 use ti4_engine::choice::DecisionRecord;
-use ti4_engine_legacy::core_sync::codec::rng::TextSeeds;
 use ti4_engine_legacy::core_sync::{materialize, Codec, Ctx, Sources};
 use ti4_engine_legacy::live::{self, arms, Scripted};
 use ti4_engine_legacy::render::Render;
@@ -349,7 +347,7 @@ impl NativeSubject {
             return;
         }
         let kernel = live::kernel::kernel_for(shadow.sources);
-        let env = live::env::env_with_plays(&shadow.render, &shadow.core, kernel, Rc::new(TextSeeds::of(&shadow.cx)), shadow.sources);
+        let env = live::env::env_with_plays(&shadow.render, &shadow.core, kernel, shadow.sources);
         let cx = live::Cx::new(&shadow.render, &env);
         let answers_taken = answers.clone();
         let mut asker = Scripted::new(answers);

@@ -111,17 +111,16 @@ impl InvasionView<'_> {
         system: &SystemId,
         invader: &PlayerId,
     ) -> Option<(Vec<BombardDiceRow>, crate::rng::RngPositions)> {
-        use ti4_engine_core::state::{Rng as CoreRng, RngDomain, SeedSource};
+        use ti4_engine_core::state::{Rng as CoreRng, RngDomain};
         let (sys, seat) = (typed::<System>(system.as_str())?, self.seat(invader)?);
         let mut typed_pos: Vec<(RngDomain, u128)> = Vec::new();
         for (t, p) in positions {
             typed_pos.push((crate::core_sync::codec::rng::domain(&mut self.cx, t).ok()?, *p));
         }
-        let seeds = crate::core_sync::codec::rng::TextSeeds::of(&self.cx);
         let mut rng = CoreRng::new(seed);
-        rng.set_positions(&typed_pos, &seeds as &dyn SeedSource);
+        rng.set_positions(&typed_pos);
         let plan = ci::bombard_plan(self.rd_for(gs, invader)?, sys, seat);
-        let drawn = ci::roll_bombard(&plan, &mut rng, &seeds);
+        let drawn = ci::roll_bombard(&plan, &mut rng);
         let after = crate::core_sync::codec::rng::positions(&self.cx, &rng).ok()?;
         let rows = drawn.into_iter().map(|d| (d.planet.as_str().to_owned(), d.unit.as_str().to_owned(), d.hits_on, d.faces)).collect();
         Some((rows, after))

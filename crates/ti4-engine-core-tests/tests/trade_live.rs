@@ -2,13 +2,11 @@
 //! rebuilt from its payload and the position at every call; these tests pin what the live loop writes, announces and refuses. The lockstep
 //! against the string's `Game::step_trade` is `ti4-engine`'s `trade_live_tests`.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::trade::{Ask as TAsk, Opt as TOpt, Shape};
 use ti4_engine_core::containers::Cow;
 use ti4_engine_core::driver::live::{advance, ask, is_open, Env, Live, LiveError};
 use ti4_engine_core::driver::windows::trade::{advance_trade, ask_trade, begin};
-use ti4_engine_core::driver::NoSeeds;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::rules::trade_window::TradeWindow;
@@ -24,7 +22,7 @@ fn env(k: &Kernel) -> Env<'_> {
     table.codes.turn.transaction = TRANSACTION;
     table.codes.turn.dark_pact = DARK_PACT;
     table.facts.staging = true;
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(NoSeeds) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table }
 }
 
 /// Hacan (seat 0, Arbiters, Guild Ships), Arborec (seat 1) next to it, Yin (seat 2) far away. Seat 0 has 2 goods and 2 commodities, seat 1 one of each.

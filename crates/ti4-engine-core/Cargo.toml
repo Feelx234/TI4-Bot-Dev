@@ -6,16 +6,13 @@ rust-version.workspace = true
 publish = false
 description = "The typed engine core (docs/ENGINE_CORE.md): no JSON, no id strings, no card text. Generated id enums and tables (cargo xtask gen-cards), board, adjacency and movement reachability."
 
-# One runtime dependency exception (docs/ENGINE_CORE_STATE.md decision 1): the ChaCha8 streams of
-# `state::Rng`, which must stay bit-identical to the string engine's. Default features off (no
-# getrandom, no OS entropy; the wasm build has no backend for it).
+# One runtime dependency (docs/ENGINE_CORE_STATE.md decision 1, docs/FORK_RNG_THEORY.md 4.1): the bottom crate of the
+# randomness, `ti4-chance`, whose `Streams` are the `state::Rng` slice (the ChaCha8 streams, bit-identical to the
+# string engine's). It names no ti4- crate and has no OS entropy (wasm).
 # Otherwise no runtime dependencies at all. The content is the generated source in src/generated/
 # (docs/CONTENT_GENERATOR.md); the strings are the adapter's (crates/ti4-engine/src/generated/).
 [dependencies]
-rand_chacha = { version = "0.9", default-features = false }
-rand_core = { version = "0.9", default-features = false }
-# `rand::Rng::random_range` is the sampler the string engine uses; same version, same algorithm.
-rand = { version = "0.9", default-features = false }
+ti4-chance.workspace = true
 
 [features]
 # The draw census of lane C0 (`state::census`, docs/C0_RESUME.md): thread-local counters, never in a product build (the bridge's tests

@@ -1,7 +1,6 @@
 //! Lane B, second batch: the end of an action, the closing menu, the fleet sweep's facts, the gates at the end of the draft, the gains the
 //! reconcile announces and the answers the arms refuse. Written against the survivors of `tools/engine_core/mutants.sh` on `driver/turn/*`.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::turn::{Ask as TuAsk, Opt as TuOpt};
 use ti4_engine_core::containers::Cow;
@@ -10,7 +9,6 @@ use ti4_engine_core::driver::turn::ask::{advance_ask, ask_ask};
 use ti4_engine_core::driver::turn::closing;
 use ti4_engine_core::driver::turn::facts;
 use ti4_engine_core::driver::turn::{advance_job, advance_reconcile};
-use ti4_engine_core::driver::NoSeeds;
 use ti4_engine_core::kernel::ability::Unknown;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::turn_codes::TurnGap;
@@ -22,7 +20,7 @@ use ti4_engine_core_tests::prelude::*;
 fn env(k: &Kernel) -> Env<'_> {
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(NoSeeds) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table }
 }
 
 /// [`env`] whose play facts hold the unit roster (the menu sources and the finish of an action need it).
@@ -581,9 +579,8 @@ fn a_relic_and_a_breakthrough_nobody_announced_are_announced_once_each() {
 fn a_spec_ops_die_survives_on_a_five_or_more() {
     let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).build();
     s.players_mut().edit(0).misc.spec_ops_destroyed = 60;
-    s.rng = ti4_engine_core::state::Rng::new(9);
-    let mut e = env(&k);
-    e.seeds = Rc::new(ti4_engine_core_tests::rig::KitSeeds(3));
+    s.rng = ti4_engine_core_tests::rig::kit_rng(9);
+    let e = env(&k);
     advance_reconcile(&mut s, &e, None).unwrap();
     let faces: Vec<u8> = s.ledger.dice.get(0).unwrap().faces.as_slice().to_vec();
     assert_eq!(faces.len(), 60);

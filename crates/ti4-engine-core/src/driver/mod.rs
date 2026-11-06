@@ -16,7 +16,7 @@ use crate::choice::{Choice, Pick};
 use crate::kernel::ability::Unknown;
 use crate::kernel::stage::{AbilityTable, Illegal, NestedFacts, Sx, Tape, Window};
 use crate::kernel::{Kernel, Next, Resolver, TimingError};
-use crate::state::{CoreState, EventRec, RngDomain, SeedSource, Window as OpenWindow};
+use crate::state::{CoreState, EventRec, Window as OpenWindow};
 
 pub mod agenda;
 pub mod aftermath;
@@ -103,10 +103,6 @@ pub struct Driver<W: Window> {
     pub emitted: Vec<EventRec>,
     /// The windows the rule areas asked the driver to open (`Next::Open`), in order.
     pub opened: Vec<OpenWindow>,
-    /// The seeds of the random streams a window draws from (`Sx::die`); `NoSeeds` until the adapter gives some.
-    pub seeds: std::rc::Rc<dyn SeedSource>,
-    /// The adapter gave the driver seeds (`with_seeds`): it draws from the streams of the game.
-    seeded: bool,
     tape: Tape,
     facts: Option<NestedFacts>,
     facts_state: Option<CoreState>,
@@ -235,16 +231,6 @@ pub enum Resumed {
     Stepped,
 }
 
-/// The seeds of a driver that never draws: every stream is all zeros.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NoSeeds;
-
-impl SeedSource for NoSeeds {
-    fn seed_for(&self, _: u64, _: RngDomain) -> [u8; 32] {
-        [0; 32]
-    }
-}
-
 impl<W: Window> Driver<W> {
     #[must_use]
     pub fn new(window: W, resolver: Resolver, table: AbilityTable, next_id: u64) -> Self {
@@ -255,8 +241,6 @@ impl<W: Window> Driver<W> {
             next_id,
             emitted: Vec::new(),
             opened: Vec::new(),
-            seeds: std::rc::Rc::new(NoSeeds),
-            seeded: false,
             tape: Tape::default(),
             facts: None,
             facts_state: None,
@@ -280,14 +264,6 @@ impl<W: Window> Driver<W> {
     /// was made by [`Self::from_state`] owes the state when its window ends or asks).
     pub fn store(&self, state: &mut CoreState) {
         state.pending_mut().resolver = self.resolver.into_state(self.next_id);
-    }
-
-    /// The same driver drawing its dice from streams seeded by `seeds`.
-    #[must_use]
-    pub fn with_seeds(mut self, seeds: std::rc::Rc<dyn SeedSource>) -> Self {
-        self.seeds = seeds;
-        self.seeded = true;
-        self
     }
 
     /// Step the window to its next question or its end.
@@ -455,7 +431,6 @@ impl<W: Window> Driver<W> {
                 tape: &mut self.tape,
                 next_id: &mut self.next_id,
                 emitted: &mut self.emitted,
-                seeds: &*self.seeds,
             };
             park.at.resume(&mut sx, &mut self.window as &mut dyn std::any::Any, pick)
         };
@@ -511,7 +486,6 @@ impl<W: Window> Driver<W> {
             tape: &mut self.tape,
             next_id: &mut self.next_id,
             emitted: &mut self.emitted,
-            seeds: &*self.seeds,
         };
         let next = match op {
             Op::Step => self.window.step(&mut sx),
@@ -598,12 +572,6 @@ impl<W: Window> Driver<W> {
         self.facts.as_ref()
     }
 
-    /// Whether the driver draws from the streams of the game (`with_seeds`); without, its dice are all zeros.
-    #[must_use]
-    pub fn is_seeded(&self) -> bool {
-        self.seeded
-    }
-
     /// The state a nested question was put in (`nested_facts` says whether the last question was one).
     #[must_use]
     pub fn nested_state(&self) -> Option<&CoreState> {
@@ -634,6 +602,7 @@ enum Flow {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::RngDomain;
     use crate::choice::reaction::{AbilityId, AbilityKind, Ask as RAsk, Opt as ROpt, Relation};
     use crate::choice::{Ask, Opt};
     use crate::generated::Faction;
@@ -853,26 +822,17 @@ mod tests {
         }
     }
 
-    struct Plain;
-    impl SeedSource for Plain {
-        fn seed_for(&self, seed: u64, _: RngDomain) -> [u8; 32] {
-            let mut out = [0u8; 32];
-            out[..8].copy_from_slice(&seed.to_le_bytes());
-            out
-        }
-    }
-
     #[test]
     fn dice_drawn_in_a_step_that_is_rolled_back_are_drawn_once() {
         let (mut s, k, d) = setup();
         s.rng = crate::state::Rng::new(5);
-        let mut d = Driver::new(Roller { done: false, faces: Vec::new() }, d.resolver, d.table, 10).with_seeds(std::rc::Rc::new(Plain));
+        let mut d = Driver::new(Roller { done: false, faces: Vec::new() }, d.resolver, d.table, 10);
         // The reaction window asks inside the emission: the step is rolled back, the dice with it.
         assert!(matches!(d.run(&mut s, &k).unwrap(), Status::Asking(_)));
         d.resume(&mut s, &k, Pick::Opt(Opt::Reaction(ROpt::Ability(ability())))).unwrap();
         d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap();
         let mut bare = crate::state::Rng::new(5);
-        let expect: Vec<u32> = (0..3).map(|_| bare.die(RngDomain::Dice, &Plain, 10)).collect();
+        let expect: Vec<u32> = (0..3).map(|_| crate::state::rng::die(&mut bare, crate::state::RngDomain::Dice, 10)).collect();
         assert_eq!(d.window.faces, expect);
         assert!(s.rng.positions().eq(bare.positions()), "three draws were taken, not six");
     }

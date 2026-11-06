@@ -15,7 +15,6 @@ use ti4_model::content_types::DEFAULT;
 use ti4_model::state::{GameState, Phase};
 
 use super::turn_live_tests::{assert_same, based, pid, Run};
-use crate::core_sync::codec::rng::TextSeeds;
 use crate::core_sync::{materialize, Codec, Ctx, Sources};
 use crate::live::{self, Scripted};
 use crate::render::Render;
@@ -79,7 +78,7 @@ fn native_agenda(state: &GameState, ids: &[String]) -> Run {
     let mut core = Codec::load(&mut cx, state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("the position loads");
     let sources = DEFAULT;
     let kernel = live::kernel::kernel_for(sources);
-    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
+    let env = live::env::env_with_plays(&render, &core, kernel, sources);
     let lcx = live::Cx::new(&render, &env);
     let mut asker = Scripted::new(ids.iter().cloned());
     for _ in 0..400 {

@@ -25,7 +25,7 @@
 
 use super::resolver::{Resolver, TimingError};
 use super::seam::{Obs, Phase, Q};
-use crate::state::{RngDomain, SeedSource};
+use crate::state::RngDomain;
 use super::{Asker, Cx, Kernel, Next};
 use crate::choice::{Choice, Pick};
 use crate::state::{CoreState, EventRec, PlainRec};
@@ -104,8 +104,6 @@ pub struct Sx<'a> {
     pub next_id: &'a mut u64,
     /// The events the window itself emitted (not the ones the abilities of those windows caused).
     pub emitted: &'a mut Vec<EventRec>,
-    /// Seeds the random streams (`SHA-256(seed || domain text)`, the adapter's): see [`Sx::die`].
-    pub seeds: &'a dyn SeedSource,
 }
 
 impl<'a> Sx<'a> {
@@ -122,7 +120,7 @@ impl<'a> Sx<'a> {
     /// Draw a die with `sides` sides from the state's stream of `domain` (`GameRng::die`). The streams are in
     /// the state (`rng` slice), so a rolled-back step restores them with the rest and a re-run draws the same.
     pub fn die(&mut self, domain: RngDomain, sides: u32) -> u32 {
-        self.state.rng_mut().die(domain, self.seeds, sides)
+        crate::state::rng::die(self.state.rng_mut(), domain, sides)
     }
 
     /// Fire the observers of a program point (P5).
@@ -150,7 +148,7 @@ impl<'a> Sx<'a> {
             *self.next_id += 1;
         }
         let top = self.resolver.emission_stack().len() == self.resolver.base_depth();
-        let mut host = RulesHost { state: &mut *self.state, kernel: self.kernel, table: self.table, tape: &mut *self.tape, next_id: &mut *self.next_id, seeds: self.seeds };
+        let mut host = RulesHost { state: &mut *self.state, kernel: self.kernel, table: self.table, tape: &mut *self.tape, next_id: &mut *self.next_id };
         let done = self.resolver.emit(&mut host, rec, resolve)?;
         if top {
             self.emitted.push(done.clone());
@@ -233,10 +231,6 @@ impl super::ability::Runner for Sx<'_> {
         }
     }
 
-    fn with_seeds<T>(&mut self, f: impl FnOnce(&mut CoreState, &dyn SeedSource) -> T) -> T {
-        f(&mut *self.state, self.seeds)
-    }
-
     fn with_sx<T>(&mut self, f: impl FnOnce(&mut Sx<'_>) -> T) -> T {
         f(self)
     }
@@ -248,7 +242,7 @@ impl super::ability::Runner for Sx<'_> {
     fn run_registered_play(&mut self, who: crate::ids::Seat, card: crate::generated::ActionCard) -> Result<(), TimingError> {
         let Some(play) = self.table.card_play(card).copied() else { return Ok(()) };
         self.tape.emitted.clear();
-        let mut host = RulesHost { state: &mut *self.state, kernel: self.kernel, table: self.table, tape: &mut *self.tape, next_id: &mut *self.next_id, seeds: self.seeds };
+        let mut host = RulesHost { state: &mut *self.state, kernel: self.kernel, table: self.table, tape: &mut *self.tape, next_id: &mut *self.next_id };
         let done = (play.effect)(&mut host, &mut *self.resolver, who, card);
         self.emitted.append(&mut self.tape.emitted);
         done
@@ -257,7 +251,7 @@ impl super::ability::Runner for Sx<'_> {
     fn after_play(&mut self) -> Result<bool, TimingError> {
         let Some(after) = self.table.after_play else { return Ok(false) };
         self.tape.emitted.clear();
-        let mut host = RulesHost { state: &mut *self.state, kernel: self.kernel, table: self.table, tape: &mut *self.tape, next_id: &mut *self.next_id, seeds: self.seeds };
+        let mut host = RulesHost { state: &mut *self.state, kernel: self.kernel, table: self.table, tape: &mut *self.tape, next_id: &mut *self.next_id };
         let done = after(&mut host, &mut *self.resolver);
         self.emitted.append(&mut self.tape.emitted);
         done.map(|()| true)

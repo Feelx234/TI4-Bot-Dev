@@ -74,7 +74,6 @@ mod tests {
 
     use super::*;
     use crate::choice::{Choice, ChoiceOption, Decider, IllegalChoice, Table, Window as _};
-    use crate::core_sync::codec::rng::TextSeeds;
     use crate::core_sync::{with_core, Footprint, Sources};
     use crate::dice::Dice;
     use crate::invasion::InvasionWindow;
@@ -196,7 +195,6 @@ mod tests {
     fn live_run(mut gs: GameState, seed: u64, system: &SystemId, invader: &str, answers: &[String], hero: bool) -> Result<LiveRun, (Stop, Vec<Choice>)> {
         let (mut cx, r) = crate::dual_window::tables_for_tests(&gs).expect("a position the codecs carry");
         let rng_before = GameRng::new(seed).positions();
-        let seeds: Rc<dyn ti4_engine_core::state::SeedSource> = Rc::new(TextSeeds::of(&cx));
         // The texts of the position the composer needs, minted in the state's table before the lend.
         let mut minted: Vec<(String, Code)> = Vec::new();
         let mut mint = |t: &str| -> Code {
@@ -219,7 +217,7 @@ mod tests {
         let r_ref = &r;
         with_core(&mut gs, &mut cx, src, FP, |core, _| {
             let kernel = crate::live::kernel::kernel_for(POK);
-            let mut env: Env<'_> = crate::live::env::env_with_plays(r_ref, core, kernel, seeds.clone(), POK);
+            let mut env: Env<'_> = crate::live::env::env_with_plays(r_ref, core, kernel, POK);
             env.table.codes.invasion = table.codes.invasion;
             if hero {
                 open_at_commit(core, seat, sys, NoteHold::new());

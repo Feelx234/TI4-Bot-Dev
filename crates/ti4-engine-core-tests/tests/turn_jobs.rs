@@ -2,14 +2,12 @@
 //! or the end, a clone of the position standing for a checkpoint. The lockstep against the string bodies is `ti4-engine`'s
 //! `turn_live_tests`; these tests pin what the jobs write, announce and refuse, without an engine.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt};
 use ti4_engine_core::choice::technology::{Ask as TAsk, Opt as TOpt, StartRule};
 use ti4_engine_core::containers::Cow;
 use ti4_engine_core::driver::live::{advance, ask, is_open, Env, Live, LiveError};
 use ti4_engine_core::driver::turn::{advance_announce, advance_job, advance_phase, advance_prelude, advance_reconcile, TurnFlowWin};
-use ti4_engine_core::driver::NoSeeds;
 use ti4_engine_core::kernel::ability::Unknown;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::turn_codes::TurnGap;
@@ -21,7 +19,7 @@ use ti4_engine_core_tests::prelude::*;
 fn env(k: &Kernel) -> Env<'_> {
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(NoSeeds) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table }
 }
 
 fn plain(s: &CoreState) -> Vec<PlainRec> {
@@ -377,9 +375,8 @@ fn the_wormholes_the_tokens_give_join_the_map_at_the_reconcile_and_leave_with_th
 fn spec_ops_destroyed_roll_a_die_each_and_the_survivors_wait_on_the_card() {
     let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).build();
     s.players_mut().edit(0).misc.spec_ops_destroyed = 5;
-    s.rng = ti4_engine_core::state::Rng::new(3);
-    let mut e = env(&k);
-    e.seeds = Rc::new(ti4_engine_core_tests::rig::KitSeeds(7));
+    s.rng = ti4_engine_core_tests::rig::kit_rng(7);
+    let e = env(&k);
     advance_reconcile(&mut s, &e, None).unwrap();
     let p = s.players().by_seat(Seat(0)).unwrap();
     assert_eq!(p.misc.spec_ops_destroyed, 0);
@@ -391,7 +388,7 @@ fn spec_ops_destroyed_roll_a_die_each_and_the_survivors_wait_on_the_card() {
     // The same position and seeds roll the same faces.
     let (mut again, _) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).build();
     again.players_mut().edit(0).misc.spec_ops_destroyed = 5;
-    again.rng = ti4_engine_core::state::Rng::new(3);
+    again.rng = ti4_engine_core_tests::rig::kit_rng(7);
     advance_reconcile(&mut again, &e, None).unwrap();
     assert_eq!(plain(&again), lines);
 }

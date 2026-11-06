@@ -7,7 +7,6 @@
 //!   is `Illegal` and leaves the state untouched.
 
 use std::fmt::Write as _;
-use std::rc::Rc;
 
 use ti4_engine_core::choice::reaction::{AbilityId, AbilityKind};
 use ti4_engine_core::choice::{Ask, Choice, Opt, Pick};
@@ -16,29 +15,24 @@ use ti4_engine_core::generated::Faction;
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::stage::{AbilityTable, Window};
 use ti4_engine_core::kernel::{Kernel, Resolver};
-use ti4_engine_core::state::{Code, CoreState, RngDomain, SeedSource};
+use ti4_engine_core::state::{Code, CoreState, Rng};
 
 use crate::covers;
 use crate::scenario::Scenario;
 
-/// A deterministic dice source for tests: every stream is a function of `(seed, stream seed, domain)`; two rigs with the same seed roll the same faces.
-#[derive(Debug, Clone, Copy)]
-pub struct KitSeeds(pub u64);
+/// The random streams of a test seed (lane C2: the streams are `ti4_chance::Streams`, keyed by the bottom crate; the old `KitSeeds`
+/// seed source is gone): two rigs with the same seed roll the same faces.
+#[must_use]
+pub fn kit_rng(seed: u64) -> Rng {
+    Rng::new(seed ^ 0x9E37_79B9_7F4A_7C15)
+}
 
-impl SeedSource for KitSeeds {
-    fn seed_for(&self, seed: u64, domain: RngDomain) -> [u8; 32] {
-        let text = format!("{:?}", domain);
-        let mut acc = self.0 ^ seed.rotate_left(17) ^ 0x9E37_79B9_7F4A_7C15;
-        for b in text.bytes() {
-            acc = (acc ^ u64::from(b)).wrapping_mul(0x0100_0000_01B3);
-        }
-        let mut out = [0u8; 32];
-        for (i, byte) in out.iter_mut().enumerate() {
-            acc = acc.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407 + i as u64);
-            *byte = (acc >> 33) as u8;
-        }
-        out
-    }
+/// [`kit_rng`] standing where `at` stands (the streams a seeded rig draws from in that position).
+#[must_use]
+pub fn kit_at(seed: u64, at: &Rng) -> Rng {
+    let mut kit = kit_rng(seed);
+    kit.set_positions(&at.positions().collect::<Vec<_>>());
+    kit
 }
 
 /// One question and, once given, its answer.
@@ -68,6 +62,10 @@ pub struct Rig<W: Window> {
     table: AbilityTable,
     abilities: bool,
     seed: Option<u64>,
+    /// The streams of [`Self::seeded`]: keyed by the test seed, standing where the position's streams stand (what the old `KitSeeds` seed
+    /// source did: the keys are the rig's, the positions the state's). Put into the position for each driver call, and the positions it
+    /// reached are written back (a run that rolls nothing leaves the state equal to its start; lane C2).
+    kit: Option<Rng>,
     picks: Vec<Pick>,
     pub log: Vec<Entry>,
     pub stages: Vec<String>,
@@ -94,7 +92,7 @@ impl<W: Window> Rig<W> {
         let table = AbilityTable::default();
         let seed = None;
         let driver = Self::driver_for(&window, &order, active, &table, seed, false, &state);
-        Self { start: state.clone(), state, kernel, driver, window0: window, order, active, table, abilities: false, seed, picks: Vec::new(), log: Vec::new(), stages: Vec::new(), status: None }
+        Self { start: state.clone(), state, kernel, driver, window0: window, order, active, table, abilities: false, seed, kit: None, picks: Vec::new(), log: Vec::new(), stages: Vec::new(), status: None }
     }
 
     fn driver_for(window: &W, order: &[Seat], active: Option<Seat>, table: &AbilityTable, seed: Option<u64>, abilities: bool, state: &CoreState) -> Driver<W> {
@@ -107,15 +105,31 @@ impl<W: Window> Rig<W> {
         // The links to the windows an area runs as children (Politics draws through a `DrawCards` child since W6): installed in every run.
         let mut table = table.clone();
         ti4_engine_core::driver::children::register(&mut table);
-        let d = Driver::new(window.clone(), resolver, table, 1);
-        match seed {
-            Some(s) => d.with_seeds(Rc::new(KitSeeds(s))),
-            None => d,
-        }
+        let _ = seed;
+        Driver::new(window.clone(), resolver, table, 1)
     }
 
     fn reset(&mut self) {
         self.driver = Self::driver_for(&self.window0, &self.order, self.active, &self.table, self.seed, self.abilities, &self.start);
+        self.kit = self.seed.map(kit_rng);
+    }
+
+    /// One driver call with the rig's own streams in the position (when seeded): the dice come from them at the position's stream
+    /// positions, and the positions they reached are written back into `state.rng`.
+    fn drive(&mut self, f: impl FnOnce(&mut Driver<W>, &mut CoreState, &Kernel) -> Result<Status, DriverError>) -> Result<Status, DriverError> {
+        if let Some(kit) = self.kit.as_mut() {
+            kit.set_positions(&self.state.rng.positions().collect::<Vec<_>>());
+            std::mem::swap(&mut self.state.rng, kit);
+        }
+        let r = f(&mut self.driver, &mut self.state, &self.kernel);
+        if let Some(kit) = self.kit.as_mut() {
+            std::mem::swap(&mut self.state.rng, kit);
+            let reached: Vec<_> = kit.positions().collect();
+            if !self.state.rng.positions().eq(reached.iter().copied()) {
+                self.state.rng.set_positions(&reached);
+            }
+        }
+        r
     }
 
     /// The ability table of the run (set it before the first `run`).
@@ -135,7 +149,7 @@ impl<W: Window> Rig<W> {
         self
     }
 
-    /// Roll dice from [`KitSeeds`]`(seed)` (set it before the first `run`).
+    /// Roll dice from [`kit_rng`]`(seed)` (set it before the first `run`).
     #[must_use]
     pub fn seeded(mut self, seed: u64) -> Self {
         self.seed = Some(seed);
@@ -157,6 +171,7 @@ impl<W: Window> Rig<W> {
     pub fn start_state(&self) -> &CoreState {
         &self.start
     }
+
 
     /// The answers given so far.
     #[must_use]
@@ -190,7 +205,7 @@ impl<W: Window> Rig<W> {
         if self.status.is_none() {
             self.note_entry();
         }
-        let st = self.driver.run(&mut self.state, &self.kernel)?;
+        let st = self.drive(|d, s, k| d.run(s, k))?;
         self.note(st);
         Ok(self.status.as_ref().expect("status"))
     }
@@ -200,7 +215,7 @@ impl<W: Window> Rig<W> {
     /// # Errors
     /// What the driver refuses with; an `Illegal` pick changes nothing and is not recorded.
     pub fn try_answer(&mut self, pick: Pick) -> Result<&Status, DriverError> {
-        let st = self.driver.resume(&mut self.state, &self.kernel, pick)?;
+        let st = self.drive(|d, s, k| d.resume(s, k, pick))?;
         if let Some(last) = self.log.last_mut() {
             last.answer = Some(pick);
         }
@@ -340,7 +355,7 @@ impl<W: Window> Rig<W> {
     pub fn expect_illegal(&mut self, pick: Pick) {
         let before = self.state.clone();
         let question = self.asked().clone();
-        let r = self.driver.resume(&mut self.state, &self.kernel, pick);
+        let r = self.drive(|d, s, k| d.resume(s, k, pick));
         assert_eq!(r, Err(DriverError::Illegal), "{pick:?} must be illegal here\n{}", self.transcript());
         assert!(self.state == before, "an illegal pick changed the state:\n{}", crate::delta::delta(&before, &self.state));
         assert_eq!(self.asked(), &question);

@@ -29,7 +29,7 @@ mod player;
 mod players;
 mod production;
 mod resolver;
-mod rng;
+pub mod rng;
 mod seats;
 mod strategy;
 mod tactical;
@@ -65,7 +65,7 @@ pub use player::{
 };
 pub use players::Players;
 pub use resolver::{ResolverState, UsedScope};
-pub use rng::{Rng, RngDomain, SeedSource};
+pub use rng::{Rng, RngDomain};
 #[cfg(feature = "probe-counters")]
 pub use rng::census;
 pub use seats::{MAX_PLAYERS, Seats};

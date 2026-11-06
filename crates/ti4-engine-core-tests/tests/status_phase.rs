@@ -2,7 +2,6 @@
 //! live loop runs them: a held window, `advance` to a question or the end, a clone of the position standing for a checkpoint. The lockstep
 //! against the string steps is `ti4-engine`'s `status_live_tests`; these tests pin what the arms write, announce and refuse.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::objectives::Opt as OOpt;
 use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt, Pool};
@@ -10,7 +9,6 @@ use ti4_engine_core::containers::Cow;
 use ti4_engine_core::driver::live::{advance, ask, is_open, Env, Live, LiveError, Out};
 use ti4_engine_core::driver::turn::TurnFlowWin;
 use ti4_engine_core::driver::windows::status::{advance_scoring, advance_status, advance_tokens, ask_scoring, ask_tokens};
-use ti4_engine_core::driver::NoSeeds;
 use ti4_engine_core::kernel::ability::Unknown;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::turn_codes::TurnGap;
@@ -23,7 +21,7 @@ fn env(k: &Kernel) -> Env<'_> {
     ti4_engine_core::driver::children::register(&mut table);
     // Every card its own printed name.
     table.facts.card_groups = (0..ActionCard::COUNT).map(|i| u8::try_from(i).unwrap_or(u8::MAX)).collect();
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(NoSeeds) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table }
 }
 
 fn plain(s: &CoreState) -> Vec<PlainRec> {

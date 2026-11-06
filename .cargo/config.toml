@@ -22,11 +22,11 @@ xtask = "run -q -p xtask --"
 # Use `l-web` for every check: Clippy includes the check, and `c-web` builds a second set of
 # metadata of the game crates (it shares nothing with `l-web` or `t-web`). `c-web` stays only so
 # that old references to it still work.
-c-web = "check -p ti4-model -p ti4-content -p ti4-calc -p ti4-engine -p ti4-engine-core-setup -p ti4-host -p ti4-rule-bot -p ti4-server -p ti4-wasm --all-targets"
-l-web = "clippy -p ti4-model -p ti4-content -p ti4-calc -p ti4-engine -p ti4-engine-core-setup -p ti4-host -p ti4-rule-bot -p ti4-server -p ti4-wasm --all-targets"
+c-web = "check -p ti4-chance -p ti4-model -p ti4-content -p ti4-calc -p ti4-engine -p ti4-engine-core-setup -p ti4-host -p ti4-rule-bot -p ti4-server -p ti4-wasm --all-targets"
+l-web = "clippy -p ti4-chance -p ti4-model -p ti4-content -p ti4-calc -p ti4-engine -p ti4-engine-core-setup -p ti4-host -p ti4-rule-bot -p ti4-server -p ti4-wasm --all-targets"
 # The fast tier: a test whose name starts with `slow_` is left out (each takes 3 s or more in a
 # debug build; together they are 90% of the test time). A bare `cargo test` still runs them all.
-t-web = "test -p ti4-model -p ti4-content -p ti4-calc -p ti4-engine -p ti4-engine-core-setup -p ti4-host -p ti4-rule-bot -p ti4-server -p ti4-wasm --lib --tests -- --skip ::slow_"
+t-web = "test -p ti4-chance -p ti4-model -p ti4-content -p ti4-calc -p ti4-engine -p ti4-engine-core-setup -p ti4-host -p ti4-rule-bot -p ti4-server -p ti4-wasm --lib --tests -- --skip ::slow_"
 # The slow tier, and only it: the tests of the server and of the wasm host whose names start with
 # `slow_`. The game crates are optimized a little (opt-level 1): these tests run about 2.5 times
 # faster, and the engine takes several times longer to build, so this is for the gate before a
@@ -51,7 +51,7 @@ t-web-slow = [
 wire-web = [
     "test",
     "--config", "env.TI4_WRITE_WIRE=\"1\"",
-    "-p", "ti4-model", "-p", "ti4-content", "-p", "ti4-calc", "-p", "ti4-engine", "-p", "ti4-host",
+    "-p", "ti4-chance", "-p", "ti4-model", "-p", "ti4-content", "-p", "ti4-calc", "-p", "ti4-engine", "-p", "ti4-host",
     "-p", "ti4-rule-bot", "-p", "ti4-server", "-p", "ti4-wasm",
     "--lib", "--tests", "--", "--exact", "wire_types::generated_wire_types_are_current",
     "protocol_fixtures::protocol_fixtures_are_current", "fixtures_verification::ensure_and_verify_fixtures",
@@ -60,7 +60,7 @@ wire-web = [
 # `target/debug/server` for the e2e and the transport tests of web2. The test target (`refusals`, a small
 # test of ti4-host; it was `content_ids_resolve` of the legacy crate, which left this set) is named only
 # so that the features are those of `t-web`; without it the engine is built again.
-b-web = "build -p ti4-model -p ti4-content -p ti4-calc -p ti4-engine -p ti4-host -p ti4-rule-bot -p ti4-server -p ti4-wasm --bin server --test refusals"
+b-web = "build -p ti4-chance -p ti4-model -p ti4-content -p ti4-calc -p ti4-engine -p ti4-host -p ti4-rule-bot -p ti4-server -p ti4-wasm --bin server --test refusals"
 
 # ---- Legacy and oracle tests (not the production set; docs/ENGINE_LAYOUT.md) ----
 # The legacy string engine's own tests and the content-ids test. The oracle and the lockstep profile

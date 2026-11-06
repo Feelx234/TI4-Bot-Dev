@@ -452,12 +452,14 @@ fn the_stream_names_of_the_setup_crate_are_the_ones_the_codec_and_the_string_eng
         D::YssarilHero, D::Direct, D::DeckA, D::DeckB, D::RetryProbe, D::SeatingFactionAssignment, D::SeatingLobbyDraw, D::WideRoster, D::KeleresVariant, D::YinAscendant,
     ];
     for d in domains {
-        let ours = ti4_engine_core_setup::rng::domain_text(d).expect("a literal domain");
+        let ours = ti4_engine_core_setup::rng::domain_text(d);
         assert_eq!(ti4_engine::core_sync::codec::rng::domain_text_in(&texts, d).expect("the codec knows it"), ours, "{d:?}");
         // and the seed of the stream is the string engine's
         assert_eq!(ti4_engine_core_setup::rng::derive_seed(42, ours), ti4_engine::rng::GameRng::derive_seed(42, ours));
     }
-    assert!(ti4_engine_core_setup::rng::domain_text(D::Dyn(3, 0)).is_none());
+    // Every stream of the string engine is one of these (decision D3: no dynamic domains): an unknown name is refused.
+    assert_eq!(D::of_text("a stream nobody named"), None);
+    assert_eq!(D::LITERALS.len(), domains.len());
 }
 
 /// A board that carries recorded map edits (a replayed swap or replace) keeps its count in the typed map slice.

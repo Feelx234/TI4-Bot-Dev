@@ -309,7 +309,6 @@ mod real {
             }
             script.questions[0].answer = Some(base.to_owned());
         }
-        let seeds = std::rc::Rc::new(crate::dual_window::DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
         let resolver = Resolver::new(&[seat], Some(seat));
         let src = Sources { galaxy: Some(galaxy), rng: Some(args.rng_before) };
         let index = Cell::new(0_usize);
@@ -334,7 +333,7 @@ mod real {
             if let Some(route) = route.take() {
                 machine = machine.with_route(route);
             }
-            let mut driver = crate::window_driver::driver_for(machine, resolver, AbilityTable::default(), 1).with_seeds(seeds);
+            let mut driver = crate::window_driver::driver_for(machine, resolver, AbilityTable::default(), 1);
             // The details and previews are the recorded question's (A2b-12 produces them from the core).
             let complete = |_: &ti4_engine_core::choice::Choice, _: &ti4_engine_core::state::CoreState, rendered: &mut crate::choice::Choice| {
                 let i = index.get();

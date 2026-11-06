@@ -6,14 +6,13 @@
 //! no option is refused with the position untouched, and the park stays usable. (Debug builds also check every parked answer against the
 //! replay inside the core, `live::verify_parked`.)
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::strategy::Opt as SOpt;
 use ti4_engine_core::containers::Cow;
 use ti4_engine_core::driver::live::{advance, Env, Live, LiveError, Out};
 use ti4_engine_core::driver::turn::TurnFlowWin;
 use ti4_engine_core::driver::windows::strategic::{advance_secondary, begin::begin_strategic, secondary_of};
-use ti4_engine_core::driver::{park_stats, set_parking, NoSeeds};
+use ti4_engine_core::driver::{park_stats, set_parking};
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::state::Window as OpenWindow;
@@ -41,7 +40,7 @@ fn env(k: &Kernel) -> Env<'_> {
             shared: SharedPlay::default(),
         })
     })));
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(NoSeeds) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table }
 }
 
 /// Which arm answers: the follower window, or the strategic job (the primary).

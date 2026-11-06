@@ -507,13 +507,6 @@ mod tests {
     use crate::state::{Code, Player, Players, Seats};
     use crate::tables::Scope;
 
-    struct Seeds(u8);
-    impl crate::state::SeedSource for Seeds {
-        fn seed_for(&self, _: u64, _: crate::state::RngDomain) -> [u8; 32] {
-            [self.0; 32]
-        }
-    }
-
     fn facts(for_voters: &[Seat]) -> EffectFacts {
         EffectFacts {
             for_voters: SmallList::from_slice(for_voters),
@@ -544,7 +537,8 @@ mod tests {
 
     fn run(window: Resolve, s: &mut CoreState, seed: u8) -> Driver<Resolve> {
         let k = Kernel::plain();
-        let mut d = Driver::new(window, Resolver::new(&[], None), linked(true), 1).with_seeds(std::rc::Rc::new(Seeds(seed)));
+        s.rng = crate::state::Rng::new(u64::from(seed));
+        let mut d = Driver::new(window, Resolver::new(&[], None), linked(true), 1);
         assert_eq!(d.run(s, &k).unwrap(), crate::driver::Status::Done);
         d
     }

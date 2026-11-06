@@ -2,7 +2,6 @@
 //! effects of its three openers (`enter_production`, `resolve_timed`, `produce_by_ability`), the production window, and the effects at the end of a
 //! use (`finish_use`), held as a payload on the `Pending` stack between the questions.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::production::{Ask as PAsk, Opt as POpt};
 use ti4_engine_core::containers::Cow;
@@ -15,7 +14,6 @@ use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::keys::Outcome;
 use ti4_engine_core::state::{Code, EventKind, Key, LeaderStatus, List, UsePhase, Val, WindowKind};
 use ti4_engine_core_tests::prelude::*;
-use ti4_engine_core_tests::rig::KitSeeds;
 use ti4_engine_core_tests::scenario::plain_systems;
 
 fn sys() -> System {
@@ -37,7 +35,7 @@ fn arena(goods: i16) -> (CoreState, Kernel) {
         .build()
 }
 
-fn mkenv(k: &Kernel, seed: u64) -> Env<'_> {
+fn mkenv(k: &Kernel, _seed: u64) -> Env<'_> {
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
     ti4_engine_core_factions::self_assembly::register_links(&mut table);
@@ -45,7 +43,7 @@ fn mkenv(k: &Kernel, seed: u64) -> Env<'_> {
     table.codes.production.ability = Code(101);
     table.codes.production.production = Code(102);
     table.codes.production.units = Code(103);
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(KitSeeds(seed)) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table }
 }
 
 fn goods(s: &CoreState) -> i16 {

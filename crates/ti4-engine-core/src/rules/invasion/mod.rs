@@ -180,12 +180,12 @@ pub struct BombardDice {
 
 /// The dice of `roll_bombard_plan`, drawn from `rng`'s dice stream: every roll of the plan in order (planet by
 /// planet, unit by unit), `dice` faces each, exactly as the string loop's `dice.roll_by` draws them.
-pub fn roll_bombard(plan: &[PlanetBombard], rng: &mut crate::state::Rng, seeds: &dyn crate::state::SeedSource) -> Vec<BombardDice> {
+pub fn roll_bombard(plan: &[PlanetBombard], rng: &mut crate::state::Rng) -> Vec<BombardDice> {
     use crate::state::RngDomain;
     let mut out = Vec::new();
     for planet in plan {
         for roll in &planet.rolls {
-            let faces = (0..roll.dice).map(|_| rng.die(RngDomain::Dice, seeds, DIE_SIDES)).collect();
+            let faces = (0..roll.dice).map(|_| crate::state::rng::die(rng, RngDomain::Dice, DIE_SIDES)).collect();
             out.push(BombardDice { planet: planet.planet, unit: roll.unit, hits_on: u32::try_from(roll.hits_on).unwrap_or(u32::MAX), faces });
         }
     }

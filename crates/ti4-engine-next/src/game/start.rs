@@ -3,7 +3,6 @@
 //! holds only the seats; nothing of the setup is ever written to a string position (docs/SETUP_NATIVE_DESIGN.md).
 
 use std::collections::BTreeMap;
-use std::rc::Rc;
 
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
@@ -13,7 +12,6 @@ use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
 use super::{Game, GameError, Native, secondary_view};
-use crate::core_sync::codec::rng::TextSeeds;
 use crate::core_sync::{Ctx, materialize};
 use crate::render::Render;
 use crate::wire::choice::{SeededRandom, Table};
@@ -142,7 +140,7 @@ impl<'a> Game<'a> {
             .map(|id| state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned()))
             .collect();
         let render = Render::new(cx.owners.ids().to_vec()).with_factions(factions).with_codes(core.texts.codes.clone());
-        let native = Native { seeds: Rc::new(TextSeeds::of(&cx)), kernel: crate::live::kernel::kernel_for(POK), base: state.clone(), core, cx, render, after_glue: false };
+        let native = Native { kernel: crate::live::kernel::kernel_for(POK), base: state.clone(), core, cx, render, after_glue: false };
         let secondary = secondary_view(&native.core, &native.cx);
         Ok(Self {
             state,

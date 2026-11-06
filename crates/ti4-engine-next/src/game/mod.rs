@@ -19,7 +19,6 @@
 //! [`GameError::Unmapped`] / [`GameError::Disabled`] and blocks the game.
 
 use std::collections::BTreeMap;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use ti4_content::ContentStore;
@@ -33,7 +32,6 @@ use ti4_model::content_types::{FULL, POK, SourceSet};
 use ti4_model::id::{PlayerId, StrategyCardId, SystemId};
 use ti4_model::state::{GameState, Phase};
 
-use crate::core_sync::codec::rng::TextSeeds;
 use crate::core_sync::{Codec, Ctx, Sources, materialize};
 use crate::live::{self, arms};
 use crate::render::Render;
@@ -122,7 +120,6 @@ struct Native {
     core: CoreState,
     cx: Ctx,
     render: Render,
-    seeds: Rc<TextSeeds>,
     kernel: &'static Kernel,
     /// The position the core was loaded from: the fields no slice carries.
     base: GameState,
@@ -158,7 +155,7 @@ impl Native {
             .map(|id| state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned()))
             .collect();
         let render = Render::new(cx.owners.ids().to_vec()).with_factions(factions).with_codes(core.texts.codes.clone());
-        Ok(Self { seeds: Rc::new(TextSeeds::of(&cx)), kernel: live::kernel::kernel_for(sources), base: state.clone(), core, cx, render, after_glue: false })
+        Ok(Self { kernel: live::kernel::kernel_for(sources), base: state.clone(), core, cx, render, after_glue: false })
     }
 
     /// The position as the string's `GameState`.
@@ -280,7 +277,7 @@ impl NativeSnapshot {
     fn open(&self, sources: SourceSet) -> Native {
         let mut render = Render::new(self.cx.owners.ids().to_vec()).with_codes(self.codes.clone());
         render.factions.clone_from(&self.factions);
-        Native { core: self.core.clone(), cx: self.cx.clone(), render, seeds: Rc::new(TextSeeds::of(&self.cx)), kernel: live::kernel::kernel_for(sources), base: self.base.clone(), after_glue: self.after_glue }
+        Native { core: self.core.clone(), cx: self.cx.clone(), render, kernel: live::kernel::kernel_for(sources), base: self.base.clone(), after_glue: self.after_glue }
     }
 }
 
@@ -768,7 +765,7 @@ impl<'a> Game<'a> {
         if arm == Arm::Finished {
             return None;
         }
-        let env = live::env::env_with_plays(&native.render, &native.core, native.kernel, native.seeds.clone(), self.sources);
+        let env = live::env::env_with_plays(&native.render, &native.core, native.kernel, self.sources);
         let cx = live::Cx::new(&native.render, &env);
         let ask = ask_arm_fn(arm)?;
         let asking: Asking = ask(&native.core, &env).ok()??;
@@ -942,7 +939,7 @@ fn native_step(
     participation: Option<&Participation>,
     state: &GameState,
 ) -> Result<Done, GameError> {
-    let mut env = live::env::env_with_plays(&n.render, &n.core, n.kernel, n.seeds.clone(), sources);
+    let mut env = live::env::env_with_plays(&n.render, &n.core, n.kernel, sources);
     // The seats a reaction window passed by because they had nothing to resolve (`Table::window_skipped`, the wait banner of the hidden reactions).
     let skipped = Arc::new(std::sync::Mutex::new(Vec::new()));
     env.table.skipped = Some(Arc::clone(&skipped));

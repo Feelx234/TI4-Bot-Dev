@@ -2,14 +2,12 @@
 //! announced), the Nomad answers, readies the agent and may perform a transaction with the agent's owner, the negotiation running through the
 //! questions of the effect with the reach the card grants while it lasts.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::reaction::{AbilityId, AbilityKind, Opt as ROpt};
 use ti4_engine_core::choice::technology::{Ask as TAsk, Opt as TOpt};
 use ti4_engine_core::choice::trade::{Opt as TrOpt, Shape};
 use ti4_engine_core::containers::Cow;
 use ti4_engine_core::driver::live::{advance, open, Env, Live};
-use ti4_engine_core::driver::NoSeeds;
 use ti4_engine_core::kernel::stage::{AbilityTable, Held, Illegal, Sx};
 use ti4_engine_core::kernel::{fx, Next, Resolver};
 use ti4_engine_core::keys::MarkKey;
@@ -87,7 +85,7 @@ fn env<'a>(k: &'a Kernel, s: &CoreState) -> Env<'a> {
     let defs = table.registry(s, &order, &mut name);
     let mut resolver = Resolver::new(&order, Some(Seat(0)));
     resolver.register(defs);
-    Env { kernel: k, registry: Cow::new(resolver.registry().clone()), table, seeds: Rc::new(NoSeeds) }
+    Env { kernel: k, registry: Cow::new(resolver.registry().clone()), table }
 }
 
 fn agent_exhausted(s: &mut CoreState) {

@@ -3,7 +3,6 @@
 //! again. Here the Parley effect of the core (`rules::invasion::commit::parley`, the function the card registers) is the reaction of the landing's AFTER
 //! window, played by the planet's controller, and the invasion machine runs the commit step around it.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::invasion::{Ask as IAsk, Opt as IOpt};
 use ti4_engine_core::choice::reaction::{AbilityId, AbilityKind};
@@ -17,7 +16,6 @@ use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::state::{Code, EventKind, Key, NoteHold, Piece, WindowKind};
 use ti4_engine_core::choice::reaction::Relation;
 use ti4_engine_core_tests::prelude::*;
-use ti4_engine_core_tests::rig::KitSeeds;
 use ti4_engine_core_tests::scenario::plain_systems;
 
 fn sys() -> System {
@@ -79,7 +77,7 @@ fn play_parley(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
 }
 
 /// The environment of a run with Parley in the hand of the defender (seat 1).
-fn env<'k>(k: &'k Kernel, core: &CoreState, seed: u64) -> Env<'k> {
+fn env<'k>(k: &'k Kernel, core: &CoreState, _seed: u64) -> Env<'k> {
     let mut table = AbilityTable::default();
     table.add(Spec::new(PARLEY, AbilityKind::Other, EventKind::UnitsCommitted, Relation::After, play_parley).optional().when(parley_held));
     let mut registry = Registry::default();
@@ -88,7 +86,7 @@ fn env<'k>(k: &'k Kernel, core: &CoreState, seed: u64) -> Env<'k> {
     table.codes.invasion = codes();
     table.codes.ground_combat = Code(1);
     table.codes.harrow = Code(2);
-    Env { kernel: k, registry: Cow::new(registry), table, seeds: Rc::new(KitSeeds(seed)) }
+    Env { kernel: k, registry: Cow::new(registry), table }
 }
 
 /// The invader (seat 0) in the space area with a carrier and `n` infantry; the defender (seat 1) holds both planets with `d` infantry on the first.

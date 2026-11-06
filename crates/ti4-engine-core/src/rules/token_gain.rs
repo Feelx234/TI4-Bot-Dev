@@ -108,7 +108,6 @@ mod tests {
     use crate::choice::strategy::Pool;
     use crate::containers::{Cow, SmallList};
     use crate::driver::live::{advance, ask, open, Env, Live};
-    use crate::driver::NoSeeds;
     use crate::generated::Faction;
     use crate::ids::Seat;
     use crate::kernel::stage::AbilityTable;
@@ -130,7 +129,7 @@ mod tests {
     }
 
     fn env(k: &Kernel) -> Env<'_> {
-        Env { kernel: k, registry: Cow::new(Registry::default()), table: AbilityTable::default(), seeds: std::rc::Rc::new(NoSeeds) }
+        Env { kernel: k, registry: Cow::new(Registry::default()), table: AbilityTable::default() }
     }
 
     fn pool(p: Pool) -> Pick {

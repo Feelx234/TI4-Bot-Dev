@@ -2,13 +2,11 @@
 //! against the string (`ti4-engine`'s `agenda_live_tests`): the window is rebuilt from `(payload, position)` at every call, a clone of the
 //! position in the middle of a vote continues identically, and the last answer closes the vote.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::agenda::Opt as AOpt;
 use ti4_engine_core::containers::{Cow, SmallList};
 use ti4_engine_core::driver::agenda::VotingWin;
 use ti4_engine_core::driver::live::{advance, ask, open, Env, Live, LiveError};
-use ti4_engine_core::driver::NoSeeds;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::rules::agenda::window::{Facts, Vote};
@@ -38,7 +36,7 @@ fn table() -> CoreState {
 }
 
 fn env(k: &Kernel) -> Env<'_> {
-    Env { kernel: k, registry: Cow::new(Registry::default()), table: AbilityTable::default(), seeds: Rc::new(NoSeeds) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table: AbilityTable::default() }
 }
 
 fn opened(s: &mut CoreState, k: &Kernel, agenda: Agenda, queue: &[Agenda]) {

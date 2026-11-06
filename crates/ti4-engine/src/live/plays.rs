@@ -231,11 +231,9 @@ pub fn play_facts(core: &CoreState, kernel: &Kernel, texts: &Texts) -> Option<Pl
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
 
     use ti4_engine_core::choice::{Ask, Opt, Pick};
     use ti4_engine_core::driver::live::{advance, open, Live, LiveError};
-    use ti4_engine_core::driver::NoSeeds;
     use ti4_engine_core::generated::{ActionCard, Faction};
     use ti4_engine_core::kernel::stage::{Illegal, Sx, Window};
     use ti4_engine_core::kernel::{fx, Kernel, Next};
@@ -329,7 +327,7 @@ mod tests {
     fn a_card_played_inside_a_live_window_is_played_and_without_the_facts_stops_the_step() {
         let kernel = crate::live::kernel::kernel_for(POK);
         let (core, r) = position();
-        let with = crate::live::env::env_with_plays(&r, &core, kernel, Rc::new(NoSeeds), POK);
+        let with = crate::live::env::env_with_plays(&r, &core, kernel, POK);
         let mut played = core.clone();
         open(&mut played, &Activate { done: false });
         let asked = walk(&mut played, &with).expect("the card is played");
@@ -337,7 +335,7 @@ mod tests {
         assert!(played.players().by_seat(Seat(0)).unwrap().cards.hand.is_empty(), "the card left the hand");
         assert_eq!(played.cards().discarded_action.as_slice(), &[ActionCard::FlankSpeed1], "and lies on the discard pile");
         // The same window in an Env without the facts.
-        let bare = crate::live::env::env_for(&r, &core, kernel, Rc::new(NoSeeds));
+        let bare = crate::live::env::env_for(&r, &core, kernel);
         let mut stopped = core;
         open(&mut stopped, &Activate { done: false });
         assert_eq!(walk(&mut stopped, &bare), Err(LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::PlayFacts)));

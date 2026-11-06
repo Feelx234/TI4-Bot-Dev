@@ -3,7 +3,6 @@
 //! (`tactical.rs`, `fleet`); these check what the composer adds: the order of the stages, the payload round trip, a clone in the middle, the hand-off,
 //! the enforcement in the head, the tail, the bails.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::tactical::{Ask as TAsk, Opt as TOpt};
 use ti4_engine_core::containers::Cow;
@@ -14,7 +13,6 @@ use ti4_engine_core::kernel::ability::TacticalCodes;
 use ti4_engine_core::kernel::stage::{AbilityTable, Held};
 use ti4_engine_core::state::{AStage, Code, Emit, EventKind, PlainKind, THeadStep, TStage, Window as OpenWindow, WindowKind};
 use ti4_engine_core_tests::prelude::*;
-use ti4_engine_core_tests::rig::KitSeeds;
 use ti4_engine_core_tests::scenario::plain_systems;
 
 
@@ -22,7 +20,7 @@ fn codes() -> TacticalCodes {
     TacticalCodes { tactic: Code(21), space_cannon: Code(22), space_cannon_cause: Code(23), casualty: Code(24), commander: Code(25), pre_roll: Code(26), faction_technology: Code(27), nullification_field: Code(28), starlancer: Code(29), peace_prompt: Code(30), peace_source: Code(31) }
 }
 
-fn env(k: &Kernel, seed: u64) -> Env<'_> {
+fn env(k: &Kernel, _seed: u64) -> Env<'_> {
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
     // The activation marks of the Sardakk agent and of the Winnu are abilities of the activation window (`leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after`,
@@ -34,7 +32,7 @@ fn env(k: &Kernel, seed: u64) -> Env<'_> {
     for seat in [Seat(0), Seat(1)] {
         resolver.register(table.specs().iter().map(|spec| spec.def(ti4_engine_core::choice::reaction::AbilityId { kind: spec.kind, key: Code(spec.slot.0) }, seat)).collect::<Vec<_>>());
     }
-    Env { kernel: k, registry: Cow::new(resolver.registry().clone()), table, seeds: Rc::new(KitSeeds(seed)) }
+    Env { kernel: k, registry: Cow::new(resolver.registry().clone()), table }
 }
 
 fn t(o: TOpt) -> Opt {
@@ -136,6 +134,7 @@ fn the_space_cannon_offense_of_the_head_is_part_of_the_steps_events_even_with_no
     for seed in 1..=24 {
         let (sc, tiles) = row();
         let (mut core, k) = sc.unit(tiles[3], None, Unit::LoncaraSsodu, 1, 1).build();
+        core.rng = ti4_engine_core_tests::rig::kit_rng(seed);
         let env = env(&k, seed);
         to_the_close(&mut core, &env, &tiles).expect("the head runs");
         let typed: Vec<EventKind> = core.ledger().events.iter().filter_map(|e| if let Emit::Typed(t) = e { Some(t.kind) } else { None }).collect();

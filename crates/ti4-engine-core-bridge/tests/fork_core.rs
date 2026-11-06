@@ -20,7 +20,6 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
 
 use ti4_engine::live;
 use ti4_engine::render::Render;
@@ -29,7 +28,7 @@ use ti4_engine_core::driver::live::{ask_arm_fn, is_open, live_arm, AskFn, Asking
 use ti4_engine_core::driver::session::{live_ask_arm, step_arm, Arm, AskArm, Facts};
 use ti4_engine_core::driver::turn::{self, TurnFlowWin};
 use ti4_engine_core::kernel::Kernel;
-use ti4_engine_core::state::{census, CoreState, RngDomain, SeedSource, WindowKind};
+use ti4_engine_core::state::{census, CoreState, RngDomain, WindowKind};
 use ti4_engine_core_bridge::native_play::{lobby_spec, NativeGame};
 use ti4_model::content_types::SourceSet;
 
@@ -104,7 +103,6 @@ struct Play {
     render: Render,
     ids: Vec<String>,
     sources: SourceSet,
-    seeds: Rc<dyn SeedSource>,
     kernel: &'static Kernel,
     /// The bot's seed: a copy with another seed answers differently.
     seed: u64,
@@ -143,10 +141,10 @@ fn positions(core: &CoreState) -> Vec<(RngDomain, u128)> {
 impl Play {
     fn new(players: usize, seed: u64, faction: &str) -> Self {
         let g = NativeGame::from_spec(&lobby_spec(faction, players, seed)).expect("the lobby game builds");
-        let (core, cx, render, _base, kernel, seeds, sources) = g.probe();
+        let (core, cx, render, _base, kernel, sources) = g.probe();
         let ids = cx.owners.ids().to_vec();
         let render = Self::cold_render(&ids, render);
-        Self { core: core.clone(), render, ids, sources, seeds, kernel, seed, decided: 0, steps: 0, chain: 0xcbf2_9ce4_8422_2325, outs: 0, after_glue: false, rolled_in_step: false, rolled_since_answer: false, seen: Vec::new(), rolled_steps: Vec::new(), record: false, calls: Calls::default() }
+        Self { core: core.clone(), render, ids, sources, kernel, seed, decided: 0, steps: 0, chain: 0xcbf2_9ce4_8422_2325, outs: 0, after_glue: false, rolled_in_step: false, rolled_since_answer: false, seen: Vec::new(), rolled_steps: Vec::new(), record: false, calls: Calls::default() }
     }
 
     /// A render that knows nothing but the code table of `r` (the memos are rebuilt on demand).
@@ -163,7 +161,6 @@ impl Play {
             render: Self::cold_render(&self.ids, &self.render),
             ids: self.ids.clone(),
             sources: self.sources,
-            seeds: Rc::clone(&self.seeds),
             kernel: self.kernel,
             seed: self.seed,
             decided: self.decided,
@@ -321,7 +318,7 @@ impl Play {
             Some(mid) => mid.step_env.clone(),
             None => {
                 self.rolled_in_step = false;
-                live::env::env_with_plays(render, &self.core, self.kernel, self.seeds.clone(), self.sources)
+                live::env::env_with_plays(render, &self.core, self.kernel, self.sources)
             }
         };
         let mut resumed = from;
