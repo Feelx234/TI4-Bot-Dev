@@ -8,15 +8,18 @@ import type { ChoiceOption, PendingChoiceDto } from "../protocol/types.ts";
  *
  * - `payment`: the atoms cover `owed`, and without the largest one the rest would be short;
  * - `purchase`: `buy:N` tokens of `owed` each (N within `buy`), paid by the same rule (nothing for none);
- * - `discard`: exactly `owed` atoms.
+ * - `discard`: exactly `owed` atoms;
+ * - `remove` (fleet supply / capacity): units until the excess (`owed`, a hint) is gone; the engine
+ *   checks it (the excess gone, every unit needed) and fills up a short set itself, so the picker
+ *   only shows the count against the excess.
  *
- * Any other kind (`remove`, ...) is built freely and judged by the engine.
+ * Any other kind is built freely and judged by the engine.
  */
 
 export const MULTI_PICK_SEPARATOR = "+";
 export const MULTI_PICK_BUY = "buy:";
 
-export type MultiPickRule = "payment" | "purchase" | "discard" | "free";
+export type MultiPickRule = "payment" | "purchase" | "discard" | "remove" | "free";
 
 export interface MultiPickAtom {
   id: string;
@@ -40,7 +43,7 @@ export interface MultiPickView {
 export type MultiPickCounts = Readonly<Record<string, number>>;
 
 const ruleOf = (kind: string): MultiPickRule =>
-  kind === "payment" || kind === "purchase" || kind === "discard" ? kind : "free";
+  kind === "payment" || kind === "purchase" || kind === "discard" || kind === "remove" ? kind : "free";
 
 const asWorth = (option: ChoiceOption): number => {
   const worth = Number(option.payload?.worth);
@@ -61,7 +64,9 @@ export function describeMultiPick(
       id: option.id,
       option,
       worth: rule === "payment" || rule === "purchase" ? asWorth(option) : 1,
-      max: Math.max(1, Math.floor(Number(repeat[option.id] ?? 1)) || 1),
+      // A removal names one option per unit kind: up to the excess of them (each unit removed takes
+      // at least one off it), unless the engine says how many there are.
+      max: Math.max(1, Math.floor(Number(repeat[option.id] ?? (rule === "remove" ? multi.owed : 1))) || 1),
     }));
   const buy =
     multi.buy && multi.buy.length === 2 ? ([multi.buy[0], multi.buy[1]] as [number, number]) : null;
@@ -139,6 +144,7 @@ export function multiPickProblem(
     case "payment":
       if (picked === 0) return `Pick what to pay ${view.owed}${u} with.`;
       return coverProblem(view, counts, view.owed, worth, u);
+    case "remove":
     case "free":
       return picked === 0 ? "Pick at least one." : null;
   }

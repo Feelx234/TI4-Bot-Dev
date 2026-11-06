@@ -722,7 +722,9 @@ const multiPickConfirmLabel = (rule: string, picked: number, bought: number): st
         : `Buy ${bought} token${bought === 1 ? "" : "s"}`
       : rule === "discard"
         ? `Discard ${picked}`
-        : `Confirm ${picked} picked`;
+        : rule === "remove"
+          ? `Remove ${picked}`
+          : `Confirm ${picked} picked`;
 
 /** Beside an atom: its worth, and a count stepper for an atom that may be named more than once. */
 const MultiPickAtomControls: React.FC<{
@@ -838,7 +840,13 @@ const MultiPickTally: React.FC<{
       <div className="workflow-card--row">
         <span className="text-muted">{pays ? "Paying" : "Picked"}</span>
         <strong data-testid="multi-pick-total" className={problem === null ? "text-success" : "text-accent"}>
-          {view.rule === "discard" ? `${picked} of ${view.owed}` : pays ? `${worth} of ${bill}${u}` : `${picked}`}
+          {view.rule === "discard"
+            ? `${picked} of ${view.owed}`
+            : pays
+              ? `${worth} of ${bill}${u}`
+              : view.rule === "remove"
+                ? `${picked} · over by ${view.owed}`
+                : `${picked}`}
         </strong>
       </div>
       {pays && (
@@ -852,6 +860,13 @@ const MultiPickTally: React.FC<{
       {problem && (
         <p role="status" className="text-warning" data-testid="multi-pick-problem">
           {problem}
+        </p>
+      )}
+      {view.rule === "remove" && (
+        <p className="text-muted" data-testid="multi-pick-engine-note">
+          {picked < view.owed
+            ? `You are over by ${view.owed}. Pick the units to remove; if they are not enough, the game removes more in the listed order.`
+            : "The game checks that the excess is gone and that every unit picked was needed."}
         </p>
       )}
       {view.rule === "free" && problem === null && (

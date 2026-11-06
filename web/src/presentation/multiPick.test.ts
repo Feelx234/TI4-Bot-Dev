@@ -53,7 +53,7 @@ describe("describeMultiPick", () => {
       ["sabotage", 1, 2],
       ["direct_hit", 1, 1],
     ]);
-    expect(describeMultiPick({ options: [], multi_pick: { kind: "remove", owed: 0 } })!.rule).toBe("free");
+    expect(describeMultiPick({ options: [], multi_pick: { kind: "something_new", owed: 0 } })!.rule).toBe("free");
   });
 });
 
@@ -153,11 +153,28 @@ describe("a discard", () => {
   });
 });
 
+describe("a removal", () => {
+  it("names a unit kind up to the excess, any non-empty set goes to the engine", () => {
+    const view = describeMultiPick({
+      options: [
+        { id: "remove|0", kind: "remove", label: "remove fighter", payload: {} },
+        { id: "remove|1", kind: "remove", label: "remove destroyer", payload: {} },
+      ],
+      multi_pick: { kind: "remove", owed: 3 },
+    })!;
+    expect(view.rule).toBe("remove");
+    expect(view.atoms.map((a) => a.max)).toEqual([3, 3]);
+    expect(multiPickProblem(view, {})).toMatch(/at least one/);
+    expect(multiPickProblem(view, { "remove|0": 1 })).toBeNull();
+    expect(multiPickAnswer(view, { "remove|0": 2, "remove|1": 1 })).toBe("remove|0+remove|0+remove|1");
+  });
+});
+
 describe("an unknown kind", () => {
   it("lets the player pick anything and leaves the rest to the engine", () => {
     const view = describeMultiPick({
-      options: [{ id: "fighter|1", kind: "remove", label: "a fighter", payload: {} }],
-      multi_pick: { kind: "remove", owed: 0 },
+      options: [{ id: "fighter|1", kind: "x", label: "a fighter", payload: {} }],
+      multi_pick: { kind: "something_new", owed: 0 },
     })!;
     expect(multiPickProblem(view, {})).toMatch(/at least one/);
     expect(multiPickProblem(view, { "fighter|1": 1 })).toBeNull();

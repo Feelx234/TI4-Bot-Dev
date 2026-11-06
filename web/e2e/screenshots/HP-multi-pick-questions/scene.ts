@@ -2,6 +2,7 @@ import { expect, type Browser, type Page } from "@playwright/test";
 import { openMockedGame, type MockChoice } from "../_shared/mockGame";
 import { playerWithHand, opponent } from "../_shared/players";
 import { paymentBoard } from "../D-planet-selection/payment";
+import { actor, galleryBoard } from "../_shared/fixtures";
 import { planetsBoard, PLANETS } from "../BC-leadership-planets-first/scene";
 import { DEVICES } from "../BN-phone-detection/scene";
 
@@ -74,16 +75,54 @@ export async function stagePayment(page: Page, planets: string[], goods: number)
 // ---- Hand-limit discard (the coming multi-pick, generic picker) ------------------------------
 
 export const discardChoice: MockChoice = {
-  prompt: "discard 2 action cards (hand limit 7)",
+  // As the engine renders it: one option per printed name (id = its place in the hand, label = the
+  // card's name), a name held twice repeatable up to its copies.
+  prompt: "over the hand limit — discard 2 of 9",
   nonce: "hp-discard",
   context: { subtype: "discard_over_hand_limit" },
   options: [
-    { id: "sabo1", label: "Sabotage", kind: "action_card", payload: { card: "sabo1" } },
-    { id: "direct_hit", label: "Direct Hit", kind: "action_card", payload: { card: "direct_hit" } },
-    { id: "decoy", label: "Decoy Operation", kind: "action_card", payload: { card: "decoy" } },
-    { id: "skilled_retreat", label: "Skilled Retreat", kind: "action_card", payload: { card: "skilled_retreat" } },
+    { id: "0", label: "Sabotage", kind: "discard", payload: {} },
+    { id: "2", label: "Direct Hit", kind: "discard", payload: {} },
+    { id: "3", label: "Decoy Operation", kind: "discard", payload: {} },
+    { id: "4", label: "Skilled Retreat", kind: "discard", payload: {} },
   ],
-  multi_pick: { kind: "discard", owed: 2, repeat: { sabo1: 2 } },
+  multi_pick: { kind: "discard", owed: 2, repeat: { "0": 2 } },
+};
+
+// ---- Fleet supply removal (multi-pick kind remove) -------------------------------------------
+
+const ship = (unit_type: string) => ({ unit_type, owner: actor, damaged: false });
+
+/** System 18 holds 8 of the viewer's ships against a fleet supply of 5: 3 over. */
+export const removeBoard = {
+  ...galleryBoard,
+  systems: {
+    ...galleryBoard.systems,
+    "18": {
+      ...galleryBoard.systems["18"],
+      units: [
+        ...[1, 2, 3].map(() => ship("destroyer")),
+        ...[1, 2].map(() => ship("cruiser")),
+        ...[1, 2].map(() => ship("dreadnought")),
+        ship("carrier"),
+      ],
+    },
+  },
+};
+
+/** One question for the whole removal: an option per unit kind, a '+'-joined answer (the engine checks it). */
+export const removeChoice: MockChoice = {
+  prompt: "remove a unit: over fleet supply in 18",
+  nonce: "hp-remove",
+  context: { subtype: "remove_unit" },
+  options: [
+    { id: "remove|0", label: "remove destroyer", kind: "remove", payload: {} },
+    { id: "remove|3", label: "remove cruiser", kind: "remove", payload: {} },
+    { id: "remove|5", label: "remove dreadnought", kind: "remove", payload: {} },
+    { id: "remove|7", label: "remove carrier", kind: "remove", payload: {} },
+  ],
+  details: { reason: "fleet supply", system: "18", fleet_charged: 8, fleet_limit: 5, capacity_consumed: 0, capacity_transport: 0 },
+  multi_pick: { kind: "remove", owed: 3 },
 };
 
 // ---- Leadership ------------------------------------------------------------------------------

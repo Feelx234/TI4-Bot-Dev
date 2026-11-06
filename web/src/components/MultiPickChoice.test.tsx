@@ -71,7 +71,7 @@ describe("a multi-pick in the decision modal", () => {
       nonce: "remove-1",
       context: partialContext({ subtype: "remove_over_capacity" }),
       options: [option("fighter|a", "a fighter", {}, "remove"), option("infantry|a", "an infantry", {}, "remove")],
-      multi_pick: { kind: "remove", owed: 0 },
+      multi_pick: { kind: "something_new", owed: 0 },
     };
     render(<PendingChoiceModal choice={remove} onSubmit={onSubmit} />);
     expect(screen.getByTestId("multi-pick-problem")).toHaveTextContent("Pick at least one");
@@ -82,6 +82,32 @@ describe("a multi-pick in the decision modal", () => {
       fireEvent.click(screen.getByTestId("submit-choice-button"));
     });
     expect(onSubmit).toHaveBeenCalledWith("fighter|a+infantry|a");
+  });
+
+  it("removes units over the fleet supply: a stepper per unit kind up to the excess, one answer", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const remove: PendingChoiceDto = {
+      prompt: "remove ships over the fleet supply",
+      actor: "p1",
+      nonce: "remove-2",
+      context: partialContext({ subtype: "remove_over_fleet_supply" }),
+      options: [option("remove|0", "remove destroyer", {}, "remove"), option("remove|1", "remove cruiser", {}, "remove")],
+      multi_pick: { kind: "remove", owed: 2 },
+    };
+    render(<PendingChoiceModal choice={remove} onSubmit={onSubmit} />);
+    expect(screen.getByTestId("multi-pick-total")).toHaveTextContent("0 · over by 2");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("multi-pick-plus-remove|0"));
+    });
+    expect(screen.getByTestId("multi-pick-engine-note")).toHaveTextContent("the game removes more");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("multi-pick-plus-remove|0"));
+    });
+    expect(screen.getByTestId("multi-pick-plus-remove|0")).toBeDisabled();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("submit-choice-button"));
+    });
+    expect(onSubmit).toHaveBeenCalledWith("remove|0+remove|0");
   });
 
   it("runs a payment's rule as you type: short, more than needed, then a legal set", async () => {
