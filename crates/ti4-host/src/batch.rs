@@ -3050,6 +3050,26 @@ mod tests {
         assert_eq!(script.selected.len(), 5);
     }
 
+    /// Leadership's PRIMARY purchase after its three free tokens: a plan that buys nothing (only "no") answers the one purchase
+    /// question with the empty set `buy:0`, which the question takes (its decline comes first and is never named as an atom).
+    #[test]
+    fn a_purchase_plan_of_only_no_buys_nothing() {
+        let mut choice = offered(
+            "buy_token_with_influence",
+            vec![
+                ChoiceOption::decline(),
+                ChoiceOption::labelled("exhaust|arcturus", "pay", "exhaust arcturus for 4 influence"),
+                ChoiceOption::labelled("trade_good", "pay", "spend a trade good"),
+            ],
+        );
+        choice.multi_pick = Some(ti4_engine::wire::choice::MultiPick { kind: "purchase".into(), owed: 3, repeat: std::collections::BTreeMap::new(), buy: Some([0, 1]) });
+        let (option, taken) = multi_pick_answer(&choice, &[buy(false)]).expect("the plan answers the purchase");
+        assert_eq!(option.id, "buy:0");
+        assert_eq!(taken, vec![0]);
+        let (option, _) = multi_pick_answer(&choice, &[buy(true), exhaust("arcturus"), buy(false)]).expect("one token");
+        assert_eq!(option.id, "buy:1+exhaust|arcturus");
+    }
+
     #[test]
     fn payments_the_engine_settled_without_asking_are_skipped() {
         // With only trade goods to spend the engine takes each lone option silently, so the

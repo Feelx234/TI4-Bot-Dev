@@ -37,6 +37,12 @@ export interface MultiPickView {
   atoms: MultiPickAtom[];
   /** A purchase: the fewest and the most tokens. */
   buy: [number, number] | null;
+  /**
+   * The listed decline, when the question has one: Leadership's PRIMARY purchase lists "buy no
+   * command tokens" first (the three free tokens are already gained; the secondary has none: it
+   * buys at least one). Not an atom: a client answers it alone, as its own button.
+   */
+  decline: ChoiceOption | null;
 }
 
 /** How many of each atom are picked, by atom id. */
@@ -70,7 +76,8 @@ export function describeMultiPick(
     }));
   const buy =
     multi.buy && multi.buy.length === 2 ? ([multi.buy[0], multi.buy[1]] as [number, number]) : null;
-  return { kind: multi.kind, rule, owed: Math.max(0, multi.owed), atoms, buy };
+  const decline = choice.options.find((option) => option.kind === "decline") ?? null;
+  return { kind: multi.kind, rule, owed: Math.max(0, multi.owed), atoms, buy, decline };
 }
 
 /** The count of one atom after a tap: a single atom toggles, a repeated one steps by `delta`. */
@@ -172,7 +179,7 @@ export function multiPickAnswer(view: MultiPickView, counts: MultiPickCounts, bo
   for (const atom of view.atoms) {
     for (let i = 0; i < (counts[atom.id] ?? 0); i += 1) parts.push(atom.id);
   }
-  if (view.rule === "purchase" && parts.length === 0) return `${MULTI_PICK_BUY}0`;
+  if (view.rule === "purchase" && parts.length === 0) return view.decline?.id ?? `${MULTI_PICK_BUY}0`;
   return parts.join(MULTI_PICK_SEPARATOR);
 }
 

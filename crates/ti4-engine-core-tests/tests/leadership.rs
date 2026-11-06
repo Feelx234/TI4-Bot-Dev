@@ -40,10 +40,32 @@ fn the_primary_gives_three_tokens_in_one_question_and_then_offers_to_buy_more() 
     // The purchase: one question, the payment atoms as options, none or one token (five influence).
     let Ask::Production(PAsk::Purchase(p)) = rig.asked().ask else { panic!("the purchase: {:?}", rig.asked().ask) };
     assert_eq!((p.min, p.max, p.each), (0, 1, 3));
-    assert!(rig.opts().iter().all(|o| matches!(o, Opt::Production(POpt::Exhaust { .. }))));
+    // The primary may buy nothing: the decline is listed first (the old loop's first option was "no"), then the atoms.
+    assert_eq!(rig.opts()[0], Opt::Decline);
+    assert!(rig.opts()[1..].iter().all(|o| matches!(o, Opt::Production(POpt::Exhaust { .. }))));
     rig.expect_illegal(Pick::Opt(strat(SOpt::gain_of(&[Pool::Tactic]))));
     rig.answer_pick(Pick::Opt(Opt::Production(POpt::Set(PaySet::default()))));
     assert!(rig.is_done());
+    assert_eq!(sheet(&rig.state), 3 + 3, "nothing bought");
+}
+
+#[test]
+fn the_primary_buys_nothing_with_the_first_option_or_the_decline() {
+    covers!("rules::production::strategy_cards::Leadership");
+    for decline in [false, true] {
+        let mut rig = Rig::new(table(&[2, 3], 1), Leadership::new(Seat(0), true));
+        rig.run();
+        rig.pick(0);
+        assert_eq!(sheet(&rig.state), 3 + 3, "the three free tokens first");
+        if decline {
+            rig.answer_pick(Pick::Opt(Opt::Decline));
+        } else {
+            rig.pick(0);
+        }
+        assert!(rig.is_done(), "no gain question after buying nothing");
+        assert_eq!(sheet(&rig.state), 3 + 3);
+        assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 1, "nothing spent");
+    }
 }
 
 #[test]
@@ -64,8 +86,8 @@ fn buying_a_token_spends_three_influence_in_planets_or_goods_and_gives_one_token
     rig.run();
     rig.pick(0);
     rig.assert_options_sound();
-    // One token, paid with the first atom first.
-    rig.pick(0);
+    // One token, paid with the first atom first (option 0 is the decline).
+    rig.pick(1);
     rig.auto(ti4_engine_core_tests::rig::Policy::First);
     assert!(rig.is_done());
     assert_eq!(sheet(&rig.state), 3 + 3 + 1, "one bought token");

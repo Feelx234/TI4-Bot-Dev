@@ -10,15 +10,10 @@ Q0 seat 0 Strategy(GainPool { left: 3 })
    8: Strategy(Gain { tactic: 0, fleet: 1, strategic: 2 })
    9: Strategy(Gain { tactic: 0, fleet: 0, strategic: 3 })
 Q1 seat 0 Production(Purchase(PurchaseAsk { pay: PayAsk { kind: Influence, owed: 3, pool: 7, goods: 2, commodities: 0 }, each: 3, min: 0, max: 2 }))
-   0: Production(Exhaust { planet: Wellon, source: Influence, shown: Shown { worth: 2, pool_after: 5 } })
-   1: Production(Exhaust { planet: MeharXull, source: Influence, shown: Shown { worth: 3, pool_after: 4 } })
-   2: Production(TradeGood { shown: Shown { worth: 1, pool_after: 6 } })
-Q2 seat 0 Strategy(GainPool { left: 1 })
-  >0: Strategy(Gain { tactic: 1, fleet: 0, strategic: 0 })
-   1: Strategy(Gain { tactic: 0, fleet: 1, strategic: 0 })
-   2: Strategy(Gain { tactic: 0, fleet: 0, strategic: 1 })
+   0: Decline
+   1: Production(Exhaust { planet: Wellon, source: Influence, shown: Shown { worth: 2, pool_after: 5 } })
+   2: Production(Exhaust { planet: MeharXull, source: Influence, shown: Shown { worth: 3, pool_after: 4 } })
+   3: Production(TradeGood { shown: Shown { worth: 1, pool_after: 6 } })
 done
 --- delta ---
-player0.econ.tactic_tokens: 1 -> 5
-planet[MeharXull]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [] attach [] coexist {} placed_in None flags 1
-planet[Wellon]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [] attach [] coexist {} placed_in None flags 1
+player0.econ.tactic_tokens: 1 -> 4

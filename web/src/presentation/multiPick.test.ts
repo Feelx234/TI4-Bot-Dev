@@ -135,6 +135,31 @@ describe("a purchase", () => {
   });
 });
 
+describe("the primary purchase's decline (buy nothing after the three free tokens)", () => {
+  const decline: ChoiceOption = { id: "decline", kind: "decline", label: "buy no command tokens", payload: {} };
+  const primary = describeMultiPick({
+    options: [decline, pay("exhaust|wellon", 2), pay("exhaust|mehar_xull", 3)],
+    multi_pick: { kind: "purchase", owed: 3, buy: [0, 1] },
+  })!;
+  const secondary = describeMultiPick({
+    options: [pay("exhaust|wellon", 2), pay("exhaust|mehar_xull", 3)],
+    multi_pick: { kind: "purchase", owed: 3, buy: [1, 1] },
+  })!;
+
+  it("is not an atom, and buying nothing answers with it", () => {
+    expect(primary.decline?.id).toBe("decline");
+    expect(primary.atoms.map((a) => a.id)).toEqual(["exhaust|wellon", "exhaust|mehar_xull"]);
+    expect(multiPickProblem(primary, {}, 0)).toBeNull();
+    expect(multiPickAnswer(primary, {}, 0)).toBe("decline");
+    expect(multiPickAnswer(primary, { "exhaust|mehar_xull": 1 }, 1)).toBe("buy:1+exhaust|mehar_xull");
+  });
+
+  it("is absent at the secondary, which buys at least one", () => {
+    expect(secondary.decline).toBeNull();
+    expect(multiPickProblem(secondary, {}, 0)).toMatch(/exactly 1 token/);
+  });
+});
+
 describe("a discard", () => {
   const view = describeMultiPick({
     options: [

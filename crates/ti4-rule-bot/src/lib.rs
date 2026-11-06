@@ -281,7 +281,8 @@ fn pay_set(choice: &Choice, seen: &dyn View, me: &PlayerId, owed: i64) -> Option
     let worth = |o: &ChoiceOption| payload_f64(o, "worth").unwrap_or(0.0);
     // The atoms, a repeatable one once per unit held.
     let mut left: Vec<ChoiceOption> = Vec::new();
-    for o in &choice.options {
+    // (Not the primary purchase's decline: it is "buy nothing", not an atom.)
+    for o in choice.options.iter().filter(|o| !o.is_decline()) {
         let n = repeat.get(&o.id).copied().unwrap_or(1);
         left.extend(std::iter::repeat_n(o.clone(), n as usize));
     }
@@ -5801,5 +5802,34 @@ mod tests {
         )
         .expect("legal");
         assert_eq!(probe.0, None, "no opinion on research");
+    }
+
+    /// Leadership's PRIMARY purchase lists "buy nothing" (a decline) first: the bot buys nothing (`buy:0`) when its pools are full, and
+    /// never names the decline as a payment atom when it buys.
+    #[test]
+    fn the_primary_purchase_buys_nothing_when_the_pools_are_full_and_never_pays_with_the_decline() {
+        let (mut state, hub, _, _) = board();
+        let seat = state.player_mut(&me()).expect("seat");
+        seat.trade_goods = 3;
+        seat.tactic_tokens = 8;
+        seat.strategic_tokens = 2;
+        let seen = observe(&state, &hub);
+        let mut choice = Choice::new(
+            me(),
+            "buy command tokens for 3 influence each (up to 1)",
+            vec![
+                ChoiceOption::decline(),
+                ChoiceOption::labelled("trade_good", "pay", "spend a trade good").with("worth", 1).with("kind", "influence"),
+            ],
+        );
+        choice.multi_pick = Some(ti4_engine::wire::choice::MultiPick {
+            kind: "purchase".into(),
+            owed: 3,
+            repeat: [("trade_good".to_owned(), 3)].into_iter().collect(),
+            buy: Some([0, 1]),
+        });
+        assert_eq!(purchase_count(&choice, &seen, &me(), 3, 0, 1), 0, "ten tokens: enough");
+        let ids = pay_set(&choice, &seen, &me(), 3).expect("three trade goods pay one token");
+        assert_eq!(ids, vec!["trade_good", "trade_good", "trade_good"], "the decline is not an atom");
     }
 }

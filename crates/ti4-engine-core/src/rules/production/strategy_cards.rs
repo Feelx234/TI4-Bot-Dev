@@ -98,11 +98,14 @@ impl Leadership {
         let (pay, atoms) = prod::pay_opts(&cx, self.who, Spend::Influence, 0, 0, &ex.extras());
         let each = u8::try_from(INFLUENCE_PER_TOKEN).unwrap_or(3);
         let ask = PurchaseAsk { pay: PayAsk { owed: INFLUENCE_PER_TOKEN, ..pay }, each, min, max };
+        // The primary may buy nothing: the decline comes FIRST (the old loop's first option was "no"; `Choice::pick(0)` buys nothing). The
+        // secondary has none: its decline is the follower window's.
+        let decline = self.primary.then_some(Opt::Decline);
         Some(Choice {
             actor: self.who,
             ask: Ask::Production(PAsk::Purchase(ask)),
             ctx: rule_ctx(Rule::R52_3, SSub::BuyTokenWithInfluence),
-            opts: atoms.as_slice().iter().map(|o| Opt::Production(*o)).collect(),
+            opts: decline.into_iter().chain(atoms.as_slice().iter().map(|o| Opt::Production(*o))).collect(),
         })
     }
 
@@ -167,6 +170,8 @@ impl Window for Leadership {
                 super::pay::apply_set(sx.state, self.who, atoms.as_slice(), set).ok_or(Illegal)?;
                 self.after_purchase(set.buy);
             }
+            // The primary's "buy nothing" (the same as the set `buy: 0`).
+            (LStage::Buy, Pick::Opt(Opt::Decline)) if self.primary => self.after_purchase(0),
             _ => return Err(Illegal),
         }
         Ok(())
@@ -1637,5 +1642,62 @@ mod purchase_tests {
         assert_eq!(d.resume(&mut s, &k, c.pick(0).unwrap()).unwrap(), Status::Done);
         assert!(ps.iter().all(|p| board::exhausted(&s, *p)));
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.tactic_tokens, 5);
+    }
+
+    /// The primary may buy NOTHING after its three free tokens (user, 2026-11-06): the purchase question lists the decline first, and
+    /// the decline, the empty set (`buy: 0`), `pick(0)` and `default_pick` all end the window with the three free tokens gained,
+    /// nothing spent and no second gain question.
+    #[test]
+    fn the_primary_gains_three_and_may_then_buy_nothing() {
+        let k = Kernel::plain();
+        let ps = planets(&[2, 2, 2]);
+        let nothing = Pick::Opt(Opt::Production(POpt::Set(crate::choice::production::PaySet::default())));
+        for (name, answer) in [("decline", Some(Pick::Opt(Opt::Decline))), ("empty set", Some(nothing)), ("pick(0)", None), ("default", None)] {
+            let mut s = position(&ps, 1);
+            let mut d = Driver::new(Leadership::new(Seat(0), true), Resolver::new(&[Seat(0)], Some(Seat(0))), AbilityTable::default(), 1);
+            let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("the gain") };
+            assert_eq!(c.ask, Ask::Strategy(SAsk::GainPool { left: 3 }), "the free gain always comes first");
+            let Status::Asking(c) = d.resume(&mut s, &k, c.pick(0).unwrap()).unwrap() else { panic!("the purchase") };
+            let Ask::Production(PAsk::Purchase(ask)) = c.ask else { panic!("a purchase, not {:?}", c.ask) };
+            assert_eq!(ask.min, 0);
+            assert_eq!(c.opts.as_slice().first(), Some(&Opt::Decline), "the decline is the first option");
+            assert!(c.accepts(&Pick::Opt(Opt::Decline)) && c.accepts(&nothing));
+            assert_eq!(c.pick(0), Some(nothing), "the first option buys nothing");
+            assert_eq!(c.default_pick(), Some(nothing), "the default buys nothing");
+            // An atom (option 1 = the first atom) still buys one token, paid with that atom first.
+            let Some(Pick::Opt(Opt::Production(POpt::Set(one)))) = c.pick(1) else { panic!("an atom's pick") };
+            assert_eq!(one.buy, 1);
+            assert!(c.accepts(&Pick::Opt(Opt::Production(POpt::Set(one)))));
+            let answer = match name {
+                "pick(0)" => c.pick(0).unwrap(),
+                "default" => c.default_pick().unwrap(),
+                _ => answer.unwrap(),
+            };
+            assert_eq!(d.resume(&mut s, &k, answer).unwrap(), Status::Done, "{name}: no gain question for bought tokens");
+            assert!(ps.iter().all(|p| !board::exhausted(&s, *p)), "{name}: nothing spent");
+            let p = s.players().by_seat(Seat(0)).unwrap();
+            assert_eq!((p.econ.trade_goods, p.econ.tactic_tokens), (1, 3), "{name}: the three free tokens, no trade good spent");
+        }
+    }
+
+    /// The secondary is unchanged: no decline (the follower window's "no" is the decline), at least one token, `pick(0)` buys one.
+    #[test]
+    fn the_secondary_purchase_has_no_decline_and_buys_at_least_one() {
+        let k = Kernel::plain();
+        let ps = planets(&[2, 2, 2]);
+        let s = position(&ps, 0);
+        let c = Leadership::new(Seat(0), false).purchase(&s, &k).expect("the secondary's purchase");
+        let Ask::Production(PAsk::Purchase(ask)) = c.ask else { panic!("a purchase") };
+        assert_eq!((ask.min, ask.max), (1, 2));
+        assert!(!c.can_decline());
+        assert!(!c.accepts(&Pick::Opt(Opt::Decline)));
+        assert!(!c.accepts(&Pick::Opt(Opt::Production(POpt::Set(crate::choice::production::PaySet::default())))));
+        let Some(Pick::Opt(Opt::Production(POpt::Set(first)))) = c.pick(0) else { panic!("an atom's pick") };
+        assert_eq!(first.buy, 1);
+        let mut s = s;
+        let mut d = Driver::new(Leadership::new(Seat(0), false), Resolver::new(&[Seat(0)], Some(Seat(0))), AbilityTable::default(), 1);
+        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("the purchase") };
+        assert!(matches!(c.ask, Ask::Production(PAsk::Purchase(_))), "the secondary starts at the purchase");
+        assert!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).is_err(), "no decline at the secondary's purchase");
     }
 }

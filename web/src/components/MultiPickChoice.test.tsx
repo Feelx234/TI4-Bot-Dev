@@ -63,6 +63,30 @@ describe("a multi-pick in the decision modal", () => {
     expect(onSubmit).toHaveBeenCalledWith("sabotage+direct_hit");
   });
 
+  it("shows the primary purchase's decline as a 'Buy nothing' button, not an atom", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const purchase: PendingChoiceDto = {
+      prompt: "buy command tokens for 3 influence each (up to 1)",
+      actor: "p1",
+      nonce: "purchase-1",
+      context: partialContext({ subtype: "buy_token_with_influence" }),
+      options: [
+        option("decline", "buy no command tokens", {}, "decline"),
+        option("exhaust|mehar_xull", "exhaust mehar_xull for 3 influence", { worth: 3, kind: "influence" }, "pay"),
+      ],
+      multi_pick: { kind: "purchase", owed: 3, buy: [0, 1] },
+    };
+    render(<PendingChoiceModal choice={purchase} onSubmit={onSubmit} />);
+    const dialog = screen.getByTestId("pending-choice-dialog");
+    expect(within(dialog).queryByDisplayValue("decline")).toBeNull();
+    expect(within(dialog).getByDisplayValue("exhaust|mehar_xull")).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("multi-pick-decline"));
+    });
+    expect(screen.getByTestId("multi-pick-decline")).toHaveTextContent("Buy nothing");
+    expect(onSubmit).toHaveBeenCalledWith("decline");
+  });
+
   it("lets the player pick freely for a kind it does not know and leaves the check to the engine", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const remove: PendingChoiceDto = {

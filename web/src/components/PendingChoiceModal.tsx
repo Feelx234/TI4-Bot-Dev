@@ -555,6 +555,8 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                 </div>
               ) : (
                 filteredOptions.map((opt) => {
+                  // A multi-pick's decline (the primary purchase's "buy nothing") is a button below, not an atom.
+                  if (multiPick && opt.kind === "decline") return null;
                   const multiAtom = multiPick?.atoms.find((atom) => atom.id === opt.id) ?? null;
                   const multiCount = multiCounts[opt.id] ?? 0;
                   const isChecked = multiPick
@@ -674,6 +676,18 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                 board={boardView}
                 onMinimize={() => setIsMinimized(true)}
               />
+              {multiPick?.decline && (
+                <button
+                  type="button"
+                  data-testid="multi-pick-decline"
+                  disabled={isSubmitting || isPipelineRunning}
+                  className="button button--secondary"
+                  style={{ padding: "10px 20px" }}
+                  onClick={() => void submitOption(multiPick.decline?.id ?? "")}
+                >
+                  {multiPick.rule === "purchase" ? "Buy nothing" : multiPick.decline.label || "Decline"}
+                </button>
+              )}
               <button
                 type="submit"
                 data-testid="submit-choice-button"

@@ -110,6 +110,8 @@ pub fn multi_answers(rendered: &ti4_engine::choice::Choice, kind: &str, secondar
     for part in chosen.split(ti4_engine::wire::choice::MULTI_PICK_SEPARATOR) {
         match part.strip_prefix(ti4_engine::wire::choice::MULTI_PICK_BUY) {
             Some(n) => buys = n.parse().unwrap_or(0),
+            // The primary purchase's decline: nothing bought (the string's "no").
+            None if part == ti4_engine::wire::choice::DECLINE_ID => {}
             None => atoms.push(part.to_owned()),
         }
     }
@@ -302,5 +304,19 @@ mod tests {
         assert!(loose_match("a", &entry, &[("a", "tactic_tokens", &offered), ("a", "fleet_tokens", &offered)]));
         assert!(!loose_match("a", &entry, &[("b", "tactic_tokens", &offered)]), "another seat");
         assert!(!loose_match("a", &entry, &[("a", "strategic_tokens", &offered)]), "not in the expansion");
+    }
+
+    /// Leadership's PRIMARY purchase answered with its decline (or `buy:0`): nothing bought, no atom, so the string hears its "no".
+    #[test]
+    fn the_primary_purchase_declined_expands_to_the_strings_no() {
+        let choice = ti4_engine::choice::Choice::new(
+            ti4_model::id::PlayerId::new("a"),
+            "buy command tokens for 3 influence each (up to 1)",
+            vec![ti4_engine::choice::ChoiceOption::decline(), ti4_engine::choice::ChoiceOption::labelled("trade_good", "pay", "spend a trade good")],
+        );
+        for chosen in [ti4_engine::wire::choice::DECLINE_ID, "buy:0"] {
+            let Scripted::Leadership { buys, bought, atoms } = multi_answers(&choice, "purchase", false, chosen) else { panic!("a purchase") };
+            assert_eq!((buys, bought, atoms.len()), (0, 0, 0), "{chosen}");
+        }
     }
 }

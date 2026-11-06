@@ -462,4 +462,32 @@ mod tests {
         }
         assert_eq!(pick_of(&r, &choice, "no_such_system"), None);
     }
+
+    /// Leadership's PRIMARY purchase (after its three free tokens) may buy nothing: the decline is listed first with its own label, and
+    /// `decline` and `buy:0` both read back as "nothing bought", which the question accepts; an atom alone buys one token.
+    #[test]
+    fn the_primary_purchase_lists_buy_nothing_first_and_reads_it_back() {
+        use ti4_engine_core::choice::production::{Ask as PAsk, Currency, Opt as POpt, PayAsk, PaySet, PurchaseAsk, Shown};
+        use ti4_engine_core::choice::{Ask, Opt, Pick};
+        let r = Render::default();
+        let planet = ti4_engine_core::generated::Planet::ALL.iter().copied().find(|p| p.data().influence == 3).expect("a planet of three influence");
+        let pay = PayAsk { kind: Currency::Influence, owed: 3, pool: 3, goods: 0, commodities: 0 };
+        let choice = CoreChoice {
+            actor: ti4_engine_core::Seat(0),
+            ask: Ask::Production(PAsk::Purchase(PurchaseAsk { pay, each: 3, min: 0, max: 1 })),
+            ctx: ti4_engine_core::choice::strategy::rule_ctx(ti4_engine_core::choice::generic::Rule::R52_3, ti4_engine_core::choice::strategy::Subtype::BuyTokenWithInfluence),
+            opts: [Opt::Decline, Opt::Production(POpt::Exhaust { planet, source: Currency::Influence, shown: Shown { worth: 3, pool_after: 0 } })].into_iter().collect(),
+        };
+        let first = render::option(&r, &choice.ask, &choice.opts.as_slice()[0]);
+        assert_eq!((first.id.as_str(), first.label.as_str()), (crate::wire::choice::DECLINE_ID, "buy no command tokens"));
+        assert!(first.is_decline());
+        let nothing = Pick::Opt(Opt::Production(POpt::Set(PaySet::default())));
+        assert_eq!(pick_of(&r, &choice, crate::wire::choice::DECLINE_ID), Some(nothing));
+        assert_eq!(pick_of(&r, &choice, "buy:0"), Some(nothing));
+        assert!(choice.accepts(&nothing) && choice.accepts(&Pick::Opt(Opt::Decline)));
+        let atom = render::option(&r, &choice.ask, &choice.opts.as_slice()[1]).id;
+        let Some(Pick::Opt(Opt::Production(POpt::Set(one)))) = pick_of(&r, &choice, &atom) else { panic!("the atom's pick") };
+        assert_eq!((one.buy, one.faces), (1, 1), "the atom alone buys one token with it");
+        assert_eq!(pick_of(&r, &choice, &format!("buy:1+{atom}")), Some(Pick::Opt(Opt::Production(POpt::Set(one)))));
+    }
 }

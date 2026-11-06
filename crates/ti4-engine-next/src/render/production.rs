@@ -242,6 +242,14 @@ impl Family for Fam {
         }
     }
 
+    /// Leadership's purchase (the primary): the decline buys nothing.
+    fn wording(_: &Render, a: &Ask, o: &ti4_engine_core::choice::Opt) -> super::Wording {
+        if matches!((a, o), (Ask::Purchase(_), ti4_engine_core::choice::Opt::Decline)) {
+            return super::Wording { label: Some("buy no command tokens".to_owned()), ..super::Wording::default() };
+        }
+        super::Wording::default()
+    }
+
     fn details(r: &Render, a: &Ask) -> serde_json::Map<String, serde_json::Value> {
         match a {
             Ask::Choose(c) => choose_details(r, c).unwrap_or_default(),
