@@ -45,6 +45,14 @@
       ]
     },
     {
+      "heading": "Leadership primary: buying nothing is the first answer again",
+      "caption": "After the three free tokens the primary's purchase question lists the decline first (min 0), so a first-option bot or a player who skips buys nothing; the token panel opens with 0 tokens and its confirm reads 'No purchase' (enabled). The secondary (above) still buys at least one. Fallback: the generic picker shows the decline as a 'Buy nothing' button, never as an atom checkbox.",
+      "images": [
+        { "label": "Desktop", "file": "out/7-primary-buy-nothing-desktop.png" },
+        { "label": "390x844", "file": "out/7-primary-buy-nothing-390x844.png" }
+      ]
+    },
+    {
       "heading": "Gains of 2 and 3 tokens",
       "caption": "A gain outside Leadership (exploration, Summit, ...) is one question over every tactic|fleet|strategic split; the panel stages each token and the host answers with the split.",
       "images": [
