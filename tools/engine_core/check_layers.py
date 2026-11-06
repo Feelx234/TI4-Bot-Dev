@@ -2,6 +2,7 @@
 """Layer check of docs/ENGINE_CORE_STATE.md 4.1/4.2.
 
     python3 -I tools/engine_core/check_layers.py core [ROOT]     the gate (exit 1 on a violation)
+    python3 -I tools/engine_core/check_layers.py chance [CRATE]  the bottom crate ti4-chance (exit 1 on a violation)
     python3 -I tools/engine_core/check_layers.py engine [ROOT]   the report on ti4-engine/src (4.2 table)
 
 core:   every module of `crates/ti4-engine-core/src` (and `ti4-engine-core-factions`, when it exists)
@@ -14,6 +15,9 @@ thin:   (D2-9 lane 9a) `crates/ti4-engine-next/src` may name `ti4_engine_legacy`
         (file `lend_string.rs` or directory `lend_string/`), and `lib.rs` must declare it as
         `#[cfg(feature = "lend-string")] pub mod lend_string;`. Exit 1 on a violation (today: red, the facade glue
         is still there; the gate of lane 9b/9d).
+chance: (docs/FORK_RNG_THEORY.md 4.2, lane C1) `crates/ti4-chance` is the bottom crate of the randomness: its Cargo.toml
+        names no `ti4-` crate outside `[dev-dependencies]`, its sources (test code ignored) name no `ti4_` crate, and they use
+        no clock, thread or OS entropy (wasm) and no unsafe. Exit 1 on a violation. (The resolver crate's rules come with lane C3.)
 engine: the tier table of 4.2 over the string engine; counts the module references that point up or
         sideways inside L4 (the number the port brings to zero). Reporting only, exit 0.
 """
@@ -162,6 +166,34 @@ def check_setup(src):
     return bad, units
 
 
+CHANCE_FORBIDDEN = (r'\bti4_\w+', r'std::time', r'std::thread', r'\bgetrandom\b', r'thread_rng', r'rand::rng\(', r'from_os_rng', r'from_entropy', r'\bunsafe\b')
+
+
+def check_chance(crate):
+    """The bottom crate `ti4-chance`: no `ti4-` dependency (dev-dependencies excepted), nothing that breaks the wasm build."""
+    import tomllib
+    bad, units = [], 0
+    cargo = os.path.join(crate, 'Cargo.toml')
+    t = tomllib.load(open(cargo, 'rb'))
+    sections = [('dependencies', t.get('dependencies', {})), ('build-dependencies', t.get('build-dependencies', {}))]
+    for target, tt in t.get('target', {}).items():
+        for k in ('dependencies', 'build-dependencies'):
+            sections.append((f'target.{target}.{k}', tt.get(k, {})))
+    for where, deps in sections:
+        for name, spec in deps.items():
+            real = spec.get('package', name) if isinstance(spec, dict) else name
+            if real.startswith('ti4-') or real.startswith('ti4_'):
+                bad.append(f'{os.path.relpath(cargo, REPO)}: [{where}] names {real}; the bottom crate depends on no ti4- crate')
+    for path in rs_files(os.path.join(crate, 'src')):
+        units += 1
+        text = strip_tests(open(path, encoding='utf-8').read())
+        for pat in CHANCE_FORBIDDEN:
+            m = re.search(pat, text)
+            if m:
+                bad.append(f'{os.path.relpath(path, REPO)}: uses `{m.group(0)}`, which the bottom crate must not (no ti4_ crate; wasm: no clock, threads, entropy; no unsafe)')
+    return bad, units
+
+
 def check_engine(root):
     tier = {}
     for name, mods in TIERS.items():
@@ -244,6 +276,13 @@ def main():
         for b in bad:
             print('LEGACY', b)
         print(f'check_layers thin: {units} files checked, {len(bad)} violations')
+        sys.exit(1 if bad else 0)
+    elif mode == 'chance':
+        root = sys.argv[2] if len(sys.argv) > 2 else os.path.join(REPO, 'crates/ti4-chance')
+        bad, units = check_chance(root)
+        for b in bad:
+            print('CHANCE', b)
+        print(f'check_layers chance: {units} files checked, {len(bad)} violations')
         sys.exit(1 if bad else 0)
     elif mode == 'engine':
         check_engine(sys.argv[2] if len(sys.argv) > 2 else os.path.join(REPO, 'crates/ti4-engine/src'))
