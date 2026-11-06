@@ -32,6 +32,10 @@ zstd.workspace = true
 mimalloc.workspace = true
 ti4-perf-alloc = { path = "../ti4-perf-alloc" }
 
+[dev-dependencies]
+# The draw census of `tests/fork_core.rs` (lane C0, docs/C0_RESUME.md): thread-local counters, only in this crate's test builds.
+ti4-engine-core = { workspace = true, features = ["probe-counters"] }
+
 [features]
 # `perf_kernel`: the counting allocator (counts, bytes, live, peak) instead of plain mimalloc.
 perf-count = []
