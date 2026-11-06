@@ -85,6 +85,8 @@ impl Rng {
 
     /// Fisher-Yates from the back, as `GameRng::shuffle`.
     pub fn shuffle<T>(&mut self, domain: RngDomain, source: &dyn SeedSource, items: &mut [T]) {
+        #[cfg(feature = "probe-counters")]
+        census::shuffled();
         let rng = self.stream_mut(domain, source);
         for i in (1..items.len()).rev() {
             let j = rng.random_range(0..=i);
@@ -94,7 +96,13 @@ impl Rng {
 
     /// A die with `sides` sides, `1..=sides`, as `GameRng::die`.
     pub fn die(&mut self, domain: RngDomain, source: &dyn SeedSource, sides: u32) -> u32 {
-        self.stream_mut(domain, source).random_range(1..=sides)
+        let rng = self.stream_mut(domain, source);
+        #[cfg(feature = "probe-counters")]
+        let at = rng.get_word_pos();
+        let face = rng.random_range(1..=sides);
+        #[cfg(feature = "probe-counters")]
+        census::drew(domain, at, rng.get_word_pos());
+        face
     }
 
     /// Each stream's word position, in domain order (`GameRng::positions`).
@@ -115,6 +123,90 @@ impl Rng {
     #[must_use]
     pub fn shares_streams_with(&self, other: &Self) -> bool {
         Cow::ptr_eq(&self.streams, &other.streams)
+    }
+}
+
+/// The draw census of lane C0 (`docs/FORK_RNG_THEORY.md` 3.2, `docs/C0_RESUME.md`): thread-local counters of every die drawn and of
+/// the draws a rolled-back run threw away. Feature `probe-counters` only (a dev-dependency feature of the bridge's tests): no product
+/// build has it, nothing the rules read, and it never changes a draw.
+///
+/// A draw is counted when it is made, whether or not its run is later rolled back; what a game COMMITS is its final stream positions
+/// (the streams are a field of `CoreState`, so every rollback restores them). [`Counts::starts`] keeps the start position of every
+/// draw: a reverted draw is re-drawn later from the same position, so the distinct starts below the final position are the committed draws.
+#[cfg(feature = "probe-counters")]
+pub mod census {
+    use std::cell::RefCell;
+    use std::collections::BTreeSet;
+
+    use super::RngDomain;
+
+    /// What the census saw on this thread since the last [`reset`].
+    #[derive(Debug, Clone, Default)]
+    pub struct Counts {
+        /// `Rng::die` calls.
+        pub draws: u64,
+        /// Stream words those calls consumed (a die is one word, a rejected sample two or more).
+        pub words: u64,
+        /// `Rng::shuffle` calls (setup only: no in-game shuffle exists).
+        pub shuffles: u64,
+        /// Runs of `Driver::settle` rolled back because a nested question found the tape dry (R1 phantom rest, R2 re-ask).
+        pub dry_rollbacks: u64,
+        /// Draws inside those runs (everything drawn between the run's snapshot and its rollback).
+        pub dry_draws: u64,
+        /// Runs of `Driver::settle` rolled back because the run failed, and the draws inside them.
+        pub err_rollbacks: u64,
+        pub err_draws: u64,
+        /// `(domain, word position before the draw)` of every draw.
+        pub starts: BTreeSet<(RngDomain, u128)>,
+    }
+
+    thread_local! {
+        static COUNTS: RefCell<Counts> = RefCell::new(Counts::default());
+    }
+
+    /// Start counting afresh.
+    pub fn reset() {
+        COUNTS.with(|c| *c.borrow_mut() = Counts::default());
+    }
+
+    /// What was counted so far.
+    #[must_use]
+    pub fn counts() -> Counts {
+        COUNTS.with(|c| c.borrow().clone())
+    }
+
+    /// The draws made so far (the mark a run takes at its snapshot).
+    #[must_use]
+    pub fn mark() -> u64 {
+        COUNTS.with(|c| c.borrow().draws)
+    }
+
+    pub(crate) fn drew(domain: RngDomain, from: u128, to: u128) {
+        COUNTS.with(|c| {
+            let mut c = c.borrow_mut();
+            c.draws += 1;
+            c.words += u64::try_from(to.saturating_sub(from)).unwrap_or(u64::MAX);
+            c.starts.insert((domain, from));
+        });
+    }
+
+    pub(crate) fn shuffled() {
+        COUNTS.with(|c| c.borrow_mut().shuffles += 1);
+    }
+
+    /// A run that took its snapshot at `mark` was rolled back: `dry` for a nested question, else a failure.
+    pub fn rolled_back(mark: u64, dry: bool) {
+        COUNTS.with(|c| {
+            let mut c = c.borrow_mut();
+            let n = c.draws - mark;
+            if dry {
+                c.dry_rollbacks += 1;
+                c.dry_draws += n;
+            } else {
+                c.err_rollbacks += 1;
+                c.err_draws += n;
+            }
+        });
     }
 }
 

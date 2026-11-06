@@ -66,6 +66,8 @@ pub use player::{
 pub use players::Players;
 pub use resolver::{ResolverState, UsedScope};
 pub use rng::{Rng, RngDomain, SeedSource};
+#[cfg(feature = "probe-counters")]
+pub use rng::census;
 pub use seats::{MAX_PLAYERS, Seats};
 pub use strategy::StrategyState;
 pub use tactical::{THead, THeadStep, TStage, Tactical};

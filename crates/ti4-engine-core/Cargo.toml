@@ -17,6 +17,11 @@ rand_core = { version = "0.9", default-features = false }
 # `rand::Rng::random_range` is the sampler the string engine uses; same version, same algorithm.
 rand = { version = "0.9", default-features = false }
 
+[features]
+# The draw census of lane C0 (`state::census`, docs/C0_RESUME.md): thread-local counters, never in a product build (the bridge's tests
+# turn it on through a dev-dependency).
+probe-counters = []
+
 [dev-dependencies]
 # Only the tests compare the generated tables with the content store.
 ti4-content.workspace = true

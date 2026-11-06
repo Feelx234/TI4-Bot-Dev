@@ -216,6 +216,8 @@ impl<W: Window> Driver<W> {
         let mut prior = Some(prior);
         loop {
             let snapshot = (s.clone(), self.window.clone(), self.resolver.checkpoint(), self.emitted.len(), self.opened.len(), self.next_id);
+            #[cfg(feature = "probe-counters")]
+            let census_mark = crate::state::census::mark();
             self.tape.rewind();
             let outcome = self.once(s, k, &op);
             if let Some(why) = self.tape.take_unknown() {
@@ -225,6 +227,8 @@ impl<W: Window> Driver<W> {
             if dry.is_some() || outcome.is_err() {
                 // Undo the run: a nested question found the tape dry (ask it), or the run failed (the
                 // question stays where it was).
+                #[cfg(feature = "probe-counters")]
+                crate::state::census::rolled_back(census_mark, dry.is_some());
                 *s = snapshot.0;
                 self.window = snapshot.1;
                 self.resolver.restore(snapshot.2);
