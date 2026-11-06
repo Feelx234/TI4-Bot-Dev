@@ -90,6 +90,26 @@ impl Seen<'_> {
         found
     }
 
+    /// `movable_into(seat, d).len()` for each destination `d` of `destinations`, computed at once: one clone of the rules
+    /// retargeted per destination and one route search per group of equal ships (the MCTS features read the count for
+    /// every system of the map). Not memoised; 0 for every destination without a map.
+    #[must_use]
+    pub fn movable_counts(&self, seat: Seat, destinations: &[System]) -> Vec<u16> {
+        if !self.map_loaded() || destinations.is_empty() {
+            return vec![0; destinations.len()];
+        }
+        let Some(reach) = self.seat_reach(seat, true) else { return vec![0; destinations.len()] };
+        let fleet = self.fleet(seat);
+        let mut rules = reach.template().clone();
+        destinations
+            .iter()
+            .map(|d| {
+                reach.retarget(self.st(), self.kernel(), &mut rules, *d);
+                u16::try_from(fleet.movable_count(&rules)).unwrap_or(u16::MAX)
+            })
+            .collect()
+    }
+
     /// Gravity rifts a ship of `seat` sailing from `origin` to `destination` would exit (each rolls a die)
     /// (`Observed::rift_exits_into`); 0 without a map.
     #[must_use]

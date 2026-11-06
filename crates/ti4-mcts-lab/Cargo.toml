@@ -15,6 +15,10 @@ name = "mcts_dataset"
 path = "src/bin/mcts_dataset.rs"
 
 [[bin]]
+name = "mcts_encode_bench"
+path = "src/bin/mcts_encode_bench.rs"
+
+[[bin]]
 name = "mcts_shards"
 path = "src/bin/mcts_shards.rs"
 
