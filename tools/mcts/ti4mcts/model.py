@@ -178,8 +178,14 @@ def losses(out: dict, b: dict, smoothing: float = 0.05, w_value: float = 1.0, w_
     k_ok = ok.sum(dim=-1, keepdim=True).clamp(min=1).to(logp.dtype)
     target = (1 - smoothing) * b["pi"] + smoothing * ok.to(logp.dtype) / k_ok
     target = target * ok
+    wp = b.get("w_policy")
+    wv = b.get("w_value")
     if has.any():
-        pol = -(target * logp.masked_fill(~ok, 0.0)).sum(dim=-1)[has].mean()
+        ce = -(target * logp.masked_fill(~ok, 0.0)).sum(dim=-1)
+        if wp is None:
+            pol = ce[has].mean()
+        else:
+            pol = (ce * wp)[has].sum() / wp[has].sum().clamp(min=1e-6)
         agree_rows = has
         pred = logits.argmax(dim=-1)
         best = b["pi"].argmax(dim=-1)
@@ -188,8 +194,14 @@ def losses(out: dict, b: dict, smoothing: float = 0.05, w_value: float = 1.0, w_
     else:
         pol = logits.sum() * 0.0
         agree, agree_n = 0.0, 0
-    val = -(b["z"] * torch.log_softmax(out["win"], dim=-1)).sum(dim=-1).mean()
-    vp = F.mse_loss(out["vp"], b["vp"])
+    vce = -(b["z"] * torch.log_softmax(out["win"], dim=-1)).sum(dim=-1)
+    vmse = ((out["vp"] - b["vp"]) ** 2).mean(dim=-1)
+    if wv is None:
+        val, vp = vce.mean(), vmse.mean()
+    else:
+        # Per-game subsampling of the value targets: each game counts with at most a fixed number of records.
+        den = wv.sum().clamp(min=1e-6)
+        val, vp = (vce * wv).sum() / den, (vmse * wv).sum() / den
     return Losses(total=pol + w_value * val + w_vp * vp, policy=pol, value=val, vp=vp, agree=agree, agree_n=agree_n)
 
 

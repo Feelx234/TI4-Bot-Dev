@@ -141,6 +141,12 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--fixtures", type=int, default=200)
     ap.add_argument("--max-minutes", type=float, default=None)
+    ap.add_argument("--stream", action="store_true", help="stream the shards (large datasets of mcts_dataset): split by shard, pools, value subsampling per game, kind weights")
+    ap.add_argument("--pool", type=int, default=6)
+    ap.add_argument("--held-every", type=int, default=20)
+    ap.add_argument("--held-max", type=int, default=8)
+    ap.add_argument("--value-per-game", type=float, default=10.0)
+    ap.add_argument("--max-train-shards", type=int, default=None)
     args = ap.parse_args(argv)
     torch.set_num_threads(args.threads)
     out = Path(args.out)
@@ -149,6 +155,14 @@ def main(argv: list[str] | None = None) -> None:
         paths.append(str(write_synthetic(out / "synthetic", args.synthetic, seed=args.seed)))
     if not paths:
         ap.error("give --shards or --synthetic")
+    if args.stream:
+        from .stream import train_stream
+
+        result = train_stream(paths, out, epochs=args.epochs, batch=args.batch, lr=args.lr, seed=args.seed, pool=args.pool, held_every=args.held_every,
+                              held_max=args.held_max, value_per_game=args.value_per_game, max_minutes=args.max_minutes,
+                              max_train_shards=args.max_train_shards, fixtures=args.fixtures)
+        print(json.dumps({"parameters": result["parameters"], "final": result["history"][-1] if result["history"] else None}))
+        return
     result = train(paths, out, epochs=args.epochs, batch=args.batch, lr=args.lr, seed=args.seed, fixtures=args.fixtures, max_minutes=args.max_minutes)
     print(json.dumps({"parameters": result["parameters"], "final": result["history"][-1] if result["history"] else None}))
 
