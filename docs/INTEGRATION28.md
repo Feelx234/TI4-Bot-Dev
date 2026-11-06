@@ -12,6 +12,7 @@ place, user-accepted like S6 / S7). Logs and scripts: `/root/deploytmp/i28-logs/
 | 2 | `core-jolnar-mech-1` | `38abff4fb` | Rearmament Agreement For places each seat's own mech (core bug, string bug S9); `docs/JOLNAR_MECH_RESUME.md` |
 | 3 | `core-fork-tests-1` | `c3088542e` | fork tests T1/T2, feature `probe-counters` (bridge test builds only); `docs/C0_RESUME.md` |
 | 4 | `core-chance-1` | `dc3b2e9fe`, `584c4e2d2`, `6c96dbd92` | new crate `ti4-chance` (no crate depends on it); `docs/C1_RESUME.md` |
+| 5 | `core-stepmachine-1` | `36bb5ba02` (on `core-nestq-1`) | the strategy perform parks its child loop (`driver::Park` in `Asked.park`); `docs/STEPMACHINE1_RESUME.md`; merged on the user's decision after round 1 (`895cfdada`) |
 
 Not merged (by the brief): the doc-only theory branches `core-theory-fork-rng`, `core-theory-nested`.
 
@@ -29,27 +30,54 @@ Not merged (by the brief): the doc-only theory branches `core-theory-fork-rng`, 
 
 Own commits on the line: see section 7.
 
-## 3. **STOPPED: the wasm is over its size budget (needs a user decision)**
+## 3. Wasm size: over budget after nestq; step machine merged; trimmed back within budget
 
-| build (same toolchain, same target cache `/root/deploytmp/i27-target`, sources touched so cargo rebuilds them) | raw B | gzip -9 B |
-|---|---:|---:|
-| `core-integration-27` (= deployed, = `size-budget.json` measurement of int-27) | 6,597,047 | 2,091,161 |
-| `core-nestq-1` alone (on the int-27 code) | 6,636,879 (+39,832) | 2,101,796 (+10,635) |
-| `core-jolnar-mech-1` alone | 6,597,062 (+15) | 2,091,443 |
-| **`core-integration-28` tip** (matrix build `/root/deploytmp/i28-logs/ti4_wasm.wasm`, and once more from a clean copy) | **6,636,894** | 2,102,149 |
+**Round 1 (stopped, first hand-back).** With the four merges the browser build was 6,636,894 B raw (budget 6.63 MB), gzip 2.12 (2.11). The
+whole growth was nestq-1 (+39,832 raw); mech +15 B; fork-tests and chance nothing. The user then decided: merge the step machine too, and TRIM
+(no budget raise).
 
-`scripts/wasm-size-gate.mjs`: raw 6.64 MB against 6.63 OVER, gzip 2.12 against 2.11 OVER, brotli 1.52 against 1.52 ok. Budget not raised (brief).
-The whole growth is lane nestq-1 (+0.6 % raw); mech, fork-tests (feature off in wasm) and chance (no dependent) add nothing measurable.
-What inside nestq grew was not measured (no `twiggy` here). Likely, not proven: the position check of `recall` (`asked.at == *core`) instantiates
-`PartialEq` of the whole `CoreState` tree in the product build, plus the generic `recall` / `answer_nested` / `as_replayed` / `suspend` per held
-window kind (14 `Held` impls) and `Asked`'s clone/drop. Options for the user: trim nestq (for example a cheaper position check: a version stamp /
-generation counter instead of `==`), or accept and ratchet the budget.
+**Round 2: `core-stepmachine-1` merged (`895cfdada`), measured per function, trimmed (`0286f095f`).**
 
-Caveat found on the way: building scratch copies made with `git archive` into a shared target gives WRONG sizes (archive mtimes are commit
-times, so cargo reuses another copy's artifacts as fresh). The table above was built with every `.rs` touched; an earlier, untouched attempt
-reported 6,636,879 for int-27 too.
+How measured: `/root/deploytmp/i28-logs/wasm-named.sh` builds each ref from an archive copy with every `.rs` touched (else cargo reuses another
+copy's artifacts: the shared target keys workspace crates without their path, and archive mtimes are old), one cargo build with `strip = none`,
+then wasm-opt with the arguments of `build-wasm.mjs` twice: stripped (the size) and with `-g` (names). `wasm_syms.py` diffs function sizes by
+name; `sizes.mjs` measures exactly as `scripts/wasm-size-gate.mjs` (node zlib gzip 9, brotli 11). Analysis builds are about 1.9 KB raw / 1.1 KB
+gzip smaller than a real `build-wasm.mjs` build of the same code (producers / target-features sections); the last row is a real build.
 
-Because of the brief's STOP rule the heavy run was stopped during its `tests` step (section 8) and nothing else was changed.
+| build | raw B | gzip B | brotli B | gate |
+|---|---:|---:|---:|---|
+| int-27 (analysis build) | 6,595,182 | 2,102,464 | 1,505,926 | ok |
+| nestq-1 alone | 6,635,024 | 2,114,835 | 1,515,556 | OVER |
+| stepmachine-1 (= nestq + park) | 6,664,569 | 2,118,192 | 1,524,133 | OVER |
+| int-28 + stepmachine, before the trim | 6,664,584 | 2,118,212 | 1,523,731 | OVER |
+| trim step 1: `Window::PARKS` | 6,632,647 | 2,109,700 | 1,519,652 | OVER (raw) |
+| trim step 2: + park check not in the wasm (`PARK_CHECK_BUILT`) | 6,623,381 | 2,105,726 | 1,516,493 | ok |
+| **final, real `build-wasm.mjs` build of `0286f095f`** (`/root/deploytmp/i28-logs/ti4_wasm.trim1.wasm`) | **6,624,713** | **2,106,859** | **1,516,834** | **ok** (margins 5.3 / 3.1 / 3.2 KB); output probes ok |
+
+What grew (named diff): nestq +40 KB, of which about 31 KB is the equality code of `recall`'s full `CoreState ==` (`SlicePartialEq` 13.9 KB,
+`SmallList` 4.2, `CoreState` 3.6, `Cow` 2.9, `Log` 1.8, ...), the rest `answer_nested` / `as_replayed` / `suspend`. The step machine +29.5 KB:
+`Driver::resume_parked` and `take_park` compiled for every window type (16.9 + 2.8 KB), the release-switchable check of parked answers
+(`replay_answer` 6.5, `Answered::of` 3.1, `check_parked` 2.0, `Ask ==` 6.3, `CoreState` Debug), window clones.
+
+The trims (behaviour unchanged):
+1. `Window::PARKS` (default `false`; `SecondaryWin`, `TurnFlowWin`: `true`). `Driver::settle` calls `take_park`, and `live::answer_nested` looks for a
+   park, only in those windows; for every other window `Resume::fits` refused any park already (it downcasts to exactly these two). Saves
+   31.9 KB raw / 8.5 KB gzip. Guarded by `stepmachine::only_the_windows_a_park_fits_compile_the_park_code` (the constants, a non-parking
+   window, and a park kept and resumed on the follower path).
+2. `live::PARK_CHECK_BUILT = cfg!(any(debug_assertions, not(target_family = "wasm")))`: the parked-answer check stays in debug builds (on by
+   default) and in every native build (`PERF_KERNEL_VERIFY_PARK=1`); it is not compiled into the wasm release build. Saves 9.3 KB / 4.0 KB.
+
+Not changed: the position check (`asked.at == *core`, ~31 KB) stays the exact guard of the memo and of the park in every build. Next lever if the
+budget gets tight again: a cheaper exact check (pointer identity for the `Cow` parts, field equality for the inline parts). A generation counter
+would need every write routed through accessors (the `CoreState` fields are `pub`).
+
+Exactness after the trims: fingerprint `538dc68f23dddcc9` (gate, `--shadow --twice`, ZERO GAP); `suite_hash 775f4136e60a99d5` with parking on, with
+`PERF_KERNEL_PARK=0` and with `PERF_KERNEL_VERIFY_PARK=1` (every parked answer compared with its replay: no panic). Debug: `stepmachine.rs` 6
+passed, `ti4-engine-core --lib` 488, `ti4-engine --lib live::` 22, the memo test (7 whole games, check on, 0 mismatches, hit rates as in section 6).
+`clippy_core` 41 = baseline, `lint_core` 0 hits, layers core / thin / setup / chance 0 violations.
+
+**Merge of the step machine:** one conflict, `driver/live.rs` `answer_nested`: the memo census line (int-28's `probe-counters` counter) and the
+step machine's `let park = ...` at the same place; both kept (census first, then the park).
 
 ## 4. Golden `v36-std/g040`: proof and bless
 
@@ -109,7 +137,10 @@ The render does not make the fallback common: inside one blocking `Game::step` t
 | `492de99d9` | golden bless g040 |
 | `1c8e67dd1` | bench baselines: the 77 entries (local tag `heavy-base-int28` is here; `git diff heavy-base-int27 -- web/ state.rs RULES_VERSION.md` empty) |
 | `cd8df2911` | lint fix: the census module of `state/rng.rs` (fork-tests-1) used `BTreeSet` in core non-test code; feature-gated, now `lint-allow(core)` |
-| (docs) | this file, `docs/I28_RESUME.md` |
+| `ab5100f77` | docs of round 1 |
+| `895cfdada` | merge `core-stepmachine-1` (conflict in `answer_nested`, section 3) |
+| `0286f095f` | wasm trim (`Window::PARKS`, `PARK_CHECK_BUILT`) + regression test |
+| (docs) | this file, `docs/I28_RESUME.md` (round 2) |
 
 ## 8. Checks
 
@@ -122,8 +153,9 @@ The render does not make the fallback common: inside one blocking `Game::step` t
 | `native_play --quick --shadow --twice` (gate) | 1,165 steps, `538dc68f23dddcc9`, deterministic, ZERO GAP (unchanged) |
 | `perf_kernel suite 1` | `775f4136e60a99d5` (unchanged) |
 | web `tsc --noEmit` / `vitest run` | clean / 278 files, 2,750 tests passed (4 skipped) |
-| wasm size gate | **OVER** (section 3); output probes ok |
-| heavy run `/root/end-of-d1-20261106-r4` | layers ok, prod-graph ok, **lint FAIL** (the BTreeSet, fixed in `cd8df2911`; rerun `--only lint` in `/root/end-of-d1-20261106-r4-lint`: ok), build ok, clippy ok; **stopped** by me during `tests` (wasm STOP rule; disk was at 8-16 GB free) |
+| wasm size gate | round 1 OVER; **after the trim ok**: 6,624,713 / 2,106,859 / 1,516,834 B (section 3); output probes ok |
+| heavy run `/root/end-of-d1-20261106-r4` (round 1, before the step machine) | layers ok, prod-graph ok, **lint FAIL** (the BTreeSet, fixed in `cd8df2911`; rerun `--only lint` in `/root/end-of-d1-20261106-r4-lint`: ok), build ok, clippy ok; **stopped** by me during `tests` (wasm STOP rule; disk was at 8-16 GB free) |
+| heavy run round 2 (`/root/end-of-d1-20261106-r5`) | **NOT STARTED**: 15 GB free on `/` (the brief: under 25 GB, stop and report); the heavy target needs ~30 GB |
 
 Not run: gate-profile tests of the core crates / bridge (incl. `golden::tests::the_smoke_subset_reproduces`) / wasm (with and without `ts`) /
 server / ti4-chance, `check-wrapper`, `check-ts`, and the heavy steps from `tests` on (dual-*, board, sync, the four benches, census, zero-bail,
