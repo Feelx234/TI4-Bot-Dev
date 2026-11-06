@@ -40,7 +40,7 @@ O(159) `planets()` filters", "14 % of the kernel's samples") is finding R4 / don
   `loop <s>`, `mem`, `micro`, `setup`. Per game it reports steps, decisions, loop wall ms, steps/s, allocations and bytes (counting allocator, `crates/ti4-perf-alloc`, now also live and peak bytes), a
   per-phase split (env / texts / env_clone / ask / advance / arm / pick), a **chain hash** (over actor, option count and the picked typed option) and a **state hash** (FNV of `Debug` of the final `CoreState`). The build without
   `--features perf-count` uses plain mimalloc, so profiles have no counter atomics (the counting build is for the allocation numbers only).
-* Determinism: two suite runs, and the base and the prototype builds, gave the same `suite_hash` `775f4136e60a99d5` (14 738 steps, 14 485 decisions); since the multi-ask conversion and the Leadership decline (docs/MULTIASK1_RESUME.md): `2c99ed238f39713e`, all 14 games finish (13 865 steps, 12 820 decisions).
+* Determinism: two suite runs, and the base and the prototype builds, gave the same `suite_hash` `775f4136e60a99d5` (14 738 steps, 14 485 decisions); since the multi-ask conversion and the Leadership decline (docs/MULTIASK1_RESUME.md): `2c99ed238f39713e`, all 14 games finish (13 865 steps, 12 820 decisions); int-29 (+ chance-2's unbiased Spy / Executive Sanctions): `31fe4e2bdd62069f` (NOSTATE `6881f4a9caf01d02`), 13 751 steps, 12 706 decisions.
 * Profiles: gate build, `CARGO_PROFILE_GATE_DEBUG=line-tables-only`, `-C force-frame-pointers=yes`, `strip=false`, `perf record --call-graph fp`; **two event types**: `cpu-clock` at 10 kHz on
   4p seed 1, 3p seed 2, 5p seed 3 (Ghost), 6p seed 2 (`profile_cpu_base_*.txt`) and **`instructions:u` every 2 M instructions** on the whole suite (`profile_instr_suite_{base,proto}.txt`; the shares are noise-free, so this
   is the main source). Shares are of samples whose stack contains `Game::play`. Inline frames are kept (`perf script` resolves them); "self" is the leaf frame, "demand" the nearest non-helper project function
@@ -259,7 +259,7 @@ the kernel-only loop here is already 0.19 s, so the "typed kernel is inherently 
 ```text
 CARGO_TARGET_DIR=... RUSTFLAGS="-C force-frame-pointers=yes" CARGO_PROFILE_GATE_DEBUG=line-tables-only CARGO_PROFILE_GATE_STRIP=false \
   cargo build --profile gate -p ti4-engine-core-bridge --bin perf_kernel [--features perf-count]
-perf_kernel suite 1 | tail -1                         # suite_hash 2c99ed238f39713e (775f4136e60a99d5 before the multi-ask conversion)
+perf_kernel suite 1 | tail -1                         # suite_hash 31fe4e2bdd62069f since int-29 (2c99ed238f39713e multi-ask alone, c8bd543a5d560b91 chance-2 alone, 775f4136e60a99d5 int-28)
 PERF_KERNEL_NOSTATE=1 perf stat -e instructions:u perf_kernel game 4 1 sol
 perf record -e instructions:u -c 2000000 --call-graph fp -o x.data perf_kernel suite 1 ; python3 docs/perf_kernel_data/prof.py x.data all 40
 perf_kernel mem 4 1 sol ; perf_kernel micro 4 1 sol 600

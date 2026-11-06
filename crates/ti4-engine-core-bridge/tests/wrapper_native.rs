@@ -73,7 +73,8 @@ fn the_wrapper_plays_the_quick_game_of_the_native_playthrough_to_the_same_finger
     );
     // (Rules version 36: the fingerprint hashes the position, whose `rules_version` is 36 now; with the version put back to 35 the hash is the old pin
     // `74d5675ac754ac81` -- same 1,165 steps, same answers, same position otherwise. Ixthian Artifact and Parley do not occur in this game.)
-    assert_eq!(fingerprint(&game), "4f79d5630eaf630d");
+    // (int-29: chance-2's unbiased Spy / Executive Sanctions pick plus the multi-ask conversion: `fd54dc6c956758bc`, 1,110 steps; chance-2 alone `43c985a35397f2c9`, multi-ask alone `4f79d5630eaf630d`.)
+    assert_eq!(fingerprint(&game), "fd54dc6c956758bc");
     // And the NativeGame of the bridge gives the same (the pin of its own test).
     let mut native = NativeGame::from_spec(&lobby_spec("sol", 4, 1)).unwrap();
     let played = play_game(&mut native, 2_000, 50);

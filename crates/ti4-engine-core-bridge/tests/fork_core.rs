@@ -992,7 +992,7 @@ impl ti4_engine::wire::choice::Decider for BotDecider {
 }
 
 /// The census on the thin `Game` (the product's step: reconcile, arm, nested questions answered inside the step) with the rule bot: the quick
-/// game (`4f79d5630eaf630d` since the multi-ask conversion, 1,110 steps; `538dc68f23dddcc9`, 1,165 before) and two more. Committed = the stream words (and `Game::rolls()` faces).
+/// game (`fd54dc6c956758bc` since int-29: multi-ask + unbiased Spy/Sanctions, 1,110 steps; `538dc68f23dddcc9`, 1,165 before) and two more. Committed = the stream words (and `Game::rolls()` faces).
 #[test]
 fn the_draw_census_of_the_quick_game_and_two_bot_games_on_the_thin_game() {
     use ti4_content::ContentStore;

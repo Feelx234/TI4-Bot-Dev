@@ -1859,7 +1859,8 @@ mod tests {
         assert_eq!((played.rounds, played.steps), (9, 1110), "nine rounds of the table");
         assert!(native.get("tokens").copied().unwrap_or(0) >= 8 && native.get("status").copied().unwrap_or(0) >= 8, "the status phases ran natively, their close included: {native:?}");
         // (Rules version 36 moved the pin from `74d5675ac754ac81`: the hashed position carries `rules_version` 36; the game is the same, see `tests/wrapper_native.rs`.)
-        assert_eq!(played.fingerprint, "4f79d5630eaf630d");
+        // (int-29: chance-2's unbiased Spy / Executive Sanctions pick plus the multi-ask conversion: `fd54dc6c956758bc`, 1,110 steps; chance-2 alone `43c985a35397f2c9`, multi-ask alone `4f79d5630eaf630d`.)
+        assert_eq!(played.fingerprint, "fd54dc6c956758bc");
         assert_eq!(g.step(), Step::Finished, "a finished game stops the loop");
     }
 
