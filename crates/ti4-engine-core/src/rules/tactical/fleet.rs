@@ -136,7 +136,7 @@ impl Enforce {
         if self.remove(&mut scratch, over, keys, counts) == 0 {
             return None;
         }
-        while self.excess(&scratch, k, over) > 0 {
+        while !self.ended(&scratch, k, over) {
             // The first option the question would offer now (the string's first option after each removal).
             let now = *self.keys(&scratch, over).first()?;
             let next = keys.iter().position(|key| *key == now)?;
@@ -147,26 +147,34 @@ impl Enforce {
         Some(counts)
     }
 
-    /// Whether `counts` is an ending of the string's one-unit-per-question loop of this stage: every unit it names is there, the excess is
-    /// gone after it, and some unit of it was still needed (without one unit of some kind the excess would remain: ordered with that unit
-    /// last, every earlier removal was asked while the excess stood; removing a unit never adds to the excess of the stage).
+    /// Whether the stage's loop ends at `core`: the excess is gone, or no unit is left to remove (the excess can outlast the candidates:
+    /// fighters charged to the fleet pool count against the supply but are not removed by this stage; `settle` then moves on, as the
+    /// string's loop stopped asking).
+    fn ended(&self, core: &CoreState, k: &Kernel, over: Over) -> bool {
+        self.excess(core, k, over) <= 0 || self.candidates(core, over).is_empty()
+    }
+
+    /// Whether `counts` is an ending of the string's one-unit-per-question loop of this stage: every unit it names is there, the loop
+    /// ends after it ([`Self::ended`]), and some unit of it was still needed (without one unit of some kind the loop would go on: ordered
+    /// with that unit last, every earlier removal was asked while the loop was open; removing a unit never adds to the excess of the stage).
     fn removal_ok(&self, core: &CoreState, k: &Kernel, over: Over, keys: &[(Unit, bool)], counts: u64) -> bool {
         let used = (1u64 << (4 * keys.len().min(12))) - 1;
         if counts == 0 || counts & !used != 0 {
             return false;
         }
-        let after = |counts: u64| -> Option<i64> {
+        // `Some(ended)` when every unit named is there.
+        let after = |counts: u64| -> Option<bool> {
             let mut scratch = core.clone();
             let n = self.remove(&mut scratch, over, keys, counts);
             let wanted: u32 = (0..keys.len()).map(|i| u32::from(crate::choice::cards::discard_count(counts, i))).sum();
-            (n == wanted).then(|| self.excess(&scratch, k, over))
+            (n == wanted).then(|| self.ended(&scratch, k, over))
         };
-        if after(counts).is_none_or(|e| e > 0) {
+        if after(counts) != Some(true) {
             return false;
         }
         (0..keys.len()).any(|i| {
             let c = crate::choice::cards::discard_count(counts, i);
-            c > 0 && after(crate::choice::cards::with_discard_count(counts, i, c - 1)).is_some_and(|e| e > 0)
+            c > 0 && after(crate::choice::cards::with_discard_count(counts, i, c - 1)) == Some(false)
         })
     }
 

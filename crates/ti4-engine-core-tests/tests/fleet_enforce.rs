@@ -79,6 +79,24 @@ fn a_removal_that_names_the_wrong_kind_or_no_candidate_is_illegal() {
     rig.expect_illegal(Pick::Opt(Opt::Decline));
 }
 
+/// Regression (perf_kernel suite, 3p seed 1 sol after the Leadership decline): a supply excess of two with one destroyer left (the rest
+/// of the excess is not this stage's to remove) refused the option alone (`lead_set` looked for a next unit that did not exist) and the
+/// set of every unit (`removal_ok` wanted the excess gone). The string's loop removed the destroyer and stopped asking.
+#[test]
+fn an_excess_that_outlasts_the_units_ends_once_every_unit_is_removed() {
+    covers!("rules::tactical::fleet::Enforce");
+    let (mut one, system) = rig(&[(Unit::DestroyerI, 1)], -1);
+    one.run();
+    assert!(matches!(one.asked().ask, Ask::Tactical(TAsk::Remove { over: Over::Supply, .. })), "{:?}", one.asked().ask);
+    one.pick(0);
+    assert!(one.is_done(), "{}", one.transcript());
+    assert_eq!(count(&one, system, Unit::DestroyerI), 0);
+    let (mut set, _) = rig(&[(Unit::DestroyerI, 1)], -1);
+    set.run();
+    set.answer_pick(Pick::Opt(Opt::Tactical(TOpt::RemoveSet { counts: ti4_engine_core::choice::cards::Counts::of(0x1) })));
+    assert!(set.is_done());
+}
+
 #[test]
 fn enforcement_survives_every_answer_policy() {
     covers!("rules::tactical::fleet::Enforce");
@@ -100,6 +118,10 @@ fn the_one_removal_answer_reaches_exactly_what_the_unit_by_unit_loop_reached() {
         (&[(Unit::CruiserI, 2), (Unit::DestroyerI, 2)][..], 2),
         (&[(Unit::CruiserI, 2), (Unit::DestroyerI, 1), (Unit::CarrierI, 1)][..], 1),
         (&[(Unit::CruiserI, 1), (Unit::DestroyerI, 3)][..], 2),
+        // The excess outlasts the units the stage removes (a limit below zero stands in for fighters charged to the fleet pool): the
+        // loop ends once nothing is left to remove.
+        (&[(Unit::DestroyerI, 1)][..], -1),
+        (&[(Unit::CruiserI, 1), (Unit::DestroyerI, 1)][..], -1),
     ] {
         let (base, system) = rig(units, limit);
         // The old loop: every sequence of one-unit answers (an option is a kind; it removes the first unit of that kind).

@@ -138,6 +138,17 @@ async fn a_game_in_progress_replays_to_its_open_question() {
     lobby_case("lobby_midgame", 64).await;
 }
 
+/// OPEN, for later (docs/MULTIASK1_RESUME.md, "Open issues"): the same table stopped after `TI4_LOBBY_ANSWERS` answers (default 61).
+/// At some counts the live session's state and the replay of its export disagree (since the multi-ask conversion more of them, some
+/// even in the number of decisions). Reproduce:
+/// `TI4_LOBBY_ANSWERS=65 cargo test -p ti4-server --test it replay_export::open_live_state_and_replay_of_the_export_at_an_answer_count -- --ignored`
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "open issue: live state vs replay of the export at some answer counts (docs/MULTIASK1_RESUME.md)"]
+async fn open_live_state_and_replay_of_the_export_at_an_answer_count() {
+    let answers = std::env::var("TI4_LOBBY_ANSWERS").ok().and_then(|n| n.parse().ok()).unwrap_or(61);
+    lobby_case("lobby_probe", answers).await;
+}
+
 async fn lobby_case(game_id: &str, max_answers: usize) {
     use ti4_host::export::{ReplayExport, state_hash};
     ti4_server::session::random_bot::set_random_bot_delay_override(Some(0));
