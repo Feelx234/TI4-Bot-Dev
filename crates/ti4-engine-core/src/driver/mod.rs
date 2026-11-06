@@ -265,6 +265,8 @@ impl<W: Window> Driver<W> {
 
     fn once(&mut self, s: &mut CoreState, k: &Kernel, op: &Op) -> Result<Flow, DriverError> {
         probe::seen(&self.window);
+        #[cfg(test)]
+        RUNS.with(|n| n.set(n.get() + 1));
         let mut sx = Sx {
             state: s,
             kernel: k,
@@ -325,7 +327,8 @@ impl<W: Window> Driver<W> {
     }
 
     /// Re-run the suspended operation with the answers on the tape and report the question it stops at again (the display
-    /// facts of a nested question are not stored: they are the product of this re-run).
+    /// facts of a nested question are not part of the state: they are the product of this re-run, or of the run `driver::live`
+    /// remembers them from). [`Self::resume`] does not need it: a restored driver resumes as one that re-ran (its rollback is whole).
     ///
     /// # Errors
     /// [`DriverError::NotAsking`] when no nested question was restored; otherwise as [`Self::run`].
@@ -340,7 +343,7 @@ impl<W: Window> Driver<W> {
     #[must_use]
     pub fn nested_journal(&self) -> Option<crate::state::Nested> {
         match &self.awaiting {
-            Awaiting::Nested(op) => Some(crate::state::Nested { op: *op, answers: crate::containers::SmallList::from_slice(self.tape.answers()) }),
+            Awaiting::Nested(op) => Some(crate::state::Nested { op: *op, answers: crate::containers::SmallList::from_slice(self.tape.answers()), asked: crate::state::Memo::default() }),
             _ => None,
         }
     }
@@ -376,6 +379,12 @@ impl<W: Window> Driver<W> {
     pub fn is_done(&self) -> bool {
         self.finished
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The operations this thread's drivers ran ([`Driver::once`]): the tests of `driver::live` count the runs a nested answer costs.
+    pub(crate) static RUNS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 #[allow(clippy::large_enum_variant, reason = "one value per step, never stored in bulk; boxing the Choice would cost an allocation per question")]

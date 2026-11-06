@@ -110,16 +110,10 @@ fn driver_of(window: InvasionMachine, core: &CoreState, env: &Env<'_>) -> Driver
 fn advance_inner(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> Result<(Live, Out), LiveError> {
     let window = InvasionMachine::from_pending(core, env.kernel).ok_or(LiveError::NotOpen)?;
     let mut d = driver_of(window, core, env);
+    let asked = crate::driver::live::recall::<InvasionMachine>(core);
     let nested = core.pending_mut().nested.take();
     let status = match (nested, answer) {
-        (Some(n), Some(pick)) => {
-            d.restore_nested(&n);
-            let Status::Asking(choice) = d.reask(core, env.kernel)? else { return Err(LiveError::NotAsking) };
-            if !is_option(&choice, &pick) {
-                return Err(LiveError::Illegal);
-            }
-            d.resume(core, env.kernel, pick)?
-        }
+        (Some(n), Some(pick)) => crate::driver::live::answer_nested(&mut d, core, env, &n, asked.as_deref(), pick)?,
         (Some(n), None) => {
             d.restore_nested(&n);
             d.reask(core, env.kernel)?
@@ -140,8 +134,9 @@ fn advance_inner(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> R
     match status {
         Status::Asking(choice) => {
             d.window.to_pending(core);
-            core.pending_mut().nested = d.nested_journal();
-            Ok((Live::Asks(Box::new(crate::driver::live::asking_of(&d, choice))), out))
+            let asking = crate::driver::live::asking_of(&d, choice);
+            crate::driver::live::suspend(core, &d, &asking);
+            Ok((Live::Asks(Box::new(asking)), out))
         }
         Status::Done => {
             if let Some((occurrence, combat)) = d.window.pause {
@@ -158,13 +153,5 @@ fn advance_inner(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> R
             core.pending_mut().nested = None;
             Ok((Live::Done, out))
         }
-    }
-}
-
-/// Whether `pick` answers `choice`: one of its options, or a number to a count question.
-fn is_option(choice: &crate::choice::Choice, pick: &Pick) -> bool {
-    match pick {
-        Pick::Opt(o) => choice.opts.iter().any(|x| x == o),
-        Pick::Number(_) => matches!(choice.ask, crate::choice::Ask::Generic(crate::choice::generic::Ask::Count { .. })),
     }
 }

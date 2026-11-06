@@ -235,10 +235,59 @@ impl Pending {
 /// operation to re-run and the answers the tape already holds. The machine payload on the stack is the window as the driver
 /// rolled it back (before `op`), so `from_pending` + `Driver::restore_nested` + the next answer continues exactly where the
 /// uninterrupted run would have gone (package M0, `driver::live`). `None` between steps of a blocking table.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Nested {
     pub op: NestedOp,
     pub answers: SmallList<crate::choice::Pick, 8>,
+    /// The question the step was suspended on, as the driver put it (package nestq-1, `driver::live`): an answer is checked against it
+    /// and resumes the step without running it again to rebuild the question. Derived, not game state: see [`Memo`].
+    pub asked: Memo,
+}
+
+impl core::fmt::Debug for Nested {
+    // (Printed as before the memo: a hash of a printed position must not see it.)
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Nested").field("op", &self.op).field("answers", &self.answers).finish()
+    }
+}
+
+/// A value derived from the position and kept with it so that it is not derived again (a cache the driver fills with a type of its own,
+/// layer L5; this layer only carries it). Shared by `Clone` (one reference count), equal to every other memo and never printed: the
+/// equality, the hashes and the codec of the position do not see it. Whoever reads it checks that it still belongs to the position.
+#[derive(Clone, Default)]
+pub struct Memo(Option<std::sync::Arc<dyn core::any::Any + Send + Sync>>);
+
+impl Memo {
+    #[must_use]
+    pub fn of<T: core::any::Any + Send + Sync>(value: T) -> Self {
+        Self(Some(std::sync::Arc::new(value)))
+    }
+
+    /// The value, when there is one of type `T`.
+    #[must_use]
+    pub fn get<T: core::any::Any>(&self) -> Option<&T> {
+        self.0.as_deref().and_then(|v| v.downcast_ref())
+    }
+
+    /// The value as a reference count of its own (it outlives a borrow of the position).
+    #[must_use]
+    pub fn shared<T: core::any::Any + Send + Sync>(&self) -> Option<std::sync::Arc<T>> {
+        self.0.clone().and_then(|v| v.downcast().ok())
+    }
+}
+
+impl PartialEq for Memo {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for Memo {}
+
+impl core::fmt::Debug for Memo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("Memo")
+    }
 }
 
 /// The operation a window step was running (`Driver`'s own two operations).

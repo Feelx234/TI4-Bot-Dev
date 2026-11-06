@@ -8,7 +8,9 @@
 //! A question asked from INSIDE an emission (a reaction window, an ability) suspends the step with the driver's own
 //! replay-from-the-start device ([`Driver::restore_nested`]); the suspension (the operation and the answers so far) is
 //! `Pending::nested`, written here and nowhere else. A blocking table never needs it (the caller answers inside the same
-//! `advance` loop); it is what makes a step resumable by a caller that returns between questions (D3, the oracle's pull style).
+//! `advance` loop); it is what makes a step resumable by a caller that returns between questions (D3, the oracle's pull style). The
+//! suspension remembers the question it was put ([`Asked`], package nestq-1): in the same position an answer is checked against it and
+//! resumes at once, and [`ask`] reads it, where both replayed the step to rebuild it.
 //!
 //! The arm registry ([`live_arm`]) maps a `session::Arm` to the function that runs it; an arm that is not in it stays `Lend`.
 //!
@@ -152,6 +154,13 @@ fn is_option(choice: &Choice, pick: &Pick) -> bool {
 /// The window is not open, or the replay of a suspended step failed.
 pub fn ask<M: Held>(core: &CoreState, env: &Env<'_>) -> Result<Option<Asking>, LiveError> {
     let window = M::from_pending(core, env.kernel).ok_or(LiveError::NotOpen)?;
+    if let Some(asked) = recall::<M>(core) {
+        let asking = as_replayed::<M>(core, env, &asked);
+        if let Some(n) = &core.pending().nested {
+            verify::<M>(core, env, n, &asking, true);
+        }
+        return Ok(Some(asking));
+    }
     if let Some(n) = core.pending().nested.clone() {
         let mut scratch = core.clone();
         let mut d = driver_of(window, core, env);
@@ -189,18 +198,10 @@ pub fn advance<M: Held>(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick
 fn advance_inner<M: Held>(core: &mut CoreState, env: &Env<'_>, answer: Option<Pick>) -> Result<(Live, Out), LiveError> {
     let window = M::from_pending(core, env.kernel).ok_or(LiveError::NotOpen)?;
     let mut d = driver_of(window, core, env);
+    let asked = recall::<M>(core);
     let nested = core.pending_mut().nested.take();
     let status = match (nested, answer) {
-        (Some(n), Some(pick)) => {
-            // The driver replays a nested answer without judging it (the dual feeds it recorded ones): a live answer comes from outside,
-            // so the question is rebuilt first and the pick must be one of its options.
-            d.restore_nested(&n);
-            let Status::Asking(choice) = d.reask(core, env.kernel)? else { return Err(LiveError::NotAsking) };
-            if !is_option(&choice, &pick) {
-                return Err(LiveError::Illegal);
-            }
-            d.resume(core, env.kernel, pick)?
-        }
+        (Some(n), Some(pick)) => answer_nested(&mut d, core, env, &n, asked.as_deref(), pick)?,
         (Some(n), None) => {
             d.restore_nested(&n);
             d.reask(core, env.kernel)?
@@ -233,8 +234,115 @@ fn advance_inner<M: Held>(core: &mut CoreState, env: &Env<'_>, answer: Option<Pi
         }
         Status::Asking(choice) => {
             d.window.to_pending(core);
-            core.pending_mut().nested = d.nested_journal();
-            Ok((Live::Asks(Box::new(asking_of(&d, choice))), out))
+            let asking = asking_of(&d, choice);
+            suspend(core, &d, &asking);
+            Ok((Live::Asks(Box::new(asking)), out))
+        }
+    }
+}
+
+// -- the remembered nested question (package nestq-1, `docs/NESTQ1_RESUME.md`) -----------------------------------------------------
+
+/// What a suspension remembers of its question (`Nested::asked`): the question as the call that suspended the step returned it, the kind of
+/// the window that asked, and the position the call left (the suspension included). A later call trusts it only in that very position
+/// ([`recall`]): an answer is then checked against it and resumes the step at once, where it re-ran the step to rebuild the question
+/// first (`Driver::reask`: one run of the operation per answer), and [`ask`] reads it instead of a replay. A position changed in between (a
+/// caller that wrote to it, a code table synced into it) has no question remembered: the replay rebuilds it as before.
+#[derive(Debug)]
+pub(crate) struct Asked {
+    kind: crate::state::WindowKind,
+    pub(crate) asking: Asking,
+    at: CoreState,
+}
+
+/// Write the suspension of `d` (none: the question is a stage of the window, or there is none) with the question `asking` it was put.
+pub(crate) fn suspend<M: Held>(core: &mut CoreState, d: &Driver<M>, asking: &Asking) {
+    core.pending_mut().nested = d.nested_journal();
+    if core.pending().nested.is_some() {
+        let at = core.clone();
+        if let Some(n) = core.pending_mut().nested.as_mut() {
+            n.asked = crate::state::Memo::of(Asked { kind: M::KIND, asking: asking.clone(), at });
+        }
+    }
+}
+
+/// The remembered question as a replay in `core` puts it. The positions it was put in are those of the suspending call's run, whose stack
+/// still held the payload and the resolver the call BEGAN with; a replay starts from the position the call left, which holds what the call
+/// wrote at its end (`Held::to_pending`, `Driver::store`). Those two are written into the copies here (on a read only: an answer needs the
+/// question alone).
+fn as_replayed<M: Held>(core: &CoreState, env: &Env<'_>, asked: &Asked) -> Asking {
+    let mut asking = asked.asking.clone();
+    let window = M::from_pending(core, env.kernel);
+    for at in [asking.nested.as_mut().map(|(_, at)| &mut **at), asking.at.as_deref_mut()].into_iter().flatten() {
+        if let Some(w) = &window {
+            w.to_pending(at);
+        }
+        at.pending_mut().resolver = core.pending().resolver.clone();
+    }
+    asking
+}
+
+/// The question the suspension of `core` remembers, if it was put by a window of kind `M::KIND` in this very position.
+pub(crate) fn recall<M: Held>(core: &CoreState) -> Option<std::sync::Arc<Asked>> {
+    let asked = core.pending().nested.as_ref()?.asked.shared::<Asked>()?;
+    (asked.kind == M::KIND && asked.at == *core).then_some(asked)
+}
+
+/// Answer the suspended question `n` with `pick`: checked against the remembered question `asked` when there is one, else against the
+/// question a re-run of the step rebuilds. A pick that is no option is refused (`Illegal`); the caller rolls the position back.
+///
+/// # Errors
+/// As [`advance`].
+pub(crate) fn answer_nested<M: Held>(d: &mut Driver<M>, core: &mut CoreState, env: &Env<'_>, n: &crate::state::Nested, asked: Option<&Asked>, pick: Pick) -> Result<Status, LiveError> {
+    // The driver replays a nested answer without judging it (the dual feeds it recorded ones): a live answer comes from outside, so it
+    // must be one of the options of the question.
+    d.restore_nested(n);
+    let legal = match asked {
+        Some(asked) => {
+            verify::<M>(core, env, n, &asked.asking, false);
+            is_option(&asked.asking.choice, &pick)
+        }
+        None => {
+            let Status::Asking(choice) = d.reask(core, env.kernel)? else { return Err(LiveError::NotAsking) };
+            is_option(&choice, &pick)
+        }
+    };
+    if !legal {
+        return Err(LiveError::Illegal);
+    }
+    Ok(d.resume(core, env.kernel, pick)?)
+}
+
+thread_local! {
+    static VERIFY: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+/// The check of the remembered questions (a test mode of debug builds, on by default there; release builds never check): every use of a
+/// remembered question also rebuilds it with a fresh driver on a scratch copy and panics when the two differ. `false` turns it off on this
+/// thread (a test that counts the runs).
+pub fn verify_remembered(on: bool) {
+    VERIFY.with(|v| v.set(on));
+}
+
+/// See [`verify_remembered`]. `core`: the position of the call; `asked`: the remembered question as it is used (`whole`: with its display
+/// positions, a read; else the question and its display facts, an answer).
+#[allow(unused_variables, reason = "the check is compiled into debug builds only")]
+fn verify<M: Held>(core: &CoreState, env: &Env<'_>, n: &crate::state::Nested, asked: &Asking, whole: bool) {
+    #[cfg(debug_assertions)]
+    if VERIFY.with(std::cell::Cell::get) {
+        let window = M::from_pending(core, env.kernel).expect("the window of a remembered question is open");
+        let mut scratch = core.clone();
+        scratch.pending_mut().nested = None;
+        let mut d = driver_of(window, &scratch, env);
+        d.restore_nested(n);
+        let rebuilt = match d.reask(&mut scratch, env.kernel) {
+            Ok(Status::Asking(choice)) => asking_of(&d, choice),
+            other => panic!("a remembered question that a re-run does not ask: {other:?}"),
+        };
+        assert_eq!(rebuilt.choice, asked.choice, "the remembered question differs from the rebuilt one");
+        assert_eq!(rebuilt.nested.as_ref().map(|(f, _)| f), asked.nested.as_ref().map(|(f, _)| f), "the remembered display facts differ");
+        if whole {
+            assert_eq!(rebuilt, *asked, "the remembered positions of the question differ");
         }
     }
 }
@@ -520,6 +628,105 @@ mod tests {
         assert_eq!((live, out.emitted.len()), (Live::Done, 1));
         assert!(!is_open::<Toy>(&s));
     }
+    // -- the remembered nested question (nestq-1) --------------------------------------------------------------------------------
+
+    /// The operations this thread's drivers ran during `f`, without the check of the remembered questions (its own re-runs are not counted).
+    fn runs<T>(f: impl FnOnce() -> T) -> (T, u32) {
+        verify_remembered(false);
+        let before = crate::driver::RUNS.with(std::cell::Cell::get);
+        let out = f();
+        let n = crate::driver::RUNS.with(std::cell::Cell::get) - before;
+        verify_remembered(true);
+        (out, n)
+    }
+
+    fn asked_open() -> (Kernel, CoreState) {
+        let mut s = position();
+        open(&mut s, &Toy { emitted: false });
+        (Kernel::plain(), s)
+    }
+
+    /// An answer to a remembered nested question runs the operation once (the resume), where it ran it twice (the re-run that rebuilt the
+    /// question, then the resume); a read of the question runs nothing. Without the memo, or in a position changed since, the re-run is back.
+    #[test]
+    fn a_remembered_nested_question_is_answered_with_one_run_and_read_with_none() {
+        let (k, mut s) = asked_open();
+        let env = env(&k);
+        let (first, discover) = runs(|| advance::<Toy>(&mut s, &env, None).unwrap());
+        assert_eq!(discover, 1, "the run that finds the question");
+        let Live::Asks(first) = first.0 else { panic!("the reaction window asks") };
+        assert!(recall::<Toy>(&s).is_some(), "the suspension remembers its question");
+        let (asked, read) = runs(|| ask::<Toy>(&s, &env).unwrap().expect("asks"));
+        assert_eq!((read, &asked.choice), (0, &first.choice), "the question is read, not replayed");
+        // (What a replay reads, the display position included: the check of the remembered questions compares it in every other test.)
+        verify::<Toy>(&s, &env, s.pending().nested.as_ref().unwrap(), &asked, true);
+        // Another kind of window does not take the memo of this one.
+        assert!(recall::<crate::driver::windows::tactical::TacticalAction>(&s).is_none());
+        let mut plain = s.clone();
+        let (_, answered) = runs(|| advance::<Toy>(&mut s, &env, Some(pick(1))).unwrap());
+        assert_eq!(answered, 1, "the resume alone (it stops at the next question of the window)");
+        // The same answer without the memo (a suspension written by an older build): the question is rebuilt first.
+        plain.pending_mut().nested.as_mut().unwrap().asked = crate::state::Memo::default();
+        assert!(recall::<Toy>(&plain).is_none());
+        let (_, rebuilt) = runs(|| advance::<Toy>(&mut plain, &env, Some(pick(1))).unwrap());
+        assert_eq!(rebuilt, 2, "the re-run that rebuilds the question, then the resume");
+        assert_eq!(s, plain, "the same position either way");
+        // A position changed after the call is not trusted: the question is rebuilt.
+        let mut changed = s.clone();
+        changed.meta_mut().rules_version += 1;
+        assert!(recall::<Toy>(&changed).is_none(), "the memo belongs to the position it was made in");
+        let (_, rebuilt) = runs(|| advance::<Toy>(&mut changed, &env, Some(Pick::Opt(Opt::Decline))).unwrap());
+        assert_eq!(rebuilt, 2);
+        let (live, _) = advance::<Toy>(&mut s, &env, Some(Pick::Opt(Opt::Decline))).unwrap();
+        assert_eq!((live, goods(&s)), (Live::Done, 1));
+        assert!(s.pending().nested.is_none(), "the suspension and its memo are gone with the window");
+    }
+
+    /// A pick the remembered question does not offer is refused as before, and the position (its memo included) is what it was.
+    #[test]
+    fn an_illegal_pick_to_a_remembered_question_is_refused_and_the_memo_stays_usable() {
+        let (k, mut s) = asked_open();
+        let env = env(&k);
+        advance::<Toy>(&mut s, &env, None).unwrap();
+        let held = s.clone();
+        for wrong in [pick(9), Pick::Number(3), Pick::Opt(Opt::Done)] {
+            assert_eq!(advance::<Toy>(&mut s, &env, Some(wrong)), Err(LiveError::Illegal), "{wrong:?}");
+            assert_eq!(s, held);
+            assert!(recall::<Toy>(&s).is_some(), "the rollback restores the memo with the position");
+        }
+        let ((live, _), n) = runs(|| advance::<Toy>(&mut s, &env, Some(pick(1))).unwrap());
+        assert!(matches!(live, Live::Asks(_)) && n == 1, "a legal pick after the refusals resumes at once");
+    }
+
+    /// A clone of a suspended position shares the memo; each copy answers on its own: two different picks give the positions two straight runs
+    /// with those picks give, and the clone answered gives what the original answered gives.
+    #[test]
+    fn copies_of_a_suspended_position_answer_independently() {
+        let (k, mut s) = asked_open();
+        let env = env(&k);
+        advance::<Toy>(&mut s, &env, None).unwrap();
+        let straight = |answers: &[Pick]| {
+            let (_, mut t) = asked_open();
+            advance::<Toy>(&mut t, &env, None).unwrap();
+            for a in answers {
+                t.pending_mut().nested.as_mut().unwrap().asked = crate::state::Memo::default();
+                advance::<Toy>(&mut t, &env, Some(*a)).unwrap();
+            }
+            t
+        };
+        let mut fork = s.clone();
+        let mut same = s.clone();
+        advance::<Toy>(&mut s, &env, Some(pick(1))).unwrap();
+        advance::<Toy>(&mut s, &env, Some(Pick::Opt(Opt::Decline))).unwrap();
+        advance::<Toy>(&mut fork, &env, Some(Pick::Opt(Opt::Decline))).unwrap();
+        assert_eq!((goods(&s), goods(&fork)), (1, 0), "the ability on one copy, the decline on the other");
+        assert_eq!(s, straight(&[pick(1), Pick::Opt(Opt::Decline)]));
+        assert_eq!(fork, straight(&[Pick::Opt(Opt::Decline)]));
+        advance::<Toy>(&mut same, &env, Some(pick(1))).unwrap();
+        advance::<Toy>(&mut same, &env, Some(Pick::Opt(Opt::Decline))).unwrap();
+        assert_eq!(same, s, "ask, clone, answer is ask, answer");
+    }
+
     /// The live resolver is built from the position, initiative order included: in the action phase a window is offered to the active seat first
     /// and then to the others in initiative order. A resolver that kept the order of the stored `Pending` (empty at the first window of a game)
     /// offered the window to the active seat alone, so a reaction of any other seat was never asked (found by the Letnev agent in lane M5).

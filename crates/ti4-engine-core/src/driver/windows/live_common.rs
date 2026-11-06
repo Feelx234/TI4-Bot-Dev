@@ -7,7 +7,7 @@
 //! played inside the window reads them).
 
 use crate::choice::Pick;
-use crate::driver::live::{Env, Live, LiveError, Out};
+use crate::driver::live::{self, Env, Live, LiveError, Out};
 use crate::driver::{Driver, Status};
 use crate::kernel::ability::Unknown;
 use crate::kernel::stage::{AbilityTable, Held, Window};
@@ -47,15 +47,6 @@ pub fn driver_of<M: Window>(window: M, core: &CoreState, env: &Env<'_>) -> Drive
     d
 }
 
-/// Whether `pick` answers `choice`: one of its options, or a number to a count question.
-#[must_use]
-pub fn is_option(choice: &crate::choice::Choice, pick: &Pick) -> bool {
-    match pick {
-        Pick::Opt(o) => choice.opts.iter().any(|x| x == o),
-        Pick::Number(_) => matches!(choice.ask, crate::choice::Ask::Generic(crate::choice::generic::Ask::Count { .. })),
-    }
-}
-
 /// `driver::live::advance::<M>` with `after` deciding what a step that ended in no question does. On any error the position is exactly what it
 /// was before the call.
 ///
@@ -83,16 +74,10 @@ fn advance_inner<M: Held>(
 ) -> Result<(Live, Out), LiveError> {
     let window = M::from_pending(core, env.kernel).ok_or(LiveError::NotOpen)?;
     let mut d = driver_of(window, core, env);
+    let asked = live::recall::<M>(core);
     let nested = core.pending_mut().nested.take();
     let status = match (nested, answer) {
-        (Some(n), Some(pick)) => {
-            d.restore_nested(&n);
-            let Status::Asking(choice) = d.reask(core, env.kernel)? else { return Err(LiveError::NotAsking) };
-            if !is_option(&choice, &pick) {
-                return Err(LiveError::Illegal);
-            }
-            d.resume(core, env.kernel, pick)?
-        }
+        (Some(n), Some(pick)) => live::answer_nested(&mut d, core, env, &n, asked.as_deref(), pick)?,
         (Some(n), None) => {
             d.restore_nested(&n);
             d.reask(core, env.kernel)?
@@ -113,8 +98,9 @@ fn advance_inner<M: Held>(
     match status {
         Status::Asking(choice) => {
             d.window.to_pending(core);
-            core.pending_mut().nested = d.nested_journal();
-            Ok((Live::Asks(Box::new(crate::driver::live::asking_of(&d, choice))), out))
+            let asking = live::asking_of(&d, choice);
+            live::suspend(core, &d, &asking);
+            Ok((Live::Asks(Box::new(asking)), out))
         }
         Status::Done => match after(&mut d.window, core, &mut out) {
             After::Fail(why) => Err(LiveError::Unknown(why)),
