@@ -327,6 +327,21 @@
   color: #cbd5e1;
   white-space: pre-line;
 }
+.politics-panel__agendas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+.politics-panel__agenda {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border, #334155);
+  border-radius: 6px;
+  background: rgba(2, 6, 23, 0.45);
+}
+.politics-panel__hint {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+}
 .politics-option-note {
   margin-top: 2px;
   font-size: 0.78rem;
@@ -524,4 +539,32 @@
   color: var(--color-alert-orange, #f97316);
   font-weight: 700;
   font-size: 0.85rem;
+}
+
+/* A multi-pick question (payment, discard, ...): the running total and each atom's controls. */
+.multi-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.multi-pick[data-ok="false"] {
+  border-color: rgba(250, 204, 21, 0.45);
+}
+.multi-pick__atom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  align-self: center;
+}
+.multi-pick__count {
+  min-width: 3.2em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.multi-pick__worth {
+  font-weight: 600;
+  color: #fbbf24;
+  font-variant-numeric: tabular-nums;
 }

@@ -27,6 +27,8 @@ export interface MockChoice {
   nonce?: string;
   /** Structured decision details (e.g. `{ kind: "turn_menu", ... }` for the turn action bar). */
   details?: Record<string, unknown>;
+  /** A multi-pick question (`Choice.multi_pick`): the answer is a '+'-joined set of the options. */
+  multi_pick?: { kind: string; owed: number; repeat?: Record<string, number>; buy?: [number, number] };
 }
 
 export interface MockGameOptions {
@@ -120,6 +122,7 @@ export function buildSnapshot(options: MockGameOptions = {}) {
             context: (choice.context ?? { subtype: "decision" }) as never,
             options: choice.options,
             ...(choice.details ? { details: choice.details } : {}),
+            ...(choice.multi_pick ? { multi_pick: choice.multi_pick } : {}),
           },
         }
       : null,

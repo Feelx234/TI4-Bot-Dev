@@ -15,6 +15,8 @@ import {
   derivePaymentOffer,
   paymentPlanetKey,
   paymentProblem,
+  paymentSetId,
+  paymentSurplusProblem,
   summarizePayment,
   suggestAutoPay,
   togglePlanetInDraft,
@@ -115,15 +117,22 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedOptionId, offer]);
 
-  const maxTradeGoodsAvailable = player?.trade_goods ?? (hasTradeGoodOption ? 1 : 0);
+  // A multi-pick payment (one answer for the whole set) says how many goods may be named.
+  const multiPick = choice?.multi_pick?.kind === "payment" ? choice.multi_pick : null;
+  const maxTradeGoodsAvailable =
+    player?.trade_goods ?? multiPick?.repeat?.trade_good ?? (hasTradeGoodOption ? 1 : 0);
   const summary = offer
     ? summarizePayment(offer, draft)
     : { committed: 0, shortfall: 0, surplus: 0, settled: false, fromPlanets: 0, fromTradeGoods: 0 };
   const totalCommitted = summary.committed;
   const credit = summary.surplus;
   const shortfall = summary.shortfall;
-  const isSettled = summary.settled;
-  const problem = offer ? paymentProblem(offer, draft, maxTradeGoodsAvailable) : null;
+  // The engine takes a set only when each item was needed; a whole production's plan is split
+  // into such parts per question, so the check applies to a single question's payment.
+  const surplusProblem =
+    offer && multiPick && !production.panel ? paymentSurplusProblem(offer, draft) : null;
+  const isSettled = summary.settled && surplusProblem === null;
+  const problem = offer ? (paymentProblem(offer, draft, maxTradeGoodsAvailable) ?? surplusProblem) : null;
   const handleTogglePlanet = togglePlanet;
   const handleAutoPay = () => {
     if (!offer) return;
@@ -141,6 +150,19 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
     const part = production.split(draft);
     if (!part) {
       setBatchError("The staged payment does not fit this question. Reset and stage again.");
+      return;
+    }
+
+    // A multi-pick: the whole set is one answer.
+    if (multiPick) {
+      if (part.planetIds.length === 0 && part.tradeGoods === 0) return;
+      setBatchError(null);
+      try {
+        await submitDirect(paymentSetId(part));
+      } catch (error) {
+        if (production.panel) production.revert();
+        setBatchError(error instanceof Error ? error.message : String(error));
+      }
       return;
     }
 
@@ -407,7 +429,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                   </div>
                 )}
 
-                {!production.panel && selectedPlanetIds.length + tradeGoodsToSpend > 1 && (
+                {!production.panel && !multiPick && selectedPlanetIds.length + tradeGoodsToSpend > 1 && (
                   <p className="text-muted">
                     Pay submits one decision at a time. Later spends are unverified until the next
                     authoritative offer; the sequence stops if it changes or is rejected.

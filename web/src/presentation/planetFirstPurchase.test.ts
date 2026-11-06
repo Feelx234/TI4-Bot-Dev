@@ -162,10 +162,10 @@ describe("planet-first purchase state machine", () => {
       steps: [
         { kind: "pool", pool: "tactic_tokens" },
         { kind: "purchase", buy: true },
+        { kind: "exhaust", planet: "jord" },
         { kind: "exhaust", planet: "arcturus" },
         { kind: "pool", pool: "tactic_tokens" },
         { kind: "purchase", buy: true },
-        { kind: "exhaust", planet: "jord" },
         { kind: "pool", pool: "fleet_tokens" },
         { kind: "purchase", buy: false },
       ],

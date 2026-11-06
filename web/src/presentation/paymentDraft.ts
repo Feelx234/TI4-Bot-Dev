@@ -49,6 +49,8 @@ export const PAYMENT_SUBTYPES = new Set([
 /** True for the decisions whose answer is a set of planets (and trade goods) to spend. */
 export function isPaymentChoice(choice: PendingChoiceDto | null | undefined): boolean {
   if (!choice) return false;
+  // Leadership's purchase is paid on the command-token panel (and its own map marks).
+  if (choice.multi_pick?.kind === "purchase") return false;
   const subtype = choice.context?.subtype ?? "";
   if (PAYMENT_SUBTYPES.has(subtype)) return true;
   return choice.options.some((o) => o.id.startsWith("exhaust|")) && subtype !== "vote_exhaust_planet";
@@ -64,7 +66,7 @@ export function derivePaymentOffer(
   const totalAmount =
     model?.selectionMode.mode === "quantity"
       ? model.selectionMode.target
-      : (constraints?.amount ?? 0);
+      : (constraints?.amount ?? (choice.multi_pick?.kind === "payment" ? choice.multi_pick.owed : 0));
   const alreadyPaid =
     model?.selectionMode.mode === "quantity" ? model.selectionMode.paid : (constraints?.paid ?? 0);
   const currency =
@@ -320,7 +322,37 @@ export function derivePaymentMarks(offer: PaymentOffer, draft: PaymentDraft): Ma
   return marks;
 }
 
-export type PaymentStep = { kind: "exhaust"; planet: string } | { kind: "trade_good" };
+/**
+ * The one answer of a multi-pick payment (`Choice.multi_pick`, kind "payment") for a staged draft:
+ * the planets' option ids, then `trade_good` once per good, joined by `+`.
+ */
+export function paymentSetId(draft: PaymentDraft): string {
+  return [...draft.planetIds, ...Array.from({ length: draft.tradeGoods }, () => "trade_good")].join("+");
+}
+
+/**
+ * Why the engine would refuse a staged multi-pick payment although it covers the bill: it takes a
+ * set only when, without its largest item, the rest would be short (each item was needed). `null`
+ * when it would take it, or the draft does not cover the bill yet (the shortfall says why).
+ */
+export function paymentSurplusProblem(offer: PaymentOffer, draft: PaymentDraft): string | null {
+  const items = [
+    ...draft.planetIds.map((id) => {
+      const planet = offer.planets.find((p) => p.id === id);
+      return { name: planet?.planetName ?? id, worth: planet?.worth ?? 0 };
+    }),
+    ...Array.from({ length: draft.tradeGoods }, () => ({ name: "a trade good", worth: offer.tradeGoodWorth })),
+  ];
+  if (items.length === 0) return null;
+  const sum = items.reduce((total, item) => total + item.worth, 0);
+  if (sum < offer.owed) return null;
+  const largest = items.reduce((a, b) => (b.worth > a.worth ? b : a));
+  if (sum - largest.worth < offer.owed) return null;
+  const unit = offer.currency.toLowerCase();
+  return `More than needed: this pays ${sum} of ${offer.owed} ${unit}, and even without ${largest.name} (${largest.worth}) the rest covers it. Take something out.`;
+}
+
+export type PaymentStep ={ kind: "exhaust"; planet: string } | { kind: "trade_good" };
 
 /**
  * The server-side steps for a staged payment. When only two payment options remain and the first

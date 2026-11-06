@@ -167,9 +167,10 @@ function enginePreview(verdict: "accept" | "reject" | "unavailable" = "accept") 
         answer: answers[1],
         choice: {
           player: "b",
-          prompt: "pay 3 more influence",
+          prompt: "buy command tokens for 3 influence each (up to 1)",
           options: [{ id: "exhaust|jord", kind: "pay", label: "jord", payload: {} }],
-          context: { subtype: "pay_influence" } as never,
+          context: { subtype: "buy_token_with_influence" } as never,
+          multi_pick: { kind: "purchase", owed: 3, buy: [1, 1] },
         },
       });
     }
@@ -215,8 +216,9 @@ describe("Leadership: preparing the exact payment", () => {
         payment: { planets: ["jord"], tradeGoods: 1 },
       },
     });
-    // The engine was asked with the exact answers the real flow takes: window yes, the payments, the pool.
-    expect(preview).toHaveBeenCalledWith(CARD, "a", ["yes", "exhaust|jord", "trade_good", "fleet_tokens"]);
+    // The engine was asked with the exact answers the real flow takes: window yes, the purchase's one
+    // set (one token, its payment), the gain split of the token bought.
+    expect(preview).toHaveBeenCalledWith(CARD, "a", ["yes", "buy:1+trade_good+exhaust|jord", "0|1|0"]);
     expect(submit).not.toHaveBeenCalled();
     expect(batch).not.toHaveBeenCalled();
   });
@@ -227,7 +229,7 @@ describe("Leadership: preparing the exact payment", () => {
     await chooseAndSave();
     expect(plan()).toBeUndefined();
     expect(screen.getByTestId("token-error").textContent).toMatch(/would not accept this purchase/i);
-    expect(screen.getByTestId("token-error").textContent).toMatch(/Jord cannot be exhausted/);
+    expect(screen.getByTestId("token-error").textContent).toMatch(/does not accept that payment/);
     // What was staged stays, so the player can change the payment.
     expect(screen.getByTestId("token-buy-count").textContent).toBe("1");
     expect(batch).not.toHaveBeenCalled();
@@ -240,9 +242,10 @@ describe("Leadership: preparing the exact payment", () => {
     expect(plan()?.leadership?.payment).toEqual({ planets: ["jord"], tradeGoods: 1 });
   });
 
-  it("scripts the engine's answers from a staged purchase: first yes is the window's, later ones are 'yes'", () => {
+  it("scripts the engine's answers from a staged purchase: the window's yes, one purchase set, one gain split", () => {
     expect(
       leadershipScript("yes", [
+        { kind: "purchase", buy: true },
         { kind: "purchase", buy: true },
         { kind: "exhaust", planet: "jord" },
         { kind: "pool", pool: "tactic_tokens" },
@@ -253,7 +256,7 @@ describe("Leadership: preparing the exact payment", () => {
         { kind: "pool", pool: "fleet_tokens" },
         { kind: "purchase", buy: false },
       ]),
-    ).toEqual(["yes", "exhaust|jord", "tactic_tokens", "yes", "trade_good", "trade_good", "trade_good", "fleet_tokens"]);
+    ).toEqual(["yes", "buy:2+exhaust|jord+trade_good+trade_good+trade_good", "1|1|0"]);
   });
 
   describe("when the real question opens", () => {
@@ -280,10 +283,12 @@ describe("Leadership: preparing the exact payment", () => {
       expect(batch).toHaveBeenCalledTimes(1);
       const sent = batch.mock.calls[0][0] as { kind: string; steps: { kind: string; planet?: string }[] };
       expect(sent.kind).toBe("tokens");
+      // The window's yes (follow), then the purchase question's: one token, its payment, its pool.
       expect(sent.steps).toEqual([
         { kind: "purchase", buy: true },
-        { kind: "exhaust", planet: "jord" },
+        { kind: "purchase", buy: true },
         { kind: "trade_good" },
+        { kind: "exhaust", planet: "jord" },
         { kind: "pool", pool: "fleet_tokens" },
       ]);
     });

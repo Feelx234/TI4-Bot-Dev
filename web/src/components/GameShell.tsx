@@ -83,6 +83,7 @@ import {
   newProductionPay,
   type ProductionPay,
 } from "../presentation/productionPayment.ts";
+import { paymentSetId } from "../presentation/paymentDraft.ts";
 import {
   PipelineRunnerContext,
   useOwnedPipelineRunner,
@@ -1374,13 +1375,17 @@ export const GameShell: React.FC<GameShellProps> = ({
       return;
     }
     const payload = { kind: "payment" as const, steps: auto.steps };
-    if (!onSubmitBasketBatch && auto.steps.length !== 1) {
+    // A multi-pick payment takes this question's whole part as one answer.
+    const setAnswer = choice.multi_pick?.kind === "payment" ? paymentSetId(auto.draft) : null;
+    if (!setAnswer && !onSubmitBasketBatch && auto.steps.length !== 1) {
       stop("This payment needs several steps; choose how to pay for it.");
       return;
     }
     // Spent from the plan before the answer lands, so the next question sees what is left.
     setProductionPay({ ...plan, remaining: auto.rest, handledNonce: choice.nonce, note: undefined });
-    const answer = onSubmitBasketBatch
+    const answer = setAnswer
+      ? onSubmitChoice(setAnswer)
+      : onSubmitBasketBatch
       ? onSubmitBasketBatch(payload)
       : onSubmitChoice(
           auto.steps[0].kind === "trade_good" ? "trade_good" : `exhaust|${auto.steps[0].planet}`,

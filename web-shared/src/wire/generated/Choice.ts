@@ -1,6 +1,7 @@
 // Generated from the Rust types by `cargo wire-web` (ti4_wasm::wire_ts). Do not edit.
 import type { ChoiceOption } from "./ChoiceOption.ts";
 import type { DecisionContext } from "./DecisionContext.ts";
+import type { MultiPick } from "./MultiPick.ts";
 import type { PlayerId } from "./PlayerId.ts";
 
 /**
@@ -22,4 +23,10 @@ details?: Record<string, unknown>,
  * (a transaction's free-form deal). Unlisted ids starting with it are accepted as answers;
  * whoever resolves the answer parses the rest and rejects what it cannot read.
  */
-free_form?: string, };
+free_form?: string, 
+/**
+ * A MULTI-PICK (`docs/MULTIASK1_RESUME.md`): the answer is a set of the listed options, their ids joined by
+ * [`MULTI_PICK_SEPARATOR`] (an option named in [`MultiPick::repeat`] once per unit spent; a purchase adds `buy:N`), which the
+ * engine checks. `None`: the answer is one listed option.
+ */
+multi_pick?: MultiPick, };
