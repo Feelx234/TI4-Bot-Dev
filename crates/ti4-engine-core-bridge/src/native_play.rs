@@ -1845,11 +1845,11 @@ mod tests {
         assert_eq!(played.matrix.total_gaps(), 0, "one game, no gap");
         // (1,174 steps in lane K; the follower windows lane J holds open close in a step of their own: 24 more steps, the same position and fingerprint. Lane P: the
         // ruling on S1 changed the order of the questions: 1,269. Lane R: the Technology secondary is no longer offered to a seat that can pay only with War
-        // Machine's 5, the marks are abilities of a window: another game, 1,165.)
-        assert_eq!((played.rounds, played.steps), (9, 1165), "nine rounds of the table");
+        // Machine's 5, the marks are abilities of a window: another game, 1,165. Multi-ask conversion (docs/MULTIASK1_RESUME.md; one question per gain, payment, purchase, discard, removal; Leadership buys nothing by default): 1,110.)
+        assert_eq!((played.rounds, played.steps), (9, 1110), "nine rounds of the table");
         assert!(native.get("tokens").copied().unwrap_or(0) >= 8 && native.get("status").copied().unwrap_or(0) >= 8, "the status phases ran natively, their close included: {native:?}");
         // (Rules version 36 moved the pin from `74d5675ac754ac81`: the hashed position carries `rules_version` 36; the game is the same, see `tests/wrapper_native.rs`.)
-        assert_eq!(played.fingerprint, "538dc68f23dddcc9");
+        assert_eq!(played.fingerprint, "c5a8d4b9086367c7");
         assert_eq!(g.step(), Step::Finished, "a finished game stops the loop");
     }
 
@@ -2213,8 +2213,9 @@ mod tests {
     fn the_shadow_run_agrees_with_the_legacy_game_for_the_whole_quick_game() {
         let shadowed = shadow_play(&lobby_spec("sol", 4, 1), 2_000, 50).expect("builds");
         assert!(shadowed.first_difference.is_none(), "{:?}", shadowed.first_difference);
-        // (933 since the multi-ask line: the bot answers fewer questions, the game takes another path.)
-        assert_eq!(shadowed.compared, 933, "every legacy step of the game was compared");
+        // (933 since the multi-ask line: the bot answers fewer questions, the game takes another path; 807 with the Leadership primary buying nothing
+        // by default, `Choice::pick(0)`.)
+        assert_eq!(shadowed.compared, 807, "every legacy step of the game was compared");
         assert!(matches!(shadowed.played.end, End::Finished), "{:?}", shadowed.played.end);
     }
 
@@ -2286,10 +2287,12 @@ mod tests {
     /// ruling's order and the string in its seating order (S1), whose question of the second seat is the ability's own prompt.
     #[test]
     fn the_naalu_mech_is_the_printing_of_the_box_and_two_abilities_of_one_event_are_the_known_s1() {
-        let shadowed = shadow_play(&lobby_spec("cabal", 6, 4), 950, 50).expect("builds");
-        // (Cabal seed 4 stops at the string's S5 at step 729, before step 943: integration 20.)
+        // (Multi-ask re-pin: cabal seed 4 now stops at the string's S2 at step 472; seed 1 plays through step 950 with no difference. Seed 4 stopped at the
+        // string's S5 at step 729 before the conversion, integration 20.)
+        let shadowed = shadow_play(&lobby_spec("cabal", 6, 1), 950, 50).expect("builds");
         assert!(shadowed.first_difference.as_ref().is_none_or(|d| d.known == Some(KNOWN_S5)), "{:?}", shadowed.first_difference);
-        let shadowed = shadow_play(&lobby_spec("yssaril", 6, 2), 1300, 50).expect("builds");
+        // (Multi-ask re-pin: yssaril seed 2 plays clean to the end now; seed 3 meets the same S1 at step 175, the Yssaril copy of the L1Z1X agent against the agent.)
+        let shadowed = shadow_play(&lobby_spec("yssaril", 6, 3), 1300, 50).expect("builds");
         let difference = shadowed.first_difference.expect("the string orders the two abilities by its seating");
         assert_eq!(difference.known, Some(KNOWN_S1), "{difference}");
     }
@@ -2300,7 +2303,7 @@ mod tests {
     /// announced by the scoring step that follows a scoring pause, which is the string's next step (Sol, 6 players, seed 8, step 495).
     #[test]
     fn the_strategy_phase_of_a_later_round_orders_from_the_speaker_and_a_scoring_pause_announces_what_was_staged() {
-        for (faction, seed, steps) in [("l1z1x", 5, 818), ("sol", 8, 500)] {
+        for (faction, seed, steps) in [("l1z1x", 1, 818), ("sol", 8, 500)] {
             let shadowed = shadow_play(&lobby_spec(faction, 6, seed), steps, 50).expect("builds");
             assert!(shadowed.first_difference.is_none(), "{faction} seed {seed}: {:?}", shadowed.first_difference);
         }
@@ -2350,11 +2353,16 @@ mod tests {
     /// ruling of 2026-11-04 and the game plays clean, see `yin_four_players_seed_eight_plays_clean_through_the_hero`).
     #[test]
     fn the_string_bugs_of_integration_19_are_recognised_and_nothing_else_is() {
-        for (faction, players, seed, steps, known) in [("yssaril", 3, 5, 720, KNOWN_S1), ("empyrean", 6, 5, 1070, KNOWN_S3)] {
+        // (Multi-ask re-pin: yssaril 3 players seed 5 plays clean now; seed 10 meets S1 at step 452. S3 (empyrean 6 players seed 5) is no longer reached by any game:
+        // about 190 lobby games of empyrean, mentak, ghost, nomad and winnu at 6 players were scanned with the shadow, none stops at S3; the recogniser keeps its unit
+        // checks below, and the empyrean game is kept as a game that may stop only at a known string bug.)
+        for (faction, players, seed, steps, known) in [("yssaril", 3, 10, 720, KNOWN_S1)] {
             let shadowed = shadow_play(&lobby_spec(faction, players, seed), steps, 50).expect("builds");
             let difference = shadowed.first_difference.unwrap_or_else(|| panic!("{faction} {players}p seed {seed}: the string differs here"));
             assert_eq!(difference.known, Some(known), "{faction} {players}p seed {seed}: {difference}");
         }
+        let shadowed = shadow_play(&lobby_spec("empyrean", 6, 5), 1070, 50).expect("builds");
+        assert!(shadowed.first_difference.as_ref().is_none_or(|d| d.known.is_some()), "empyrean 6p seed 5: {:?}", shadowed.first_difference);
         let d = |what, path: &str, native: &str, legacy: &str| Difference { step: 1, arms: vec![], what, path: path.to_owned(), native: native.to_owned(), legacy: legacy.to_owned(), known: None };
         assert!(s3_feat_differs(&d("state", "players[4].event_feats[1]", "[\"won_against_a_note_holder\",26]", "<absent>")));
         assert!(!s3_feat_differs(&d("state", "players[4].event_feats[1]", "[\"won_in_an_anomaly\",26]", "<absent>")), "another feat is a difference of the core");
@@ -2377,7 +2385,7 @@ mod tests {
     /// the recogniser takes the two forms of it (the event, the leader's state) and nothing else.
     #[test]
     fn s5_stops_a_game_the_guards_of_three_older_tests_ran_through() {
-        for (faction, players, seed, steps) in [("nomad", 3, 5, 600), ("yin", 4, 4, 900), ("cabal", 6, 4, 740)] {
+        for (faction, players, seed, steps) in [("nomad", 3, 25, 600), ("yin", 4, 10, 900), ("cabal", 6, 20, 740)] {
             let shadowed = shadow_play(&lobby_spec(faction, players, seed), steps, 50).expect("builds");
             let difference = shadowed.first_difference.unwrap_or_else(|| panic!("{faction} {players}p seed {seed}: the string differs here"));
             assert_eq!(difference.known, Some(KNOWN_S5), "{faction} {players}p seed {seed}: {difference}");
@@ -2420,7 +2428,7 @@ mod tests {
     /// discard between the two gains.
     #[test]
     fn the_nekro_agents_discard_follows_the_gain_and_the_pillage_of_the_gain() {
-        for (faction, seed, steps) in [("xxcha", 6, 388), ("arborec", 5, 968)] {
+        for (faction, seed, steps) in [("xxcha", 6, 388), ("arborec", 1, 968)] {
             let shadowed = shadow_play(&lobby_spec(faction, 6, seed), steps, 50).expect("builds");
             assert!(shadowed.first_difference.is_none(), "{faction} seed {seed}: {:?}", shadowed.first_difference);
         }
@@ -2430,7 +2438,7 @@ mod tests {
     /// is announced by the step after the whole action, not at the start of the next removal (Yin 5 players seed 7 step 850, Yin 4 players seed 6 step 750, Sardakk 4 players seed 8 step 816).
     #[test]
     fn the_removals_after_a_retreat_do_not_announce_what_the_retreat_staged() {
-        for (faction, players, seed, steps) in [("yin", 5, 7, 856), ("yin", 4, 6, 756), ("sardakk", 4, 8, 822)] {
+        for (faction, players, seed, steps) in [("yin", 5, 2, 856), ("yin", 4, 6, 756), ("sardakk", 4, 8, 822)] {
             let shadowed = shadow_play(&lobby_spec(faction, players, seed), steps, 50).expect("builds");
             assert!(shadowed.first_difference.is_none(), "{faction} {players}p seed {seed}: {:?}", shadowed.first_difference);
         }
@@ -2511,10 +2519,11 @@ mod tests {
 
     /// Lane P (S1): the user ruled that an action-phase window offers the ACTIVE player first and then the others in INITIATIVE order. The string
     /// offers its seating order rotated from the active seat; the shadow reports that difference as a known string bug and does not copy it.
-    /// Saar, 6 players: the script wanted the L1Z1X agent's reaction and the string offered the Saar agent's first (step 38).
+    /// Saar, 6 players, seed 9 (multi-ask re-pin: the conversion changed the path of seed 1, which no longer reaches the case): the script wanted the Saar
+    /// agent's reaction and the string offered the Yssaril copy of it first (step 15).
     #[test]
     fn a_reaction_window_the_string_orders_by_its_seating_is_reported_as_the_known_string_bug_s1() {
-        let shadowed = shadow_play(&lobby_spec("saar", 6, 1), 60, 50).expect("builds");
+        let shadowed = shadow_play(&lobby_spec("saar", 6, 9), 60, 50).expect("builds");
         let d = shadowed.first_difference.expect("the string offers the other seat's reaction first");
         assert_eq!(d.known, Some(KNOWN_S1), "{d}");
         assert_eq!(d.what, "legacy", "{d}");
