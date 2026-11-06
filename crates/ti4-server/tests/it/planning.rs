@@ -295,30 +295,35 @@ fn replay_handles_nested_choices_and_reports_exhaustion_inside_a_step() {
     let original_state = serde_json::to_value(&checkpoint.state).unwrap();
 
     let mut draft = checkpoint.fork();
-    let (recorder, recording) =
-        RecordingDecider::new(Box::new(Scripted::new(["yes", "fleet_tokens"])));
+    // The window's yes, the ONE purchase question (a token for three trade goods, a multi-pick
+    // answer: `buy:N` and the atoms joined by `+`), the gain question of the token bought.
+    let (recorder, recording) = RecordingDecider::new(Box::new(Scripted::new([
+        "yes",
+        "buy:1+trade_good+trade_good+trade_good",
+        "0|1|0",
+    ])));
     draft.table = Table::with_default(Box::new(recorder));
     // (The string put the purchase and the pool selection in one step; a native step ends at each question of the window, so the steps go on
     // until both are recorded. What the test is about -- the replay consumes them in order -- does not depend on the grouping.)
     for _ in 0..8 {
         assert_eq!(draft.step().error, None);
-        if recording.lock().unwrap().len() >= 2 {
+        if recording.lock().unwrap().len() >= 3 {
             break;
         }
     }
     let decisions = recording.lock().unwrap().clone();
-    assert_eq!(decisions.len(), 2, "the purchase and the pool selection");
+    assert_eq!(decisions.len(), 3, "the window, the purchase and the pool selection");
 
     let mut rebuilt = checkpoint.fork();
     let (replay, progress) = ReplayDecider::new(decisions.clone());
     rebuilt.table = Table::with_default(Box::new(replay));
     for _ in 0..8 {
         assert_eq!(rebuilt.step().error, None);
-        if progress.lock().unwrap().consumed() >= 2 {
+        if progress.lock().unwrap().consumed() >= 3 {
             break;
         }
     }
-    assert_eq!(progress.lock().unwrap().consumed(), 2);
+    assert_eq!(progress.lock().unwrap().consumed(), 3);
     assert_eq!(progress.lock().unwrap().stop_reason(), None);
     assert_eq!(
         serde_json::to_value(&rebuilt.state).unwrap(),

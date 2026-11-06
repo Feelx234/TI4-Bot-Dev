@@ -36,14 +36,40 @@ fn run_new(state: &GameState, card: &StrategyCardId, primary: &PlayerId, followe
 /// Walk the chain: the preview with the answers so far; when it is a question, answer with its first real option (and, once, with its decline).
 fn walk(state: &GameState, galaxy: &ti4_content::galaxy::Galaxy, card: &StrategyCardId, primary: &PlayerId, follower: &PlayerId, answers: Vec<String>, depth: usize, tally: &mut Tally, label: &str) {
     let want = run_old(state, card, primary, follower, &answers, galaxy);
-    let got = run_new(state, card, primary, follower, &answers, galaxy);
-    assert_eq!(want, got, "{label}: {card} {primary}->{follower} answers {answers:?}");
+    let mut got = run_new(state, card, primary, follower, &answers, galaxy);
     tally.asked += 1;
+    // The multi-ask conversion (`docs/MULTIASK1_RESUME.md`): Leadership's purchase is ONE question on the core (how many tokens and every
+    // atom paid), where the string asks a yes, each atom and the pool in turn. Past the window question the two flows differ by design: the
+    // core's question after the window's yes is the one purchase question.
+    if old::strategy_cards::card_kind(content(), card.as_str()) == Some(ti4_content::StrategyCardKind::Leadership) && !answers.is_empty() {
+        // (The string's next question is the first payment, or the token's pool when the payment took its lone atom unasked.)
+        if got["status"] == "question" && got["choice"]["context"]["subtype"] == "buy_token_with_influence" {
+            assert_eq!(want["status"], "question", "{label}: {card} {primary}->{follower} answers {answers:?}: {want}");
+            assert!(matches!(want["choice"]["context"]["subtype"].as_str(), Some("pay_influence" | "gain_command_token")), "{label}: {want}");
+            assert_eq!(got["choice"]["multi_pick"]["kind"], "purchase", "{label}: {got}");
+            tally.questions += 1;
+        } else {
+            assert_eq!(want, got, "{label}: {card} {primary}->{follower} answers {answers:?}");
+        }
+        return;
+    }
+    // A payment is ONE multi-pick question on the core: the same question as the string's first payment question, plus the multi-pick
+    // rule (`Choice::multi_pick`); answering one atom pays the whole bill (that atom first), where the string asks the next atom. The
+    // chain is compared up to the payment question.
+    let payment = want["status"] == "question" && want["choice"]["context"]["subtype"].as_str().is_some_and(|s| s.starts_with("pay_"));
+    if payment {
+        assert_eq!(got["choice"]["multi_pick"]["kind"], "payment", "{label}: {got}");
+        got["choice"].as_object_mut().unwrap().remove("multi_pick");
+    }
+    assert_eq!(want, got, "{label}: {card} {primary}->{follower} answers {answers:?}");
     match want["status"].as_str() {
         Some("question") => {
             tally.questions += 1;
             tally.payments += usize::from(!want["payment"].is_null());
             tally.skipped += usize::from(want["skipped"].as_array().is_some_and(|s| !s.is_empty()));
+            if payment {
+                return;
+            }
             if !answers.is_empty() {
                 let mut bogus = answers.clone();
                 bogus.push("__not_offered__".to_owned());

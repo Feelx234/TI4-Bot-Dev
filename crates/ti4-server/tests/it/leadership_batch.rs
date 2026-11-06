@@ -1,5 +1,7 @@
-//! Leadership's purchase loop answered as one batch: free tokens, purchases, each purchase's
-//! payment and its pool, in the order the engine asks them.
+//! Leadership's purchase answered as one batch: the client plans the old loop (free tokens,
+//! purchases, each purchase's payment and its pool), and the batch maps it onto the engine's
+//! three questions: one gain question for the free tokens, ONE purchase question (`buy:N` and
+//! every atom paid, `Choice::multi_pick`) and one gain question for the tokens bought.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -46,7 +48,7 @@ struct Table {
 }
 
 /// Two seats; p1 holds Leadership and has 7 trade goods (plus Jord's 2 influence), p2 has 3.
-/// Returns with p1's first "gain a command token" question pending.
+/// Returns with p1's gain question for the three free tokens pending.
 fn at_leadership(game_id: &str, p2_goods: i32) -> Table {
     let path = std::env::temp_dir().join(format!("ti4_lead_{:032x}", rand::random::<u128>()));
     let store = Arc::new(FileGameStore::new(&path).unwrap());
@@ -69,7 +71,7 @@ fn at_leadership(game_id: &str, p2_goods: i32) -> Table {
     let p2_token = session.seat_tokens()[&players[1]].clone();
     loop {
         let (seat, nonce, version, choice) = current(&session);
-        if choice.prompt.starts_with("gain a command token") {
+        if choice.prompt == "gain 3 command tokens into which pools" {
             break;
         }
         let pick = choice
@@ -209,17 +211,30 @@ fn a_plan_with_purchases_and_assignments_applies_atomically() {
         "one good beside Jord, three for the second"
     );
     assert!(after.exhausted_planets.contains("jord"));
-    // Free tokens (3), then per purchase: yes, a payment decision or none, pool; and the "no".
-    assert!(session.decision_log().len() > log_before + 3 + 2 * 2);
+    // Three questions: the free tokens, the one purchase (both tokens and every atom paid), the
+    // pools of the tokens bought.
+    let log = session.decision_log();
+    assert_eq!(log.len(), log_before + 3, "{:?}", &log[log_before..]);
+    assert_eq!(log[log_before].chosen, "1|2|0");
     assert_eq!(
-        session.decision_log().last().unwrap().prompt,
-        "spend 3 influence for a command token"
+        log[log_before + 1].prompt,
+        "buy command tokens for 3 influence each (up to 3)"
     );
-    assert_eq!(session.decision_log().last().unwrap().chosen, "no");
+    assert_eq!(
+        log[log_before + 1].chosen,
+        "buy:2+exhaust|jord+trade_good+trade_good+trade_good+trade_good"
+    );
+    assert_eq!(log[log_before + 2].chosen, "0|0|2");
     // The turn moved on: nothing of Leadership is left pending.
-    assert_ne!(
-        current(&session).3.prompt,
-        "spend 3 influence for a command token"
+    let next = current(&session).3;
+    let subtype = next.context.as_ref().map(|c| c.subtype.as_str());
+    assert!(
+        !matches!(
+            subtype,
+            Some("buy_token_with_influence" | "gain_command_token")
+        ),
+        "{}",
+        next.prompt
     );
     table.session.stop();
     std::fs::remove_dir_all(&table.path).unwrap();

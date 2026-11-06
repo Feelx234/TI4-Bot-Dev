@@ -19,8 +19,10 @@ struct Table {
     notes: Option<Value>,
 }
 
-/// Plays seat `a` with the rule bot, except that the first transaction it can open is opened
-/// and answered with `deal` (a free-form id).
+/// Plays seat `a` with the rule bot, except that the first transaction it can open with the
+/// Ghosts (seat `b`) is opened and answered with `deal` (a free-form id). (It was the first
+/// transaction with any neighbour, which the game path made the Ghosts' until the multi-ask
+/// conversion changed the path: the deal then went to another seat.)
 fn install(page: &Arc<Mutex<Page>>, table: &Arc<Mutex<Table>>, seed: u64, deal: &'static str) {
     let page = page.clone();
     let table = table.clone();
@@ -39,11 +41,17 @@ fn install(page: &Arc<Mutex<Page>>, table: &Arc<Mutex<Table>>, seed: u64, deal: 
             let state = last_question(&page.messages);
             table.notes = Some(state["state"]["promissory_notes"].clone());
         }
-        let option = if table.sent.is_none() && choice.free_form.is_some() {
+        let option = if table.sent.is_none()
+            && choice.free_form.is_some()
+            && choice.prompt == "transaction with ghost"
+        {
             table.sent = Some(deal.to_owned());
             deal.to_owned()
         } else if table.sent.is_none()
-            && let Some(open) = choice.options.iter().find(|o| o.kind == OPEN_KIND)
+            && let Some(open) = choice
+                .options
+                .iter()
+                .find(|o| o.kind == OPEN_KIND && o.id.ends_with("|ghost"))
         {
             open.id.clone()
         } else {

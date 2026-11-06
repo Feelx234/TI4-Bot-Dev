@@ -458,7 +458,8 @@ fn a_preview_writes_nothing_to_storage() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-/// Answers the primary's Leadership questions (three pools, then no purchase) so p2's window opens.
+/// Answers the primary's Leadership questions (one gain question for the three tokens, then the
+/// purchase question with nothing bought) so p2's window opens.
 fn finish_leadership_primary(table: &Table) {
     for _ in 0..8 {
         let Some((seat, nonce, version)) = pending(table) else {
@@ -469,7 +470,9 @@ fn finish_leadership_primary(table: &Table) {
         }
         let prompt = pending_prompt(table, &table.p1).unwrap_or_default();
         let answer = if prompt.contains("which pool") {
-            "tactic_tokens"
+            "3|0|0"
+        } else if prompt.starts_with("buy command tokens") {
+            "buy:0"
         } else {
             "no"
         };
@@ -481,9 +484,10 @@ fn finish_leadership_primary(table: &Table) {
     }
 }
 
-/// Leadership on a live session: the whole payment of a purchase is previewed by scripted
-/// answers (payment, pool, again), each question is exactly the one the follower is then really
-/// asked, and none of it changes the game.
+/// Leadership on a live session: a purchase is previewed by scripted answers (the window's yes,
+/// the ONE purchase question answered with `buy:2` and its atoms, the one gain question of the
+/// tokens bought), each question is exactly the one the follower is then really asked, and none
+/// of it changes the game.
 #[test]
 fn a_leadership_purchase_is_previewed_and_then_asked_exactly_that_way() {
     let table = start("leadership", "pok1leadership");
@@ -504,8 +508,9 @@ fn a_leadership_purchase_is_previewed_and_then_asked_exactly_that_way() {
     let version_before = table.session.game_version();
     let history = serde_json::to_vec(&table.session.replay_export().0).unwrap();
 
-    // Script a two-token purchase with the engine's own questions: the first payment option,
-    // the tactic pool, "yes" for the second token, "no" at the end.
+    // Script a two-token purchase with the engine's own questions: the window's yes, the purchase
+    // (two tokens, paid with the listed atoms in order until six influence are covered), both
+    // tokens into the tactic pool.
     let mut answers: Vec<String> = vec!["yes".to_owned()];
     let mut questions = Vec::new();
     let window_message = ask(&table, &table.p2, &[]);
@@ -522,12 +527,33 @@ fn a_leadership_purchase_is_previewed_and_then_asked_exactly_that_way() {
                 questions.push(choice.clone());
                 let subtype = choice.context.as_ref().unwrap().subtype.as_str();
                 let pick = match subtype {
-                    "pay_influence" => choice.options[0].id.clone(),
-                    "gain_command_token" => {
-                        bought += 1;
-                        "tactic_tokens".to_owned()
+                    "buy_token_with_influence" => {
+                        let multi = choice.multi_pick.as_ref().expect("a purchase is a multi-pick");
+                        assert_eq!(multi.kind, "purchase");
+                        let buy = multi.buy.expect("the purchase's range")[1].min(2);
+                        let mut parts = vec![format!("buy:{buy}")];
+                        let mut paid = 0;
+                        for option in &choice.options {
+                            let times = multi.repeat.get(&option.id).copied().unwrap_or(1);
+                            for _ in 0..times {
+                                if paid >= multi.owed * i64::from(buy) {
+                                    break;
+                                }
+                                paid += option.payload["worth"].as_i64().unwrap();
+                                parts.push(option.id.clone());
+                            }
+                        }
+                        parts.join("+")
                     }
-                    "buy_token_with_influence" => if bought >= 2 { "no" } else { "yes" }.to_owned(),
+                    "gain_command_token" => {
+                        let tokens = choice.options[0]
+                            .id
+                            .split('|')
+                            .map(|n| n.parse::<u32>().unwrap())
+                            .sum::<u32>();
+                        bought += tokens;
+                        format!("{tokens}|0|0")
+                    }
                     other => panic!("unexpected question {other}"),
                 };
                 answers.push(pick);
@@ -538,10 +564,11 @@ fn a_leadership_purchase_is_previewed_and_then_asked_exactly_that_way() {
             other => panic!("unexpected preview {other:?}"),
         }
     }
-    assert!(bought >= 1, "at least one token could be bought");
-    assert!(
-        questions.len() >= 3,
-        "payment, pool and again were previewed"
+    assert_eq!(bought, 2, "two tokens were bought");
+    assert_eq!(
+        questions.len(),
+        3,
+        "the window, the purchase and the pools were previewed"
     );
     // The whole script replays in one request; a payment the engine does not offer is rejected.
     let refs: Vec<&str> = answers.iter().map(String::as_str).collect();

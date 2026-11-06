@@ -82,7 +82,8 @@ fn a_token_batch_after_a_play_held_inside_summits_window_applies() {
             pending.3.prompt
         );
         let (seat, nonce, version, choice) = &pending;
-        if choice.prompt.starts_with("gain a command token") {
+        // Summit's two tokens: ONE gain question (`{tactic}|{fleet}|{strategic}`).
+        if choice.prompt == "gain 2 command tokens into which pools" {
             break pending;
         }
         let summit = choice.options.iter().find(|o| o.label.contains("Summit"));
@@ -157,7 +158,9 @@ fn a_token_batch_after_a_play_held_inside_summits_window_applies() {
     let session = registry.get_game(game_id).unwrap();
     session.wait_replayed().unwrap();
     let log = session.decision_log();
-    assert_eq!(result.end_cursor, result.start_cursor + 2);
+    // Both pool steps answer the one gain question.
+    assert_eq!(result.end_cursor, result.start_cursor + 1);
+    assert_eq!(log[result.start_cursor].chosen, "0|0|2");
     assert!(
         log[..result.start_cursor]
             .iter()
