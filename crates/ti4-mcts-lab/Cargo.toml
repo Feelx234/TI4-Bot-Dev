@@ -1,0 +1,26 @@
+[package]
+name = "ti4-mcts-lab"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "MCTS lab (docs/MCTS_BOT_PLAN.md lanes M0, M1, L2): 4p rule-bot games on the typed core's live loop with the core Choice at every question; engine-speed and ask-census measurements. A dev tool: never in the production graph or the wasm."
+
+[[bin]]
+name = "mcts_census"
+path = "src/bin/mcts_census.rs"
+
+[dependencies]
+ti4-model = { workspace = true }
+ti4-content = { workspace = true }
+ti4-engine = { workspace = true }
+ti4-engine-core = { workspace = true }
+ti4-rule-bot = { workspace = true }
+ti4-rule-bot-typed = { workspace = true }
+ti4-selfplay = { path = "../ti4-selfplay" }
+ti4-mcts-features = { path = "../ti4-mcts-features" }
+serde_json = { workspace = true }
+mimalloc = { workspace = true }
+
+[lints]
+workspace = true
