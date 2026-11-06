@@ -258,6 +258,8 @@ pub(crate) struct Asked {
     kind: crate::state::WindowKind,
     pub(crate) asking: Asking,
     at: CoreState,
+    /// The operation as it stood at the question, when a converted path parked it (stepmachine-1): the answer resumes it there.
+    pub(crate) park: Option<std::sync::Arc<crate::driver::Park>>,
 }
 
 /// Write the suspension of `d` (none: the question is a stage of the window, or there is none) with the question `asking` it was put.
@@ -266,7 +268,7 @@ pub(crate) fn suspend<M: Held>(core: &mut CoreState, d: &Driver<M>, asking: &Ask
     if core.pending().nested.is_some() {
         let at = core.clone();
         if let Some(n) = core.pending_mut().nested.as_mut() {
-            n.asked = crate::state::Memo::of(Asked { kind: M::KIND, asking: asking.clone(), at });
+            n.asked = crate::state::Memo::of(Asked { kind: M::KIND, asking: asking.clone(), at, park: d.park().cloned() });
         }
     }
 }
@@ -304,20 +306,130 @@ pub(crate) fn answer_nested<M: Held>(d: &mut Driver<M>, core: &mut CoreState, en
     d.restore_nested(n);
     #[cfg(feature = "probe-counters")]
     memo_census::note(asked.is_some(), false);
+    let park = asked.and_then(|a| a.park.as_ref()).filter(|_| crate::driver::parking());
     let legal = match asked {
         Some(asked) => {
             verify::<M>(core, env, n, &asked.asking, false);
+            crate::driver::note_answer(|| path_of::<M>(park.map(|p| &p.at), &asked.asking.choice));
             is_option(&asked.asking.choice, &pick)
         }
         None => {
             let Status::Asking(choice) = d.reask(core, env.kernel)? else { return Err(LiveError::NotAsking) };
+            crate::driver::note_answer(|| path_of::<M>(None, &choice));
             is_option(&choice, &pick)
         }
     };
     if !legal {
         return Err(LiveError::Illegal);
     }
+    if let Some(park) = park {
+        let replayed = verifying_park().then(|| replay_answer::<M>(core, env, n, pick));
+        let window = M::from_pending(core, env.kernel);
+        let status = d.resume_parked(core, env.kernel, park, pick, |call, at| {
+            if let Some(w) = &window {
+                w.to_pending(at);
+            }
+            at.pending_mut().resolver = call.pending().resolver.clone();
+        })?;
+        if let Some(replayed) = replayed {
+            check_parked(&replayed, &Answered::of(d, core, &status));
+        }
+        return Ok(status);
+    }
     Ok(d.resume(core, env.kernel, pick)?)
+}
+
+/// The counter key of a nested answer (`driver::park_detail`).
+fn path_of<M: Held>(park: Option<&crate::driver::Resume>, choice: &Choice) -> crate::driver::PathKey {
+    crate::driver::PathKey { parked: park.map(crate::driver::Resume::key), kind: M::KIND, subtype: choice.ctx.subtype }
+}
+
+// -- the check of a parked answer (stepmachine-1) -------------------------------------------------------------------------------------
+
+thread_local! {
+    static VERIFY_PARK: std::cell::Cell<bool> = const { std::cell::Cell::new(cfg!(debug_assertions)) };
+}
+
+/// The check of the parked answers (on by default in debug builds, off in release; any build can switch it on): every answer that resumes a
+/// parked operation is also answered by the replay, on a scratch copy with a fresh driver, and the two must leave the same position, the same
+/// events, journal, opened windows, trace counter and the same next question (or end). A difference panics.
+pub fn verify_parked(on: bool) {
+    VERIFY_PARK.with(|v| v.set(on));
+}
+
+fn verifying_park() -> bool {
+    VERIFY_PARK.with(std::cell::Cell::get)
+}
+
+/// What an answer left: compared field by field between the parked resume and the replay.
+#[derive(Debug, PartialEq)]
+struct Answered {
+    core: CoreState,
+    status: Status,
+    emitted: Vec<EventRec>,
+    journal: Vec<EventRec>,
+    opened: Vec<OpenWindow>,
+    resolver: crate::state::ResolverState,
+    nested: Option<crate::state::Nested>,
+    facts: Option<NestedFacts>,
+    at: Option<CoreState>,
+    window: crate::state::Pending,
+}
+
+impl Answered {
+    fn of<M: Held>(d: &Driver<M>, core: &CoreState, status: &Status) -> Self {
+        let mut written = core.clone();
+        d.window.to_pending(&mut written);
+        let window = written.pending().clone();
+        Self {
+            core: core.clone(),
+            status: status.clone(),
+            emitted: d.emitted.clone(),
+            journal: crate::kernel::fx::journal_recs(&d.resolver, 0),
+            opened: d.opened.clone(),
+            resolver: d.resolver.into_state(d.next_id),
+            nested: d.nested_journal(),
+            facts: d.nested_facts().cloned(),
+            at: d.nested_state().cloned(),
+            window,
+        }
+    }
+}
+
+/// The answer `pick` to the suspended question `n` of `core`, by the replay (what [`answer_nested`] does without a park).
+fn replay_answer<M: Held>(core: &CoreState, env: &Env<'_>, n: &crate::state::Nested, pick: Pick) -> Result<Answered, LiveError> {
+    let window = M::from_pending(core, env.kernel).ok_or(LiveError::NotOpen)?;
+    let mut scratch = core.clone();
+    scratch.pending_mut().nested = None;
+    let mut d = driver_of(window, &scratch, env);
+    d.restore_nested(n);
+    let status = d.resume(&mut scratch, env.kernel, pick)?;
+    Ok(Answered::of(&d, &scratch, &status))
+}
+
+fn check_parked(replayed: &Result<Answered, LiveError>, parked: &Answered) {
+    let Ok(replayed) = replayed else { panic!("the replay of a parked answer failed: {replayed:?}") };
+    for (what, same) in [
+        ("status", replayed.status == parked.status),
+        ("position", replayed.core == parked.core),
+        ("window", replayed.window == parked.window),
+        ("emitted", replayed.emitted == parked.emitted),
+        ("journal", replayed.journal == parked.journal),
+        ("opened", replayed.opened == parked.opened),
+        ("resolver", replayed.resolver == parked.resolver),
+        ("suspension", replayed.nested == parked.nested),
+        ("facts", replayed.facts == parked.facts),
+        ("question position", replayed.at == parked.at),
+    ] {
+        if !same {
+            // The first line of the two printouts that differs, with the lines before it (a failing check is read by a person).
+            let (r, p) = (format!("{replayed:#?}"), format!("{parked:#?}")); // lint-allow(core): the message of a failed debug check
+            let (r, p): (Vec<_>, Vec<_>) = (r.lines().collect(), p.lines().collect());
+            let at = r.iter().zip(&p).position(|(a, b)| a != b).unwrap_or(0);
+            let from = at.saturating_sub(12);
+            panic!("a parked answer differs from its replay in the {what}:\nreplay:\n{}\nparked:\n{}", r[from..(at + 4).min(r.len())].join("\n"), p[from..(at + 4).min(p.len())].join("\n"));
+        }
+    }
 }
 
 thread_local! {

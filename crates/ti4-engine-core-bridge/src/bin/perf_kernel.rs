@@ -616,8 +616,27 @@ fn count_seen(_: &'static str, _: &dyn std::fmt::Debug) {
     SEEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// The nested answers by path (`PERF_KERNEL_RUNS=1`): parked ones by card and ability, replayed ones by the window kind, each by the question's subtype.
+fn print_park_detail() {
+    for (key, n) in ti4_engine_core::driver::park_detail_counts() {
+        let path = match key.parked {
+            Some((card, primary)) => format!("parked {card:?}/{}", if primary { "primary" } else { "secondary" }),
+            None => format!("replay {:?}", key.kind),
+        };
+        eprintln!("{n:6} {path} {:?}", key.subtype);
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    // stepmachine-1: `PERF_KERNEL_PARK=0` answers every nested question by the replay (the parked continuation switched off),
+    // `PERF_KERNEL_VERIFY_PARK=1` also replays every parked answer and panics when the two differ.
+    if std::env::var("PERF_KERNEL_PARK").is_ok_and(|v| v == "0") {
+        ti4_engine_core::driver::set_parking(false);
+    }
+    if std::env::var_os("PERF_KERNEL_VERIFY_PARK").is_some() {
+        ti4_engine_core::driver::live::verify_parked(true);
+    }
     match args.get(1).map(String::as_str) {
         Some("game") => {
             let (p, s) = (args[2].parse().unwrap(), args[3].parse().unwrap());
@@ -625,11 +644,14 @@ fn main() {
             let runs = std::env::var_os("PERF_KERNEL_RUNS").is_some();
             if runs {
                 ti4_engine_core::driver::probe::set(Some(count_seen));
+                ti4_engine_core::driver::park_detail(true);
             }
             let r = play_one(p, s, f).expect("builds");
             println!("{}", json(&r));
             if runs {
-                eprintln!("{{\"probe_calls\":{}}}", SEEN.load(std::sync::atomic::Ordering::Relaxed));
+                let (parks, resumed) = ti4_engine_core::driver::park_stats();
+                eprintln!("{{\"probe_calls\":{},\"parks\":{parks},\"parked_answers\":{resumed}}}", SEEN.load(std::sync::atomic::Ordering::Relaxed));
+                print_park_detail();
             }
         }
         Some("setup") => {
@@ -647,6 +669,9 @@ fn main() {
         }
         Some("suite") => {
             let reps: usize = args.get(2).and_then(|x| x.parse().ok()).unwrap_or(1);
+            if std::env::var_os("PERF_KERNEL_RUNS").is_some() {
+                ti4_engine_core::driver::park_detail(true);
+            }
             let (mut steps, mut ms, mut allocs, mut bytes, mut dec, mut bad) = (0usize, 0.0, 0u64, 0u64, 0usize, 0);
             let mut all = 0xcbf2_9ce4_8422_2325u64;
             for _ in 0..reps {
@@ -665,6 +690,9 @@ fn main() {
                     all = fnv(&r.state.to_le_bytes(), all);
                 }
             }
+            let (parks, resumed) = ti4_engine_core::driver::park_stats();
+            eprintln!("{{\"parks\":{parks},\"parked_answers\":{resumed}}}");
+            print_park_detail();
             println!("{{\"summary\":true,\"games\":{},\"unfinished\":{bad},\"steps\":{steps},\"decisions\":{dec},\"ms\":{ms:.1},\"steps_per_s\":{:.0},\"allocs\":{allocs},\"mb\":{:.1},\"suite_hash\":\"{all:016x}\"}}", SUITE.len() * reps, steps as f64 / (ms / 1e3), bytes as f64 / 1e6);
         }
         Some("loop") => {

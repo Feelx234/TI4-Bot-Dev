@@ -125,7 +125,7 @@ impl SecondaryWin {
         let kind = card.data().kind;
         let substitutes = crate::rules::strategy::Env::substitutes_primary(&crate::driver::kernel_env::KernelEnv::new(sx.state, sx.kernel), who, Some(kind));
         let mut free = None;
-        if perform::run(sx, who, card, substitutes, &mut free) == Flow::Halt {
+        if perform::run_from(sx, who, card, substitutes, &mut free, perform::Caller::Secondary(self)) == Flow::Halt {
             return Flow::Halt;
         }
         perform::resolved(sx, who, kind)

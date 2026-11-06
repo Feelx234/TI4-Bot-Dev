@@ -113,6 +113,126 @@ pub struct Driver<W: Window> {
     unknown: Option<Unknown>,
     awaiting: Awaiting,
     finished: bool,
+    /// The continuation of the last dry run, when a converted path stopped it ([`Park`]).
+    park: Option<std::sync::Arc<Park>>,
+}
+
+// -- the step machine of the converted paths (stepmachine-1, `docs/STEPMACHINE1_RESUME.md`) ---------------------------------------
+
+thread_local! {
+    static PARKING: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+    /// The parks this thread's drivers kept and the answers that resumed one (`park_stats`).
+    static PARK_STATS: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
+    /// With `park_detail(true)`: the nested answers by path ([`PathKey`]).
+    static PARK_DETAIL: std::cell::RefCell<Option<Vec<(PathKey, u64)>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The parks this thread's drivers kept and the answers that resumed one, since the thread began (a counter of the bench and the tests).
+#[must_use]
+pub fn park_stats() -> (u64, u64) {
+    PARK_STATS.with(std::cell::Cell::get)
+}
+
+/// What a nested answer is counted by ([`park_detail`]): the converted path that parked it (the card, and whether it is the primary), else the
+/// kind of the window whose operation was replayed; and the question's subtype.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PathKey {
+    pub parked: Option<(crate::generated::StrategyCard, bool)>,
+    pub kind: crate::state::WindowKind,
+    pub subtype: crate::choice::Subtype,
+}
+
+/// Count the nested answers by path from now on (`true`), or stop and forget (`false`). A bench counter.
+pub fn park_detail(on: bool) {
+    PARK_DETAIL.with(|d| *d.borrow_mut() = on.then(Vec::new));
+}
+
+/// The counts of [`park_detail`], in key order.
+#[must_use]
+pub fn park_detail_counts() -> Vec<(PathKey, u64)> {
+    let mut all = PARK_DETAIL.with(|d| d.borrow().clone().unwrap_or_default());
+    all.sort_unstable();
+    all
+}
+
+/// Count one nested answer of `key` (see [`park_detail`]).
+pub(crate) fn note_answer(key: impl FnOnce() -> PathKey) {
+    PARK_DETAIL.with(|d| {
+        if let Some(m) = d.borrow_mut().as_mut() {
+            let key = key();
+            match m.iter_mut().find(|(k, _)| *k == key) {
+                Some((_, n)) => *n += 1,
+                None => m.push((key, 1)),
+            }
+        }
+    });
+}
+
+/// Whether the converted paths park their continuation at a question (on by default). `false`: every nested answer replays the operation
+/// from its start, as before stepmachine-1 (the switch that lets one build compare the two).
+pub fn set_parking(on: bool) {
+    PARKING.with(|p| p.set(on));
+}
+
+/// See [`set_parking`].
+#[must_use]
+pub fn parking() -> bool {
+    PARKING.with(std::cell::Cell::get)
+}
+
+/// A run of an operation stopped at a question of a converted path, as data: everything the run had written up to the question (the position,
+/// the resolver, the trace counter, the events the window emitted, the windows it opened) and the path's own continuation ([`Resume`]). The
+/// suspension keeps it with the remembered question (`live::Asked`); an answer in the same position resumes the operation HERE instead of
+/// replaying it from its start (`Driver::resume_parked`). Plain data: a clone of the position shares it, each copy resumes on its own clones.
+#[derive(Debug, Clone)]
+pub struct Park {
+    pub state: CoreState,
+    pub resolver: Resolver,
+    pub next_id: u64,
+    pub emitted: Vec<EventRec>,
+    /// Filled by the driver when it takes the park (the windows the run opened are the driver's, not the run's).
+    pub opened: Vec<OpenWindow>,
+    pub at: Resume,
+}
+
+/// Where a parked operation resumes: one variant per converted path.
+#[derive(Debug, Clone)]
+pub enum Resume {
+    /// The child loop of a strategy card's ability (`windows::strategic::perform`).
+    Perform(windows::strategic::perform::Parked),
+}
+
+impl Resume {
+    /// Whether the continuation belongs to `op` of `window` (the path parked from the operation the driver ran, not from a window run inline).
+    pub(crate) fn fits(&self, op: &Op, window: &dyn std::any::Any) -> bool {
+        match self {
+            Self::Perform(p) => p.fits(op, window),
+        }
+    }
+
+    /// The path's key for a counter ([`PathKey::parked`]).
+    #[must_use]
+    pub fn key(&self) -> (crate::generated::StrategyCard, bool) {
+        match self {
+            Self::Perform(p) => p.key(),
+        }
+    }
+
+    /// Take the operation up at the question with `pick`. `None`: the window is not the one the path parked in.
+    fn resume(&self, sx: &mut Sx<'_>, window: &mut dyn std::any::Any, pick: Pick) -> Option<Resumed> {
+        match self {
+            Self::Perform(p) => p.resume(sx, window, pick),
+        }
+    }
+}
+
+/// How the operation ended a resumed run took up (what `Driver::once` makes of the window's op).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Resumed {
+    /// The op was the window's `answer`: step on (`Flow::Again`).
+    Answered,
+    /// The op was the window's `step`, which ended with `Next::Done`.
+    Stepped,
 }
 
 /// The seeds of a driver that never draws: every stream is all zeros.
@@ -143,6 +263,7 @@ impl<W: Window> Driver<W> {
             unknown: None,
             awaiting: Awaiting::Nothing,
             finished: false,
+            park: None,
         }
     }
 
@@ -224,6 +345,7 @@ impl<W: Window> Driver<W> {
                 self.unknown.get_or_insert(why);
             }
             let dry = self.tape.needed().cloned();
+            self.take_park(dry.is_some() && outcome.is_ok(), &op);
             if dry.is_some() || outcome.is_err() {
                 // Undo the run: a nested question found the tape dry (ask it), or the run failed (the
                 // question stays where it was).
@@ -263,6 +385,110 @@ impl<W: Window> Driver<W> {
                     self.tape.clear();
                     op = Op::Step;
                 }
+            }
+        }
+    }
+
+    /// After a run: keep the continuation a converted path parked at the question that found the tape dry (`keep`: the run was dry and did
+    /// not fail), with the windows the run opened. The path must have parked from the op it belongs to (`Resume::fits`), else nothing is kept.
+    fn take_park(&mut self, keep: bool, op: &Op) {
+        let parked = std::mem::take(&mut self.tape.parked);
+        self.park = None;
+        if !keep || !parking() {
+            return;
+        }
+        let Some(park) = parked.shared::<Park>() else { return };
+        if !park.at.fits(op, &self.window as &dyn std::any::Any) {
+            return;
+        }
+        let mut park = std::sync::Arc::unwrap_or_clone(park);
+        park.opened = self.opened.clone();
+        self.park = Some(std::sync::Arc::new(park));
+        PARK_STATS.with(|n| n.set((n.get().0 + 1, n.get().1)));
+    }
+
+    /// The continuation the last dry run parked, if a converted path stopped it.
+    #[must_use]
+    pub fn park(&self) -> Option<&std::sync::Arc<Park>> {
+        self.park.as_ref()
+    }
+
+    /// [`Self::resume`] of a restored nested question (`restore_nested`) whose run parked at it: the run takes up the operation at the
+    /// question with `pick` (everything before the question is `park`'s), instead of replaying it from its start. On a dry question or an
+    /// error it is rolled back to the position of the call, exactly as a replay is.
+    ///
+    /// `as_called` writes into the parked position what the call that parked it wrote at its END (the window's payload, the resolver's
+    /// persistent part: a replay starts from the position that call left, the parked run from the one it began with), from the position of
+    /// this call.
+    ///
+    /// # Errors
+    /// As [`Self::resume`] (the pick is not judged: the caller checked it against the question).
+    pub fn resume_parked(&mut self, s: &mut CoreState, k: &Kernel, park: &Park, pick: Pick, as_called: impl FnOnce(&CoreState, &mut CoreState)) -> Result<Status, DriverError> {
+        let Awaiting::Nested(op) = std::mem::replace(&mut self.awaiting, Awaiting::Nothing) else { return Err(DriverError::NotAsking) };
+        self.tape.push(pick);
+        let answers = self.tape.answers().to_vec();
+        let snapshot = (s.clone(), self.window.clone(), self.emitted.len(), self.opened.len(), self.next_id);
+        PARK_STATS.with(|n| n.set((n.get().0, n.get().1 + 1)));
+        probe::seen(&self.window);
+        #[cfg(test)]
+        RUNS.with(|n| n.set(n.get() + 1));
+        let mut at = park.state.clone();
+        as_called(s, &mut at);
+        *s = at;
+        let resolver = std::mem::replace(&mut self.resolver, park.resolver.clone());
+        self.next_id = park.next_id;
+        self.emitted.clone_from(&park.emitted);
+        self.opened.clone_from(&park.opened);
+        self.tape.set_consumed(&answers);
+        let outcome = {
+            let mut sx = Sx {
+                state: s,
+                kernel: k,
+                resolver: &mut self.resolver,
+                table: &self.table,
+                tape: &mut self.tape,
+                next_id: &mut self.next_id,
+                emitted: &mut self.emitted,
+                seeds: &*self.seeds,
+            };
+            park.at.resume(&mut sx, &mut self.window as &mut dyn std::any::Any, pick)
+        };
+        if let Some(why) = self.tape.take_unknown() {
+            self.unknown.get_or_insert(why);
+        }
+        let dry = self.tape.needed().cloned();
+        let failed = outcome.is_none();
+        self.take_park(dry.is_some() && !failed, &op);
+        if dry.is_some() || failed {
+            *s = snapshot.0;
+            self.window = snapshot.1;
+            self.resolver = resolver;
+            self.emitted.truncate(snapshot.2);
+            self.opened.truncate(snapshot.3);
+            self.next_id = snapshot.4;
+        }
+        if let Some(choice) = dry {
+            self.facts = self.tape.needed_facts().cloned();
+            self.facts_state = self.tape.needed_state().cloned();
+            self.awaiting = Awaiting::Nested(op);
+            return Ok(Status::Asking(choice));
+        }
+        match outcome {
+            // (The window the path parked in is not the one of this driver: the caller checked the kind; a replay would not get here.)
+            None => {
+                self.tape.set_answers(&answers[..answers.len() - 1]);
+                self.awaiting = Awaiting::Nested(op);
+                Err(DriverError::Contract(Breach::ContinueWithoutQuestion))
+            }
+            Some(Resumed::Stepped) => {
+                probe::seen(&self.window);
+                self.finished = true;
+                self.awaiting = Awaiting::Nothing;
+                Ok(Status::Done)
+            }
+            Some(Resumed::Answered) => {
+                self.tape.clear();
+                self.settle(s, k, Op::Step, Awaiting::Nothing)
             }
         }
     }

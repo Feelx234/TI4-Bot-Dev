@@ -230,7 +230,7 @@ pub enum ExploreEnd {
 }
 
 /// A window of another area, run as a child: the object-safe face of [`Window`] plus what the finished window reports.
-pub trait ErasedWindow: std::fmt::Debug {
+pub trait ErasedWindow: std::fmt::Debug + Send + Sync {
     /// [`Window::step`].
     fn step(&mut self, sx: &mut Sx<'_>) -> Next;
     /// [`Window::ask_of`].
@@ -267,7 +267,7 @@ impl<W: Window + std::fmt::Debug + 'static> Erased<W> {
     }
 }
 
-impl<W: Window + std::fmt::Debug + 'static> ErasedWindow for Erased<W> {
+impl<W: Window + std::fmt::Debug> ErasedWindow for Erased<W> {
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         self.window.step(sx)
     }

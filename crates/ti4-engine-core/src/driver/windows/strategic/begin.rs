@@ -58,9 +58,14 @@ pub fn run_begin(sx: &mut Sx<'_>, card: StrategyCard) -> Flow {
         return run_end(sx);
     }
     let mut free = None;
-    if perform::run(sx, active, card, true, &mut free) == Flow::Halt {
+    if perform::run_from(sx, active, card, true, &mut free, perform::Caller::Primary) == Flow::Halt {
         return Flow::Halt;
     }
+    after_primary(sx, active, card, free)
+}
+
+/// What the strategic action does after the primary ability (the rest of [`run_begin`]; a parked perform resumes into it).
+pub(crate) fn after_primary(sx: &mut Sx<'_>, active: Seat, card: StrategyCard, free: Option<crate::generated::System>) -> Flow {
     if perform::resolved(sx, active, card.data().kind) == Flow::Halt {
         return Flow::Halt;
     }
