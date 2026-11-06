@@ -606,6 +606,23 @@ mod set_tests {
         assert!(cases > 500, "{cases}");
     }
 
+    /// A lead atom that can be completed always is: a planet whose weaker face is listed before its stronger one (bench seed 88, Freelancers: Moll Primus
+    /// 4 resources / 1 influence, Corneeq 1 resources / 2 influence, 3 owed in resources-or-influence) must not make `pick` answer nothing.
+    #[test]
+    fn a_lead_atom_is_completed_with_the_better_face_of_a_planet_when_the_listed_one_falls_short() {
+        let face = |planet: Planet, source: Currency, worth: i32| POpt::Exhaust { planet, source, shown: Shown { worth, pool_after: 0 } };
+        let (a, b) = (Planet::ALL[1], Planet::ALL[2]);
+        let opts = [face(a, Currency::Resources, 4), face(a, Currency::Influence, 1), face(b, Currency::Resources, 1), face(b, Currency::Influence, 2)];
+        let ask = PayAsk { kind: Currency::Resources, owed: 3, pool: 6, goods: 0, commodities: 0 };
+        // The weak face of a leads: 1 + the listed face of b (1) is short; b's other face (2) completes it.
+        let set = crate::choice::production::set_from(&ask, &opts, 1).expect("completable");
+        assert_eq!(set_worth(&ask, &opts, set), Some(3));
+        for first in 0..opts.len() {
+            let set = crate::choice::production::set_from(&ask, &opts, first).unwrap_or_else(|| panic!("lead {first}"));
+            assert!(set_worth(&ask, &opts, set).is_some(), "lead {first}: legal");
+        }
+    }
+
     /// The closed form on the numbers alone (owed 3; faces a 3, b 1, c 2; one trade good): the set covers the bill, and without its
     /// largest atom it would not.
     #[test]

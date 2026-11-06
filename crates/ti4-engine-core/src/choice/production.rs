@@ -131,8 +131,16 @@ pub fn first_set(ask: &PayAsk, opts: &[Opt]) -> Option<PaySet> {
 /// [`first_set`] that takes the atom at `first` (an index into `opts`) before the others: "pay with this one, then whatever comes
 /// first" (a trade good or commodity first: as many of those as needed first). Legal for the same reason. What `Choice::pick(index)`
 /// answers a payment question with.
+///
+/// The fill goes in option order, a planet once with the face it is listed with first. When that falls short (a planet's weaker face
+/// listed before its stronger one: Corneeq 1 resources before 2 influence, with 3 owed after a lead of 1) the fill is tried again with
+/// each remaining planet at its best face, so a lead atom that CAN be completed always is (the rule bot answers with a single atom).
 #[must_use]
 pub fn set_from(ask: &PayAsk, opts: &[Opt], first: usize) -> Option<PaySet> {
+    fill_from(ask, opts, first, false).or_else(|| fill_from(ask, opts, first, true))
+}
+
+fn fill_from(ask: &PayAsk, opts: &[Opt], first: usize, best_face: bool) -> Option<PaySet> {
     let lead = opts.get(first)?;
     let mut set = PaySet::default();
     let mut sum = 0i64;
@@ -179,9 +187,25 @@ pub fn set_from(ask: &PayAsk, opts: &[Opt], first: usize) -> Option<PaySet> {
         match o {
             Opt::Exhaust { planet, shown, .. } => {
                 if face < 32 && !planets.as_slice().contains(planet) {
+                    // The face to take: this one, or (second try) the planet's best-worth face.
+                    let (at, worth) = if best_face {
+                        let mut best = (face, shown.worth);
+                        let mut f = 0u32;
+                        for q in opts {
+                            if let Opt::Exhaust { planet: p, shown: sh, .. } = q {
+                                if p == planet && sh.worth > best.1 && f < 32 {
+                                    best = (f, sh.worth);
+                                }
+                                f += 1;
+                            }
+                        }
+                        best
+                    } else {
+                        (face, shown.worth)
+                    };
                     planets.push(*planet);
-                    set.faces |= 1 << face;
-                    sum += i64::from(shown.worth);
+                    set.faces |= 1 << at;
+                    sum += i64::from(worth);
                 }
                 face += 1;
             }
