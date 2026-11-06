@@ -408,7 +408,7 @@ impl NativeSubject {
         // A payment or Leadership's purchase is ONE question of the core (a set of atoms) where the string asks one atom at a time and pays
         // a lone atom unasked, so the string's answers do not name the core's set: such a step is counted lent here (the native-led shadow,
         // `native_play::shadow_play`, plays the core's set to the string atom by atom and compares it).
-        if asker.seen.iter().any(|c| c.prompt.starts_with("pay ") || c.prompt.starts_with("buy command tokens") || c.prompt.starts_with("over the hand limit")) {
+        if asker.seen.iter().any(|c| c.prompt.starts_with("pay ") || c.prompt.starts_with("buy command tokens") || c.prompt.starts_with("over the hand limit") || c.prompt.starts_with("remove a unit: over")) {
             lend(shadow.arm, MULTI_LENT);
             return;
         }

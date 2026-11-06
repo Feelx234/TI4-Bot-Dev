@@ -165,6 +165,9 @@ pub enum Scripted {
     /// then `no`; each payment from `atoms` as for [`Self::Set`]). The pool of each token is the next entry's (the core's gain question
     /// after the purchase): the entry lets it through. `bought` counts the follower's yes of a secondary, which is the first purchase.
     Leadership { buys: u8, bought: u8, atoms: Vec<String> },
+    /// A removal over the fleet supply or the capacity: a question per unit while the string asks `prompt`, the first answered with the
+    /// option labelled `lead` (the core's answer), the others with the first option (what the core's window fills up with).
+    Removal { prompt: String, lead: Option<String> },
     /// The hand limit: a question per card while the string asks "over the hand limit", answered with the option whose LABEL (the card's
     /// printed name) is the first of the list it offers (the string's ids are places in the hand, which move as cards go).
     Labels(Vec<String>),
@@ -198,6 +201,19 @@ impl Scripted {
                 Some(id) => Verdict::Answer(id, ids.is_empty()),
                 None => Verdict::Drop,
             },
+            Self::Removal { prompt, lead } => {
+                if choice.prompt != *prompt {
+                    return Verdict::Drop;
+                }
+                let id = match lead.take() {
+                    Some(label) => choice.options.iter().find(|o| o.label == label).map(|o| o.id.clone()),
+                    None => choice.options.first().map(|o| o.id.clone()),
+                };
+                match id {
+                    Some(id) => Verdict::Answer(id, false),
+                    None => Verdict::Drop,
+                }
+            }
             Self::Labels(names) => {
                 let found = choice.prompt.starts_with("over the hand limit")
                     .then(|| names.iter().enumerate().find_map(|(i, name)| choice.options.iter().find(|o| o.label == *name).map(|o| (i, o.id.clone()))))

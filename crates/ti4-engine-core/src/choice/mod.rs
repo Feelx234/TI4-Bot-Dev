@@ -351,6 +351,11 @@ impl Choice {
             (Ask::Production(production::Ask::Purchase(ask)), Pick::Opt(Opt::Production(production::Opt::Set(set)))) => {
                 production::purchase_worth(&ask, self.atoms().as_slice(), *set).is_some()
             }
+            // A removal: an option (the window removes it first and fills up) or a set the window checks against the position.
+            (Ask::Tactical(tactical::Ask::Remove { .. }), Pick::Opt(Opt::Tactical(tactical::Opt::RemoveSet { counts }))) => {
+                let used = (1u64 << (4 * self.opts.len().min(12))) - 1;
+                counts.bits() != 0 && counts.bits() & !used == 0
+            }
             (Ask::Cards(cards::Ask::HandLimit { discard, .. }), Pick::Opt(Opt::Cards(cards::Opt::DiscardSet { counts }))) => {
                 cards::discard_set_ok(self.cards().as_slice(), discard, counts.bits())
             }

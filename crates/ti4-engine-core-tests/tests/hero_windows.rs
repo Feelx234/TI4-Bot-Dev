@@ -452,7 +452,7 @@ fn the_owner_is_asked_which_units_go_when_the_survivors_cannot_hold_them_all() {
             questions += 1;
         }
         assert_eq!(at(&rig, system, 1, Unit::FighterI), 4);
-        assert_eq!(questions, 4);
+        assert_eq!(questions, 1, "the four fighters go in one answer (the multi-ask conversion)");
         assert_eq!(captured(&rig).iter().filter(|c| c.1 == Unit::FighterI).count(), 4, "each fighter that left is captured");
         return;
     }

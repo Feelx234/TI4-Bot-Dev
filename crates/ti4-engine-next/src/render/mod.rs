@@ -565,6 +565,13 @@ pub fn render_choice(r: &Render, c: &core::Choice, phase_now: CorePhase, round: 
     let options: Vec<_> = c.opts.iter().map(|o| option(r, &c.ask, o)).collect();
     let multi_pick = match &c.ask {
         Ask::Production(a) => production::multi_pick(a, &options),
+        // A removal over the fleet supply or the capacity: units of the offered kinds until the excess is gone (the engine checks it).
+        Ask::Tactical(ti4_engine_core::choice::tactical::Ask::Remove { over, charged, limit, consumed, transport, .. }) => Some(crate::wire::choice::MultiPick {
+            kind: "remove".to_owned(),
+            owed: i64::from(if matches!(over, ti4_engine_core::choice::tactical::Over::Supply) { charged - limit } else { consumed - transport }).max(1),
+            repeat: std::collections::BTreeMap::new(),
+            buy: None,
+        }),
         // The hand limit: exactly `discard` cards, a printed name up to its copies.
         Ask::Cards(ti4_engine_core::choice::cards::Ask::HandLimit { discard, .. }) => Some(crate::wire::choice::MultiPick {
             kind: "discard".to_owned(),

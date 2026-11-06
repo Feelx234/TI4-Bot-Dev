@@ -198,6 +198,21 @@ pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
 #[must_use]
 pub fn pick_of(r: &Render, choice: &CoreChoice, id: &str) -> Option<ti4_engine_core::choice::Pick> {
     use ti4_engine_core::choice::{tactical::Opt as TOpt, Opt};
+    // A removal named as several options joined by `+` (or raw): the counts per option; one option alone stays an option (the window
+    // removes it first and fills up).
+    if matches!(choice.ask, ti4_engine_core::choice::Ask::Tactical(ti4_engine_core::choice::tactical::Ask::Remove { .. })) && (id.contains(crate::wire::choice::MULTI_PICK_SEPARATOR) || id.starts_with("removals:")) {
+        if let Some(bits) = id.strip_prefix("removals:").and_then(|n| n.parse::<u64>().ok()) {
+            return Some(ti4_engine_core::choice::Pick::Opt(Opt::Tactical(TOpt::RemoveSet { counts: ti4_engine_core::choice::cards::Counts::of(bits) })));
+        }
+        let rendered: Vec<_> = choice.opts.iter().map(|o| render::option(r, &choice.ask, o)).collect();
+        let mut counts = 0u64;
+        for part in id.split(crate::wire::choice::MULTI_PICK_SEPARATOR) {
+            let at = rendered.iter().position(|o| o.id == part)?;
+            let n = ti4_engine_core::choice::cards::discard_count(counts, at);
+            counts = ti4_engine_core::choice::cards::with_discard_count(counts, at, n.checked_add(1)?);
+        }
+        return Some(ti4_engine_core::choice::Pick::Opt(Opt::Tactical(TOpt::RemoveSet { counts: ti4_engine_core::choice::cards::Counts::of(counts) })));
+    }
     // A multi-pick (a payment, Leadership's purchase): the set the id names; the core checks it.
     // One atom's id alone means "pay with this one first, then the canonical order" (`Choice::pick`), so a client or bot that answers
     // with an option of the list still answers.
