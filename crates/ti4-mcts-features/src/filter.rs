@@ -13,7 +13,7 @@ use ti4_engine_core::choice::{strategy, tactical, Ask, Choice, Opt};
 use ti4_engine_core::generated::System;
 use ti4_engine_core::seen::Seen;
 use ti4_engine_core::state::Piece;
-use ti4_engine_core::Seat;
+use ti4_engine_core::{Seat, SysSet};
 
 /// Why a system was kept (bits of [`Kept::why`]).
 pub const MOVE: u8 = 1;
@@ -49,28 +49,68 @@ fn mine(units: &[Piece], me: Seat, test: impl Fn(Piece) -> bool) -> bool {
     units.iter().any(|p| p.owner() == me && test(*p))
 }
 
-/// Whether one of `me`'s units anywhere in `system` (space or planets) passes `test`.
-fn in_system(seen: &Seen<'_>, me: Seat, system: System, test: impl Fn(Piece) -> bool + Copy) -> bool {
-    let view = seen.system(system);
-    mine(view.units(), me, test) || view.planets().as_slice().iter().any(|p| mine(view.planet(*p).units, me, test))
+/// Where a seat's units with PRODUCTION, SPACE CANNON and DEEP SPACE CANNON stand, and every map system's neighbours: one
+/// pass over the board, shared by all the systems of one activation (or one encoding).
+#[derive(Debug, Clone)]
+pub struct Board {
+    pub produce: SysSet,
+    pub cannon: SysSet,
+    pub deep: SysSet,
+    /// The map's systems and their neighbours (same order).
+    pub systems: Vec<System>,
+    pub adjacent: Vec<SysSet>,
 }
 
-/// The reasons `system` is worth activating for `me` (0: none).
+impl Board {
+    #[must_use]
+    pub fn of(seen: &Seen<'_>, me: Seat) -> Self {
+        let systems = seen.map_systems();
+        let adjacent = seen.adjacent_of_each(&systems);
+        let (mut produce, mut cannon, mut deep) = (SysSet::EMPTY, SysSet::EMPTY, SysSet::EMPTY);
+        for system in &systems {
+            let view = seen.system(*system);
+            let planets = view.planets();
+            let any = |test: &dyn Fn(Piece) -> bool| mine(view.units(), me, test) || planets.as_slice().iter().any(|p| mine(view.planet(*p).units, me, test));
+            if any(&|p| p.kind().data().production.is_some()) {
+                produce.insert(system.index());
+            }
+            if any(&|p| p.kind().data().space_cannon.is_some()) {
+                cannon.insert(system.index());
+            }
+            if any(&|p| p.kind().data().space_cannon.is_some() && p.kind().data().deep_space_cannon) {
+                deep.insert(system.index());
+            }
+        }
+        Self { produce, cannon, deep, systems, adjacent }
+    }
+
+    /// The neighbours of a system (empty off the map).
+    #[must_use]
+    pub fn adjacent_to(&self, system: System) -> SysSet {
+        self.systems.iter().position(|s| *s == system).map_or(SysSet::EMPTY, |i| self.adjacent[i])
+    }
+
+    /// The reasons `system` is worth activating for the board's seat `me` (0: none).
+    #[must_use]
+    pub fn reasons(&self, seen: &Seen<'_>, me: Seat, system: System) -> u8 {
+        let mut why = 0;
+        if !seen.movable_into(me, system).is_empty() {
+            why |= MOVE;
+        }
+        if self.produce.contains(system.index()) {
+            why |= PRODUCE;
+        }
+        if self.cannon.contains(system.index()) || self.adjacent_to(system).intersects(&self.deep) {
+            why |= SHOOT;
+        }
+        why
+    }
+}
+
+/// The reasons `system` is worth activating for `me` (0: none). For many systems build one [`Board`] and ask it.
 #[must_use]
 pub fn reasons(seen: &Seen<'_>, me: Seat, system: System) -> u8 {
-    let mut why = 0;
-    if !seen.movable_into(me, system).is_empty() {
-        why |= MOVE;
-    }
-    if in_system(seen, me, system, |p| p.kind().data().production.is_some()) {
-        why |= PRODUCE;
-    }
-    let cannon = |p: Piece| p.kind().data().space_cannon.is_some();
-    let deep = |p: Piece| p.kind().data().space_cannon.is_some() && p.kind().data().deep_space_cannon;
-    if in_system(seen, me, system, cannon) || seen.adjacent(system).iter().filter_map(System::from_index).any(|n| in_system(seen, me, n, deep)) {
-        why |= SHOOT;
-    }
-    why
+    Board::of(seen, me).reasons(seen, me, system)
 }
 
 /// The system an activation option names (`Tactical(Activate)` or Thunder's Edge Warfare's `Strategy(System)`).
@@ -94,18 +134,24 @@ pub fn activate(seen: &Seen<'_>, choice: &Choice) -> Option<Kept> {
     if !is_activation(&choice.ask) {
         return None;
     }
+    Some(activate_on(seen, choice, &Board::of(seen, choice.actor)))
+}
+
+/// [`activate`] with the board of the actor already built (`choice` must be an activation).
+#[must_use]
+pub fn activate_on(seen: &Seen<'_>, choice: &Choice, board: &Board) -> Kept {
     let me = choice.actor;
     let why: Vec<u8> = choice
         .opts
         .iter()
-        .map(|o| system_of(o).map_or(MOVE | PRODUCE | SHOOT, |system| reasons(seen, me, system)))
+        .map(|o| system_of(o).map_or(MOVE | PRODUCE | SHOOT, |system| board.reasons(seen, me, system)))
         .collect();
     let mut keep: Vec<bool> = why.iter().map(|w| *w != 0).collect();
     let passthrough = !keep.iter().any(|k| *k);
     if passthrough {
         keep.iter_mut().for_each(|k| *k = true);
     }
-    Some(Kept { keep, why, passthrough })
+    Kept { keep, why, passthrough }
 }
 
 /// The options a tree node of this choice has: the kept ones for `Activate`, all of them otherwise.

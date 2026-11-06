@@ -10,6 +10,10 @@ description = "MCTS lab (docs/MCTS_BOT_PLAN.md lanes M0, M1, L2): 4p rule-bot ga
 name = "mcts_census"
 path = "src/bin/mcts_census.rs"
 
+[[bin]]
+name = "mcts_shards"
+path = "src/bin/mcts_shards.rs"
+
 [dependencies]
 ti4-model = { workspace = true }
 ti4-content = { workspace = true }
@@ -21,6 +25,9 @@ ti4-selfplay = { path = "../ti4-selfplay" }
 ti4-mcts-features = { path = "../ti4-mcts-features" }
 serde_json = { workspace = true }
 mimalloc = { workspace = true }
+
+[dev-dependencies]
+flate2.workspace = true
 
 [lints]
 workspace = true

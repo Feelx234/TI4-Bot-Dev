@@ -235,6 +235,7 @@ fn a_shard_round_trips_its_shapes_and_rotates_the_outcome() {
     let rel = encode::relative_seats(&seen, choice.actor);
     let k = e.k();
     let mut w = ShardWriter::new();
+    w.plain = true;
     w.names = Some(encode::column_names(&seen, &choice));
     let mut rel4 = [0u8; SEATS];
     for (i, s) in rel.iter().take(SEATS).enumerate() {
@@ -249,6 +250,7 @@ fn a_shard_round_trips_its_shapes_and_rotates_the_outcome() {
     let mut z = vec![0.0; SEATS];
     z[2] = 1.0;
     let vp = vec![3.0, 4.0, 10.0, 5.0];
+    let records: Vec<Record> = (0..3).map(|_| Record { enc: e.clone(), pi: pi.clone(), meta: Meta { actor: choice.actor.0, rel: rel4, ..Meta::default() } }).collect();
     w.end_game(&z, &vp);
     let dir = std::env::temp_dir().join(format!("mcts-shard-test-{}", std::process::id()));
     let n = w.write(&dir).expect("written");
@@ -273,5 +275,21 @@ fn a_shard_round_trips_its_shapes_and_rotates_the_outcome() {
     assert_eq!(sys.len() - header_len(&sys), 3 * MAX_SYS * FS * 2);
     let schema = String::from_utf8(read("schema.json")).expect("utf8");
     assert!(schema.contains("\"feature_version\": 1") && schema.contains("\"p0_space_Carrier\""));
+    // The same records gzip-compressed (the default): every file decompresses to the plain one.
+    let mut gz = ShardWriter::new();
+    assert!(gz.compress());
+    for r in records {
+        gz.push(r);
+    }
+    gz.end_game(&z, &vp);
+    let gz_dir = dir.join("gz");
+    assert_eq!(gz.write(&gz_dir).expect("written"), 3);
+    for name in ["sys", "z", "opt_off", "meta", "opt", "pi", "adj"] {
+        let packed = std::fs::read(gz_dir.join(format!("{name}.npy.gz"))).expect("a gz file");
+        let mut plain = Vec::new();
+        std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&packed[..]), &mut plain).expect("gzip");
+        assert_eq!(plain, read(&format!("{name}.npy")), "{name}");
+    }
+    assert!(!gz_dir.join("sys.npy").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }

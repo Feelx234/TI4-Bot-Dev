@@ -123,6 +123,22 @@ pub fn write(path: &Path, dtype: Dtype, shape: &[usize], data: &[u8]) -> std::io
     f.flush()
 }
 
+/// [`write`] through gzip (`path` should end in `.npy.gz`; `numpy.lib.format.read_array(gzip.open(path))` reads it).
+///
+/// # Errors
+/// As [`write`].
+pub fn write_gz(path: &Path, dtype: Dtype, shape: &[usize], data: &[u8]) -> std::io::Result<()> {
+    let want = shape.iter().product::<usize>() * dtype.size();
+    if data.len() != want {
+        return Err(std::io::Error::other(format!("{}: {} bytes for shape {shape:?} of {dtype:?} ({want} expected)", path.display(), data.len())));
+    }
+    let file = std::io::BufWriter::new(std::fs::File::create(path)?);
+    let mut gz = flate2::write::GzEncoder::new(file, flate2::Compression::new(3));
+    gz.write_all(&header(dtype, shape))?;
+    gz.write_all(data)?;
+    gz.finish()?.flush()
+}
+
 /// Little-endian bytes of halves.
 #[must_use]
 pub fn f16_bytes(values: &[f32]) -> Vec<u8> {

@@ -152,13 +152,18 @@ pub struct Frame {
     pub homes: Vec<Option<usize>>,
     /// Hop distances `[slot][slot]` (u8::MAX unreachable).
     pub dist: Vec<Vec<u8>>,
+    /// Neighbour slots per slot.
+    pub adj: Vec<Vec<usize>>,
+    /// The actor's producers, cannons and the map's adjacency (the filter's board).
+    pub board: filter::Board,
 }
 
 impl Frame {
     #[must_use]
     pub fn new(seen: &Seen<'_>, actor: Seat) -> Self {
         let seats = relative_seats(seen, actor);
-        let mut systems = seen.map_systems();
+        let board = filter::Board::of(seen, actor);
+        let mut systems = board.systems.clone();
         systems.truncate(MAX_SYS);
         let slot_of = |s: System| systems.iter().position(|x| *x == s);
         let homes = seats
@@ -169,7 +174,7 @@ impl Frame {
             })
             .collect();
         let n = systems.len();
-        let adj: Vec<Vec<usize>> = systems.iter().map(|s| seen.adjacent(*s).iter().filter_map(System::from_index).filter_map(slot_of).collect()).collect();
+        let adj: Vec<Vec<usize>> = (0..n).map(|i| board.adjacent[i].iter().filter_map(System::from_index).filter_map(slot_of).collect()).collect();
         let mut dist = vec![vec![u8::MAX; n]; n];
         for (from, row) in dist.iter_mut().enumerate() {
             row[from] = 0;
@@ -189,7 +194,7 @@ impl Frame {
                 frontier = next;
             }
         }
-        Self { actor, seats, systems, homes, dist }
+        Self { actor, seats, systems, homes, dist, adj, board }
     }
 
     /// The block of a seat (0 = the actor); `None` for a seat not at the table.
@@ -319,7 +324,7 @@ fn system_block(s: &mut dyn Sink, seen: &Seen<'_>, f: &Frame, slot: usize, syste
     // The actor's reach and the filter's reasons.
     let movable = seen.movable_into(f.actor, system).len();
     s.put(movable as f32 / 8.0, &|| "my_movable".into());
-    let why = filter::reasons(seen, f.actor, system);
+    let why = f.board.reasons(seen, f.actor, system);
     s.put(b(why & filter::MOVE != 0), &|| "can_move_in".into());
     s.put(b(why & filter::PRODUCE != 0), &|| "can_produce".into());
     s.put(b(why & filter::SHOOT != 0), &|| "can_shoot".into());
@@ -511,7 +516,7 @@ fn option_block(s: &mut dyn Sink, seen: &Seen<'_>, f: &Frame, o: &Opt, keep: boo
     }), &|| "score_vp".into());
 }
 
-fn progress_rows(seen: &Seen<'_>, f: &Frame) -> Vec<Vec<(ObjectiveRef, f32, bool)>> {
+pub fn progress_rows(seen: &Seen<'_>, f: &Frame) -> Vec<Vec<(ObjectiveRef, f32, bool)>> {
     let ratio = |have: i64, threshold: i64| if threshold <= 0 { 1.0 } else { (have as f32 / threshold as f32).clamp(0.0, 1.0) };
     (0..SEATS)
         .map(|r| {
@@ -560,12 +565,8 @@ pub fn encode_into(seen: &Seen<'_>, choice: &Choice, e: &mut Encoded) {
         system_block(&mut Vals(&mut e.sys), seen, &f, slot, system, &mut onboard);
         e.sys_id.push(system.map_or(-1, |x| x.index() as i16));
         let mut row = [0u8; ADJ_BYTES];
-        if let Some(system) = system {
-            for n in seen.adjacent(system).iter().filter_map(System::from_index) {
-                if let Some(j) = f.slot(n) {
-                    row[j / 8] |= 1 << (j % 8);
-                }
-            }
+        for &j in f.adj.get(slot).map_or(&[][..], Vec::as_slice) {
+            row[j / 8] |= 1 << (j % 8);
         }
         e.adj.extend_from_slice(&row);
     }
@@ -590,7 +591,7 @@ pub fn encode_into(seen: &Seen<'_>, choice: &Choice, e: &mut Encoded) {
     e.glob.clear();
     global_block(&mut Vals(&mut e.glob), seen, choice);
     e.ask_kind = bucket(&kind::ask_name(&choice.ask));
-    let kept = filter::activate(seen, choice);
+    let kept = filter::is_activation(&choice.ask).then(|| filter::activate_on(seen, choice, &f.board));
     e.opt.clear();
     e.opt_kind.clear();
     e.opt_ptr.clear();

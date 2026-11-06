@@ -1,4 +1,6 @@
-//! Training shards (docs/MCTS_BOT_PLAN.md 3.4): one directory of `.npy` files per shard plus `schema.json`.
+//! Training shards (docs/MCTS_BOT_PLAN.md 3.4): one directory of `.npy` files per shard plus `schema.json`. By default each
+//! file is gzip-compressed (`sys.npy.gz`, ...: the features are mostly zeros, about 270 bytes per record instead of 12 KB);
+//! [`ShardWriter::compress`] `false` writes plain `.npy` files that `numpy.load(mmap_mode="r")` maps.
 //!
 //! | file | dtype | shape |
 //! |---|---|---|
@@ -74,12 +76,20 @@ pub struct ShardWriter {
     done: Vec<(Record, [f32; SEATS], [f32; SEATS])>,
     /// Names of the columns (from [`crate::encode::column_names`]), written to `schema.json`.
     pub names: Option<[Vec<String>; 5]>,
+    /// Write `.npy` files without gzip.
+    pub plain: bool,
 }
 
 impl ShardWriter {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Whether the files are gzip-compressed (the default).
+    #[must_use]
+    pub const fn compress(&self) -> bool {
+        !self.plain
     }
 
     /// Records finished (with an outcome).
@@ -179,24 +189,34 @@ impl ShardWriter {
             ]);
         }
         let k = opt_kind.len();
-        npy::write(&dir.join("sys.npy"), Dtype::F16, &[n, MAX_SYS, FS], &npy::f16_bytes(&sys))?;
-        npy::write(&dir.join("sys_id.npy"), Dtype::I16, &[n, MAX_SYS], &npy::i16_bytes(&sys_id))?;
-        npy::write(&dir.join("adj.npy"), Dtype::U8, &[n, MAX_SYS, ADJ_BYTES], &adj)?;
-        npy::write(&dir.join("seat.npy"), Dtype::F16, &[n, SEATS, FP], &npy::f16_bytes(&seat))?;
-        npy::write(&dir.join("seat_fac.npy"), Dtype::I16, &[n, SEATS], &npy::i16_bytes(&seat_fac))?;
-        npy::write(&dir.join("obj.npy"), Dtype::F16, &[n, MAX_OBJ, FO], &npy::f16_bytes(&obj))?;
-        npy::write(&dir.join("obj_id.npy"), Dtype::I16, &[n, MAX_OBJ], &npy::i16_bytes(&obj_id))?;
-        npy::write(&dir.join("glob.npy"), Dtype::F16, &[n, FG], &npy::f16_bytes(&glob))?;
-        npy::write(&dir.join("ask_kind.npy"), Dtype::I16, &[n], &npy::i16_bytes(&ask_kind))?;
-        npy::write(&dir.join("opt.npy"), Dtype::F16, &[k, FA], &npy::f16_bytes(&opt))?;
-        npy::write(&dir.join("opt_kind.npy"), Dtype::I16, &[k], &npy::i16_bytes(&opt_kind))?;
-        npy::write(&dir.join("opt_ptr.npy"), Dtype::I16, &[k, PTRS], &npy::i16_bytes(&opt_ptr))?;
-        npy::write(&dir.join("opt_mask.npy"), Dtype::U8, &[k], &opt_mask)?;
-        npy::write(&dir.join("opt_off.npy"), Dtype::U32, &[n + 1], &npy::u32_bytes(&opt_off))?;
-        npy::write(&dir.join("pi.npy"), Dtype::F16, &[k], &npy::f16_bytes(&pi))?;
-        npy::write(&dir.join("z.npy"), Dtype::F16, &[n, SEATS], &npy::f16_bytes(&z))?;
-        npy::write(&dir.join("vp.npy"), Dtype::F16, &[n, SEATS], &npy::f16_bytes(&vp))?;
-        npy::write(&dir.join("meta.npy"), Dtype::I64, &[n, META.len()], &npy::i64_bytes(&meta))?;
+        let plain = self.plain;
+        let put = |path: &Path, dtype: Dtype, shape: &[usize], data: &[u8]| {
+            if plain {
+                npy::write(path, dtype, shape, data)
+            } else {
+                let mut gz = path.as_os_str().to_owned();
+                gz.push(".gz");
+                npy::write_gz(Path::new(&gz), dtype, shape, data)
+            }
+        };
+        put(&dir.join("sys.npy"), Dtype::F16, &[n, MAX_SYS, FS], &npy::f16_bytes(&sys))?;
+        put(&dir.join("sys_id.npy"), Dtype::I16, &[n, MAX_SYS], &npy::i16_bytes(&sys_id))?;
+        put(&dir.join("adj.npy"), Dtype::U8, &[n, MAX_SYS, ADJ_BYTES], &adj)?;
+        put(&dir.join("seat.npy"), Dtype::F16, &[n, SEATS, FP], &npy::f16_bytes(&seat))?;
+        put(&dir.join("seat_fac.npy"), Dtype::I16, &[n, SEATS], &npy::i16_bytes(&seat_fac))?;
+        put(&dir.join("obj.npy"), Dtype::F16, &[n, MAX_OBJ, FO], &npy::f16_bytes(&obj))?;
+        put(&dir.join("obj_id.npy"), Dtype::I16, &[n, MAX_OBJ], &npy::i16_bytes(&obj_id))?;
+        put(&dir.join("glob.npy"), Dtype::F16, &[n, FG], &npy::f16_bytes(&glob))?;
+        put(&dir.join("ask_kind.npy"), Dtype::I16, &[n], &npy::i16_bytes(&ask_kind))?;
+        put(&dir.join("opt.npy"), Dtype::F16, &[k, FA], &npy::f16_bytes(&opt))?;
+        put(&dir.join("opt_kind.npy"), Dtype::I16, &[k], &npy::i16_bytes(&opt_kind))?;
+        put(&dir.join("opt_ptr.npy"), Dtype::I16, &[k, PTRS], &npy::i16_bytes(&opt_ptr))?;
+        put(&dir.join("opt_mask.npy"), Dtype::U8, &[k], &opt_mask)?;
+        put(&dir.join("opt_off.npy"), Dtype::U32, &[n + 1], &npy::u32_bytes(&opt_off))?;
+        put(&dir.join("pi.npy"), Dtype::F16, &[k], &npy::f16_bytes(&pi))?;
+        put(&dir.join("z.npy"), Dtype::F16, &[n, SEATS], &npy::f16_bytes(&z))?;
+        put(&dir.join("vp.npy"), Dtype::F16, &[n, SEATS], &npy::f16_bytes(&vp))?;
+        put(&dir.join("meta.npy"), Dtype::I64, &[n, META.len()], &npy::i64_bytes(&meta))?;
         std::fs::write(dir.join("schema.json"), crate::schema::json(self.names.as_ref()))?;
         self.done.clear();
         Ok(n)

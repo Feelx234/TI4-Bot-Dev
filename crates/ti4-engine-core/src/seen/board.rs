@@ -149,6 +149,15 @@ impl Seen<'_> {
         self.st().galaxy().map_or(SysSet::EMPTY, |g| g.adjacent(system))
     }
 
+    /// [`Self::adjacent`] of each of `systems` (one pass over the wormholes); empty sets without a map.
+    #[must_use]
+    pub fn adjacent_of_each(&self, systems: &[System]) -> Vec<SysSet> {
+        if !self.st().loaded.has(crate::state::Slice::Map) {
+            return vec![SysSet::EMPTY; systems.len()];
+        }
+        self.st().galaxy().map_or_else(|| vec![SysSet::EMPTY; systems.len()], |g| g.adjacent_of_each(systems))
+    }
+
     /// The hex of a placed system, `(q, r)`; `None` off the map or without a map.
     #[must_use]
     pub fn hex_of(&self, system: System) -> Option<(i32, i32)> {

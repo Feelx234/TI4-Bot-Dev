@@ -9,6 +9,8 @@ description = "MCTS bot features (docs/MCTS_BOT_PLAN.md 3.1, lane L1): the actor
 # Only the core: the features read `Seen` (what the actor may know) and the core `Choice`, nothing of the thin crate.
 [dependencies]
 ti4-engine-core.workspace = true
+# The shards are gzip-compressed `.npy` files (the features are mostly zeros: 45x smaller; Python reads them with `gzip`).
+flate2.workspace = true
 
 [lints]
 workspace = true
