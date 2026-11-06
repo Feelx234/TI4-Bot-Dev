@@ -1,0 +1,278 @@
+//! [`Streams`]: the game seed and one ChaCha8 stream per [`Domain`], and the draws made from them.
+//!
+//! This is the core's `state::Rng` (and the thin crate's `GameRng`) moved down, with the seeding folded in: a stream
+//! is created on first use from `SHA-256(seed_le || domain text)`, so no `SeedSource` is needed. Every draw goes
+//! through the same `rand` calls with the same integer types as today (`random_range(1..=sides)` on a `u32`,
+//! `random_range(0..=i)` on a `usize` for a shuffle). `rand` 0.9 happens to widen a `u8` range to `u32` (a `u8`
+//! sampler was tried and drew the same faces), but the identity should not rest on that internal detail, so the
+//! types stay today's.
+
+use std::sync::Arc;
+
+use rand::Rng as _;
+use rand_chacha::ChaCha8Rng;
+use rand_core::SeedableRng;
+
+use crate::request::{Faces, Kind, MAX_FACES, Request};
+use crate::{Domain, derive_seed};
+
+/// One stream and where it stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Stream {
+    domain: Domain,
+    rng: ChaCha8Rng,
+}
+
+/// The randomness of a game: the seed and the streams drawn from so far (a stream never drawn from is absent and
+/// stands at 0). A clone shares the streams; the first draw after a clone copies the stream table once (a stream is
+/// 136 bytes, and a checkpoint of the core must stay a refcount bump, as with the core's `Cow`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Streams {
+    seed: u64,
+    /// Sorted by domain.
+    streams: Arc<Vec<Stream>>,
+}
+
+/// Why a request or a draw cannot be answered. Every case is a defect of the asking site, not a game event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refused {
+    /// A `Dyn` domain (a stream name from an old save): its position is carried, it is never drawn from.
+    Dyn(Domain),
+    /// More than [`MAX_FACES`] dice in one request (split it with [`Request::dice_groups`]).
+    TooMany(u8),
+    /// A die with no sides, or a choice among no elements.
+    NoSides,
+}
+
+impl core::fmt::Display for Refused {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Dyn(d) => write!(f, "no draw from the dynamic stream {d:?}"),
+            Self::TooMany(n) => write!(f, "{n} dice in one request (at most {MAX_FACES})"),
+            Self::NoSides => f.write_str("a die with no sides"),
+        }
+    }
+}
+
+impl Streams {
+    /// Every stream at its start.
+    #[must_use]
+    pub fn new(seed: u64) -> Self {
+        Self { seed, streams: Arc::default() }
+    }
+
+    #[must_use]
+    pub const fn seed(&self) -> u64 {
+        self.seed
+    }
+
+    fn stream_mut(&mut self, domain: Domain) -> &mut ChaCha8Rng {
+        let seed = self.seed;
+        let streams = Arc::make_mut(&mut self.streams);
+        let at = match streams.binary_search_by(|s| s.domain.cmp(&domain)) {
+            Ok(at) => at,
+            Err(at) => {
+                // A `Dyn` stream only ever carries a position (word positions do not depend on the key), so its key
+                // is a placeholder; `drawable` keeps every draw away from it.
+                let key = domain.text().map_or([0; 32], |text| derive_seed(seed, text));
+                streams.insert(at, Stream { domain, rng: ChaCha8Rng::from_seed(key) });
+                at
+            }
+        };
+        &mut streams[at].rng
+    }
+
+    fn drawable(&mut self, domain: Domain) -> Result<&mut ChaCha8Rng, Refused> {
+        if matches!(domain, Domain::Dyn(..)) {
+            return Err(Refused::Dyn(domain));
+        }
+        Ok(self.stream_mut(domain))
+    }
+
+    /// A die with `sides` sides, `1..=sides`: today's `Rng::die` / `GameRng::die`.
+    ///
+    /// # Errors
+    /// A `Dyn` domain, or `sides == 0`.
+    pub fn try_die(&mut self, domain: Domain, sides: u32) -> Result<u32, Refused> {
+        if sides == 0 {
+            return Err(Refused::NoSides);
+        }
+        Ok(self.drawable(domain)?.random_range(1..=sides))
+    }
+
+    /// [`Self::try_die`].
+    ///
+    /// # Panics
+    /// When it refuses (a defect of the caller).
+    pub fn die(&mut self, domain: Domain, sides: u32) -> u32 {
+        self.try_die(domain, sides).unwrap_or_else(|e| panic!("ti4-chance: {e}"))
+    }
+
+    /// Fisher-Yates from the back on one domain's stream: today's `Rng::shuffle` / `GameRng::shuffle`, the deck
+    /// permutations of the setup (decks are permuted once and drawn from the top; there is no in-play shuffle).
+    ///
+    /// # Panics
+    /// On a `Dyn` domain.
+    pub fn shuffle<T>(&mut self, domain: Domain, items: &mut [T]) {
+        let rng = self.drawable(domain).unwrap_or_else(|e| panic!("ti4-chance: {e}"));
+        for i in (1..items.len()).rev() {
+            let j = rng.random_range(0..=i);
+            items.swap(i, j);
+        }
+    }
+
+    /// A uniform index in `0..n` (`random_range(0..n)` on a `usize`): the setup's seeded speaker and the seating
+    /// draws. Kept as its own form rather than `die(n) - 1`: the setup calls it this way, and it stays bit-identical
+    /// without relying on how `rand` maps the two ranges.
+    ///
+    /// # Panics
+    /// On a `Dyn` domain or `n == 0`.
+    pub fn index(&mut self, domain: Domain, n: usize) -> usize {
+        assert!(n > 0, "ti4-chance: an index among no elements");
+        self.drawable(domain).unwrap_or_else(|e| panic!("ti4-chance: {e}")).random_range(0..n)
+    }
+
+    /// Each stream's word position, in domain order (`Rng::positions`).
+    pub fn positions(&self) -> impl Iterator<Item = (Domain, u128)> + '_ {
+        self.streams.iter().map(|s| (s.domain, s.rng.get_word_pos()))
+    }
+
+    /// The word position of one stream (0 when never drawn from).
+    #[must_use]
+    pub fn position(&self, domain: Domain) -> u128 {
+        self.streams.iter().find(|s| s.domain == domain).map_or(0, |s| s.rng.get_word_pos())
+    }
+
+    /// Keep only the streams listed, creating missing ones and moving each to its position (`Rng::set_positions`).
+    /// A `Dyn` domain is carried at its position.
+    pub fn set_positions(&mut self, positions: &[(Domain, u128)]) {
+        Arc::make_mut(&mut self.streams).retain(|s| positions.iter().any(|(d, _)| *d == s.domain));
+        for (domain, pos) in positions {
+            self.stream_mut(*domain).set_word_pos(*pos);
+        }
+    }
+
+    /// Whether both share their stream table (a checkpoint nobody drew from since).
+    #[must_use]
+    pub fn shares_streams_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.streams, &other.streams)
+    }
+
+    /// The streams of another seed, all at their start: what a search does to a copy before it samples, so that the
+    /// copy cannot read the real game's future dice (docs/FORK_RNG_THEORY.md 3.1, R8).
+    pub fn reseed(&mut self, seed: u64) {
+        *self = Self::new(seed);
+    }
+
+    /// One literal domain's stream replaced by that domain's stream under `seed`, at its start; the other streams and
+    /// the game seed are unchanged. A later [`Self::set_positions`] that lists the domain keeps the new key.
+    ///
+    /// # Errors
+    /// A `Dyn` domain (it has no text to derive a key from).
+    pub fn reseed_domain(&mut self, domain: Domain, seed: u64) -> Result<(), Refused> {
+        let text = domain.text().ok_or(Refused::Dyn(domain))?;
+        *self.stream_mut(domain) = ChaCha8Rng::from_seed(derive_seed(seed, text));
+        Ok(())
+    }
+}
+
+/// Answer `req` from `streams` in place: one die per face, in order, from the request's domain. The hot path (the
+/// play-mode resolver and the core's inline fast path call this through a function pointer).
+///
+/// # Errors
+/// See [`Refused`]. Nothing is drawn on an error.
+pub fn try_answer_mut(req: &Request, streams: &mut Streams) -> Result<Faces, Refused> {
+    let (n, sides) = match req.kind {
+        Kind::Dice { n, sides, .. } => (n, sides),
+        Kind::Index { n } => (1, n),
+        Kind::DieMod { sides, .. } => (1, sides),
+    };
+    if usize::from(n) > MAX_FACES {
+        return Err(Refused::TooMany(n));
+    }
+    if sides == 0 && n > 0 {
+        return Err(Refused::NoSides);
+    }
+    let mut faces = Faces::default();
+    if n == 0 {
+        return Ok(faces);
+    }
+    let rng = streams.drawable(req.domain)?;
+    let range = 1..=u32::from(sides);
+    for _ in 0..n {
+        // A face is at most `sides`, which is a `u8`.
+        #[allow(clippy::cast_possible_truncation)]
+        let face = rng.random_range(range.clone()) as u8;
+        let _ = faces.try_push(face);
+    }
+    Ok(faces)
+}
+
+/// [`try_answer_mut`].
+///
+/// # Panics
+/// When it refuses (a defect of the asking site).
+pub fn answer_mut(req: &Request, streams: &mut Streams) -> Faces {
+    try_answer_mut(req, streams).unwrap_or_else(|e| panic!("ti4-chance: {e} ({req:?})"))
+}
+
+/// The pure form of [`answer_mut`]: the faces and the advanced streams; `streams` is untouched.
+///
+/// # Panics
+/// As [`answer_mut`].
+#[must_use]
+pub fn answer(req: &Request, streams: &Streams) -> (Faces, Streams) {
+    let mut next = streams.clone();
+    let faces = answer_mut(req, &mut next);
+    (faces, next)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bare(seed: u64, domain: Domain) -> ChaCha8Rng {
+        ChaCha8Rng::from_seed(derive_seed(seed, domain.text().unwrap()))
+    }
+
+    #[test]
+    fn every_sides_and_count_matches_a_bare_chacha() {
+        // docs/FORK_RNG_THEORY.md 4.1: every `sides` in 1..=255 x n in 1..=15, against `ChaCha8Rng::random_range`.
+        for seed in 0..48u64 {
+            let mut s = Streams::new(seed);
+            let mut b = bare(seed, Domain::Dice);
+            for sides in 1..=255u8 {
+                for n in 1..=15u8 {
+                    let f = answer_mut(&Request::new(Domain::Dice, Kind::Dice { n, sides, hits_on: None }), &mut s);
+                    for &face in f.as_slice() {
+                        assert_eq!(u32::from(face), b.random_range(1..=u32::from(sides)), "seed {seed} sides {sides} n {n}");
+                    }
+                }
+            }
+            assert_eq!(s.position(Domain::Dice), b.get_word_pos());
+        }
+    }
+
+    #[test]
+    fn refusals_draw_nothing() {
+        let mut s = Streams::new(1);
+        let dyn_req = Request::new(Domain::Dyn(3, 0), Kind::Dice { n: 1, sides: 10, hits_on: None });
+        assert_eq!(try_answer_mut(&dyn_req, &mut s), Err(Refused::Dyn(Domain::Dyn(3, 0))));
+        let many = Request::new(Domain::Dice, Kind::Dice { n: 16, sides: 10, hits_on: None });
+        assert_eq!(try_answer_mut(&many, &mut s), Err(Refused::TooMany(16)));
+        let none = Request::new(Domain::Dice, Kind::Index { n: 0 });
+        assert_eq!(try_answer_mut(&none, &mut s), Err(Refused::NoSides));
+        assert_eq!(s, Streams::new(1));
+        let empty = Request::new(Domain::Dice, Kind::Dice { n: 0, sides: 10, hits_on: None });
+        assert!(answer_mut(&empty, &mut s).is_empty());
+        assert_eq!(s.positions().count(), 0, "an empty group creates no stream");
+    }
+
+    #[test]
+    fn dyn_positions_are_carried() {
+        let mut s = Streams::new(4);
+        s.set_positions(&[(Domain::Dyn(2, 0), 40), (Domain::Dice, 8)]);
+        assert_eq!(s.positions().collect::<Vec<_>>(), [(Domain::Dice, 8), (Domain::Dyn(2, 0), 40)]);
+        assert_eq!(s.reseed_domain(Domain::Dyn(2, 0), 1), Err(Refused::Dyn(Domain::Dyn(2, 0))));
+    }
+}

@@ -4070,6 +4070,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ti4-chance"
+version = "0.1.0"
+dependencies = [
+ "rand 0.9.5",
+ "rand_chacha 0.9.0",
+ "rand_core 0.9.5",
+ "sha2",
+ "ti4-engine-core",
+ "ti4-engine-core-setup",
+]
+
+[[package]]
 name = "ti4-cli"
 version = "0.1.0"
 dependencies = [

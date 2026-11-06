@@ -1,0 +1,31 @@
+[package]
+name = "ti4-chance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "The bottom crate of the game's randomness (docs/FORK_RNG_THEORY.md 4.1): stream domains, chance requests and answers, the seeded ChaCha8 streams and the one pure function that answers a request. Names no ti4- crate."
+
+# The same generator, sampler and seeding as the core's `state::Rng` and the thin crate's `GameRng`, at the same
+# versions: a draw here must be the draw there, bit for bit. Default features off (no getrandom, no OS entropy, no
+# threads, no clock): the wasm build has no backend for them, and this crate is meant to be linked into it.
+[dependencies]
+rand = { version = "0.9", default-features = false }
+rand_chacha = { version = "0.9", default-features = false }
+rand_core = { version = "0.9", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+
+[features]
+# Outcome enumeration, weights and sampling for a tree search (MCTS chance nodes). Off by default and off in
+# ti4-wasm: the browser build only answers requests.
+search = []
+
+# The old implementations, only to prove bit-identity (docs/C1_RESUME.md). Dev-dependencies are not part of the
+# production graph of this crate (tools/engine_core/check_production_graph.sh), and neither crate depends on this one,
+# so there is no cycle.
+[dev-dependencies]
+ti4-engine-core.workspace = true
+ti4-engine-core-setup.workspace = true
+
+[lints]
+workspace = true

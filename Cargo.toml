@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/ti4-chance",
     "crates/ti4-model",
     "crates/ti4-content",
     "crates/ti4-engine",
@@ -40,6 +41,8 @@ rust-version = "1.94"
 
 [workspace.dependencies]
 # Internal
+# The bottom crate of the randomness (docs/FORK_RNG_THEORY.md 4.1): names no ti4- crate.
+ti4-chance = { path = "crates/ti4-chance" }
 ti4-model = { path = "crates/ti4-model" }
 ti4-content = { path = "crates/ti4-content" }
 # The product-facing engine crate: a thin package in `crates/ti4-engine-next` (docs/todo/D2-7-legacy-split.md). Facade stage: it re-exports the legacy.
