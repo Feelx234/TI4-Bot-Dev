@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agendaOrderNote,
+  agendaOrderTitle,
   describeAgendaPlacement,
   describeAgendaPlacements,
   describePickCard,
@@ -63,14 +64,24 @@ describe("politicsDecision", () => {
       payload: { top, bottom },
     });
     expect(agendaOrderNote(choice, order(["mutiny"], ["minister_commerce"]))).toBe(
-      "Mutiny is revealed next; Minister of Commerce goes to the bottom.",
+      "Mutiny is revealed next; Minister of Commerce will not come up soon.",
     );
     expect(agendaOrderNote(choice, order(["minister_commerce", "mutiny"], []))).toBe(
-      "Both on top: Minister of Commerce is revealed next, then Mutiny.",
+      "Minister of Commerce is revealed next, Mutiny after it.",
     );
     expect(agendaOrderNote(choice, order([], ["mutiny", "minister_commerce"]))).toBe(
-      "Both to the bottom: Mutiny, then Minister of Commerce as the last card.",
+      "Neither comes up soon: Mutiny, then Minister of Commerce under it.",
     );
+    expect(agendaOrderTitle(choice, order(["mutiny"], ["minister_commerce"]))).toBe(
+      "Mutiny on top · Minister of Commerce to the bottom",
+    );
+    expect(agendaOrderTitle(choice, order(["minister_commerce", "mutiny"], []))).toBe(
+      "Both on top: Minister of Commerce first, then Mutiny",
+    );
+    expect(agendaOrderTitle(choice, order([], ["mutiny", "minister_commerce"]))).toBe(
+      "Both to the bottom: Minister of Commerce as the last card",
+    );
+    expect(agendaOrderTitle({ context: { subtype: "other" } as never }, order(["mutiny"], []))).toBeNull();
     // The lone agenda keeps its single card.
     expect(
       describeAgendaPlacements({ prompt: "place mutiny where", context: { subtype: "politics_place_agenda" } as never }),

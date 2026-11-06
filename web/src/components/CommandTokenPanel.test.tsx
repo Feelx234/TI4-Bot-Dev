@@ -275,8 +275,8 @@ describe("command token panel (planet first: gain and buy)", () => {
         { kind: "pool", pool: "tactic_tokens" },
         { kind: "pool", pool: "fleet_tokens" },
         { kind: "purchase", buy: true },
-        { kind: "exhaust", planet: "jord" },
         { kind: "trade_good" },
+        { kind: "exhaust", planet: "jord" },
         { kind: "pool", pool: "strategic_tokens" },
         { kind: "purchase", buy: false },
       ],
@@ -346,14 +346,56 @@ describe("command token panel (planet first: gain and buy)", () => {
     await click("token-plus-strategic");
     expect(screen.getByTestId("token-confirm")).toHaveTextContent("Confirm tokens and purchase");
     await click("token-confirm");
+    // The window's "yes" (follow), then the purchase question's own steps (one token bought).
     expect(onSubmitBatch).toHaveBeenCalledWith({
       kind: "tokens",
       steps: [
         { kind: "purchase", buy: true },
-        { kind: "exhaust", planet: "jord" },
+        { kind: "purchase", buy: true },
         { kind: "trade_good" },
+        { kind: "exhaust", planet: "jord" },
         { kind: "pool", pool: "strategic_tokens" },
         { kind: "purchase", buy: false },
+      ],
+    });
+  });
+
+  it("plans the purchase question itself (a multi-pick) and enforces its fewest tokens", async () => {
+    const onSubmitBatch = vi.fn().mockResolvedValue(undefined);
+    const question: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "purchase-1",
+      prompt: "buy command tokens for 3 influence each (up to 1)",
+      options: [
+        { id: "exhaust|jord", kind: "pay", label: "exhaust jord for 2 influence", payload: { worth: 2 } },
+        { id: "trade_good", kind: "pay", label: "spend a trade good", payload: { worth: 1 } },
+      ],
+      context: { subtype: "buy_token_with_influence" } as PendingChoiceDto["context"],
+      details: {
+        kind: "command_tokens",
+        mode: "buy",
+        pools: { tactic: 3, fleet: 4, strategic: 2 },
+        reinforcements: 7,
+        tokens_to_place: 0,
+        purchase,
+      },
+      multi_pick: { kind: "purchase", owed: 3, repeat: { trade_good: 4 }, buy: [1, 1] },
+    };
+    render(<PendingChoiceModal choice={question} onSubmit={vi.fn()} onSubmitBatch={onSubmitBatch} />);
+    expect(screen.getByTestId("command-token-panel")).toBeInTheDocument();
+    // The secondary buys at least one token: nothing staged cannot be confirmed.
+    expect(screen.getByTestId("token-confirm")).toBeDisabled();
+    await click("token-payment-planet-jord");
+    await click("token-payment-goods-plus");
+    await click("token-plus-fleet");
+    await click("token-confirm");
+    expect(onSubmitBatch).toHaveBeenCalledWith({
+      kind: "tokens",
+      steps: [
+        { kind: "purchase", buy: true },
+        { kind: "trade_good" },
+        { kind: "exhaust", planet: "jord" },
+        { kind: "pool", pool: "fleet_tokens" },
       ],
     });
   });
@@ -400,15 +442,23 @@ describe("command token panel (planet first: credit, overpay and limits)", () =>
     expect(screen.queryByTestId("token-payment-problem")).not.toBeInTheDocument();
   });
 
-  it("5 influence from two planets is one token with a spare planet: Confirm is blocked and says which to take out", async () => {
-    renderModal(richChoice());
+  it("5 influence from two planets is one token wasting 2: the engine takes it (jord first, lodor completes it)", async () => {
+    const onSubmitBatch = renderModal(richChoice());
     await click("token-payment-planet-lodor");
     await click("token-payment-planet-jord");
     expect(summary()).toHaveAttribute("data-bought", "1");
     expect(summary()).toHaveAttribute("data-wasted", "2");
     await assign(["tactic", "tactic"]);
-    expect(screen.getByTestId("token-confirm")).toBeDisabled();
-    expect(screen.getByTestId("token-payment-problem")).toHaveTextContent("take out jord");
+    expect(screen.queryByTestId("token-payment-problem")).not.toBeInTheDocument();
+    await click("token-confirm");
+    expect(onSubmitBatch.mock.calls[0][0].steps).toEqual([
+      { kind: "pool", pool: "tactic_tokens" },
+      { kind: "purchase", buy: true },
+      { kind: "exhaust", planet: "jord" },
+      { kind: "exhaust", planet: "lodor" },
+      { kind: "pool", pool: "tactic_tokens" },
+      { kind: "purchase", buy: false },
+    ]);
   });
 
   it("4 influence from one planet buys 1 token and wastes 1", async () => {
@@ -439,14 +489,14 @@ describe("command token panel (planet first: credit, overpay and limits)", () =>
     expect(summary()).toHaveAttribute("data-wasted", "1");
     await assign(["tactic", "tactic", "fleet"]);
     await click("token-confirm");
-    // The first token is covered by arcturus (4, 1 carried); the second by the carried 1 plus lodor.
+    // Largest last: lodor covers the first token, arcturus (4) the second; both are sent.
     expect(onSubmitBatch.mock.calls[0][0].steps).toEqual([
       { kind: "pool", pool: "tactic_tokens" },
       { kind: "purchase", buy: true },
-      { kind: "exhaust", planet: "arcturus" },
+      { kind: "exhaust", planet: "lodor" },
       { kind: "pool", pool: "tactic_tokens" },
       { kind: "purchase", buy: true },
-      { kind: "exhaust", planet: "lodor" },
+      { kind: "exhaust", planet: "arcturus" },
       { kind: "pool", pool: "fleet_tokens" },
       { kind: "purchase", buy: false },
     ]);
@@ -469,7 +519,9 @@ describe("command token panel (planet first: credit, overpay and limits)", () =>
     expect(summary()).toHaveAttribute("data-bought", "2");
     expect(screen.getByTestId("token-limit-note")).toHaveTextContent("most you can buy is 2");
     await assign(["tactic", "tactic", "fleet"]);
-    expect(screen.getByTestId("token-confirm")).toBeDisabled();
+    // 9 for a bill of 6 is a set the engine takes (without arcturus, 5 is short): it wastes 3.
+    expect(summary()).toHaveAttribute("data-wasted", "3");
+    expect(screen.getByTestId("token-confirm")).toBeEnabled();
     await click("token-payment-planet-jord");
     expect(screen.queryByTestId("token-limit-note")).not.toBeInTheDocument();
     expect(screen.getByTestId("token-confirm")).toBeEnabled();

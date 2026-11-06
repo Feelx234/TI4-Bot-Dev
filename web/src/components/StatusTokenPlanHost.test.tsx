@@ -14,21 +14,16 @@ const setup = (initial = {}) => {
 };
 
 describe("StatusTokenPlanDialog", () => {
-  it("cannot be saved empty", () => {
-    setup();
-    expect((screen.getByTestId("status-plan-save") as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("saves a gain plan of two tactic tokens by default", () => {
+  it("starts from what is held after the gain (two tokens in the tactic pool) and saves that arrangement", () => {
     const { onSave } = setup();
-    fireEvent.click(screen.getByTestId("status-plan-gain-toggle"));
+    expect(screen.queryByTestId("status-plan-gain-toggle")).not.toBeInTheDocument();
+    expect(screen.getByTestId("status-plan-gain-note").textContent).toContain("5 tactic / 3 fleet / 2 strategy");
     fireEvent.click(screen.getByTestId("status-plan-save"));
-    expect(onSave).toHaveBeenCalledWith({ gain: { tactic: 2, fleet: 0, strategic: 0 } });
+    expect(onSave).toHaveBeenCalledWith({ redistribute: { tactic: 5, fleet: 3, strategic: 2 } });
   });
 
-  it("starts a redistribution from what is held after the gain and blocks a wrong total", () => {
+  it("blocks a wrong total", () => {
     const { onSave } = setup();
-    fireEvent.click(screen.getByTestId("status-plan-redistribute-toggle"));
     // 8 held + the usual 2.
     expect(screen.getByTestId("status-plan-redis-tactic-count").textContent).toBe("5");
     expect(screen.getByTestId("status-plan-problem").textContent).toContain("all 10 tokens");
@@ -36,12 +31,14 @@ describe("StatusTokenPlanDialog", () => {
     expect(screen.getByTestId("status-plan-problem").textContent).toContain("Remove 1");
     expect((screen.getByTestId("status-plan-save") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByTestId("status-plan-redis-strategic-minus"));
+    fireEvent.click(screen.getByTestId("status-plan-redis-tactic-minus"));
+    fireEvent.click(screen.getByTestId("status-plan-redis-fleet-plus"));
     fireEvent.click(screen.getByTestId("status-plan-save"));
-    expect(onSave).toHaveBeenCalledWith({ redistribute: { tactic: 5, fleet: 3, strategic: 2 } });
+    expect(onSave).toHaveBeenCalledWith({ redistribute: { tactic: 4, fleet: 4, strategic: 2 } });
   });
 
   it("clears the plan", () => {
-    const { onClear, onClose } = setup({ gain: { tactic: 1, fleet: 1, strategic: 0 } });
+    const { onClear, onClose } = setup({ redistribute: { tactic: 4, fleet: 4, strategic: 2 } });
     fireEvent.click(screen.getByTestId("status-plan-clear"));
     expect(onClear).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();

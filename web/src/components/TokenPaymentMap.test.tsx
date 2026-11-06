@@ -162,13 +162,14 @@ describe("Leadership purchase paid on the map (planet first)", () => {
   it("toggles a planet on and off from the map and keeps the panel's list in sync", async () => {
     render(<Harness onSubmitBatch={vi.fn()} />);
     await buyOneAndAssign();
-    // The suggestion is abyz alone. Add fria: 5 paid against 3 is more than the bill needs.
+    // The suggestion is abyz alone. Add fria: 5 paid against 3 is a set the engine takes (fria 2 is
+    // short, abyz completes it), wasting 2.
     await click("planet-fria");
     expect(screen.getByTestId("planet-fria")).toHaveAttribute("data-payment-staged", "true");
     expect(screen.getByTestId("token-payment-planet-fria")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("token-payment-account")).toHaveTextContent("Paid 5 · owed 3");
-    expect(screen.getByTestId("token-payment-problem")).toHaveTextContent("More than needed");
-    expect(screen.getByTestId("token-confirm")).toBeDisabled();
+    expect(screen.queryByTestId("token-payment-problem")).not.toBeInTheDocument();
+    expect(screen.getByTestId("token-confirm")).toBeEnabled();
     // Take abyz out again: 2 influence buy no token.
     await click("planet-abyz");
     expect(screen.getByTestId("planet-abyz")).toHaveAttribute("data-payment-staged", "false");

@@ -525,3 +525,31 @@
   font-weight: 700;
   font-size: 0.85rem;
 }
+
+/* A multi-pick question (payment, discard, ...): the running total and each atom's controls. */
+.multi-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.multi-pick[data-ok="false"] {
+  border-color: rgba(250, 204, 21, 0.45);
+}
+.multi-pick__atom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  align-self: center;
+}
+.multi-pick__count {
+  min-width: 3.2em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.multi-pick__worth {
+  font-weight: 600;
+  color: #fbbf24;
+  font-variant-numeric: tabular-nums;
+}

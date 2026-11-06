@@ -191,7 +191,7 @@ export function autoPaymentFor(
   choice: PendingChoiceDto,
   plan: PaymentDraft,
   tradeGoodsAvailable: number,
-): { steps: PaymentStep[]; rest: PaymentDraft; summary: string } | null {
+): { steps: PaymentStep[]; draft: PaymentDraft; rest: PaymentDraft; summary: string } | null {
   const offer = derivePaymentOffer(choice);
   const allocation = allocateQuestion(offer, plan, tradeGoodsAvailable);
   if (!allocation) return null;
@@ -202,5 +202,5 @@ export function autoPaymentFor(
   );
   if (allocation.draft.tradeGoods)
     names.push(`${allocation.draft.tradeGoods} trade good${allocation.draft.tradeGoods === 1 ? "" : "s"}`);
-  return { steps, rest: allocation.rest, summary: names.join(", ") };
+  return { steps, draft: allocation.draft, rest: allocation.rest, summary: names.join(", ") };
 }

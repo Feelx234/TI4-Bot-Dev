@@ -79,11 +79,14 @@ export function describeAgendaPlacements(
   return one ? [one] : [];
 }
 
-/** The agenda names of one of the six orders (`option.payload.top` / `.bottom` hold agenda ids). */
-export function agendaOrderNote(
+/**
+ * The two piles of one of the six orders by printed name (`option.payload.top` / `.bottom` hold
+ * agenda ids, top pile first-revealed first, bottom pile ending with the very last card).
+ */
+function agendaOrderPiles(
   choice: Pick<PendingChoiceDto, "context" | "details">,
   option: ChoiceOption,
-): string | null {
+): { top: string[]; bottom: string[] } | null {
   if (subtypeOf(choice) !== "politics_place_agenda" || option.kind !== "agenda_order") return null;
   const names = new Map<string, string>();
   const many = choice.details?.agendas;
@@ -97,10 +100,34 @@ export function agendaOrderNote(
     const ids = option.payload?.[key];
     return Array.isArray(ids) ? ids.map((id) => names.get(String(id)) ?? humanizeId(String(id))) : [];
   };
-  const [top, bottom] = [pile("top"), pile("bottom")];
-  if (top.length === 1 && bottom.length === 1) return `${top[0]} is revealed next; ${bottom[0]} goes to the bottom.`;
-  if (top.length === 2) return `Both on top: ${top[0]} is revealed next, then ${top[1]}.`;
-  if (bottom.length === 2) return `Both to the bottom: ${bottom[0]}, then ${bottom[1]} as the last card.`;
+  return { top: pile("top"), bottom: pile("bottom") };
+}
+
+/** The option's title for one of the six orders, with the printed names (the engine's label has ids). */
+export function agendaOrderTitle(
+  choice: Pick<PendingChoiceDto, "context" | "details">,
+  option: ChoiceOption,
+): string | null {
+  const piles = agendaOrderPiles(choice, option);
+  if (!piles) return null;
+  const { top, bottom } = piles;
+  if (top.length === 1 && bottom.length === 1) return `${top[0]} on top · ${bottom[0]} to the bottom`;
+  if (top.length === 2) return `Both on top: ${top[0]} first, then ${top[1]}`;
+  if (bottom.length === 2) return `Both to the bottom: ${bottom[1]} as the last card`;
+  return null;
+}
+
+/** What one of the six orders does, in a line under its title. */
+export function agendaOrderNote(
+  choice: Pick<PendingChoiceDto, "context" | "details">,
+  option: ChoiceOption,
+): string | null {
+  const piles = agendaOrderPiles(choice, option);
+  if (!piles) return null;
+  const { top, bottom } = piles;
+  if (top.length === 1 && bottom.length === 1) return `${top[0]} is revealed next; ${bottom[0]} will not come up soon.`;
+  if (top.length === 2) return `${top[0]} is revealed next, ${top[1]} after it.`;
+  if (bottom.length === 2) return `Neither comes up soon: ${bottom[0]}, then ${bottom[1]} under it.`;
   return null;
 }
 

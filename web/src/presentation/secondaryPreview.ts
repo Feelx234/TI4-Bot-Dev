@@ -93,22 +93,24 @@ export function describePayment(payment: PaymentPreview): string {
 
 /**
  * The answers that script the engine's preview of a whole Leadership purchase: the window's own
- * answer, then per token its payments (one planet or trade good each) and its pool, with the
- * "again?" question answered yes between tokens. The closing "no" is not scripted: the preview
- * stops at that question.
+ * answer, then the purchase question's one multi-pick answer (`buy:N` and every planet and trade
+ * good spent, joined by `+`), then the one gain question for the tokens bought (a
+ * `{tactic}|{fleet}|{strategic}` split). The plan's first "yes" is the window's (see
+ * `tokenPlanWithPurchase`); every later one buys a token.
  */
 export function leadershipScript(follow: string, steps: readonly TokenStep[]): string[] {
   const answers = [follow];
-  let first = true;
-  for (const step of steps) {
-    if (step.kind === "purchase") {
-      // The first "yes" is the window's own answer.
-      if (step.buy && !first) answers.push("yes");
-      if (step.buy) first = false;
-    } else if (step.kind === "exhaust") answers.push(`exhaust|${step.planet}`);
-    else if (step.kind === "trade_good") answers.push("trade_good");
-    else answers.push(step.pool);
-  }
+  const yes = steps.filter((step) => step.kind === "purchase" && step.buy).length;
+  const bought = Math.max(0, yes - 1);
+  if (bought === 0) return answers;
+  const atoms = steps.flatMap((step) =>
+    step.kind === "exhaust" ? [`exhaust|${step.planet}`] : step.kind === "trade_good" ? ["trade_good"] : [],
+  );
+  answers.push([`buy:${bought}`, ...atoms].join("+"));
+  const pools = ["tactic_tokens", "fleet_tokens", "strategic_tokens"].map(
+    (pool) => steps.filter((step) => step.kind === "pool" && step.pool === pool).length,
+  );
+  answers.push(pools.join("|"));
   return answers;
 }
 
@@ -131,6 +133,13 @@ export function checkLeadershipReply(result: ExactResult): LeadershipCheck {
               "the game would stop asking before the end of this purchase: you cannot afford that many tokens now",
           };
     case "rejected": {
+      // The purchase question takes the whole payment as one set.
+      if (result.choice.multi_pick?.kind === "purchase" || result.answer.startsWith("buy:")) {
+        return {
+          kind: "rejected",
+          reason: "the game does not accept that payment for those tokens as of now (a planet is gone, or it pays more than needed)",
+        };
+      }
       if (result.choice.context?.subtype === "pay_influence") {
         const what = result.answer.startsWith("exhaust|")
           ? `${planetName(result.answer.slice("exhaust|".length))} cannot be exhausted at this point of the payment`

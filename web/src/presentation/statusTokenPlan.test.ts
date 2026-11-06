@@ -54,12 +54,11 @@ const redistributeChoice = (held: typeof pools, floor = 2): PendingChoiceDto => 
 };
 
 describe("which decision is planned", () => {
-  it("plans only the status phase's gain and redistribution", () => {
-    expect(statusTokenPart(gainChoice(2))).toBe("gain");
+  it("plans only the status phase's redistribution: the engine asks no status gain", () => {
     expect(statusTokenPart(redistributeChoice(pools))).toBe("redistribute");
-    // Leadership, action cards and exploration use the same gain question outside the status phase.
+    // Leadership, action cards and exploration ask gains; none is planned here.
+    expect(statusTokenPart(gainChoice(2))).toBeNull();
     expect(statusTokenPart(gainChoice(3, {}, "strategy"))).toBeNull();
-    expect(statusTokenPart(gainChoice(1, {}, "action"))).toBeNull();
     expect(statusTokenPart(null)).toBeNull();
   });
 });
@@ -68,7 +67,7 @@ describe("stored status plans", () => {
   const stored: StoredStatusPlan = {
     v: 1,
     round: 3,
-    plan: { gain: { tactic: 2, fleet: 0, strategic: 0 }, redistribute: { tactic: 4, fleet: 4, strategic: 2 } },
+    plan: { redistribute: { tactic: 4, fleet: 4, strategic: 2 } },
   };
 
   it("round-trips by meaning, without option ids", () => {
@@ -81,57 +80,37 @@ describe("stored status plans", () => {
     expect(parseStoredStatusPlan(null)).toBeNull();
     expect(parseStoredStatusPlan("{nope")).toBeNull();
     expect(parseStoredStatusPlan(JSON.stringify({ v: 2, round: 1, plan: {} }))).toBeNull();
-    const bad = JSON.stringify({ v: 1, round: 1, plan: { gain: { tactic: -1, fleet: 0, strategic: 0 }, redistribute: { tactic: 99, fleet: 0, strategic: 0 } } });
+    const bad = JSON.stringify({ v: 1, round: 1, plan: { redistribute: { tactic: 99, fleet: 0, strategic: 0 } } });
     expect(parseStoredStatusPlan(bad)).toBeNull();
-    const half = JSON.stringify({ v: 1, round: 1, plan: { gain: { tactic: 1, fleet: 1, strategic: 0 }, redistribute: { tactic: 1 } } });
-    expect(parseStoredStatusPlan(half)?.plan).toEqual({ gain: { tactic: 1, fleet: 1, strategic: 0 } });
+  });
+
+  it("keeps only the redistribution of an older plan that also named a gain", () => {
+    const old = JSON.stringify({
+      v: 1,
+      round: 2,
+      plan: { gain: { tactic: 1, fleet: 1, strategic: 0 }, redistribute: { tactic: 4, fleet: 4, strategic: 2 } },
+      applied: { gain: 7 },
+    });
+    expect(parseStoredStatusPlan(old)).toEqual({ v: 1, round: 2, plan: { redistribute: { tactic: 4, fleet: 4, strategic: 2 } }, applied: {} });
+    const gainOnly = JSON.stringify({ v: 1, round: 2, plan: { gain: { tactic: 2, fleet: 0, strategic: 0 } } });
+    expect(parseStoredStatusPlan(gainOnly)).toBeNull();
   });
 
   it("counts a part as used only while the game is past its answer (undo makes it usable again)", () => {
-    const used = { ...stored, applied: { gain: 10 } };
-    expect(partUsed(used, "gain", 11)).toBe(true);
-    expect(partUsed(used, "gain", 10)).toBe(false);
-    expect(partUsed(used, "gain", 9)).toBe(false);
-    expect(openParts(used, 11)).toEqual({ redistribute: stored.plan.redistribute });
+    const used = { ...stored, applied: { redistribute: 10 } };
+    expect(partUsed(used, "redistribute", 11)).toBe(true);
+    expect(partUsed(used, "redistribute", 10)).toBe(false);
+    expect(partUsed(used, "redistribute", 9)).toBe(false);
+    expect(openParts(used, 11)).toEqual({});
     expect(openParts(used, 9)).toEqual(stored.plan);
     expect(openParts(null, 0)).toEqual({});
   });
 });
 
-describe("resolving the gain", () => {
-  const plan = { gain: { tactic: 1, fleet: 1, strategic: 0 } };
-
-  it("answers exactly the planned pools as one batch", () => {
-    const { resolution, part } = resolveStatusTokens(plan, gainChoice(2), SEAT);
-    expect(part).toBe("gain");
-    expect(resolution.kind).toBe("tokens");
-    if (resolution.kind !== "tokens") return;
-    expect(resolution.steps).toEqual([
-      { kind: "pool", pool: "tactic_tokens" },
-      { kind: "pool", pool: "fleet_tokens" },
-    ]);
-    expect(resolution.text).toBe("Gain 2 command tokens: 1 tactic, 1 fleet");
-  });
-
-  it("needs review when a different number of tokens is gained (never a half plan)", () => {
-    for (const tokens of [1, 3]) {
-      const { resolution } = resolveStatusTokens(plan, gainChoice(tokens), SEAT);
-      expect(resolution.kind).toBe("review");
-      if (resolution.kind === "review") expect(resolution.reason).toContain(`gain ${tokens}`);
-    }
-  });
-
-  it("needs review when the reinforcements cannot hold the plan, or a purchase is offered", () => {
-    expect(resolveStatusTokens(plan, gainChoice(2, { reinforcements: 1 }), SEAT).resolution.kind).toBe("review");
-    const purchase = { cost: 3, influence_available: 3, max: 1, trade_goods: 0, trade_good_worth: 1, planets: [] };
-    expect(resolveStatusTokens(plan, gainChoice(2, { purchase }), SEAT).resolution.kind).toBe("review");
-  });
-
-  it("has nothing to say about other seats, other gains or an empty plan", () => {
-    expect(resolveStatusTokens(plan, gainChoice(2), "p2").resolution.kind).toBe("none");
-    expect(resolveStatusTokens(plan, gainChoice(2, {}, "strategy"), SEAT).resolution.kind).toBe("none");
-    expect(resolveStatusTokens({}, gainChoice(2), SEAT).resolution.kind).toBe("none");
-    expect(resolveStatusTokens(null, gainChoice(2), SEAT).resolution.kind).toBe("none");
+describe("a gain question", () => {
+  it("is never answered from the plan", () => {
+    const plan = { redistribute: { tactic: 5, fleet: 3, strategic: 2 } };
+    expect(resolveStatusTokens(plan, gainChoice(2), SEAT).resolution.kind).toBe("none");
   });
 });
 

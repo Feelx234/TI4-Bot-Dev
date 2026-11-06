@@ -322,16 +322,20 @@ export function deriveChoiceRendererModel(
     }
   }
 
-  // 1. Payment & Economy
+  // 1. Payment & Economy. Leadership's purchase (a multi-pick of kind "purchase" over the same
+  // payment atoms) is planned on the command-token panel instead.
   if (
-    subtype === "pay_resources" ||
+    choice.multi_pick?.kind !== "purchase" &&
+    (subtype === "pay_resources" ||
     subtype === "pay_influence" ||
     (subtype === "leadership_spend_influence" &&
       choice.options.some((o) => o.id === "trade_good" || o.id.startsWith("exhaust|"))) ||
     (optionsByKind.has("pay") &&
-      choice.options.some((o) => o.id === "trade_good" || o.id.startsWith("exhaust|")))
+      choice.options.some((o) => o.id === "trade_good" || o.id.startsWith("exhaust|"))))
   ) {
-    const owed = constraints?.amount ?? 0;
+    // A multi-pick payment names what is still owed itself.
+    const multiOwed = choice.multi_pick?.kind === "payment" ? choice.multi_pick.owed : null;
+    const owed = constraints?.amount ?? multiOwed ?? 0;
     const paid = constraints?.paid ?? 0;
     const kind =
       subtype === "pay_influence" || constraints?.kind?.toLowerCase() === "influence"
