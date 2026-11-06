@@ -11,6 +11,9 @@
 //!
 //! A dev tool: no production crate depends on this one (tools/engine_core/check_production_graph.sh).
 
+pub mod agents;
+pub mod eval;
+
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 

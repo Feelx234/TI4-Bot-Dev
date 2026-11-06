@@ -4282,6 +4282,7 @@ dependencies = [
  "ti4-engine",
  "ti4-engine-core",
  "ti4-mcts-features",
+ "ti4-mcts-net",
  "ti4-model",
  "ti4-rule-bot",
  "ti4-rule-bot-typed",

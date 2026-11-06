@@ -15,6 +15,10 @@ name = "mcts_dataset"
 path = "src/bin/mcts_dataset.rs"
 
 [[bin]]
+name = "mcts_eval"
+path = "src/bin/mcts_eval.rs"
+
+[[bin]]
 name = "mcts_encode_bench"
 path = "src/bin/mcts_encode_bench.rs"
 
@@ -31,6 +35,7 @@ ti4-rule-bot = { workspace = true }
 ti4-rule-bot-typed = { workspace = true }
 ti4-selfplay = { path = "../ti4-selfplay" }
 ti4-mcts-features = { path = "../ti4-mcts-features" }
+ti4-mcts-net = { path = "../ti4-mcts-net" }
 serde_json = { workspace = true }
 mimalloc = { workspace = true }
 
