@@ -202,7 +202,8 @@ impl Play {
         self.decided += 1;
         self.rolled_since_answer = false;
         self.chain = hash_of(self.chain, &(choice.actor.0, opts.len(), opts[at]));
-        Some(Pick::Opt(opts[at]))
+        // A multi-pick (a payment, a purchase, a discard, a removal): the option leads the set the question takes (`Choice::pick`).
+        choice.pick(at).or(Some(Pick::Opt(opts[at])))
     }
 
     fn ask(&mut self, ask: AskFn, env: &Env<'_>) -> Result<Option<Asking>, String> {
