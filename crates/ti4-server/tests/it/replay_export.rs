@@ -141,7 +141,7 @@ async fn a_game_in_progress_replays_to_its_open_question() {
 /// OPEN, for later (docs/MULTIASK1_RESUME.md, "Open issues"): the same table stopped after `TI4_LOBBY_ANSWERS` answers (default 61).
 /// At some counts the live session's state and the replay of its export disagree (since the multi-ask conversion more of them, some
 /// even in the number of decisions). Reproduce:
-/// `TI4_LOBBY_ANSWERS=65 cargo test -p ti4-server --test it replay_export::open_live_state_and_replay_of_the_export_at_an_answer_count -- --ignored`
+/// `CARGO_TARGET_DIR=... TI4_LOBBY_ANSWERS=65 cargo t-web open_live_state --ignored --nocapture` (panics "final state differs" with `DIFF key: replay .. live ..` lines; the alias already carries its own `--`).
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "open issue: live state vs replay of the export at some answer counts (docs/MULTIASK1_RESUME.md)"]
 async fn open_live_state_and_replay_of_the_export_at_an_answer_count() {
