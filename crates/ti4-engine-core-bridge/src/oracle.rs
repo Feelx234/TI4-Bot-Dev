@@ -251,7 +251,7 @@ impl Scripted {
 pub(crate) const CARRIED: usize = usize::MAX;
 
 /// The follower's queue: the entries (each with its number since the queue was last cleared), and the entry that answered each question.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct Script {
     entries: VecDeque<(usize, Option<String>, Scripted)>,
     /// The entries that answered a question and are not spent (a multi-ask's expansion the string's step ended inside).
@@ -260,6 +260,9 @@ pub(crate) struct Script {
     next: usize,
     /// For each question answered since the queue was cleared, the entry that answered it.
     pub(crate) answered_by: Vec<usize>,
+    /// The follower's answers the string was not offered since the queue was cleared, as the string's error text (`script wanted ..`): a
+    /// step that swallows its decider's error (an `emit` whose result is dropped) goes on without one.
+    pub(crate) diverged: Vec<String>,
 }
 
 impl Script {
@@ -277,6 +280,15 @@ impl Script {
     fn push(&mut self, player: Option<String>, entry: Scripted) {
         self.entries.push_back((self.next, player, entry));
         self.next += 1;
+    }
+
+    /// Whether the entry that would answer `choice` is one a step answered a question with and did not spend (the string ended its step inside
+    /// one multi-ask's expansion: a payment it asks an atom per step, a gain it asks a pool per step).
+    fn answers_mid(&self, choice: &ti4_engine_legacy::choice::Choice) -> bool {
+        let mut probe = self.clone();
+        let before = probe.answered_by.len();
+        let id = probe.take(choice);
+        !id.is_empty() && probe.answered_by.get(before).is_some_and(|at| self.touched.contains(at))
     }
 
     /// The id that answers `choice`, taken off the queue ("" when the queue is dry or names nothing offered).
@@ -315,10 +327,14 @@ impl ti4_engine_legacy::choice::Decider for Follower {
         if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some_and(|v| v == "2") {
             eprintln!("    follower: {} {:?} wanted {wanted:?} offered {:?}", choice.player, choice.prompt, choice.ids());
         }
-        choice.answer_for(&wanted).ok_or_else(|| ti4_engine_legacy::choice::IllegalChoice::ScriptDiverged {
-            player: choice.player.clone(),
-            wanted,
-            offered: choice.ids().into_iter().map(str::to_owned).collect(),
+        choice.answer_for(&wanted).ok_or_else(|| {
+            let error = ti4_engine_legacy::choice::IllegalChoice::ScriptDiverged {
+                player: choice.player.clone(),
+                wanted,
+                offered: choice.ids().into_iter().map(str::to_owned).collect(),
+            };
+            self.0.borrow_mut().diverged.push(error.to_string());
+            error
         })
     }
 }
@@ -357,6 +373,17 @@ impl<M: MaskChoice> MaskSubject<M> {
     /// For each question answered since the script was last cleared, the entry that answered it.
     pub(crate) fn answered_by(&self) -> Vec<usize> {
         self.script.borrow().answered_by.clone()
+    }
+
+    /// The follower's answers the string was not offered since the script was last cleared (the error texts).
+    pub(crate) fn diverged(&self) -> Vec<String> {
+        self.script.borrow().diverged.clone()
+    }
+
+    /// Whether the string's next question is the rest of a multi-ask's expansion the last step ended inside ([`Script::answers_mid`]): the
+    /// string asks it in a step of its own where the core asked one question, so the shadow steps the string again before it compares.
+    pub(crate) fn next_is_mid_entry(&self) -> bool {
+        dual::with_mask(self.mask, || self.game.legal_options()).is_some_and(|choice| self.script.borrow().answers_mid(&choice))
     }
 
     /// The events pushed since the last [`Subject::events_since`], not consumed.
@@ -650,6 +677,47 @@ pub fn conclude(merged_ok: bool, list: &AllowList, tally: &Tally, rules_version:
 mod tests {
     use super::*;
     use crate::allow_list::AllowList;
+
+    fn legacy_choice(player: &str, prompt: &str, ids: &[&str]) -> ti4_engine_legacy::choice::Choice {
+        let options = ids.iter().map(|id| ti4_engine_legacy::choice::ChoiceOption::new(*id, "test")).collect();
+        ti4_engine_legacy::choice::Choice::new(ti4_model::id::PlayerId::new(player), prompt, options)
+    }
+
+    /// The string asks a production's payment an atom per step where the core asks the set once (nekro 4p, titans 5p, hacan 5p seed 1 on the
+    /// multi-ask line): the shadow steps the string on while its next question is the rest of the entry a step ended inside, and not for the
+    /// question of the next entry.
+    #[test]
+    fn the_rest_of_a_payment_a_step_ended_inside_is_told_from_the_next_question() {
+        let pay = |n: u8| legacy_choice("d", &format!("pay {n} more resources"), &["exhaust|jol", "trade_good"]);
+        let produce = legacy_choice("d", "produce in 12 (1 left)", &["build|fighter|2", "done_producing"]);
+        let mut script = Script::default();
+        script.push(Some("d".to_owned()), Scripted::Set(vec!["trade_good".to_owned(), "trade_good".to_owned()]));
+        script.push(None, Scripted::One("build|fighter|2".to_owned()));
+        assert!(!script.answers_mid(&pay(2)), "nothing answered yet: no step ended inside the entry");
+        assert_eq!(script.take(&pay(2)), "trade_good");
+        assert!(script.answers_mid(&pay(1)), "the step ended after the first atom: the next payment question is the rest");
+        assert!(script.answers_mid(&pay(1)), "the probe takes nothing off the queue");
+        assert!(!script.answers_mid(&produce), "the next entry's question");
+        assert_eq!(script.take(&pay(1)), "trade_good");
+        assert!(!script.answers_mid(&produce), "spent");
+        assert_eq!(script.take(&produce), "build|fighter|2");
+    }
+
+    /// A follower's answer the string was not offered is kept as the string's error text, also where the string's step swallows the error (a
+    /// window inside an `emit` whose result is dropped: arborec 6p seed 1, S1 with the first seat's question missing from the records).
+    #[test]
+    fn a_diverged_answer_is_kept_as_the_error_text_until_the_script_is_cleared() {
+        use ti4_engine_legacy::choice::Decider;
+        let script = Rc::new(RefCell::new(Script::default()));
+        script.borrow_mut().push(None, Scripted::One("reaction:l1z1x:ACTION_CARD_PLAYED:when".to_owned()));
+        let mut follower = Follower(Rc::clone(&script));
+        let asked = legacy_choice("c", "when ACTION_CARD_PLAYED", &["reaction:xxcha:ACTION_CARD_PLAYED:when", "decline"]);
+        assert!(follower.choose(&asked).is_err());
+        let diverged = script.borrow().diverged.clone();
+        assert_eq!(diverged, vec![r#"script wanted "reaction:l1z1x:ACTION_CARD_PLAYED:when" but c was offered ["reaction:xxcha:ACTION_CARD_PLAYED:when", "decline"]"#.to_owned()]);
+        script.borrow_mut().clear();
+        assert!(script.borrow().diverged.is_empty());
+    }
 
     /// A small golden-like scenario: four seats of the lobby factions on a template map.
     fn spec() -> GameSpec {

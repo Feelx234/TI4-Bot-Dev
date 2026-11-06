@@ -1072,8 +1072,6 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
     let mut first_difference = None;
     // A step the group's extension ran ahead of the loop and that is not a played one (a gap, a defect, the end).
     let mut carry: Option<Step> = None;
-    // The step in `carry` was held back once so the group before it is compared first.
-    let mut flush_first = false;
     // The events one side is ahead of the other (the string's step goes on into the next arm's first run where the native steps split, and the
     // other way round): they open the events of the next group.
     let mut owed = Owed::default();
@@ -1092,11 +1090,9 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 }
                 // A step that asks nothing and flips the phase (`Arm::Phase`) never joins the questions of a group the legacy step has used up: the string
                 // ends its step at the close of the status phase (after its last answer) and flips the next phase in a step of its own.
-                if opens_a_step_of_its_own(&p, &group, flush_first) {
+                if opens_a_step_of_its_own(&p, &group) {
                     carry = Some(Step::Played(p));
-                    flush_first = true; // mutants:skip (a defensive bound: a held-back step is never held back twice)
                 } else {
-                    flush_first = false;
                     matrix.note_played(&p);
                     let arm = p.arm;
                     group.push(p);
@@ -1217,9 +1213,9 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
 /// Whether the native step `p` (just played) must not join `group`: it flips the phase (or makes the forced last pick of the draft) without a
 /// question while the group still holds answers the legacy step takes (the string's step ends at the close of the status phase / after the
 /// pick that was asked, the next phase begins / the forced pick is made in the following step). Held back
-/// once (`held`), so the group is compared first and `p` opens the next.
-fn opens_a_step_of_its_own(p: &Played, group: &[Played], held: bool) -> bool {
-    !held && (p.arm == Arm::Phase || p.source == Some(AskArm::Draft)) && p.asked.is_empty() && group.iter().any(|q| !q.asked.is_empty())
+/// while the group holds answers, so the group is compared first (and the tail of a cut group too) and `p` opens the next.
+fn opens_a_step_of_its_own(p: &Played, group: &[Played]) -> bool {
+    (p.arm == Arm::Phase || p.source == Some(AskArm::Draft)) && p.asked.is_empty() && group.iter().any(|q| !q.asked.is_empty())
 }
 
 /// The events of a legacy step that asked nothing are the first events of what the native steps of `group` pushed (after the ones owed): the string
@@ -1360,6 +1356,8 @@ struct LegacyRun {
     /// For each record, the scripted entry (the place in the group's questions, then the ones ahead) that answered it.
     by: Vec<usize>,
     events: Vec<String>,
+    /// The follower's answers the string was not offered (the error texts), also where the step swallowed the error.
+    diverged: Vec<String>,
 }
 
 impl LegacyRun {
@@ -1406,6 +1404,9 @@ impl LegacyRun {
     }
 }
 
+/// The bound of the steps [`run_legacy`] adds inside one multi-ask's expansion (a payment of many atoms; defensive).
+const MID_ENTRY_STEPS: usize = 32;
+
 /// Step the legacy game once with the answers of `group` (and then the `ahead` ones, which a question the string asks inside the step
 /// takes); what the step did not use is dropped.
 fn run_legacy(legacy: &mut MaskSubject<LegacyMask>, group: &[Played], ahead: &[(Option<String>, crate::oracle::Scripted)]) -> LegacyRun {
@@ -1418,12 +1419,20 @@ fn run_legacy(legacy: &mut MaskSubject<LegacyMask>, group: &[Played], ahead: &[(
     for (player, a) in ahead {
         legacy.answer_scripted(player.clone(), a.clone());
     }
-    let info = legacy.step();
+    let mut info = legacy.step();
+    // One native question the string asks over several of its steps (a payment it asks an atom per step): the string is stepped on while its
+    // next question is the rest of that expansion, so the run ends where the native question does.
+    let mut again = 0;
+    while info.error.is_none() && again < MID_ENTRY_STEPS && legacy.next_is_mid_entry() {
+        info = legacy.step();
+        again += 1;
+    }
     let by = legacy.answered_by();
+    let diverged = legacy.diverged();
     legacy.clear_script();
     let records = crate::legacy_adapter::thin_records(legacy.peek_records());
     let events = legacy.peek_events().to_vec();
-    LegacyRun { info, records, by, events }
+    LegacyRun { info, records, by, events, diverged }
 }
 
 /// Step the legacy game once with the answers of `group` and compare.
@@ -1506,7 +1515,9 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
     let l = run.questions(&asked);
     let l = legacy_prefix(strict, l, n.len());
     if let Some(d) = crate::native_subject::first_leaf(&Value::Array(l.clone()), &Value::Array(n.clone())) {
-        let known = if s1_in_questions(&legacy.game().state, &d.path, &n, &l) {
+        // (S1 also where the string's step swallowed the error of the seat it asked first -- a window opened inside an `emit` whose result is
+        // dropped -- and went on without that seat's question.)
+        let known = if s1_in_questions(&legacy.game().state, &d.path, &n, &l) || run.diverged.iter().any(|e| s1_in_error(&legacy.game().state, e)) {
             Some(KNOWN_S1)
         } else {
             (flips_a_phase(&arms) && order_in_questions(s2_orders_differ(&legacy.game().state), &d.path, &n, &l)).then_some(KNOWN_S2)
@@ -2105,7 +2116,7 @@ mod tests {
         // The next group's legacy events must open with it.
         let mut next = Owed { native: vec!["INVENTED".to_owned()], legacy: Vec::new(), announced: Vec::new() };
         let nothing: Vec<Played> = vec![Played { arm: Arm::Tokens, source: None, asked: Vec::new(), events: Vec::new(), announced: 0, finished: false }];
-        let run = LegacyRun { info: run.info, records: Vec::new(), by: Vec::new(), events: vec!["OTHER".to_owned()] };
+        let run = LegacyRun { info: run.info, records: Vec::new(), by: Vec::new(), events: vec!["OTHER".to_owned()], diverged: Vec::new() };
         let d = compare_run(&mut legacy, &native, &base, &nothing, &run, &mut next, false).expect("the string pushed another line than the one owed");
         assert_eq!((d.what, d.native.as_str(), d.legacy.as_str()), ("events", "INVENTED", "OTHER"));
     }
@@ -2202,7 +2213,8 @@ mod tests {
     fn the_shadow_run_agrees_with_the_legacy_game_for_the_whole_quick_game() {
         let shadowed = shadow_play(&lobby_spec("sol", 4, 1), 2_000, 50).expect("builds");
         assert!(shadowed.first_difference.is_none(), "{:?}", shadowed.first_difference);
-        assert_eq!(shadowed.compared, 808, "every legacy step of the game was compared");
+        // (933 since the multi-ask line: the bot answers fewer questions, the game takes another path.)
+        assert_eq!(shadowed.compared, 933, "every legacy step of the game was compared");
         assert!(matches!(shadowed.played.end, End::Finished), "{:?}", shadowed.played.end);
     }
 
@@ -2586,6 +2598,10 @@ mod tests {
         state.active = Some(ids[0].clone());
         assert!(!s1_in_questions(&state, "[0].options[0]", &[q("a", &flipped)], &[q("a", &reaction)]), "the same order");
         assert!(!s1_in_questions(&state, "[0].options[0]", &[q("a", &reaction)], &[own("d")]), "the same order");
+        // (The error the string swallowed -- its step goes on without the seat it asked first -- is the follower's kept text, bare.)
+        let swallowed = r#"script wanted "reaction:l1z1x:ACTION_CARD_PLAYED:when" but c was offered ["reaction:xxcha:ACTION_CARD_PLAYED:when", "decline"]"#;
+        assert!(order_in_error(true, swallowed) && !order_in_error(false, swallowed));
+        assert!(!order_in_error(true, r#"script wanted "trade_good" but c was offered ["exhaust|x"]"#), "no reaction");
     }
 
     /// S2: the windows of the flip into a strategy phase are ordered by the string's stale context (the seating list), the ruling's order is the speaker's.
@@ -2623,7 +2639,7 @@ mod tests {
     #[test]
     fn a_legacy_step_that_did_and_said_nothing_is_idle_against_a_group_that_pushed_events() {
         let info = crate::oracle::StepInfo { phase: "action".to_owned(), active: None, finished: false, error: None, resolved_choice: false };
-        let run = |events: &[&str]| LegacyRun { info: info.clone(), records: Vec::new(), by: Vec::new(), events: events.iter().map(|e| (*e).to_owned()).collect() };
+        let run = |events: &[&str]| LegacyRun { info: info.clone(), records: Vec::new(), by: Vec::new(), events: events.iter().map(|e| (*e).to_owned()).collect(), diverged: Vec::new() };
         let pushed = Played { arm: Arm::Phase, source: None, asked: Vec::new(), events: vec!["STATUS_PHASE_BEGAN".to_owned()], announced: 0, finished: true };
         let silent = Played { events: Vec::new(), ..pushed.clone() };
         assert!(steps_idle(&run(&[]), std::slice::from_ref(&pushed)));
@@ -2632,9 +2648,11 @@ mod tests {
     }
 
     /// The helper of the shadow's grouping: a native step that flips the phase, or makes the forced last pick of the draft, asks nothing and does not
-    /// join a group that still holds answers (once).
+    /// join a group that still holds answers -- also the second time, when the group compared first was cut and its tail still holds answers (the
+    /// last two passes of an action phase in one group, the string asking the second in a step of its own: l1z1x 3p and sol 6p seed 1 on the
+    /// multi-ask line flipped the phase into the tail's group, whose legacy step ends at the pass).
     #[test]
-    fn a_phase_flip_or_a_forced_pick_opens_its_own_group_once() {
+    fn a_phase_flip_or_a_forced_pick_opens_its_own_group() {
         let played = |arm: Arm, source: Option<AskArm>, asks: usize| Played {
             arm,
             source,
@@ -2646,14 +2664,15 @@ mod tests {
         let holding = [played(Arm::Ask, Some(AskArm::Tokens), 1)];
         let flip = played(Arm::Phase, None, 0);
         let pick = played(Arm::Ask, Some(AskArm::Draft), 0);
-        assert!(opens_a_step_of_its_own(&flip, &holding, false));
-        assert!(opens_a_step_of_its_own(&pick, &holding, false));
-        assert!(!opens_a_step_of_its_own(&flip, &holding, true), "held back once");
-        assert!(!opens_a_step_of_its_own(&flip, &[], false), "nothing to be held apart from");
-        assert!(!opens_a_step_of_its_own(&flip, &[played(Arm::Ask, Some(AskArm::Tokens), 0)], false), "a group without answers");
-        assert!(!opens_a_step_of_its_own(&played(Arm::Phase, None, 1), &holding, false), "a flip that asks joins");
-        assert!(!opens_a_step_of_its_own(&played(Arm::Secondary, None, 0), &holding, false), "another arm joins");
-        assert!(!opens_a_step_of_its_own(&played(Arm::Ask, Some(AskArm::Tokens), 0), &holding, false), "another source joins");
+        assert!(opens_a_step_of_its_own(&flip, &holding));
+        assert!(opens_a_step_of_its_own(&pick, &holding));
+        let tail = [played(Arm::Ask, Some(AskArm::ActionMenu), 1), played(Arm::EventScoring, None, 0)];
+        assert!(opens_a_step_of_its_own(&flip, &tail), "held back again behind the tail of a cut group");
+        assert!(!opens_a_step_of_its_own(&flip, &[]), "nothing to be held apart from");
+        assert!(!opens_a_step_of_its_own(&flip, &[played(Arm::Ask, Some(AskArm::Tokens), 0)]), "a group without answers");
+        assert!(!opens_a_step_of_its_own(&played(Arm::Phase, None, 1), &holding), "a flip that asks joins");
+        assert!(!opens_a_step_of_its_own(&played(Arm::Secondary, None, 0), &holding), "another arm joins");
+        assert!(!opens_a_step_of_its_own(&played(Arm::Ask, Some(AskArm::Tokens), 0), &holding), "another source joins");
     }
 
     /// Integration 15 (M2): the Xxcha seat of the 6-player sol table plays Exploration Probe from the menu at native step 270; the frontier token it
