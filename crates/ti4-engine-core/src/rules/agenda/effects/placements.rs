@@ -61,16 +61,28 @@ impl Resolve {
         board::controlled_planets(core, seat).as_slice().iter().find(|(system, _)| Some(*system) == home).copied()
     }
 
-    /// Rearmament Agreement, For: a mech onto every seat's home planet.
+    /// Rearmament Agreement, For: a mech onto every seat's home planet. "Each player places 1 mech from their reinforcements": the
+    /// seat's own form (`placed_unit`: Jol-Nar's J.N.S. 4.0 `jolnar_mech`, not the plain `mech`), refused when its reinforcements hold
+    /// none (31.4) or a faction effect forbids the placement. The string places the PLAIN `mech` for every seat but the Naaz
+    /// (`docs/STRING_ENGINE_BUGS.md` S9); the core does not copy that. No roster in the facts: the effect is the string's.
     pub(super) fn mechs(&mut self, sx: &mut Sx<'_>) -> Next {
         let scope = self.facts.as_ref().map_or(crate::tables::Scope(0), |f| f.scope);
+        let Some(roster) = self.facts.as_ref().and_then(|f| f.roster) else {
+            self.unsupported = true;
+            self.stage = Stage::Done;
+            return Next::Done;
+        };
         for seat in everyone(sx.state).as_slice() {
             let Some((system, planet)) = Self::home_planet(sx.state, *seat) else { continue };
             // Naaz's printed Maximum forbids new mechs and its fourth Eidolon opens Synergy: its mech is its own form.
             let naaz = sx.state.players().by_seat(*seat).is_some_and(|p| p.faction == Faction::TheNaazRokhaAlliance);
-            let mech = if naaz { Unit::Eidolon } else { Unit::FactionlessMech };
+            if !naaz {
+                let _ = fx_strategy::place_for(sx.state, sx.kernel, scope, roster, *seat, system, Some(planet), UnitBaseType::Mech);
+                continue;
+            }
+            let mech = Unit::Eidolon;
             let k = sx.kernel;
-            if k.hooks.economy.effect_placement_forbidden(sx.state, k, *seat, mech) || (naaz && (maximum_on_board(sx.state, *seat) || crate::query::fleet::remaining_all(sx.state, scope, *seat, mech) <= 0)) {
+            if k.hooks.economy.effect_placement_forbidden(sx.state, k, *seat, mech) || maximum_on_board(sx.state, *seat) || crate::query::fleet::remaining_all(sx.state, scope, *seat, mech) <= 0 {
                 continue;
             }
             fx::place_unit(sx.state, *seat, system, Some(planet), mech);

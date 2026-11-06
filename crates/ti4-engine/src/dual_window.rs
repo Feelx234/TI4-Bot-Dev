@@ -1500,6 +1500,27 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
         roster: crate::technology_core::roster_for(ti4_content::ContentStore::embedded(), a.sources),
         redistribution: r.code("redistribution"),
     };
+    // Rearmament Agreement (For): the string places the PLAIN mech for every seat but the Naaz and does not ask its reinforcements; the
+    // core places the seat's own mech from its reinforcements. Known string bug S9 (docs/STRING_ENGINE_BUGS.md): the core's side is cut
+    // to the string's form (a roster whose mechs are plain); a seat whose reinforcements hold no mech would still differ, so that
+    // position stays the string's.
+    let facts = if agenda == Agenda::RearmamentAgreement && outcome == ti4_engine_core::keys::Outcome::For {
+        let content = ti4_content::ContentStore::embedded();
+        let mech = ti4_model::id::UnitTypeId::new("mech");
+        let short = gs.players.iter().any(|p| {
+            p.faction.as_str() != "naaz"
+                && !crate::factions::hooks_economy::effect_placement_forbidden(gs, content, a.sources, &p.id, &mech)
+                && crate::supply::allowed(gs, content, a.sources, &p.id, &mech, 1) == 0
+        });
+        if short {
+            crate::dual::note_bail_here("known string bug S9: Rearmament Agreement (For) places a mech the reinforcements do not hold");
+            return None;
+        }
+        crate::dual::note_known_string_bug(crate::dual_window::current_label(), "S9", "Rearmament Agreement (For) places the plain mech");
+        EffectFacts { roster: crate::technology_core::string_rearmament_roster_for(content, a.sources), ..facts }
+    } else {
+        facts
+    };
     let window = Resolve::of_facts(agenda, outcome, &facts).why("an agenda whose effect the core has no window for")?;
     if window.draws() && gs.deck_reserve.is_some() {
         crate::dual::note_bail_here("deck reserve");

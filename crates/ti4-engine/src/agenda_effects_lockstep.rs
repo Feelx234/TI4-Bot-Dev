@@ -444,6 +444,28 @@ fn the_placing_halves_have_a_window() {
     assert!(core_half(&mut state, "plowshares", FOR, &Ballot::default()).is_some());
 }
 
+/// Known string bug S9 (`docs/STRING_ENGINE_BUGS.md`): Rearmament Agreement (For) places the PLAIN mech for a Jol-Nar seat in the string,
+/// the seat's own J.N.S. Hylarim in the core. The dual cuts the core's side to the string's form, so the window is compared with no
+/// difference and counted under the S9 label; the string's plain mech stands. A seat whose reinforcements hold no mech stays the string's
+/// (a counted bail with the S9 reason).
+#[test]
+fn rearmament_for_is_compared_with_the_core_cut_to_the_strings_plain_mech_s9() {
+    let s9 = "agenda_effects::resolve_with [known string bug S9: Rearmament Agreement (For) places the plain mech]";
+    let (compared, bailed) = counted(|| {
+        let mut state = crate::fixtures::seated_game(&[("a", "jolnar"), ("b", "sol")], POK);
+        state.phase = Phase::Agenda;
+        state.speaker = pid("a");
+        state.player_mut(&pid("a")).unwrap().home_system = Some(SystemId::new("12"));
+        garrison(&mut state, "jol", "a", &[]);
+        run(&mut state, "rearmament", FOR, &Ballot::default());
+        let mechs = |s: &GameState, planet: &str, kind: &str| s.system_state(&system_of(planet)).planet_units.get(&PlanetId::new(planet)).map_or(0, |u| u.iter().filter(|u| u.type_id.as_str() == kind).count());
+        assert_eq!((mechs(&state, "jol", "mech"), mechs(&state, "jol", "jolnar_mech")), (1, 0), "the string's plain mech stands on the dual");
+        let windows = crate::dual::report().windows;
+        assert_eq!(windows.get(s9).map(|w| w.compared), Some(1), "{:?}", windows.keys().collect::<Vec<_>>());
+    });
+    assert_eq!((compared, bailed), (1, 0));
+}
+
 /// The relic deck (Minister of Antiquities), the technology question (Research Grant Reallocation) and Galactic
 /// Crisis Pact (a question per seat, then a strategy card's secondary) stay string (B9-bail-03).
 #[test]

@@ -172,6 +172,27 @@ be performed once attached."
 * What a fix of the string would need (not done, user rule): an arm in `use_relic` and an entry in `action_aliases` (the attachment record and its +2/+2 exist); it adds an option
   to the menu of recorded games, so behind a `RULES_VERSION`.
 
+## S9. Rearmament Agreement, For: the string places the PLAIN mech (and ignores the reinforcements) for every seat but the Naaz
+
+Found by lane core-jolnar-mech-1 (2026-11-06, `docs/JOLNAR_MECH_RESUME.md`): bench-v2 seed 69 (4p 4pHyperlanes arborec,yin,jolnar,xxcha), round 5, the speaker
+decides Rearmament Agreement For; a plain `mech` appears on Jol, Nestphar and Archon Ren (Jol-Nar, Arborec, Xxcha homes) and stays plain until a technology gain
+or Rin re-forms it. Printed card (`agendas.json`, alias `rearmament`): "For: Each player places 1 mech from their reinforcements on a planet they control in their
+home system."
+
+* What the string does (`agenda_effects::effect_rearmament`): pushes `UnitTypeId("mech")` for every seat but the Naaz (`naaz_mech`), with no supply check for
+  them; the next `apply_unit_upgrades` of that seat (any technology gained, Rin's swap) turns it into the faction's own form.
+* What the core did until this lane: the same (`FactionlessMech`, copied on purpose by lane core-lent-gaps, `LENT_GAPS_RESUME.md` section 3).
+* What the core does now (`rules/agenda/effects/placements.rs::mechs`): the seat's own form through `fx_strategy::place_for` (`placed_unit`: J.N.S. Hylarim
+  for the Jol-Nar, the Letani Behemoth for the Arborec, ...), refused when the reinforcements hold none (31.4) or a faction effect forbids it; the Naaz path is
+  unchanged. Without a unit roster in the facts the effect is `unsupported`. Test: `agenda_table_effects2::rearmament_for_places_each_seats_own_mech_from_its_reinforcements`.
+* Who is right: the core (the reinforcements of a faction with its own mech hold that mech; there is no plain mech in them).
+* The harness: the dual window (`dual_window::agenda_effect`) cuts the core's side to the string's form (a roster whose mechs are plain but the Naaz's,
+  `technology_core::string_rearmament_roster_for`) and counts the window as `agenda_effects::resolve_with [known string bug S9: ...]` (compared, never a bail);
+  a position where a non-Naaz seat's reinforcements hold no mech bails with `known string bug S9: ... the reinforcements do not hold` (the string would place a
+  fifth one). The whole-game shadow reports a difference in a step whose string events hold `AGENDA_EFFECT_RESOLVED:rearmament` as `(known string bug S9)`
+  (`native_play::effect_bug`) and cannot play on past it.
+* What a fix of the string would need (not done, user rule): `placed_unit_id(.., "mech")` and `supply::allowed` in `effect_rearmament`.
+
 ## Harness limits found on the way (the shadow's, not the engines')
 
 * H1. A game the string has not stepped yet carries its galaxy with `hyperlane_lanes` off (`laws::apply_to_galaxy` runs at the start of every step). The core
