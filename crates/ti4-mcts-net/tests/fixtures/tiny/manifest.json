@@ -1,0 +1,13 @@
+{
+ "records": 24,
+ "options": 359,
+ "tolerance": 0.0001,
+ "feature_version": 1,
+ "weights": "weights.t4w",
+ "outputs": [
+  "out_win.npy",
+  "out_vp.npy",
+  "out_logits.npy"
+ ],
+ "inputs": "inputs"
+}

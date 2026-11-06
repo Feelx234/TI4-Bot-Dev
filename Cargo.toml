@@ -33,6 +33,7 @@ members = [
     "crates/ti4-wasm",
     "crates/ti4-mcts-features",
     "crates/ti4-mcts-lab",
+    "crates/ti4-mcts-net",
     "crates/xtask",
 ]
 

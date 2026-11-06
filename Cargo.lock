@@ -4289,6 +4289,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ti4-mcts-net"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "ti4-mcts-features",
+]
+
+[[package]]
 name = "ti4-mlp"
 version = "0.1.0"
 dependencies = [
