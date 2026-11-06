@@ -11,6 +11,10 @@
 // a string-engine area, down to the real size plus ~3%; the end state is below the old 1.8 / 1.3 MB.
 // 2026-11-04 (heavy-prep, int-23 line, binaryen 123 wasm-opt): shipped file 6 432 131 / 2 041 438 / 1 469 073
 // (raw/gzip/brotli); budget set to real +3% rounded up: 6.63 / 2.11 / 1.52 MB (was 7.0 / 2.4 / 1.8).
+// 2026-11-06 (int-29): 6 630 000 / 2 110 000 / 1 520 000 -> 6 661 206 / 2 126 000 / 1 532 000. The user approved
+// 6 660 000 / 2 126 000 / 1 532 000 for the multi-ask conversion (core-multiask-1, about +30 KB); chance-2 (randomness as
+// a question, +5.9 KB raw alone) on top left the merged real build at 6 661 206 / 2 120 780 / 1 524 274, so raw is
+// raised by exactly the 1 206 B left over after the cheap trims were assessed (docs/INTEGRATION29.md section 3).
 import { readFileSync, appendFileSync } from "node:fs";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 
