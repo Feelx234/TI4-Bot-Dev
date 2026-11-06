@@ -14,7 +14,7 @@
 # Env (heavy-prep 2026-11-04): ALPHA_SKIP (default 1: alpha step skipped with a recorded reason), BENCH_RECORD=1 + BENCH_RECORD_BIN=<legacy selfplay> (re-record the bench baselines at rules version BENCH_RECORD_RV, default 35, instead of only comparing)
 # Env:      ZERO_BAIL (report|enforce, the zero-bail step), CARGO_TARGET_DIR (required except for --dry-run: private, gate/lockstep/dev profiles are built into it),
 #           SHARDS (default 3: two gates fit on 8 cores), WORKERS (benches, default 6), GAMES (golden dual games, default 20),
-#           ALPHA_SRC (default /var/lib/ti4-public), SOAK_GAMES (default 40), BASE_REF (immutable-surface check; default the tag heavy-base-int26 = the tip of core-integration-26 (rules version 36), else heavy-base-int25, heavy-base-int24, core-integration-24, else origin/core-integration-24, else the step FAILS and says so)
+#           ALPHA_SRC (default /var/lib/ti4-public), SOAK_GAMES (default 40), BASE_REF (immutable-surface check; default the tag heavy-base-int27 = the tip of core-integration-27 (rules version 36), else heavy-base-int26, heavy-base-int25, heavy-base-int24, core-integration-24, else origin/core-integration-24, else the step FAILS and says so)
 #
 # The lane: the script re-executes itself under /root/heavy2.sh (the two-slot lock) and holds it for the whole run. Never start it
 # outside a quiet window and never together with another gate that holds both slots. Nothing here edits the checkout; the
@@ -72,7 +72,7 @@ step() { ids+=("$1"); titles+=("$2"); cmds+=("$3"); }
 
 step layers   "layers of the core (check_layers.py core and thin, engine report)" \
   "python3 -I tools/engine_core/check_layers.py core && python3 -I tools/engine_core/check_layers.py thin && { python3 -I tools/engine_core/check_layers.py engine > $out/layers-engine.txt 2>&1 || true; }"
-# BASE_REF: the flag/env value, else the tag heavy-base-int26 (the tip of core-integration-26), else heavy-base-int25 (core-integration-25), else heavy-base-int24 (the tip of core-integration-24: web/ and state.rs as the rules-version-36 line has them), else
+# BASE_REF: the flag/env value, else the tag heavy-base-int27 (the tip of core-integration-27), else heavy-base-int26 (core-integration-26), else heavy-base-int25 (core-integration-25), else heavy-base-int24 (the tip of core-integration-24: web/ and state.rs as the rules-version-36 line has them), else
 # core-integration-24, else origin/core-integration-24; none of them = the step fails. Why not the live branch tip: the P1 commits of the
 # flip legitimately changed web/ (Thunder's Edge switch gone, screenshots) and state.rs (version handling), so a diff against
 # nightly-fixes-2026-10-26 is never empty; the lint step guards that the heavy run's tip did not touch those surfaces AFTER
@@ -81,9 +81,9 @@ step layers   "layers of the core (check_layers.py core and thin, engine report)
 # D2-9 lane 9a (G7 row 9, docs/D29A_RESUME.md): the production graph and the checker's own self-tests; strict since lane 9b (PROD_GRAPH_MODE=--report only prints the violations). Only when the script exists.
 [[ -x tools/engine_core/check_production_graph.sh ]] && step prod-graph "production graph: no legacy / lend-string in any production crate (mode: ${PROD_GRAPH_MODE:-strict}), self-tests" \
   "tools/engine_core/check_production_graph.sh --self-test && tools/engine_core/check_output_probes.sh --self-test && tools/engine_core/check_production_graph.sh ${PROD_GRAPH_MODE-}"
-step lint     "core hygiene (lint_core.sh) and the immutable surfaces against ${BASE_REF:-heavy-base-int26}" \
-  "base='$BASE_REF'; if [[ -z \$base ]]; then for r in heavy-base-int26 heavy-base-int25 heavy-base-int24 core-integration-24 origin/core-integration-24; do git rev-parse -q --verify \$r^{commit} >/dev/null && { base=\$r; break; }; done; fi; \
-   [[ -n \$base ]] && git rev-parse -q --verify \$base^{commit} >/dev/null || { echo \"lint: no usable base ref (\$base; tried heavy-base-int26, heavy-base-int25, heavy-base-int24, core-integration-24, origin/core-integration-24): pass --base-ref REF\"; exit 1; }; \
+step lint     "core hygiene (lint_core.sh) and the immutable surfaces against ${BASE_REF:-heavy-base-int27}" \
+  "base='$BASE_REF'; if [[ -z \$base ]]; then for r in heavy-base-int27 heavy-base-int26 heavy-base-int25 heavy-base-int24 core-integration-24 origin/core-integration-24; do git rev-parse -q --verify \$r^{commit} >/dev/null && { base=\$r; break; }; done; fi; \
+   [[ -n \$base ]] && git rev-parse -q --verify \$base^{commit} >/dev/null || { echo \"lint: no usable base ref (\$base; tried heavy-base-int27, heavy-base-int26, heavy-base-int25, heavy-base-int24, core-integration-24, origin/core-integration-24): pass --base-ref REF\"; exit 1; }; \
    echo \"lint: immutable surfaces against \$base\"; \
    tools/engine_core/lint_core.sh && git diff --exit-code \$base -- web/ crates/ti4-model/src/state.rs ':!docs/RULES_VERSION.md' && { git diff \$base -- docs/RULES_VERSION.md | grep -E '^[-+][^-+]' | grep -v -i refus > /dev/null && { echo \"RULES_VERSION.md: a hunk other than the refusal note changed\"; exit 1; } || true; }"
 step build    "gate-profile binaries (selfplay, every bridge bin)" \

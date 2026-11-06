@@ -1,5 +1,7 @@
 # Heavy run plan (prepared 2026-11-04 by lane core-heavy-prep; brought to RULES_VERSION 36 by core-integration-24)
 
+**Updated for `core-integration-27` (2026-11-06; see `docs/INTEGRATION27.md`).** `core-integration-27` = `core-heavyfix-1` (the fixes for the six steps that failed in round 2: `tests`, the four benches, `zero-bail`; `docs/HEAVYFIX1_RESUME.md`). Lint base: the tag `heavy-base-int27` (its tip; `web/` and `state.rs` equal `heavy-base-int26`, checked). A re-run uses the same command as 12.3/12.4 with that tag and a fresh out dir.
+
 **Updated for `core-integration-26` (2026-11-05; see `docs/INTEGRATION26.md`).** Lint base: the tag `heavy-base-int26` (the tip of `core-integration-26`; `web/` and `state.rs` equal the int-25 tag, checked). The soak
 lane `old` (rules versions 0..34, refused by the product) is out of the default plan (`soak_corpus.py lanes`; `lanes --all`, `LANES=old` and `gen old` still make it). Run A (`/root/end-of-d1-20261105`) failed `dual-lent`,
 `zero-bail`, `soak` and `d4gate`; the fixes are merged in int-26 (`DUALLENT_FIX_RESUME.md`, `LENT_GAPS_RESUME.md`, `ZEROBAIL_RESUME.md`), and the re-run ("run A, round 2") is started per section 12.3 with the out dir `/root/end-of-d1-<date>-r2`. Everything below
