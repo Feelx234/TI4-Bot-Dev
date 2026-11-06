@@ -165,6 +165,9 @@ pub enum Scripted {
     /// then `no`; each payment from `atoms` as for [`Self::Set`]). The pool of each token is the next entry's (the core's gain question
     /// after the purchase): the entry lets it through. `bought` counts the follower's yes of a secondary, which is the first purchase.
     Leadership { buys: u8, bought: u8, atoms: Vec<String> },
+    /// The hand limit: a question per card while the string asks "over the hand limit", answered with the option whose LABEL (the card's
+    /// printed name) is the first of the list it offers (the string's ids are places in the hand, which move as cards go).
+    Labels(Vec<String>),
 }
 
 /// What an entry does with a question of the string.
@@ -195,6 +198,18 @@ impl Scripted {
                 Some(id) => Verdict::Answer(id, ids.is_empty()),
                 None => Verdict::Drop,
             },
+            Self::Labels(names) => {
+                let found = choice.prompt.starts_with("over the hand limit")
+                    .then(|| names.iter().enumerate().find_map(|(i, name)| choice.options.iter().find(|o| o.label == *name).map(|o| (i, o.id.clone()))))
+                    .flatten();
+                match found {
+                    Some((i, id)) => {
+                        names.remove(i);
+                        Verdict::Answer(id, names.is_empty())
+                    }
+                    None => Verdict::Drop,
+                }
+            }
             Self::Leadership { buys, bought, atoms } => {
                 if choice.prompt.contains("influence for a command token") {
                     if bought < buys {

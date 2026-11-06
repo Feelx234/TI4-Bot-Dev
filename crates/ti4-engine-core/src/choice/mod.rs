@@ -260,8 +260,16 @@ impl Choice {
             Ask::Production(production::Ask::Pay(ask)) => production::set_from(&ask, self.atoms().as_slice(), index).map(set),
             // Leadership's purchase: one token (at least the question's minimum), paid with that atom first.
             Ask::Production(production::Ask::Purchase(ask)) => production::purchase_set(&ask, self.atoms().as_slice(), ask.min.max(1), index).map(set),
+            Ask::Cards(cards::Ask::HandLimit { discard, .. }) => {
+                cards::discard_from(self.cards().as_slice(), discard, index).map(|counts| Pick::Opt(Opt::Cards(cards::Opt::DiscardSet { counts: cards::Counts::of(counts) })))
+            }
             _ => self.opts.as_slice().get(index).map(|o| Pick::Opt(*o)),
         }
+    }
+
+    /// The card options of a hand limit question, in option order.
+    fn cards(&self) -> SmallList<cards::Opt, 16> {
+        self.opts.iter().filter_map(|o| if let Opt::Cards(c) = o { Some(*c) } else { None }).collect()
     }
 
     /// The payment atoms of a multi-pick, in option order.
@@ -285,7 +293,7 @@ impl Choice {
     /// set of them ([`Self::accepts`]), never one of the options itself. Today: the payment question.
     #[must_use]
     pub const fn is_multi_pick(&self) -> bool {
-        matches!(self.ask, Ask::Production(production::Ask::Pay(_) | production::Ask::Purchase(_)))
+        matches!(self.ask, Ask::Production(production::Ask::Pay(_) | production::Ask::Purchase(_)) | Ask::Cards(cards::Ask::HandLimit { .. }))
     }
 
     /// The canonical answer (an unattended seat, a test's "first option"): the first option, or for a multi-pick the canonical set
@@ -324,6 +332,10 @@ impl Choice {
                 out.truncate(limit);
                 out
             }
+            Ask::Cards(cards::Ask::HandLimit { discard, .. }) => {
+                let n = self.opts.len();
+                (0..n).filter_map(|i| cards::discard_from(self.cards().as_slice(), discard, i)).take(limit).map(|counts| Pick::Opt(Opt::Cards(cards::Opt::DiscardSet { counts: cards::Counts::of(counts) }))).collect()
+            }
             _ => self.opts.iter().take(limit).map(|o| Pick::Opt(*o)).collect(),
         }
     }
@@ -338,6 +350,9 @@ impl Choice {
             }
             (Ask::Production(production::Ask::Purchase(ask)), Pick::Opt(Opt::Production(production::Opt::Set(set)))) => {
                 production::purchase_worth(&ask, self.atoms().as_slice(), *set).is_some()
+            }
+            (Ask::Cards(cards::Ask::HandLimit { discard, .. }), Pick::Opt(Opt::Cards(cards::Opt::DiscardSet { counts }))) => {
+                cards::discard_set_ok(self.cards().as_slice(), discard, counts.bits())
             }
             (_, Pick::Opt(o)) => !self.is_multi_pick() && self.opts.iter().any(|x| x == o),
             (_, Pick::Number(_)) => matches!(self.ask, Ask::Generic(generic::Ask::Count { .. })),

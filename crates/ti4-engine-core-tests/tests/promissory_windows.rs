@@ -231,7 +231,7 @@ fn mageon_implants_takes_a_single_card_unasked_and_a_hand_over_the_limit_asks_wh
     let seven = [ActionCard::Rally, ActionCard::NavSuite, ActionCard::CoupDEtat, ActionCard::Spy, ActionCard::Sabotage1, ActionCard::Veto, ActionCard::Uprising];
     let mut over = mageon(&seven, &[ActionCard::Plague], true);
     over.run();
-    assert!(matches!(over.asked().ask, Ask::Cards(CAsk::HandLimit { held: 8 })), "seven cards and the one taken: {:?}", over.asked().ask);
+    assert!(matches!(over.asked().ask, Ask::Cards(CAsk::HandLimit { held: 8, discard: 1 })), "seven cards and the one taken: {:?}", over.asked().ask);
     over.pick(0);
     assert!(over.is_done());
     assert_eq!(over.state.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 7);

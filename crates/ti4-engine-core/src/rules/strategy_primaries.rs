@@ -1008,7 +1008,7 @@ mod tests {
             status = d.resume(&mut s, &k, choice.pick(0).unwrap()).unwrap();
         }
         assert_eq!(asked[0], Ask::Strategy(SAsk::PoliticsSpeaker));
-        assert_eq!(asked[1], Ask::Cards(crate::choice::cards::Ask::HandLimit { held: 8 }));
+        assert_eq!(asked[1], Ask::Cards(crate::choice::cards::Ask::HandLimit { held: 8, discard: 1 }));
         assert!(matches!(asked[2], Ask::Strategy(SAsk::PoliticsAgendas { .. })), "both agendas in one question: {asked:?}");
         assert_eq!(asked.len(), 3);
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 7);

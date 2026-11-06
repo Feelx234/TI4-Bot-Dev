@@ -902,7 +902,7 @@ mod tests {
         let mut d = Driver::new(close(law(), Some(Outcome::For)), Resolver::new(&[A], Some(A)), linked(true), 1);
         let Status::Asking(choice) = d.run(&mut s, &k).unwrap() else { panic!("eight cards: a discard") };
         assert_eq!(choice.actor, C);
-        assert_eq!(choice.ask, Ask::Cards(crate::choice::cards::Ask::HandLimit { held: 8 }));
+        assert_eq!(choice.ask, Ask::Cards(crate::choice::cards::Ask::HandLimit { held: 8, discard: 1 }));
         assert_eq!(s.meta().speaker, Seat(0), "the token waits for the discard");
         assert_eq!(d.resume(&mut s, &k, choice.pick(0).unwrap()).unwrap(), Status::Done);
         assert_eq!(s.players().by_seat(C).unwrap().cards.hand.len(), 7);

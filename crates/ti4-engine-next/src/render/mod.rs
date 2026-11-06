@@ -565,6 +565,16 @@ pub fn render_choice(r: &Render, c: &core::Choice, phase_now: CorePhase, round: 
     let options: Vec<_> = c.opts.iter().map(|o| option(r, &c.ask, o)).collect();
     let multi_pick = match &c.ask {
         Ask::Production(a) => production::multi_pick(a, &options),
+        // The hand limit: exactly `discard` cards, a printed name up to its copies.
+        Ask::Cards(ti4_engine_core::choice::cards::Ask::HandLimit { discard, .. }) => Some(crate::wire::choice::MultiPick {
+            kind: "discard".to_owned(),
+            owed: i64::from(*discard),
+            repeat: c.opts.iter().zip(&options).filter_map(|(o, r)| match o {
+                core::Opt::Cards(ti4_engine_core::choice::cards::Opt::Discard { copies, .. }) if *copies > 1 => Some((r.id.clone(), u32::from(*copies))),
+                _ => None,
+            }).collect(),
+            buy: None,
+        }),
         _ => None,
     };
     Choice {

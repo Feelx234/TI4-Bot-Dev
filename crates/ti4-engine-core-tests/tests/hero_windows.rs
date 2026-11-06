@@ -287,7 +287,7 @@ fn a_taker_over_the_hand_limit_discards_through_the_hand_limit_window_unless_the
     let mut limited = kyver([&full, &[C[0]], &[]], true);
     limited.run();
     limited.pick_opt(Opt::Leaders(LOpt::KyverTake));
-    assert!(matches!(limited.asked().ask, Ask::Cards(CAsk::HandLimit { held: 8 })), "{}", limited.transcript());
+    assert!(matches!(limited.asked().ask, Ask::Cards(CAsk::HandLimit { held: 8, discard: 1 })), "{}", limited.transcript());
     assert_eq!(limited.asked().actor, Seat(0));
     let mut crafty = kyver([&full, &[C[0]], &[]], false);
     crafty.run();

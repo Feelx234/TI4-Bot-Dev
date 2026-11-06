@@ -108,6 +108,10 @@ pub fn multi_answers(rendered: &ti4_engine::choice::Choice, kind: &str, secondar
             None => atoms.push(part.to_owned()),
         }
     }
+    if kind == "discard" {
+        let label = |id: &str| rendered.options.iter().find(|o| o.id == id).map_or_else(|| id.to_owned(), |o| o.label.clone());
+        return Scripted::Labels(atoms.iter().map(|id| label(id)).collect());
+    }
     atoms.sort_by_key(|id| worth(id));
     if kind == "purchase" { Scripted::Leadership { buys, bought: u8::from(secondary), atoms } } else { Scripted::Set(atoms) }
 }
@@ -143,6 +147,8 @@ pub fn loose_match(player: &str, entry: &Scripted, records: &[(&str, &str, &[Str
         Scripted::Seq(ids) => ids.iter().map(String::as_str).collect(),
         Scripted::Set(ids) => ids.iter().map(String::as_str).collect(),
         Scripted::Leadership { atoms, .. } => atoms.iter().map(String::as_str).chain(["yes", "no"]).collect(),
+        // (The string's ids of a discard are places in the hand: only the seat and that the answer was offered are compared.)
+        Scripted::Labels(_) => return records.iter().all(|(p, chosen, offered)| *p == player && offered.iter().any(|o| o == chosen)),
     };
     records.iter().all(|(p, chosen, offered)| *p == player && allowed.contains(chosen) && offered.iter().any(|o| o == chosen))
 }

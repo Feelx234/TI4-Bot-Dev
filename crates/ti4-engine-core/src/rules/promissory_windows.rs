@@ -887,7 +887,9 @@ mod tests {
         assert!(!q.opts.as_slice().contains(&Opt::Decline));
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 2);
         assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Cards(COpt::Card(C::ALL[9])))), Err(DriverError::Illegal));
-        assert_eq!(d.resume(&mut s, &k, Pick::Opt(q.opts.as_slice()[0])).unwrap(), Status::Done);
+        let pick = q.pick(0).unwrap();
+        assert!(q.accepts(&pick), "{pick:?} {:?}", q.opts);
+        assert_eq!(d.resume(&mut s, &k, pick).unwrap(), Status::Done);
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 2, "one out, one in");
         // No card: nothing resolves. No link to the draw window: the run is declined.
         let mut s = setup(&[]);
@@ -1054,8 +1056,8 @@ mod tests {
         s.decks_mut().action.set(vec![C::ALL[20], C::ALL[21]]);
         let mut d = mageon_driver(true, true, true);
         let Status::Asking(q) = d.run(&mut s, &k).unwrap() else { panic!("asks") };
-        assert_eq!(q.ask, Ask::Cards(CAsk::HandLimit { held: 8 }));
-        assert_eq!(d.resume(&mut s, &k, Pick::Opt(q.opts.as_slice()[0])).unwrap(), Status::Done);
+        assert_eq!(q.ask, Ask::Cards(CAsk::HandLimit { held: 8, discard: 1 }));
+        assert_eq!(d.resume(&mut s, &k, q.pick(0).unwrap()).unwrap(), Status::Done);
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 7);
         assert_eq!(s.decks().action.cards().len(), 2, "the limit window draws no card");
         // Crafty: no limit, no question.

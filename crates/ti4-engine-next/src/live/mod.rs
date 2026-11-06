@@ -206,6 +206,19 @@ pub fn pick_of(r: &Render, choice: &CoreChoice, id: &str) -> Option<ti4_engine_c
         if let Some(at) = rendered.iter().position(|o| o.id == id) {
             return choice.pick(at);
         }
+        if let ti4_engine_core::choice::Ask::Cards(_) = choice.ask {
+            // The hand limit: each part names an option, once per card of that printed name.
+            if let Some(Opt::Cards(set)) = render::parse(r, &choice.ask, id) {
+                return Some(ti4_engine_core::choice::Pick::Opt(Opt::Cards(set)));
+            }
+            let mut counts = 0u64;
+            for part in id.split(crate::wire::choice::MULTI_PICK_SEPARATOR) {
+                let at = rendered.iter().position(|o| o.id == part)?;
+                let n = ti4_engine_core::choice::cards::discard_count(counts, at);
+                counts = ti4_engine_core::choice::cards::with_discard_count(counts, at, n.checked_add(1)?);
+            }
+            return Some(ti4_engine_core::choice::Pick::Opt(Opt::Cards(ti4_engine_core::choice::cards::Opt::DiscardSet { counts: ti4_engine_core::choice::cards::Counts::of(counts) })));
+        }
         let set = render::production::set_of(choice.opts.as_slice(), &rendered, id)?;
         return Some(ti4_engine_core::choice::Pick::Opt(Opt::Production(ti4_engine_core::choice::production::Opt::Set(set))));
     }
