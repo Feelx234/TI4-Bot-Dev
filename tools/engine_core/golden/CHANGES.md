@@ -10,3 +10,10 @@ Append-only, written by `golden bless` / `golden bless-new`. Every changed subty
 - tier Slim, rules version Some(36), 4 games
 - reason: new set
 
+## 2026-11-06 14:57 Berlin  commit ddcabc87d  set v36-std
+- games changed (1): g040.tsv.zst
+- changed subtypes: load_cargo 3, propose_transaction 1
+- reason: Rearmament Agreement For places each seat's own mech from its reinforcements (core-jolnar-mech-1, known string bug S9); user accepted the in-place change at RULES_VERSION 36. Proof: with only rules/agenda/effects/placements.rs reverted the set reproduces (4/4)
+- issue: -
+- bugfix of a frozen set: no
+
