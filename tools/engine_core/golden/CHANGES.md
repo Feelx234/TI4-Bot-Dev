@@ -24,3 +24,9 @@ Append-only, written by `golden bless` / `golden bless-new`. Every changed subty
 - issue: -
 - bugfix of a frozen set: no
 
+
+## 2026-11-06 Berlin  commit 8d6c5dbba  ladder g036 (re-recorded with `golden ladder` after deleting the file; `bless` refuses the ladder as frozen)
+- games changed (1): g036.tsv.zst
+- reason: Multi-ask conversion (core-multiask-1): the token gain is one question over every split; first divergence gain_command_token at step 70 (the old game); the rest follows from the new path
+- issue: -
+- bugfix of a frozen set: no
