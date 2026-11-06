@@ -6,7 +6,7 @@
 //!
 //! * [`Domain`]: the independent streams (dice, Neuraloop, Yssaril hero, Fracture, the decks, setup and seating);
 //! * [`Request`] / [`Kind`]: one roll group, and [`Faces`]: its answer (16 bytes, at most 15 dice);
-//! * [`Streams`]: the seed and the ChaCha8 stream of each domain, with positions, [`Streams::reseed`] and the setup's
+//! * [`Streams`]: the seed and the ChaCha8 stream of each domain, with positions and the setup's
 //!   deck [`Streams::shuffle`];
 //! * [`answer`] / [`answer_mut`]: the one function that turns a request and the streams into faces. It draws exactly
 //!   what today's `die(domain, sides)` calls draw, one die per face, in order, so play stays bit-identical;

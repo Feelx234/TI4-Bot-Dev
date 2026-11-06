@@ -33,7 +33,7 @@ fn new_of(d: RngDomain) -> Domain {
         RngDomain::WideRoster => Domain::WideRoster,
         RngDomain::KeleresVariant => Domain::KeleresVariant,
         RngDomain::YinAscendant => Domain::YinAscendant,
-        RngDomain::Dyn(a, b) => Domain::Dyn(a, b),
+        RngDomain::Dyn(..) => panic!("ti4-chance has no dynamic domains (D3)"),
     }
 }
 
@@ -86,22 +86,19 @@ fn domains_texts_seeds_and_order_are_todays() {
     for (i, old) in OLD.into_iter().enumerate() {
         let new = new_of(old);
         assert_eq!(new, Domain::LITERALS[i], "the literal list is in domain order");
-        assert_eq!(new.text(), domain_text(old), "{old:?}");
-        assert_eq!(Domain::of_text(new.text().unwrap()), Some(new));
+        assert_eq!(Some(new.text()), domain_text(old), "{old:?}");
+        assert_eq!(Domain::of_text(new.text()), Some(new));
         for seed in [0, 1, 7, u64::MAX, 0x5eed_1234_abcd] {
-            let text = new.text().unwrap();
+            let text = new.text();
             assert_eq!(derive_seed(seed, text), ti4_engine_core_setup::rng::derive_seed(seed, text));
         }
     }
-    let mut all: Vec<RngDomain> = OLD.to_vec();
-    all.extend([RngDomain::Dyn(0, 0), RngDomain::Dyn(0, 9), RngDomain::Dyn(3, 1)]);
+    let all: Vec<RngDomain> = OLD.to_vec();
     for a in &all {
         for b in &all {
             assert_eq!(a.cmp(b), new_of(*a).cmp(&new_of(*b)), "{a:?} vs {b:?}: positions are reported in domain order");
         }
     }
-    assert_eq!(domain_text(RngDomain::Dyn(1, 0)), None);
-    assert_eq!(Domain::Dyn(1, 0).text(), None);
 }
 
 #[test]
