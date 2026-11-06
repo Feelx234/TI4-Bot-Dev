@@ -114,22 +114,23 @@ impl<W: Window> Rig<W> {
         self.kit = self.seed.map(kit_rng);
     }
 
-    /// One driver call with the rig's own streams in the position (when seeded): the dice come from them at the position's stream
-    /// positions, and the positions they reached are written back into `state.rng`.
+    /// One driver call, then every chance question it stops at answered (lane C3: the core asks for each random event; the rig is its
+    /// resolver). Seeded, the faces come from the rig's own streams standing at the position's stream positions, and the positions they
+    /// reached are written back into `state.rng`; else from the position's streams (`ti4_engine_chance::settle`).
     fn drive(&mut self, f: impl FnOnce(&mut Driver<W>, &mut CoreState, &Kernel) -> Result<Status, DriverError>) -> Result<Status, DriverError> {
-        if let Some(kit) = self.kit.as_mut() {
-            kit.set_positions(&self.state.rng.positions().collect::<Vec<_>>());
-            std::mem::swap(&mut self.state.rng, kit);
-        }
         let r = f(&mut self.driver, &mut self.state, &self.kernel);
-        if let Some(kit) = self.kit.as_mut() {
-            std::mem::swap(&mut self.state.rng, kit);
-            let reached: Vec<_> = kit.positions().collect();
-            if !self.state.rng.positions().eq(reached.iter().copied()) {
-                self.state.rng.set_positions(&reached);
+        match self.kit.as_mut() {
+            Some(kit) => {
+                kit.set_positions(&self.state.rng.positions().collect::<Vec<_>>());
+                let r = ti4_engine_chance::settle_from(&mut self.driver, &mut self.state, &self.kernel, r, kit);
+                let reached: Vec<_> = kit.positions().collect();
+                if !self.state.rng.positions().eq(reached.iter().copied()) {
+                    self.state.rng.set_positions(&reached);
+                }
+                r
             }
+            None => ti4_engine_chance::settle(&mut self.driver, &mut self.state, &self.kernel, r),
         }
-        r
     }
 
     /// The ability table of the run (set it before the first `run`).
@@ -374,6 +375,9 @@ impl<W: Window> Rig<W> {
             match e.answer {
                 Some(Pick::Number(n)) => {
                     let _ = writeln!(out, "  answer: number {n}");
+                }
+                Some(Pick::Chance(faces)) => {
+                    let _ = writeln!(out, "  answer: faces {:?}", faces.as_slice());
                 }
                 Some(Pick::Opt(_)) | None => {}
             }

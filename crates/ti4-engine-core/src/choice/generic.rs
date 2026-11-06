@@ -18,6 +18,10 @@ pub enum Ask {
     Confirm,
     /// Pick a count: one [`super::Opt::Number`] per value in `lo..=hi`.
     Count { lo: i32, hi: i32 },
+    /// A random event (docs/FORK_RNG_THEORY.md 4.3, lane C3): the core never draws, it asks. No options: the answer is
+    /// [`super::Pick::Chance`] with faces the request accepts (`Request::accepts`). In play the resolver (`ti4-engine-chance`)
+    /// answers it from the position's streams and no decider ever sees it; in a search the search answers it.
+    Chance(crate::chance::Request),
 }
 
 /// Subtypes that belong to no area.
@@ -26,6 +30,8 @@ pub enum Subtype {
     /// A question whose area is not ported yet. Only the corpus harness builds it (to check the
     /// other facts of a recorded context); a ported area never produces it.
     Unclassified,
+    /// A chance question ([`Ask::Chance`]).
+    Chance,
 }
 
 /// The LRR reference a rule-sourced decision cites (`DecisionSource::Rule`). The set seen in the

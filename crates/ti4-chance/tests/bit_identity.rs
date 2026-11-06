@@ -132,7 +132,7 @@ fn answers_of_every_kind_match_one_core_die_per_face() {
         for _ in 0..300 {
             let d = OLD[usize::try_from(mix.below(22)).unwrap()];
             let sides = u8::try_from(mix.below(255) + 1).unwrap();
-            let n = u8::try_from(mix.below(16)).unwrap();
+            let n = u8::try_from(mix.below(13)).unwrap();
             let kind = match mix.below(3) {
                 0 => Kind::Dice { n, sides, hits_on: Some(sides) },
                 1 => Kind::Index { n: sides },

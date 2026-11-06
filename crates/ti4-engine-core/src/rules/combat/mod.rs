@@ -314,16 +314,15 @@ pub struct FleetRoll {
 /// The ten-sided die of `dice::SIDES`.
 pub const DIE_SIDES: u32 = 10;
 
-/// Roll one player's fleet (78.5), group by group in ascending combat value, drawing from `rng`'s dice
-/// stream exactly as `combat::roll_fleet` does; returns the history entries it would record (the
-/// roll of each group and, when Munitions Reserves is active this round, the reroll of its misses).
+/// Roll one player's fleet (78.5), group by group in ascending combat value, each die from `die` (a d10) in the order
+/// `combat::roll_fleet` draws them; returns the history entries it would record (the roll of each group and, when Munitions
+/// Reserves is active this round, the reroll of its misses). The oracle's helper: the window itself asks (lane C3).
 pub fn roll_fleet(
     rd: Rd<'_>,
-    rng: &mut crate::state::Rng,
+    die: &mut dyn FnMut() -> u32,
     player: Seat,
     system: System,
 ) -> Vec<FleetRoll> {
-    use crate::state::RngDomain;
     let round = rd.s.meta().combat_round_seq;
     let munitions = rd.s.players().by_seat(player).is_some_and(|p| p.combat_timers.munitions_round.is(round));
     let mut out = Vec::new();
@@ -333,14 +332,14 @@ pub fn roll_fleet(
             continue;
         }
         let hits_on = u32::try_from(value).unwrap_or(u32::MAX);
-        let faces: Vec<u32> = (0..count).map(|_| crate::state::rng::die(rng, RngDomain::Dice, DIE_SIDES)).collect();
+        let faces: Vec<u32> = (0..count).map(|_| die()).collect();
         let misses: Vec<usize> = faces.iter().enumerate().filter(|(_, f)| **f < hits_on).map(|(i, _)| i).collect();
         out.push(FleetRoll { hits_on, faces: faces.clone(), rerolled: Vec::new() });
         if munitions && !misses.is_empty() {
             let mut again = faces;
             let rerolled = misses.iter().map(|i| *i as u32).collect();
             for i in misses {
-                again[i] = crate::state::rng::die(rng, RngDomain::Dice, DIE_SIDES);
+                again[i] = die();
             }
             out.push(FleetRoll { hits_on, faces: again, rerolled });
         }
@@ -879,20 +878,19 @@ pub fn cannon_plan(rd: Rd<'_>, system: System, active: Seat, opponent: Option<Se
     out
 }
 
-/// Roll one side's anti-fighter barrage from `rng`'s dice stream, entry by entry of [`barrage_plan`], as
-/// `combat::roll_barrage_side` does; returns the history entries it records.
+/// Roll one side's anti-fighter barrage with `die` (a d10), entry by entry of [`barrage_plan`], as `combat::roll_barrage_side`
+/// does; returns the history entries it records. The oracle's helper (lane C3).
 pub fn roll_barrage(
     rd: Rd<'_>,
-    rng: &mut crate::state::Rng,
+    die: &mut dyn FnMut() -> u32,
     player: Seat,
     system: System,
 ) -> Vec<FleetRoll> {
-    use crate::state::RngDomain;
     barrage_plan(rd, player, system)
         .into_iter()
         .map(|r| FleetRoll {
             hits_on: u32::try_from(r.hits_on).unwrap_or(u32::MAX),
-            faces: (0..r.dice).map(|_| crate::state::rng::die(rng, RngDomain::Dice, DIE_SIDES)).collect(),
+            faces: (0..r.dice).map(|_| die()).collect(),
             rerolled: Vec::new(),
         })
         .collect()

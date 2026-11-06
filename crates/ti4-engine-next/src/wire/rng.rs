@@ -28,7 +28,6 @@ use std::sync::{Arc, Mutex};
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
-use sha2::{Digest, Sha256};
 
 /// Domain names used by the engine. A new purpose gets a new name, never an existing one.
 pub mod domain {
@@ -241,10 +240,8 @@ impl GameRng {
     /// by one bit must not produce related streams.
     #[must_use]
     pub fn derive_seed(seed: u64, domain: &str) -> [u8; 32] {
-        let mut hasher = Sha256::new();
-        hasher.update(seed.to_le_bytes());
-        hasher.update(domain.as_bytes());
-        hasher.finalize().into()
+        // The bottom crate's (one copy in the browser build; the same `SHA-256(seed_le || domain)`).
+        ti4_chance::derive_seed(seed, domain)
     }
 
     /// The stream for one domain, created on first use.

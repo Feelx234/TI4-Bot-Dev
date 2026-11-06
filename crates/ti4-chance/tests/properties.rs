@@ -17,7 +17,7 @@ fn an_answer_moves_its_stream_exactly_as_far_as_its_dice() {
         let mut b = Streams::new(seed);
         a.die(Domain::Neuraloop, 7);
         b.die(Domain::Neuraloop, 7);
-        for n in 0..=15u8 {
+        for n in 0..=12u8 {
             for sides in [1u8, 2, 3, 6, 10, 20, 255] {
                 let before = a.position(Domain::Dice);
                 let faces = answer_mut(&dice(n, sides), &mut a);

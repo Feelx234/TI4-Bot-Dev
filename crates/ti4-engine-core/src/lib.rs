@@ -37,3 +37,10 @@ pub use ids::{PlanetIx, Seat, SystemIx, UnitIx};
 pub use containers::{Chunked, Cow, DecimalTextOrd, Deck, Idx, Log, Opt32, SeatSet, Set, SmallList, SortedMap};
 pub use kernel::hooks;
 pub use state::{CoreState, Slice, SliceSet};
+
+/// The types of the randomness (the bottom crate `ti4-chance`, docs/FORK_RNG_THEORY.md 4.1): a chance question carries a [`chance::Request`]
+/// and is answered with [`chance::Faces`]; the position holds the [`chance::Streams`] as data. The core never draws from them (lane C3:
+/// tools/engine_core/check_layers.py `core` forbids it): every random event is a question.
+pub mod chance {
+    pub use ti4_chance::{Domain, Faces, Kind, MAX_FACES, ModForm, Request, Streams};
+}

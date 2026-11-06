@@ -125,6 +125,8 @@ impl Opt {
 pub enum Pick {
     Opt(Opt),
     Number(i32),
+    /// The faces of a chance question ([`generic::Ask::Chance`]): the resolver's (play) or the search's.
+    Chance(crate::chance::Faces),
 }
 
 impl From<Opt> for Pick {
@@ -307,5 +309,7 @@ mod tests {
     #[test]
     fn opt_stays_small() {
         assert!(std::mem::size_of::<Opt>() <= 16, "{}", std::mem::size_of::<Opt>());
+        // A chance answer (`Pick::Chance`) fits beside the option's niche: a `Pick` is no bigger than an `Opt` (lane C3, the wasm budget).
+        assert!(std::mem::size_of::<Pick>() <= 16, "{}", std::mem::size_of::<Pick>());
     }
 }

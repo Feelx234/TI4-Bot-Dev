@@ -54,8 +54,8 @@ type Step = Result<(Live, Out), LiveError>;
 
 fn answer(arm: Arm, s: &mut CoreState, e: &Env<'_>, pick: Pick) -> Step {
     match arm {
-        Arm::Secondary => advance_secondary(s, e, Some(pick)),
-        Arm::Job => advance::<TurnFlowWin>(s, e, Some(pick)),
+        Arm::Secondary => ti4_engine_chance::resolved(advance_secondary)(s, e, Some(pick)),
+        Arm::Job => ti4_engine_chance::resolved(advance::<TurnFlowWin>)(s, e, Some(pick)),
     }
 }
 
@@ -124,7 +124,7 @@ fn a_followers_ability_forked_at_every_question_continues_identically_and_equals
     let mut walked = (0, 0);
     // Each follower follows; every nested question of its ability is forked.
     for _ in 0..2 {
-        let (live, _) = advance_secondary(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::Follow)))).unwrap();
+        let (live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::Follow)))).unwrap();
         let w = walk(Arm::Secondary, &mut s, &e, live);
         walked = (walked.0 + w.0, walked.1 + w.1);
         if !matches!(s.pending().window(ti4_engine_core::state::WindowKind::StrategySecondary), Some(_)) {
@@ -154,7 +154,7 @@ fn a_primary_forked_at_every_question_continues_identically_and_equals_the_repla
 fn an_illegal_pick_to_a_parked_question_is_refused_and_the_park_stays_usable() {
     let (mut s, k) = leadership_followers();
     let e = env(&k);
-    let (mut live, _) = advance_secondary(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::Follow)))).unwrap();
+    let (mut live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::Follow)))).unwrap();
     // Go to a question the follower's ability parked at (the first one comes from the answer's own run, which parks too).
     let Live::Asks(asking) = &live else { panic!("the ability asks") };
     assert!(s.pending().nested.is_some());
@@ -163,12 +163,12 @@ fn an_illegal_pick_to_a_parked_question_is_refused_and_the_park_stays_usable() {
         if asking.choice.opts.iter().any(|o| Pick::Opt(*o) == wrong) {
             continue;
         }
-        assert_eq!(advance_secondary(&mut s, &e, Some(wrong)), Err(LiveError::Illegal), "{wrong:?} is no option");
+        assert_eq!(ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(wrong)), Err(LiveError::Illegal), "{wrong:?} is no option");
         assert_eq!(s, held, "the position is untouched");
     }
     let before = park_stats().1;
     let pick = asking.choice.pick(0).unwrap();
-    live = advance_secondary(&mut s, &e, Some(pick)).unwrap().0;
+    live = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(pick)).unwrap().0;
     assert_eq!(park_stats().1, before + 1, "the legal pick resumed the parked operation");
     let mut replay = held.clone();
     let r = replayed(Arm::Secondary, &mut replay, &e, pick).unwrap().0;
@@ -180,13 +180,13 @@ fn an_illegal_pick_to_a_parked_question_is_refused_and_the_park_stays_usable() {
 fn a_park_is_shared_by_a_clone_and_each_copy_resumes_on_its_own() {
     let (mut s, k) = leadership_followers();
     let e = env(&k);
-    let (live, _) = advance_secondary(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::Follow)))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::Follow)))).unwrap();
     let Live::Asks(asking) = live else { panic!("the ability asks") };
     let copies: Vec<CoreState> = (0..asking.choice.opts.len().min(3)).map(|_| s.clone()).collect();
     let before = park_stats().1;
     for (i, mut copy) in copies.into_iter().enumerate() {
         let pick = asking.choice.pick(i).unwrap();
-        let a = advance_secondary(&mut copy, &e, Some(pick));
+        let a = ti4_engine_chance::resolved(advance_secondary)(&mut copy, &e, Some(pick));
         let mut replay = s.clone();
         let b = replayed(Arm::Secondary, &mut replay, &e, pick);
         assert_eq!(a, b, "copy {i}");
@@ -209,10 +209,10 @@ fn only_the_windows_a_park_fits_compile_the_park_code() {
     let (mut s, k) = leadership_followers();
     let e = env(&k);
     let (kept, resumed) = park_stats();
-    let (live, _) = advance_secondary(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::Follow)))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::Follow)))).unwrap();
     let Live::Asks(asking) = live else { panic!("the ability asks") };
     assert!(park_stats().0 > kept, "the follower's ability parked");
-    advance_secondary(&mut s, &e, Some(asking.choice.pick(0).unwrap())).unwrap();
+    ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(asking.choice.pick(0).unwrap())).unwrap();
     assert!(park_stats().1 > resumed, "the answer resumed the park");
 }
 

@@ -120,7 +120,7 @@ impl InvasionView<'_> {
         let mut rng = CoreRng::new(seed);
         rng.set_positions(&typed_pos);
         let plan = ci::bombard_plan(self.rd_for(gs, invader)?, sys, seat);
-        let drawn = ci::roll_bombard(&plan, &mut rng);
+        let drawn = ci::roll_bombard(&plan, &mut |n| (0..n).map(|_| rng.die(ti4_engine_core::state::RngDomain::Dice, 10)).collect());
         let after = crate::core_sync::codec::rng::positions(&self.cx, &rng).ok()?;
         let rows = drawn.into_iter().map(|d| (d.planet.as_str().to_owned(), d.unit.as_str().to_owned(), d.hits_on, d.faces)).collect();
         Some((rows, after))

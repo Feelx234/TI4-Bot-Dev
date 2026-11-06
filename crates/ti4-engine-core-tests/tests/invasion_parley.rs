@@ -110,7 +110,7 @@ fn play(core: &mut CoreState, env: &Env<'_>, pick: &mut dyn FnMut(&Choice) -> us
     let mut asked = Vec::new();
     let mut answer: Option<Pick> = None;
     for _ in 0..600 {
-        match advance_invasion(core, env, answer.take()) {
+        match ti4_engine_chance::resolved(advance_invasion)(core, env, answer.take()) {
             Err(e) => return (asked, Err(e)),
             Ok((Live::Asks(a), _)) => {
                 let i = pick(&a.choice).min(a.choice.opts.len() - 1);

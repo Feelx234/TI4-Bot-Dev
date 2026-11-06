@@ -101,14 +101,14 @@ fn an_accepted_deal_stages_both_gains_emits_the_resolution_and_the_plain_event_a
     let (mut s, k) = open_with_hacan_and_arborec();
     let e = env(&k);
     begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
-    let (live, out) = advance_trade(&mut s, &e, Some(deal(Shape::Goods { give: 2, want: 1 }))).unwrap();
+    let (live, out) = ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Goods { give: 2, want: 1 }))).unwrap();
     let q = question(live);
     assert_eq!((q.actor, q.opts.as_slice().to_vec()), (Seat(1), vec![Opt::Trade(TOpt::Accept), Opt::Trade(TOpt::Refuse), Opt::Trade(TOpt::Counter)]));
     assert!(out.emitted.is_empty(), "an offer emits nothing typed");
     assert_eq!(plain_kinds(&s), [PlainKind::TransactionOffered]);
     let Some(OpenWindow::Trade(t)) = s.pending().window(WindowKind::Trade) else { panic!("held") };
     assert_eq!(t.deal, Some(Shape::Goods { give: 2, want: 1 }));
-    let (live, out) = advance_trade(&mut s, &e, Some(accept())).unwrap();
+    let (live, out) = ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(accept())).unwrap();
     assert_eq!(live, Live::Done);
     assert!(!is_open::<TradeWindow>(&s));
     assert_eq!((goods(&s, 0), goods(&s, 1)), (1, 2));
@@ -134,8 +134,8 @@ fn refusing_and_declining_say_so_and_move_nothing() {
     let (mut s, k) = open_with_hacan_and_arborec();
     let e = env(&k);
     begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
-    advance_trade(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap();
-    let (live, out) = advance_trade(&mut s, &e, Some(Pick::Opt(Opt::Trade(TOpt::Refuse)))).unwrap();
+    ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap();
+    let (live, out) = ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(Pick::Opt(Opt::Trade(TOpt::Refuse)))).unwrap();
     assert_eq!((live, out.emitted.len()), (Live::Done, 0));
     assert_eq!(plain_kinds(&s), [PlainKind::TransactionOffered, PlainKind::TransactionRefused]);
     assert_eq!((goods(&s, 0), goods(&s, 1)), (2, 1));
@@ -143,7 +143,7 @@ fn refusing_and_declining_say_so_and_move_nothing() {
     let (mut s, k) = open_with_hacan_and_arborec();
     let e = env(&k);
     begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
-    let (live, _) = advance_trade(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
     assert_eq!(live, Live::Done);
     assert_eq!(plain_kinds(&s), [PlainKind::TransactionAbandoned]);
 }
@@ -153,13 +153,13 @@ fn a_counter_swaps_the_chairs_in_the_payload_and_the_second_counter_ends_the_hag
     let (mut s, k) = open_with_hacan_and_arborec();
     let e = env(&k);
     begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
-    advance_trade(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap();
-    let q = question(advance_trade(&mut s, &e, Some(Pick::Opt(Opt::Trade(TOpt::Counter)))).unwrap().0);
+    ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap();
+    let q = question(ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(Pick::Opt(Opt::Trade(TOpt::Counter)))).unwrap().0);
     assert_eq!((q.actor, q.ask), (Seat(1), Ask::Trade(TAsk::Propose { proposer: Seat(1), partner: Seat(0), name: Faction::TheEmiratesOfHacan })));
     let Some(OpenWindow::Trade(t)) = s.pending().window(WindowKind::Trade) else { panic!("held") };
     assert_eq!((t.proposer, t.partner, t.rounds_left, t.deal), (Seat(1), Seat(0), 1, None));
-    advance_trade(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 0 }))).unwrap();
-    let (live, _) = advance_trade(&mut s, &e, Some(Pick::Opt(Opt::Trade(TOpt::Counter)))).unwrap();
+    ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 0 }))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(Pick::Opt(Opt::Trade(TOpt::Counter)))).unwrap();
     assert_eq!(live, Live::Done);
     assert_eq!(plain_kinds(&s), [PlainKind::TransactionOffered, PlainKind::Counteroffer, PlainKind::TransactionOffered, PlainKind::TransactionAbandoned]);
     assert_eq!((goods(&s, 0), goods(&s, 1)), (2, 1));
@@ -171,14 +171,14 @@ fn a_pair_that_cannot_reach_each_other_has_its_deal_rejected_unless_a_ship_abili
     let (mut s, k) = table();
     let e = env(&k);
     begin(&mut s, &e, Seat(1), Seat(2)).unwrap();
-    let (live, _) = advance_trade(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap();
     assert_eq!(live, Live::Done);
     assert_eq!(plain_kinds(&s), [PlainKind::TransactionRejected]);
     // Hacan's Guild Ships reach anyone: the same deal is put to the far Yin.
     let (mut s, k) = table();
     let e = env(&k);
     begin(&mut s, &e, Seat(0), Seat(2)).unwrap();
-    let (live, _) = advance_trade(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap();
     assert_eq!(question(live).actor, Seat(2));
     assert_eq!(plain_kinds(&s), [PlainKind::TransactionOffered]);
 }
@@ -189,10 +189,10 @@ fn a_deal_that_is_no_option_changes_nothing_and_the_pair_stays_recorded() {
     let e = env(&k);
     begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
     let held = s.clone();
-    assert_eq!(advance_trade(&mut s, &e, Some(deal(Shape::Goods { give: 3, want: 3 }))), Err(LiveError::Illegal));
+    assert_eq!(ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Goods { give: 3, want: 3 }))), Err(LiveError::Illegal));
     assert_eq!(s, held, "the rollback restores the position");
     assert!(ti4_engine_core::query::trade::transacted_with(&s, Seat(0), Seat(1)), "94.1 was spent on opening, not on the first answer");
-    assert_eq!(advance_trade(&mut s, &e, Some(accept())), Err(LiveError::Illegal), "an answer before the proposal");
+    assert_eq!(ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(accept())), Err(LiveError::Illegal), "an answer before the proposal");
     assert_eq!(s, held);
 }
 
@@ -201,14 +201,14 @@ fn a_clone_in_the_middle_of_the_window_continues_identically() {
     let (mut s, k) = open_with_hacan_and_arborec();
     let e = env(&k);
     begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
-    advance_trade(&mut s, &e, Some(deal(Shape::Swap { n: 1 }))).unwrap();
+    ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Swap { n: 1 }))).unwrap();
     let mut fork = s.clone();
     let mut other_env = env(&k);
     other_env.registry = Cow::new(Registry::default());
     for (state, env) in [(&mut s, &e), (&mut fork, &other_env)] {
-        advance_trade(state, env, Some(Pick::Opt(Opt::Trade(TOpt::Counter)))).unwrap();
-        advance_trade(state, env, Some(deal(Shape::GiftCommodities { n: 1 }))).unwrap();
-        advance_trade(state, env, Some(accept())).unwrap();
+        ti4_engine_chance::resolved(advance_trade)(state, env, Some(Pick::Opt(Opt::Trade(TOpt::Counter)))).unwrap();
+        ti4_engine_chance::resolved(advance_trade)(state, env, Some(deal(Shape::GiftCommodities { n: 1 }))).unwrap();
+        ti4_engine_chance::resolved(advance_trade)(state, env, Some(accept())).unwrap();
     }
     assert_eq!(s, fork);
     assert!(!is_open::<TradeWindow>(&s));
@@ -242,7 +242,7 @@ fn the_black_market_mark_dies_with_the_negotiation_that_an_answer_ended() {
     let e = env(&k);
     begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
     assert!(s.transient().misc.flags.has(TransientFlags::BLACK_MARKET), "it lives while the negotiation does");
-    advance_trade(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
+    ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
     assert!(!s.transient().misc.flags.has(TransientFlags::BLACK_MARKET));
 }
 
@@ -270,14 +270,14 @@ fn a_free_form_deal_the_proposer_names_is_taken_from_slot_one_priced_and_execute
     let spec = free(FreeTerms { trade_goods: 1, commodities: 1, ..FreeTerms::default() }, FreeTerms { commodities: 1, ..FreeTerms::default() });
     let Some(OpenWindow::Trade(t)) = s.pending_mut().window_mut(WindowKind::Trade) else { panic!("held") };
     t.free[1] = Some(spec);
-    let q = question(advance_trade(&mut s, &e, Some(deal(Shape::Free(1)))).unwrap().0);
+    let q = question(ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Free(1)))).unwrap().0);
     assert_eq!((q.actor, q.ask), (Seat(1), Ask::Trade(TAsk::Answer { responder: Seat(1), proposer: Seat(0), from: Faction::TheEmiratesOfHacan, deal: Shape::Free(0) })));
     let Some(OpenWindow::Trade(t)) = s.pending().window(WindowKind::Trade) else { panic!("held") };
     assert_eq!((t.deal, t.free), (Some(Shape::Free(0)), [Some(spec), None]), "the deal on the table is slot 0");
     // A clone answers the same way.
     let mut fork = s.clone();
     for state in [&mut s, &mut fork] {
-        assert_eq!(advance_trade(state, &e, Some(accept())).unwrap().0, Live::Done);
+        assert_eq!(ti4_engine_chance::resolved(advance_trade)(state, &e, Some(accept())).unwrap().0, Live::Done);
     }
     assert_eq!(s, fork);
     assert_eq!((goods(&s, 0), goods(&s, 1)), (2 - 1 + 1, 1 + 1 + 1), "seat 0: -1 good, +1 (the commodity it received); seat 1: +1 good, +1 (the commodity from seat 0)");
@@ -292,13 +292,13 @@ fn a_free_form_deal_nobody_can_pay_is_rejected_and_an_unnamed_slot_is_no_option(
     begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
     // Slot 1 is empty: naming it is no option.
     let held = s.clone();
-    assert_eq!(advance_trade(&mut s, &e, Some(deal(Shape::Free(1)))), Err(LiveError::Illegal));
+    assert_eq!(ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Free(1)))), Err(LiveError::Illegal));
     assert_eq!(s, held);
     // Seat 0 offers more trade goods than it has.
     let spec = free(FreeTerms { trade_goods: 5, ..FreeTerms::default() }, FreeTerms::default());
     let Some(OpenWindow::Trade(t)) = s.pending_mut().window_mut(WindowKind::Trade) else { panic!("held") };
     t.free[1] = Some(spec);
-    let (live, _) = advance_trade(&mut s, &e, Some(deal(Shape::Free(1)))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Free(1)))).unwrap();
     assert_eq!(live, Live::Done);
     assert_eq!(plain_kinds(&s), [PlainKind::TransactionRejected]);
 }
@@ -314,10 +314,10 @@ fn a_free_form_note_leg_is_read_against_the_position_every_time() {
     let spec = free(FreeTerms { note: Some(FreeNote::Held(key)), ..FreeTerms::default() }, FreeTerms { trade_goods: 1, ..FreeTerms::default() });
     let Some(OpenWindow::Trade(t)) = s.pending_mut().window_mut(WindowKind::Trade) else { panic!("held") };
     t.free[1] = Some(spec);
-    advance_trade(&mut s, &e, Some(deal(Shape::Free(1)))).unwrap();
+    ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Free(1)))).unwrap();
     // The facts follow the position: the note is lent away behind the window's back, and the acceptance is rejected (the string recomputes).
     s.cards_mut().promissory.edit().insert(key, Seat(2));
-    let (live, _) = advance_trade(&mut s, &e, Some(accept())).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(accept())).unwrap();
     assert_eq!(live, Live::Done);
     assert_eq!(plain_kinds(&s), [PlainKind::TransactionOffered, PlainKind::TransactionRejected]);
     assert_eq!((goods(&s, 0), goods(&s, 1)), (2, 1));
@@ -344,8 +344,8 @@ fn dark_pact_pays_both_sides_a_good_when_the_maximum_commodity_value_is_given() 
     let spec = free(FreeTerms { commodities: i32::from(max), ..FreeTerms::default() }, FreeTerms::default());
     let Some(OpenWindow::Trade(t)) = s.pending_mut().window_mut(WindowKind::Trade) else { panic!("held") };
     t.free[1] = Some(spec);
-    advance_trade(&mut s, &e, Some(deal(Shape::Free(1)))).unwrap();
-    advance_trade(&mut s, &e, Some(accept())).unwrap();
+    ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Free(1)))).unwrap();
+    ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(accept())).unwrap();
     let staged: Vec<_> = s.pending().staged.iter().map(|r| (r.payload.get(Key::Player), r.payload.get(Key::Amount), r.payload.get(Key::Source))).collect();
     assert_eq!(
         staged,
@@ -365,7 +365,7 @@ fn the_question_is_a_pure_read_and_a_payload_roundtrips_through_the_machine() {
     let (mut s, k) = open_with_hacan_and_arborec();
     let e = env(&k);
     begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
-    advance_trade(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap();
+    ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap();
     let before = s.clone();
     let a = ask::<TradeWindow>(&s, &e).unwrap().unwrap();
     assert_eq!(s, before, "asking writes nothing");
@@ -387,8 +387,8 @@ fn the_gains_are_staged_only_while_staging_is_on_and_the_goods_move_either_way()
     let mut e = env(&k);
     e.table.facts.staging = false;
     begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
-    advance_trade(&mut s, &e, Some(deal(Shape::Goods { give: 2, want: 1 }))).unwrap();
-    advance_trade(&mut s, &e, Some(accept())).unwrap();
+    ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Goods { give: 2, want: 1 }))).unwrap();
+    ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(accept())).unwrap();
     assert_eq!((goods(&s, 0), goods(&s, 1)), (1, 2), "the deal is struck");
     assert!(s.pending().staged.is_empty(), "no seated faction has a module: the string stages nothing");
     assert_eq!(plain_kinds(&s), [PlainKind::TransactionOffered, PlainKind::Transaction]);
@@ -413,12 +413,12 @@ fn the_resolution_opens_its_reaction_window_to_a_seat_that_is_not_the_active_one
     })
     .optional());
     begin(&mut s, &e, Seat(0), Seat(1)).unwrap();
-    advance_trade(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap();
-    let (live, _) = advance_trade(&mut s, &e, Some(accept())).unwrap();
+    ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(accept())).unwrap();
     let q = question(live);
     assert_eq!((q.actor, q.ask), (Seat(1), Ask::Reaction(RAsk::Window { event: EventKind::TransactionResolved, relation: Relation::After })));
     assert!(is_open::<TradeWindow>(&s), "the window waits on the reaction question, suspended in the position");
-    let (live, _) = advance_trade(&mut s, &e, Some(Pick::Opt(Opt::Reaction(ROpt::Ability(id))))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(Pick::Opt(Opt::Reaction(ROpt::Ability(id))))).unwrap();
     assert_eq!(live, Live::Done);
     assert_eq!(goods(&s, 1), 1 + 5, "one good given, one received, and the ability ran once");
 }
@@ -502,7 +502,7 @@ fn the_question_of_a_proposal_is_mandatory_and_not_a_space_battle() {
     let e = env(&k);
     let q = question(begin(&mut s, &e, Seat(0), Seat(1)).unwrap().0);
     assert!(!q.ctx.optional && !q.ctx.space_battle && q.ctx.invasion_seq.is_none());
-    let q = question(advance_trade(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap().0);
+    let q = question(ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Goods { give: 1, want: 1 }))).unwrap().0);
     assert!(!q.ctx.optional && !q.ctx.space_battle);
 }
 
@@ -515,8 +515,8 @@ fn both_gains_of_a_free_form_deal_count_goods_and_commodities_together() {
     let spec = free(FreeTerms { trade_goods: 1, ..FreeTerms::default() }, FreeTerms { trade_goods: 1, commodities: 1, ..FreeTerms::default() });
     let Some(OpenWindow::Trade(t)) = s.pending_mut().window_mut(WindowKind::Trade) else { panic!("held") };
     t.free[1] = Some(spec);
-    advance_trade(&mut s, &e, Some(deal(Shape::Free(1)))).unwrap();
-    advance_trade(&mut s, &e, Some(accept())).unwrap();
+    ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Free(1)))).unwrap();
+    ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(accept())).unwrap();
     let amounts: Vec<_> = s.pending().staged.iter().map(|r| (r.payload.get(Key::Player), r.payload.get(Key::Amount))).collect();
     assert_eq!(amounts, [(Some(Val::Seat(Seat(1))), Some(Val::Int(1))), (Some(Val::Seat(Seat(0))), Some(Val::Int(2)))]);
 }
@@ -541,8 +541,8 @@ fn dark_pact_needs_the_faceup_note_in_the_givers_hand_and_exactly_the_maximum_va
         let spec = free(FreeTerms { commodities: give, ..FreeTerms::default() }, FreeTerms::default());
         let Some(OpenWindow::Trade(t)) = s.pending_mut().window_mut(WindowKind::Trade) else { panic!("held") };
         t.free[1] = Some(spec);
-        advance_trade(s, &e, Some(deal(Shape::Free(1)))).unwrap();
-        advance_trade(s, &e, Some(accept())).unwrap();
+        ti4_engine_chance::resolved(advance_trade)(s, &e, Some(deal(Shape::Free(1)))).unwrap();
+        ti4_engine_chance::resolved(advance_trade)(s, &e, Some(accept())).unwrap();
     };
     let dark = |s: &CoreState| s.pending().staged.iter().filter(|r| r.payload.get(Key::Source) == Some(Val::Code(DARK_PACT))).count();
     // The exact value, staging off: the goods move all the same (one each), nothing is staged.
@@ -625,9 +625,9 @@ fn a_support_leg_of_a_free_form_deal_is_payable_only_while_the_givers_support_is
     t.free[1] = Some(spec);
     let mut lent = s.clone();
     lent.trade_mut().support_holders.insert(Seat(0), Seat(2));
-    assert_eq!(advance_trade(&mut lent, &e, Some(deal(Shape::Free(1)))).unwrap().0, Live::Done, "a lent Support cannot be given");
+    assert_eq!(ti4_engine_chance::resolved(advance_trade)(&mut lent, &e, Some(deal(Shape::Free(1)))).unwrap().0, Live::Done, "a lent Support cannot be given");
     assert_eq!(plain_kinds(&lent), [PlainKind::TransactionRejected]);
-    let (live, _) = advance_trade(&mut s, &e, Some(deal(Shape::Free(1)))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_trade)(&mut s, &e, Some(deal(Shape::Free(1)))).unwrap();
     assert_eq!(question(live).actor, Seat(1));
 }
 

@@ -106,7 +106,7 @@ impl Streams {
     /// # Panics
     /// When it refuses (a defect of the caller).
     pub fn die(&mut self, domain: Domain, sides: u32) -> u32 {
-        self.try_die(domain, sides).unwrap_or_else(|e| panic!("ti4-chance: {e}"))
+        self.try_die(domain, sides).unwrap_or_else(|_| panic!("ti4-chance: a die with no sides"))
     }
 
     /// Fisher-Yates from the back on one domain's stream: today's `Rng::shuffle` / `GameRng::shuffle`, the deck
@@ -193,7 +193,8 @@ pub fn try_answer_mut(req: &Request, streams: &mut Streams) -> Result<Faces, Ref
 /// # Panics
 /// When it refuses (a defect of the asking site).
 pub fn answer_mut(req: &Request, streams: &mut Streams) -> Faces {
-    try_answer_mut(req, streams).unwrap_or_else(|e| panic!("ti4-chance: {e} ({req:?})"))
+    // (A fixed message: formatting the request would link its `Debug` into the browser build.)
+    try_answer_mut(req, streams).unwrap_or_else(|_| panic!("ti4-chance: a request it cannot answer (too many faces or no sides)"))
 }
 
 /// The pure form of [`answer_mut`]: the faces and the advanced streams; `streams` is untouched.
@@ -222,7 +223,7 @@ mod tests {
             let mut s = Streams::new(seed);
             let mut b = bare(seed, Domain::Dice);
             for sides in 1..=255u8 {
-                for n in 1..=15u8 {
+                for n in 1..=12u8 {
                     let f = answer_mut(&Request::new(Domain::Dice, Kind::Dice { n, sides, hits_on: None }), &mut s);
                     for &face in f.as_slice() {
                         assert_eq!(u32::from(face), b.random_range(1..=u32::from(sides)), "seed {seed} sides {sides} n {n}");
@@ -236,8 +237,8 @@ mod tests {
     #[test]
     fn refusals_draw_nothing() {
         let mut s = Streams::new(1);
-        let many = Request::new(Domain::Dice, Kind::Dice { n: 16, sides: 10, hits_on: None });
-        assert_eq!(try_answer_mut(&many, &mut s), Err(Refused::TooMany(16)));
+        let many = Request::new(Domain::Dice, Kind::Dice { n: 13, sides: 10, hits_on: None });
+        assert_eq!(try_answer_mut(&many, &mut s), Err(Refused::TooMany(13)));
         let none = Request::new(Domain::Dice, Kind::Index { n: 0 });
         assert_eq!(try_answer_mut(&none, &mut s), Err(Refused::NoSides));
         assert_eq!(s, Streams::new(1));

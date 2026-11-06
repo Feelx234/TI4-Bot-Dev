@@ -782,11 +782,15 @@ pub fn drive_windowed<W: Window>(
         }
     }
     // The core draws an ability's die from the game's stream; a window that was lent none (no stream positions) cannot reproduce the roll.
-    if script.nested && !script.dice.is_empty() && core.rng.positions().next().is_none() {
+    if script.nested && !script.dice.is_empty() && !crate::core_sync::codec::rng::lent() {
         crate::dual::note_bail(LABEL.with(Cell::get), "nested (dice rolled by an ability in a window lent no stream)");
         return Err(DriverError::NotAsking);
     }
-    let mut status = driver.run(core, kernel)?;
+    // (Every chance question of the core is answered from the lent streams, lane C3.)
+    let mut status = {
+        let ran = driver.run(core, kernel);
+        ti4_engine_chance::settle(driver, core, kernel, ran)?
+    };
     loop {
         if let Some(why) = driver.unknown() {
             let why = match why {
@@ -876,7 +880,10 @@ pub fn drive_windowed<W: Window>(
                 let Some(pick) = pick else {
                     return Ok(out);
                 };
-                status = driver.resume(core, kernel, pick)?;
+                status = {
+                    let ran = driver.resume(core, kernel, pick);
+                    ti4_engine_chance::settle(driver, core, kernel, ran)?
+                };
             }
         }
     }

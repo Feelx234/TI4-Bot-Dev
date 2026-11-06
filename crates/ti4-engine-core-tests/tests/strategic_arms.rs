@@ -81,7 +81,7 @@ fn a_follower_who_may_not_follow_is_recorded_and_the_next_is_asked() {
     let free = |seat| ti4_engine_core::driver::windows::strategic::facts::follower_facts(&s, &k, Seat(0), StrategyCard::Trade, seat);
     assert!(!free(Seat(1)).eligible || !free(Seat(1)).costs_token, "seat 1 is out or free");
     assert_eq!(q.actor, if free(Seat(1)).eligible { Seat(1) } else { Seat(2) });
-    let (live, _) = advance_secondary(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, None).unwrap();
     assert!(matches!(live, Live::Asks(_)));
     let Some(OpenWindow::StrategySecondary(w)) = s.pending().window(WindowKind::StrategySecondary) else { panic!("open") };
     assert!(w.resolved.as_slice().iter().all(|(_, how)| *how == SecondaryHow::Ineligible), "only ineligible followers are recorded before the first question");
@@ -97,7 +97,7 @@ fn a_follow_spends_the_token_says_so_and_the_last_answer_ends_the_action() {
         let q = first_asked(&s, &e);
         let tokens = s.players().by_seat(q.actor).unwrap().econ.strategic_tokens;
         let costs = matches!(q.ask, Ask::Strategy(SAsk::Follow { costs_token: true, .. }));
-        let (live, _) = advance_secondary(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
+        let (live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
         let after = s.players().by_seat(q.actor).unwrap().econ.strategic_tokens;
         assert_eq!(after, tokens - i16::from(costs), "the token is paid exactly when the question says so");
         left -= 1;
@@ -122,8 +122,8 @@ fn an_answer_that_is_not_the_last_place_of_the_list_ends_the_call_and_the_next_c
     let e = env(&k);
     let free = |seat| ti4_engine_core::driver::windows::strategic::facts::follower_facts(&s, &k, Seat(0), StrategyCard::Trade, seat);
     assert!(!free(Seat(3)).eligible, "seat 3 may not follow");
-    advance_secondary(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
-    let (live, out) = advance_secondary(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
+    ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
+    let (live, out) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
     assert_eq!(live, Live::Done);
     assert!(out.held, "the call ended, the window did not");
     assert!(is_open::<SecondaryWin>(&s), "the window stays on the stack");
@@ -131,7 +131,7 @@ fn an_answer_that_is_not_the_last_place_of_the_list_ends_the_call_and_the_next_c
     assert!(!typed(&s).contains(&ti4_engine_core::state::EventKind::ActionCompleted));
     assert!(!s.players().by_seat(Seat(0)).unwrap().strat_exhausted.contains(StrategyCard::Trade), "the card is exhausted by the closing step");
     assert_eq!(ask_secondary(&s, &e).unwrap(), None, "nothing is asked");
-    let (live, out) = advance_secondary(&mut s, &e, None).unwrap();
+    let (live, out) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, None).unwrap();
     assert_eq!(live, Live::Done);
     assert!(!out.held);
     assert!(!is_open::<SecondaryWin>(&s));
@@ -146,8 +146,8 @@ fn the_events_a_follow_staged_come_before_the_close_when_the_string_closes_in_a_
     // one step and they are announced at the start of the closing step, BEFORE `STRATEGIC_ACTION_COMPLETE`.
     let (mut s, k) = trade_window([2, 2, 0]);
     let e = env(&k);
-    advance_secondary(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
-    let (_, out) = advance_secondary(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
+    ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
+    let (_, out) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
     assert!(out.held);
     assert!(s.pending().staged.iter().any(|ev| ev.kind == ti4_engine_core::state::EventKind::StrategyTokenSpent), "the follow staged the token it spent");
     assert!(!kinds(&s).contains(&PlainKind::StrategicActionComplete));
@@ -158,7 +158,7 @@ fn an_illegal_answer_leaves_the_position_as_it_was() {
     let (mut s, k) = trade_window([2, 2, 2]);
     let e = env(&k);
     let held = s.clone();
-    assert_eq!(advance_secondary(&mut s, &e, Some(pick(SOpt::PrimaryInstead))), Err(LiveError::Illegal));
+    assert_eq!(ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(pick(SOpt::PrimaryInstead))), Err(LiveError::Illegal));
     assert_eq!(s, held);
 }
 
@@ -166,10 +166,10 @@ fn an_illegal_answer_leaves_the_position_as_it_was() {
 fn a_clone_taken_while_a_follower_is_asked_continues_identically() {
     let (mut s, k) = trade_window([2, 2, 2]);
     let e = env(&k);
-    advance_secondary(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, None).unwrap();
     let mut other = s.clone();
-    let a = advance_secondary(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
-    let b = advance_secondary(&mut other, &e, Some(pick(SOpt::Skip))).unwrap();
+    let a = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
+    let b = ti4_engine_chance::resolved(advance_secondary)(&mut other, &e, Some(pick(SOpt::Skip))).unwrap();
     assert_eq!(s, other);
     assert_eq!(a.0, b.0);
 }
@@ -186,7 +186,7 @@ fn when_nobody_may_follow_the_call_ends_the_window_and_the_action_without_a_ques
     s.pending_mut().open(OpenWindow::StrategySecondary(secondary_of(Seat(0), StrategyCard::Warfare, &[Seat(1), Seat(2), Seat(3)], true)));
     let e = env(&k);
     assert_eq!(ask_secondary(&s, &e).unwrap(), None);
-    let (live, _) = advance_secondary(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, None).unwrap();
     assert_eq!(live, Live::Done);
     assert!(s.players().by_seat(Seat(0)).unwrap().strat_exhausted.contains(StrategyCard::Warfare));
     assert!(kinds(&s).contains(&PlainKind::StrategicActionComplete));
@@ -201,7 +201,7 @@ fn a_preview_window_neither_finishes_the_action_nor_exhausts_the_card() {
     let e = env(&k);
     let q = first_asked(&s, &e);
     assert_eq!(q.actor, Seat(2));
-    let (live, _) = advance_secondary(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
     assert_eq!(live, Live::Done);
     let k = kinds(&s);
     assert!(k.contains(&PlainKind::StrategySecondaryPreviewComplete));
@@ -265,14 +265,14 @@ fn a_clone_taken_while_the_followers_ability_asks_continues_identically() {
     let e = env(&k);
     let q = first_asked(&s, &e);
     assert_eq!(q.actor, Seat(1), "seat 2 cannot afford a token and is not asked");
-    let (live, _) = advance_secondary(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
     let Live::Asks(asking) = live else { panic!("the payment asks") };
     assert!(s.pending().nested.is_some(), "the step is suspended on a question from inside it");
     let mut other = s.clone();
     let choice = asking.choice.clone();
     let answer = choice.pick(0).expect("an option");
-    let a = advance_secondary(&mut s, &e, Some(answer)).unwrap();
-    let b = advance_secondary(&mut other, &e, Some(answer)).unwrap();
+    let a = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(answer)).unwrap();
+    let b = ti4_engine_chance::resolved(advance_secondary)(&mut other, &e, Some(answer)).unwrap();
     assert_eq!(s, other, "the clone continues to the same position");
     assert_eq!(a.0, b.0);
 }
@@ -318,7 +318,7 @@ fn the_end_of_the_hero_strategy_purges_the_hero_and_says_so() {
         advance_leader_followers(&mut s, &e, Some(Pick::Opt(Opt::Leaders(LOpt::HeroFollower(false))))).unwrap();
     }
     // Nobody follows: the window opens with no follower and ends in one call.
-    let (live, _) = advance_secondary(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, None).unwrap();
     assert_eq!(live, Live::Done);
     let k = kinds(&s);
     let resolved = k.iter().position(|p| *p == PlainKind::ComponentActionResolved).expect("the hero's action resolved");
@@ -381,7 +381,7 @@ fn a_strategic_action_says_it_began_and_opens_the_follower_window_for_the_others
 }
 
 fn advance_secondary_or_job(s: &mut CoreState, e: &Env<'_>, pick: Pick) -> Live {
-    ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(s, e, Some(pick)).unwrap().0
+    ti4_engine_chance::resolved(ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>)(s, e, Some(pick)).unwrap().0
 }
 
 #[test]
@@ -427,13 +427,13 @@ fn after(hero_card: Option<StrategyCard>) -> (CoreState, Kernel) {
 fn after_the_free_action_the_seat_redistributes_and_the_held_follower_window_opens() {
     let (mut s, k) = after(None);
     let e = env(&k);
-    let (live, _) = ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>)(&mut s, &e, None).unwrap();
     let Live::Asks(asking) = live else { panic!("the seat is asked to redistribute") };
     assert_eq!(asking.choice.ask, Ask::Strategy(SAsk::TeWarfareRedistributeAfter { total: 8, floor: 2 }));
     assert_eq!(asking.choice.actor, Seat(0));
     // 0 tactic, 5 fleet, 3 strategy.
     let at = asking.choice.opts.iter().position(|o| *o == Opt::Strategy(SOpt::Split { tactic: 0, fleet: 5, strategic: 3 })).expect("offered");
-    let (live, _) = ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut s, &e, asking.choice.pick(at)).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>)(&mut s, &e, asking.choice.pick(at)).unwrap();
     assert_eq!(live, Live::Done);
     let p = s.players().by_seat(Seat(0)).unwrap();
     assert_eq!((p.econ.tactic_tokens, p.econ.fleet_tokens, p.econ.strategic_tokens), (0, 5, 3));
@@ -445,9 +445,9 @@ fn after_the_free_action_the_seat_redistributes_and_the_held_follower_window_ope
 fn after_the_free_action_a_heros_strategy_goes_on_to_its_followers() {
     let (mut s, k) = after(Some(StrategyCard::Trade));
     let e = env(&k);
-    let (live, _) = ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>)(&mut s, &e, None).unwrap();
     let Live::Asks(asking) = live else { panic!("asks") };
-    ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut s, &e, asking.choice.pick(0)).unwrap();
+    ti4_engine_chance::resolved(ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>)(&mut s, &e, asking.choice.pick(0)).unwrap();
     assert!(s.pending().window(WindowKind::StrategySecondary).is_some(), "a hero whose card has no followers opens the window at once");
 }
 
@@ -456,7 +456,7 @@ fn a_game_that_ended_during_the_free_action_asks_for_no_redistribution() {
     let (mut s, k) = after(None);
     s.meta_mut().finished = true;
     let e = env(&k);
-    let (live, _) = ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>)(&mut s, &e, None).unwrap();
     assert_eq!(live, Live::Done);
 }
 
@@ -469,7 +469,7 @@ fn the_followers_who_may_not_follow_are_written_to_the_payload_when_the_window_a
     s.players_mut().by_seat_mut(Seat(0)).unwrap().strat.push(StrategyCard::Construction);
     s.pending_mut().open(OpenWindow::StrategySecondary(secondary_of(Seat(0), StrategyCard::Construction, &[Seat(1), Seat(2), Seat(3)], true)));
     let e = env(&k);
-    let (live, _) = advance_secondary(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, None).unwrap();
     assert!(matches!(live, Live::Asks(_)));
     let Some(OpenWindow::StrategySecondary(w)) = s.pending().window(WindowKind::StrategySecondary) else { panic!("open") };
     assert_eq!((w.next, w.resolved.as_slice()), (1, &[(Seat(1), SecondaryHow::Ineligible)][..]), "the skipped follower is recorded for the next call");
@@ -481,7 +481,7 @@ fn a_window_open_beside_a_job_is_the_arms_first() {
     ti4_engine_core::driver::turn::open_job(&mut s, ti4_engine_core::state::TurnJob::Prelude);
     let e = env(&k);
     assert_eq!(ask_secondary(&s, &e).unwrap().map(|a| a.choice.actor), Some(first_asked(&s, &e).actor), "the follower is asked, not the job");
-    let (live, _) = advance_secondary(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, None).unwrap();
     assert!(matches!(live, Live::Asks(_)), "the follower window runs, not the job");
 }
 
@@ -530,7 +530,7 @@ fn jae_mir_kan_is_offered_as_a_waiver_and_pays_with_the_primary_players_token() 
     assert_eq!(q.actor, mahact);
     let waiver = q.opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(Faction::TheMahactGeneSorcerers, _)))).expect("Jae Mir Kan is offered");
     let tokens = s.players().by_seat(mahact).unwrap().econ.strategic_tokens;
-    advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("the waiver is paid");
+    ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(Pick::Opt(waiver))).expect("the waiver is paid");
     assert_eq!(s.players().by_seat(mahact).unwrap().econ.strategic_tokens, tokens, "no strategy token is spent");
     assert_eq!(s.players().by_seat(mahact).unwrap().leaders.status.get(&Leader::JaeMirKan), Some(&ti4_engine_core::state::LeaderStatus::Exhausted), "the agent is exhausted");
     assert!(kinds(&s).contains(&PlainKind::StrategySecondaryFollowed));
@@ -545,7 +545,7 @@ fn a_waiver_a_nomad_hears_is_paid_and_stages_the_exhaustion_for_the_suite() {
     let q = first_asked(&s, &e);
     let waiver = q.opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(..)))).expect("offered like the string offers it");
     let tokens = s.players().by_seat(mahact).unwrap().econ.strategic_tokens;
-    advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("the waiver is paid with a Nomad at the table too");
+    ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(Pick::Opt(waiver))).expect("the waiver is paid with a Nomad at the table too");
     assert_eq!(s.players().by_seat(mahact).unwrap().leaders.status.get(&Leader::JaeMirKan), Some(&ti4_engine_core::state::LeaderStatus::Exhausted));
     assert_eq!(s.players().by_seat(mahact).unwrap().econ.strategic_tokens, tokens, "no strategy token is spent");
     assert!(kinds(&s).contains(&PlainKind::StrategySecondaryFollowed));
@@ -571,11 +571,11 @@ fn what_the_last_answer_staged_is_announced_before_the_action_completes_when_the
     let e = env(&k);
     let waiver = first_asked(&s, &e).opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(..)))).expect("offered");
     // (The core test table has no reaction for the suite: the announcement ends in the ledger; the lockstep asks the suite's holder.)
-    let (_, held) = advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("the waiver is taken");
+    let (_, held) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(Pick::Opt(waiver))).expect("the waiver is taken");
     assert!(held.held, "the answer's call ends with the window open: the Nomad's seat is skipped by the next call");
     // (The next step of the caller: its reconcile first, then the window's call.)
-    ti4_engine_core::driver::turn::advance_reconcile(&mut s, &e, None).expect("the reconcile announces what the answer staged");
-    advance_secondary(&mut s, &e, None).expect("the closing call");
+    ti4_engine_chance::resolved(ti4_engine_core::driver::turn::advance_reconcile)(&mut s, &e, None).expect("the reconcile announces what the answer staged");
+    ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, None).expect("the closing call");
     let _ = mahact;
     let order: Vec<&str> = s
         .ledger
@@ -596,7 +596,7 @@ fn a_waiver_without_a_nomad_holding_the_suite_stages_no_exhaustion() {
         let (mut s, k, _) = jae_mir_kan(nomad);
         let e = env(&k);
         let waiver = first_asked(&s, &e).opts.iter().copied().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(..)))).expect("offered");
-        advance_secondary(&mut s, &e, Some(Pick::Opt(waiver))).expect("paid");
+        ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(Pick::Opt(waiver))).expect("paid");
         assert!(s.pending().staged.iter().all(|e| e.kind != ti4_engine_core::state::EventKind::AgentExhausted), "{:?}", s.pending().staged);
     }
 }
@@ -609,14 +609,14 @@ fn the_letnev_fleet_pool_may_be_emptied_after_the_free_action_and_a_seat_without
     s.pending_mut().open(OpenWindow::StrategySecondaryAfterTactical(secondary_of(Seat(0), StrategyCard::WarfareThundersEdge, &[Seat(1)], true)));
     open_after(&mut s);
     let e = env(&k);
-    let (live, _) = ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>)(&mut s, &e, None).unwrap();
     let Live::Asks(asking) = live else { panic!("asks") };
     assert!(asking.choice.opts.iter().any(|o| *o == Opt::Strategy(SOpt::Split { tactic: 3, fleet: 0, strategic: 0 })), "Letnev may empty the fleet pool");
     // A seat with no command token at all has nothing to redistribute.
     let (mut none, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheArborec]).phase(Phase::Action).active(Some(0)).tokens(0, 0, 0, 0).build();
     none.pending_mut().open(OpenWindow::StrategySecondaryAfterTactical(secondary_of(Seat(0), StrategyCard::WarfareThundersEdge, &[Seat(1)], true)));
     open_after(&mut none);
-    let (live, _) = ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut none, &env(&k), None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>)(&mut none, &env(&k), None).unwrap();
     assert_eq!(live, Live::Done);
 }
 
@@ -638,9 +638,9 @@ fn the_payload_records_how_each_follower_answered() {
     let (mut s, k) = trade_window([2, 2, 2]);
     let e = env(&k);
     let first = first_asked(&s, &e).actor;
-    advance_secondary(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
+    ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
     let second = first_asked(&s, &e).actor;
-    advance_secondary(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
+    ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(pick(SOpt::Skip))).unwrap();
     let Some(OpenWindow::StrategySecondary(w)) = s.pending().window(WindowKind::StrategySecondary) else { panic!("open") };
     let answered: Vec<_> = w.resolved.as_slice().iter().filter(|(_, how)| *how != SecondaryHow::Ineligible).copied().collect();
     assert_eq!(answered, [(first, Followed), (second, Declined)]);
@@ -661,7 +661,7 @@ fn a_seat_with_one_command_token_is_still_asked_to_redistribute_after_the_free_a
     let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheArborec]).phase(Phase::Action).active(Some(0)).tokens(0, 1, 0, 0).build();
     s.pending_mut().open(OpenWindow::StrategySecondaryAfterTactical(secondary_of(Seat(0), StrategyCard::WarfareThundersEdge, &[Seat(1)], true)));
     open_after(&mut s);
-    let (live, _) = ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut s, &env(&k), None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>)(&mut s, &env(&k), None).unwrap();
     assert!(matches!(live, Live::Asks(_)));
 }
 
@@ -677,7 +677,7 @@ fn a_winnu_primary_player_lets_a_follower_return_acquiescence_instead_of_a_token
     let e = env(&k);
     let q = first_asked(&s, &e);
     assert_eq!(q.opts.as_slice(), [Opt::Strategy(SOpt::Skip), Opt::Strategy(SOpt::WaiveBy(Faction::TheWinnu, 0))], "no token: the waiver instead of the follow");
-    advance_secondary(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::WaiveBy(Faction::TheWinnu, 0))))).unwrap();
+    ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::WaiveBy(Faction::TheWinnu, 0))))).unwrap();
     assert_eq!(s.cards().promissory.get(&note), Some(&Seat(0)), "the note went home");
 }
 
@@ -703,10 +703,10 @@ fn a_ported_waiver_is_taken_although_another_offered_one_is_not_carried() {
     let enervate = *q.opts.iter().find(|o| matches!(o, Opt::Strategy(SOpt::WaiveBy(Faction::TheObsidian, _)))).expect("Enervate is offered");
     // The one the core does not carry stops the step when it is the one taken...
     let held = s.clone();
-    assert!(advance_secondary(&mut s, &e, Some(Pick::Opt(enervate))).is_err());
+    assert!(ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(Pick::Opt(enervate))).is_err());
     assert_eq!(s, held);
     // ...and the Acquiescence is paid although Enervate stands beside it.
-    advance_secondary(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::WaiveBy(Faction::TheWinnu, 0))))).expect("Acquiescence is paid");
+    ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::WaiveBy(Faction::TheWinnu, 0))))).expect("Acquiescence is paid");
     assert_eq!(s.cards().promissory.get(&note), Some(&Seat(0)), "the note went home");
 }
 
@@ -789,14 +789,14 @@ fn an_xxcha_follower_of_diplomacy_with_a_planet_to_annex_is_asked_which_after_th
     let e = env(&k);
     let q = first_asked(&s, &e);
     assert_eq!(q.actor, Seat(1));
-    let (live, _) = advance_secondary(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
     let Live::Asks(ready) = live else { panic!("the ready question") };
-    let (live, _) = advance_secondary(&mut s, &e, ready.choice.pick(0)).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, ready.choice.pick(0)).unwrap();
     let Live::Asks(annex) = live else { panic!("the Peace Accords question: {live:?}") };
     assert_eq!(annex.choice.actor, Seat(1));
     assert!(matches!(annex.choice.ask, Ask::Strategy(SAsk::PeaceAccords { controlled: 1 })), "{:?}", annex.choice.ask);
     assert!(annex.choice.opts.as_slice().iter().any(|o| matches!(o, Opt::Strategy(SOpt::Annex(..)))) && annex.choice.opts.as_slice().last() == Some(&Opt::Decline));
-    let (live, _) = advance_secondary(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
     assert!(matches!(live, Live::Done), "the follower window ends with the last follower");
     assert!(!is_open::<SecondaryWin>(&s));
 }
@@ -805,9 +805,9 @@ fn an_xxcha_follower_of_diplomacy_with_a_planet_to_annex_is_asked_which_after_th
 fn an_xxcha_follower_with_nothing_to_annex_goes_on() {
     let (mut s, k) = xxcha_table(true);
     let e = env(&k);
-    let (live, _) = advance_secondary(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, Some(pick(SOpt::Follow))).unwrap();
     let Live::Asks(ready) = live else { panic!("the ready question") };
-    let r = advance_secondary(&mut s, &e, ready.choice.pick(0));
+    let r = ti4_engine_chance::resolved(advance_secondary)(&mut s, &e, ready.choice.pick(0));
     assert!(!matches!(r, Err(LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::TurnGap(ti4_engine_core::kernel::turn_codes::TurnGap::PeaceAccords)))), "{r:?}");
 }
 

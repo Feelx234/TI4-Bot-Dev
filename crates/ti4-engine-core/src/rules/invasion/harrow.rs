@@ -84,7 +84,7 @@ impl Window for Harrow {
         }
         let mut total = 0_u32;
         for (unit, on, dice) in rolls {
-            let faces: Vec<u32> = (0..dice).map(|_| sx.die(RngDomain::Dice, DIE_SIDES)).collect();
+            let faces: Vec<u32> = sx.dice(RngDomain::Dice, usize::try_from(dice).unwrap_or(0), DIE_SIDES);
             sx.state.ledger_mut().dice.push(RollRec {
                 purpose: RollPurpose::Bombardment,
                 owner: Some(f.invader),

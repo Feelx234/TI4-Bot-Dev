@@ -71,7 +71,7 @@ fn play(core: &mut CoreState, env: &Env<'_>, pol: &mut Pol) -> (Vec<Choice>, Res
     let mut asked = Vec::new();
     let mut answer: Option<Pick> = None;
     for _ in 0..600 {
-        match advance_invasion(core, env, answer.take()) {
+        match ti4_engine_chance::resolved(advance_invasion)(core, env, answer.take()) {
             Err(e) => return (asked, Err(e)),
             Ok((Live::Asks(a), _)) => {
                 let i = pol(&a.choice).min(a.choice.opts.len() - 1);
@@ -139,7 +139,7 @@ fn a_clone_in_the_middle_of_the_window_continues_identically() {
     let mut answer: Option<Pick> = None;
     let mut questions = 0;
     loop {
-        match advance_invasion(&mut core, &env, answer.take()).expect("legal") {
+        match ti4_engine_chance::resolved(advance_invasion)(&mut core, &env, answer.take()).expect("legal") {
             (Live::Asks(a), _) => {
                 questions += 1;
                 // A copy of the position at this question stands for a checkpoint: it asks the same question and ends in the same position.
@@ -169,7 +169,7 @@ fn play_from(core: &mut CoreState, env: &Env<'_>, pick: Pick) -> (Vec<Choice>, R
     let mut asked = Vec::new();
     let mut answer = Some(pick);
     for _ in 0..600 {
-        match advance_invasion(core, env, answer.take()) {
+        match ti4_engine_chance::resolved(advance_invasion)(core, env, answer.take()) {
             Err(e) => return (asked, Err(e)),
             Ok((Live::Asks(a), _)) => {
                 answer = Some(Pick::Opt(a.choice.opts.as_slice()[0]));
@@ -194,7 +194,7 @@ fn the_payload_on_the_stack_is_the_machine_after_every_question() {
     open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
     let mut answer: Option<Pick> = None;
     for _ in 0..200 {
-        match advance_invasion(&mut core, &env, answer.take()).expect("legal") {
+        match ti4_engine_chance::resolved(advance_invasion)(&mut core, &env, answer.take()).expect("legal") {
             (Live::Asks(a), _) => {
                 let machine = InvasionMachine::from_pending(&core, &k).expect("open");
                 let mut again = core.clone();
@@ -331,7 +331,7 @@ fn the_public_boundary_follows_the_stage_the_question_is_asked_in() {
     let mut answer: Option<Pick> = None;
     let (mut rounds_seen, mut commits_seen) = (0, 0);
     for _ in 0..200 {
-        match advance_invasion(&mut core, &env, answer.take()).expect("legal") {
+        match ti4_engine_chance::resolved(advance_invasion)(&mut core, &env, answer.take()).expect("legal") {
             (Live::Asks(a), _) => {
                 let active = core.transient().invasion.active.clone().expect("an invasion is public while it runs");
                 assert_eq!((active.system, active.invader), (sys(), Seat(0)));
@@ -386,7 +386,7 @@ fn the_commander_of_the_invader_is_asked_about_each_die_of_the_bombardment_and_t
         let mut answer: Option<Pick> = None;
         let mut asks = Vec::new();
         for _ in 0..200 {
-            match advance_invasion(&mut core, &env, answer.take()).expect("legal") {
+            match ti4_engine_chance::resolved(advance_invasion)(&mut core, &env, answer.take()).expect("legal") {
                 (Live::Asks(a), _) => {
                     let is_walk = matches!(a.choice.ask, Ask::Combat(CAsk::RerollDie { source: RerollSource::Commander, .. }));
                     // Reroll every other die, keep the rest; the other questions take their first option.

@@ -268,11 +268,14 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
         step.out.emitted.extend(out.emitted);
         step.out.opened.extend(out.opened);
     };
-    // The arm's pending question; a fresh window (or one about to end) asks nothing yet: run it.
+    // The arm's pending question; a fresh window (or one about to end) asks nothing yet: run it. Every call of the arm goes through the
+    // chance resolver (lane C3): the core asks for each random event and the position's streams answer it, so no chance question reaches the
+    // asker.
     let mut asking = match ask(core, env)? {
-        Some(a) => a,
-        None => {
-            let (live, out) = advance(core, env, None)?;
+        // (A chance question left pending by a search: the resolver answers it like any other.)
+        Some(a) if ti4_engine_chance::chance_asked(&a).is_none() => a,
+        _ => {
+            let (live, out) = ti4_engine_chance::advance_resolved(core, env, advance, None)?;
             cx.render.sync_codes(&mut core.texts.codes);
             let held = out.held;
             merge(&mut step, out);
@@ -300,7 +303,7 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
                 None => return Err(Stop::Illegal),
             },
         };
-        let (live, out) = advance(core, env, Some(pick))?;
+        let (live, out) = ti4_engine_chance::advance_resolved(core, env, advance, Some(pick))?;
         cx.render.sync_codes(&mut core.texts.codes);
         let held = out.held;
         merge(&mut step, out);

@@ -66,7 +66,7 @@ fn play(core: &mut CoreState, env: &Env<'_>, pol: &mut dyn FnMut(&Choice) -> Opt
     let mut played = Played { asked: Vec::new(), events: Vec::new(), end: Ok(()) };
     let mut answer: Option<Pick> = None;
     for _ in 0..300 {
-        match advance_production(core, env, answer.take()) {
+        match ti4_engine_chance::resolved(advance_production)(core, env, answer.take()) {
             Err(e) => {
                 played.end = Err(e);
                 return played;
@@ -135,7 +135,7 @@ fn units_produced_names_the_source_and_every_unit_with_its_place() {
     let mut answer = None;
     let mut pol = build_then_stop(Unit::DestroyerI);
     loop {
-        let (live, out) = advance_production(&mut core, &env, answer.take()).expect("legal");
+        let (live, out) = ti4_engine_chance::resolved(advance_production)(&mut core, &env, answer.take()).expect("legal");
         announced = announced.or_else(|| out.emitted.iter().find(|e| e.kind == EventKind::UnitsProduced).cloned());
         match live {
             Live::Asks(a) => answer = Some(pol(&a.choice).unwrap_or(Pick::Opt(a.choice.opts.as_slice()[0]))),
@@ -159,7 +159,7 @@ fn a_system_with_no_capacity_has_no_effects_and_no_use_number() {
     core.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::HarrughGefhara, LeaderStatus::Unlocked);
     let seq = core.meta().production_seq;
     open_production(&mut core, tactical());
-    let (live, out) = advance_production(&mut core, &env, None).expect("runs");
+    let (live, out) = ti4_engine_chance::resolved(advance_production)(&mut core, &env, None).expect("runs");
     assert_eq!(live, Live::Done);
     assert!(out.emitted.is_empty(), "no PRODUCTION_USED for a system that produces nothing");
     assert_eq!(core.meta().production_seq, seq);
@@ -174,12 +174,12 @@ fn the_hacan_hero_is_offered_after_the_use_has_its_number_and_makes_every_unit_f
     core.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::HarrughGefhara, LeaderStatus::Unlocked);
     let seq = core.meta().production_seq;
     open_production(&mut core, tactical());
-    let (live, _) = advance_production(&mut core, &env, None).expect("runs");
+    let (live, _) = ti4_engine_chance::resolved(advance_production)(&mut core, &env, None).expect("runs");
     let Live::Asks(first) = live else { panic!("the hero is offered") };
     assert!(matches!(first.choice.ask, Ask::Production(PAsk::Hero(_))), "{:?}", first.choice.ask);
     assert_eq!(core.meta().production_seq, seq, "the question was asked from a replayed step: the position is the one before it");
     let take = Pick::Opt(first.choice.opts.iter().copied().find(|o| matches!(o, Opt::Production(POpt::HeroUse))).unwrap());
-    let (live, _) = advance_production(&mut core, &env, Some(take)).expect("legal");
+    let (live, _) = ti4_engine_chance::resolved(advance_production)(&mut core, &env, Some(take)).expect("legal");
     let Live::Asks(second) = live else { panic!("then what to build") };
     assert!(matches!(second.choice.ask, Ask::Production(PAsk::Choose(_))));
     assert_eq!(core.meta().production_seq, seq + 1, "the counter went up before the marker named it");
@@ -212,7 +212,7 @@ fn a_question_of_the_start_effects_is_a_nested_question_that_survives_a_clone() 
         p.tech.owned.insert(Technology::CruiserII);
     }
     open_production(&mut core, tactical());
-    let (live, _) = advance_production(&mut core, &env, None).expect("runs");
+    let (live, _) = ti4_engine_chance::resolved(advance_production)(&mut core, &env, None).expect("runs");
     let Live::Asks(first) = live else { panic!("AI Development Algorithm asks") };
     assert!(matches!(first.choice.ask, Ask::Technology(_)), "{:?}", first.choice.ask);
     assert!(core.pending().nested.is_some(), "the question of a start effect is in the journal, not in the payload");
@@ -221,8 +221,8 @@ fn a_question_of_the_start_effects_is_a_nested_question_that_survives_a_clone() 
     assert_eq!(again.choice, first.choice, "the copy asks the same question");
     let exhaust = Pick::Opt(first.choice.opts.iter().copied().find(|o| matches!(o, Opt::Technology(_))).unwrap());
     let mut copy = held.clone();
-    let (a, _) = advance_production(&mut core, &env, Some(exhaust)).expect("legal");
-    let (b, _) = advance_production(&mut copy, &env, Some(exhaust)).expect("legal");
+    let (a, _) = ti4_engine_chance::resolved(advance_production)(&mut core, &env, Some(exhaust)).expect("legal");
+    let (b, _) = ti4_engine_chance::resolved(advance_production)(&mut copy, &env, Some(exhaust)).expect("legal");
     assert_eq!(a, b);
     assert_eq!(core, copy, "a clone mid-window continues identically");
     assert!(core.pending().nested.is_none());
@@ -238,7 +238,7 @@ fn a_clone_in_the_middle_of_the_window_continues_identically_and_the_payload_is_
     let mut answer: Option<Pick> = None;
     let mut questions = 0;
     loop {
-        let (live, _) = advance_production(&mut core, &env, answer.take()).expect("legal");
+        let (live, _) = ti4_engine_chance::resolved(advance_production)(&mut core, &env, answer.take()).expect("legal");
         match live {
             Live::Asks(a) => {
                 questions += 1;
@@ -266,7 +266,7 @@ fn play_rest(core: &mut CoreState, env: &Env<'_>, pick: Pick) -> usize {
     let mut pol = build_then_stop(Unit::DestroyerI);
     let mut n = 0;
     loop {
-        let (live, _) = advance_production(core, env, answer.take()).expect("legal");
+        let (live, _) = ti4_engine_chance::resolved(advance_production)(core, env, answer.take()).expect("legal");
         match live {
             Live::Asks(a) => {
                 n += 1;
@@ -383,7 +383,7 @@ fn a_table_without_the_factions_link_stops_the_use_with_a_named_gap() {
     env.table.facts.roster = None;
     open_production(&mut core, tactical());
     let before = core.clone();
-    assert_eq!(advance_production(&mut core, &env, None), Err(LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::UnportedProduction(ti4_engine_core::kernel::ability::ProductionGap::NoRoster))));
+    assert_eq!(ti4_engine_chance::resolved(advance_production)(&mut core, &env, None), Err(LiveError::Unknown(ti4_engine_core::kernel::ability::Unknown::UnportedProduction(ti4_engine_core::kernel::ability::ProductionGap::NoRoster))));
     assert_eq!(core, before, "a failed call restores the position");
 }
 
@@ -404,7 +404,7 @@ fn a_home_use_drops_the_stale_discount_announces_nothing_before_and_offers_the_h
     let env = mkenv(&k, 1);
     core.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::HarrughGefhara, LeaderStatus::Unlocked);
     open_production(&mut core, UseOpen::Home { who: Seat(0), system: sys() });
-    let (live, _) = advance_production(&mut core, &env, None).expect("runs");
+    let (live, _) = ti4_engine_chance::resolved(advance_production)(&mut core, &env, None).expect("runs");
     let Live::Asks(a) = live else { panic!("the hero is offered") };
     assert!(matches!(a.choice.ask, Ask::Production(PAsk::Hero(_))));
 }
@@ -425,7 +425,7 @@ fn an_ability_use_announces_its_units_as_an_ability_and_offers_no_self_assembly(
     let mut pol = build_then_stop(Unit::DestroyerI);
     let mut asked_tech = false;
     loop {
-        let (live, out): (Live, Out) = advance_production(&mut core, &env, answer.take()).expect("legal");
+        let (live, out): (Live, Out) = ti4_engine_chance::resolved(advance_production)(&mut core, &env, answer.take()).expect("legal");
         announced = announced.or_else(|| out.emitted.iter().find(|e| e.kind == EventKind::UnitsProduced).cloned());
         match live {
             Live::Asks(a) => {
@@ -459,12 +459,12 @@ fn an_answer_that_is_no_option_is_refused_and_a_window_that_is_not_open_is_named
     covers!("driver::windows::production::ProductionMachine");
     let (mut core, k) = arena(6);
     let env = mkenv(&k, 1);
-    assert_eq!(advance_production(&mut core, &env, None), Err(LiveError::NotOpen));
+    assert_eq!(ti4_engine_chance::resolved(advance_production)(&mut core, &env, None), Err(LiveError::NotOpen));
     open_production(&mut core, tactical());
-    let (live, _) = advance_production(&mut core, &env, None).expect("runs");
+    let (live, _) = ti4_engine_chance::resolved(advance_production)(&mut core, &env, None).expect("runs");
     assert!(matches!(live, Live::Asks(_)));
     let held = core.clone();
-    assert_eq!(advance_production(&mut core, &env, Some(Pick::Number(3))), Err(LiveError::Illegal));
+    assert_eq!(ti4_engine_chance::resolved(advance_production)(&mut core, &env, Some(Pick::Number(3))), Err(LiveError::Illegal));
     assert_eq!(core, held);
     assert_eq!(ProductionMachine::from_pending(&core, &k).unwrap().p.phase, UsePhase::Using);
     let asked = ask::<ProductionMachine>(&core, &env).unwrap().unwrap();
@@ -509,11 +509,11 @@ fn a_home_use_offers_the_hero_only_to_a_unlocked_hero_with_capacity_and_ends_wit
         core.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::HarrughGefhara, status);
         let seq = core.meta().production_seq;
         open_production(&mut core, UseOpen::Home { who: Seat(0), system: sys() });
-        let (live, _) = advance_production(&mut core, &env, None).expect("runs");
+        let (live, _) = ti4_engine_chance::resolved(advance_production)(&mut core, &env, None).expect("runs");
         let Live::Asks(a) = live else { panic!("asks") };
         assert_eq!(matches!(a.choice.ask, Ask::Production(PAsk::Hero(_))), up == 1, "{status:?}");
         let answered = if up == 1 { Pick::Opt(Opt::Production(POpt::HeroUse)) } else { Pick::Opt(Opt::Production(POpt::Stop)) };
-        advance_production(&mut core, &env, Some(answered)).expect("legal");
+        ti4_engine_chance::resolved(advance_production)(&mut core, &env, Some(answered)).expect("legal");
         assert_eq!(core.meta().production_seq, seq + up, "{status:?}");
     }
     // No capacity: the hero is not offered, the use ends at once, and a planet-value swap does not outlast the use.
@@ -523,7 +523,7 @@ fn a_home_use_offers_the_hero_only_to_a_unlocked_hero_with_capacity_and_ends_wit
     core.transient_mut().production.value_swapped_planet = Some(planet());
     let seq = core.meta().production_seq;
     open_production(&mut core, UseOpen::Home { who: Seat(0), system: sys() });
-    let (live, _) = advance_production(&mut core, &env, None).expect("runs");
+    let (live, _) = ti4_engine_chance::resolved(advance_production)(&mut core, &env, None).expect("runs");
     assert_eq!(live, Live::Done);
     assert_eq!(core.meta().production_seq, seq);
     assert_eq!(core.transient().production.value_swapped_planet, None, "a home use clears the swap when it closes");
@@ -532,7 +532,7 @@ fn a_home_use_offers_the_hero_only_to_a_unlocked_hero_with_capacity_and_ends_wit
     let env = mkenv(&k, 1);
     core.transient_mut().production.value_swapped_planet = Some(planet());
     open_production(&mut core, tactical());
-    advance_production(&mut core, &env, None).expect("runs");
+    ti4_engine_chance::resolved(advance_production)(&mut core, &env, None).expect("runs");
     assert_eq!(core.transient().production.value_swapped_planet, Some(planet()));
 }
 
@@ -542,18 +542,18 @@ fn the_machine_reports_what_the_use_made_so_far() {
     let (mut core, k) = arena(6);
     let env = mkenv(&k, 1);
     open_production(&mut core, tactical());
-    let (live, _) = advance_production(&mut core, &env, None).expect("runs");
+    let (live, _) = ti4_engine_chance::resolved(advance_production)(&mut core, &env, None).expect("runs");
     let Live::Asks(first) = live else { panic!() };
     assert!(ProductionMachine::from_pending(&core, &k).unwrap().made().as_slice().is_empty());
     let build = Pick::Opt(first.choice.opts.iter().copied().find(|o| matches!(o, Opt::Production(POpt::Build { unit: Unit::DestroyerI, .. }))).unwrap());
-    let (live, _) = advance_production(&mut core, &env, Some(build)).expect("legal");
+    let (live, _) = ti4_engine_chance::resolved(advance_production)(&mut core, &env, Some(build)).expect("legal");
     let mut live = live;
     while let Live::Asks(a) = &live {
         if matches!(a.choice.ask, Ask::Production(PAsk::Choose(_))) {
             break;
         }
         let pick = pick_where(&a.choice, &|o| matches!(o, Opt::Production(POpt::TradeGood { .. }))).unwrap_or(Pick::Opt(a.choice.opts.as_slice()[0]));
-        live = advance_production(&mut core, &env, Some(pick)).expect("legal").0;
+        live = ti4_engine_chance::resolved(advance_production)(&mut core, &env, Some(pick)).expect("legal").0;
     }
     let made = ProductionMachine::from_pending(&core, &k).unwrap().made();
     assert_eq!(made.as_slice().iter().map(|(u, _)| *u).collect::<Vec<_>>(), [Unit::DestroyerI]);

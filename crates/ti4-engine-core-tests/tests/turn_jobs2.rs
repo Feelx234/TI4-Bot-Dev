@@ -113,7 +113,7 @@ fn the_events_the_reconcile_announces_from_the_pending_list_do_not_announce_the_
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).build();
     stage_a_discard(&mut s);
     fx::stage(&mut s, fx::event(EventKind::StrategyTokenSpent, ti4_engine_core::state::Payload::new().with(Key::Player, Val::Seat(Seat(0)))));
-    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env(&k), None).unwrap();
     assert_eq!(typed(&s, EventKind::StrategyTokenSpent).len(), 1, "the staged event was announced");
     assert!(typed(&s, EventKind::ActionCardDiscarded).is_empty(), "the string's card moves wait for its next typed event");
     assert!(s.marks().tail.iter().any(|(k, _)| matches!(k, MarkKey::CardsStaged(_))), "the row is still staged");
@@ -244,10 +244,10 @@ fn the_closing_question_is_asked_of_the_seat_in_it_and_its_end_ends_the_turn() {
     let q = ask_ask(&s, &e).unwrap().unwrap().choice;
     assert_eq!((q.actor, q.ask, q.opts.as_slice()), (Seat(0), Ask::Turn(TuAsk::Closing { second: false }), &[Opt::Turn(TuOpt::EndTurn)][..]));
     let held = s.clone();
-    assert_eq!(advance_ask(&mut s, &e, Some(Pick::Opt(Opt::Decline))), Err(LiveError::Illegal));
-    assert_eq!(advance_ask(&mut s, &e, Some(Pick::Number(1))), Err(LiveError::Illegal));
+    assert_eq!(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(Opt::Decline))), Err(LiveError::Illegal));
+    assert_eq!(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Number(1))), Err(LiveError::Illegal));
     assert_eq!(s, held);
-    assert_eq!(advance_ask(&mut s, &e, Some(Pick::Opt(Opt::Turn(TuOpt::EndTurn)))).unwrap().0, Live::Done);
+    assert_eq!(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(Opt::Turn(TuOpt::EndTurn)))).unwrap().0, Live::Done);
     assert_eq!((s.meta().active, s.pending().turn_closing), (Some(Seat(1)), None));
     // Fleet Logistics: the same menu, asked as the second action.
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).tech(0, Technology::FleetLogistics).build();
@@ -312,7 +312,7 @@ fn last_pick(seats: &[Faction]) -> (CoreState, Kernel) {
 }
 
 fn take_last(s: &mut CoreState, k: &Kernel) -> Result<(Live, Out), LiveError> {
-    advance_ask(s, &env(k), Some(Pick::Opt(Opt::Strategy(ti4_engine_core::choice::strategy::Opt::Card(StrategyCard::Imperial)))))
+    ti4_engine_chance::resolved(advance_ask)(s, &env(k), Some(Pick::Opt(Opt::Strategy(ti4_engine_core::choice::strategy::Opt::Card(StrategyCard::Imperial)))))
 }
 
 /// The question a call stopped at.
@@ -364,7 +364,7 @@ fn initiative(s: &mut CoreState) {
 }
 
 fn take_diplomacy(s: &mut CoreState, k: &Kernel) -> Result<(Live, Out), LiveError> {
-    advance_ask(s, &env(k), Some(Pick::Opt(Opt::Strategy(ti4_engine_core::choice::strategy::Opt::Card(StrategyCard::DiplomacyCodex)))))
+    ti4_engine_chance::resolved(advance_ask)(s, &env(k), Some(Pick::Opt(Opt::Strategy(ti4_engine_core::choice::strategy::Opt::Card(StrategyCard::DiplomacyCodex)))))
 }
 
 fn arbiter_draft() -> (CoreState, Kernel) {
@@ -397,18 +397,18 @@ fn the_arbiter_swap_asks_what_to_give_then_what_to_take_and_moves_the_cards_by_h
     assert_eq!(offer.actor, Seat(0));
     assert_eq!(offer.opts.as_slice(), [Opt::Agenda(AOpt::DiscardLaw), Opt::Decline]);
     // The owner (who took the last card) discards the law and is asked what to give: its two cards, in the order it holds them, with no way to decline.
-    let give = asked(advance_ask(&mut s, &e, Some(Pick::Opt(Opt::Agenda(AOpt::DiscardLaw)))));
+    let give = asked(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(Opt::Agenda(AOpt::DiscardLaw)))));
     assert_eq!((give.actor, give.ask), (Seat(0), Ask::Strategy(SAsk::ArbiterGive)));
     // A plain question of the owner: not optional, no target, outside a battle and an invasion.
     let plain_ctx = |q: &ti4_engine_core::choice::Choice| (q.ctx.optional, q.ctx.target, q.ctx.outstanding.as_slice().is_empty(), q.ctx.space_battle, q.ctx.invasion_seq);
     assert_eq!(plain_ctx(&give), (false, None, true, false, None));
     assert_eq!(give.opts.as_slice(), [Opt::Strategy(SOpt::Card(StrategyCard::DiplomacyCodex)), Opt::Strategy(SOpt::Card(StrategyCard::Technology))]);
     // Then what to take: every card of the others with its holder.
-    let take = asked(advance_ask(&mut s, &e, Some(pick_of(SOpt::Card(StrategyCard::DiplomacyCodex)))));
+    let take = asked(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(pick_of(SOpt::Card(StrategyCard::DiplomacyCodex)))));
     assert_eq!((take.actor, take.ask), (Seat(0), Ask::Strategy(SAsk::ArbiterTake)));
     assert_eq!(plain_ctx(&take), (false, None, true, false, None));
     assert_eq!(take.opts.as_slice(), [Opt::Strategy(SOpt::Take(Seat(1), StrategyCard::Leadership)), Opt::Strategy(SOpt::Take(Seat(1), StrategyCard::Politics))]);
-    assert_eq!(advance_ask(&mut s, &e, Some(pick_of(SOpt::Take(Seat(1), StrategyCard::Leadership)))).unwrap().0, Live::Done);
+    assert_eq!(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(pick_of(SOpt::Take(Seat(1), StrategyCard::Leadership)))).unwrap().0, Live::Done);
     // The taken card goes on the END of the holding and the card given on the end of the other's: no initiative order.
     assert_eq!(holding(&s, 0), [StrategyCard::Technology, StrategyCard::Leadership]);
     assert_eq!(holding(&s, 1), [StrategyCard::Politics, StrategyCard::DiplomacyCodex]);
@@ -423,7 +423,7 @@ fn a_declined_arbiter_keeps_the_law_and_the_cards_and_a_card_not_offered_is_refu
     let (mut s, k) = arbiter_draft();
     let e = env(&k);
     asked(take_diplomacy(&mut s, &k));
-    assert_eq!(advance_ask(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap().0, Live::Done);
+    assert_eq!(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap().0, Live::Done);
     assert!(s.agenda().laws.contains_key(&Agenda::ImperialArbiter));
     assert_eq!(holding(&s, 0), [StrategyCard::DiplomacyCodex, StrategyCard::Technology], "the last card is the owner's, nothing was swapped");
     assert_eq!(holding(&s, 1), [StrategyCard::Leadership, StrategyCard::Politics]);
@@ -432,8 +432,8 @@ fn a_declined_arbiter_keeps_the_law_and_the_cards_and_a_card_not_offered_is_refu
     let (mut s, k) = arbiter_draft();
     let e = env(&k);
     asked(take_diplomacy(&mut s, &k));
-    asked(advance_ask(&mut s, &e, Some(Pick::Opt(Opt::Agenda(AOpt::DiscardLaw)))));
-    assert_eq!(advance_ask(&mut s, &e, Some(pick_of(SOpt::Card(StrategyCard::Leadership)))), Err(LiveError::Illegal));
+    asked(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(Opt::Agenda(AOpt::DiscardLaw)))));
+    assert_eq!(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(pick_of(SOpt::Card(StrategyCard::Leadership)))), Err(LiveError::Illegal));
 }
 
 /// The datahub draft: seat 1 (Sol) owns the node and holds Leadership and Politics; seat 0 holds Technology and takes the last card, Diplomacy.
@@ -472,7 +472,7 @@ fn the_datahub_offers_every_partner_card_pair_and_pays_a_token_and_three_goods()
         ]
     );
     let staged_before = s.pending().staged.len();
-    assert_eq!(advance_ask(&mut s, &e, Some(Pick::Opt(swap(StrategyCard::Leadership, StrategyCard::Technology)))).unwrap().0, Live::Done);
+    assert_eq!(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(swap(StrategyCard::Leadership, StrategyCard::Technology)))).unwrap().0, Live::Done);
     // Both holdings stay in initiative order and the trade goods and the token moved.
     assert_eq!(holding(&s, 0), [StrategyCard::Leadership, StrategyCard::DiplomacyCodex]);
     assert_eq!(holding(&s, 1), [StrategyCard::Politics, StrategyCard::Technology]);
@@ -484,7 +484,7 @@ fn the_datahub_offers_every_partner_card_pair_and_pays_a_token_and_three_goods()
     let (mut s, k) = datahub_draft(2, 4);
     let e = env(&k);
     asked(take_diplomacy(&mut s, &k));
-    assert_eq!(advance_ask(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap().0, Live::Done);
+    assert_eq!(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap().0, Live::Done);
     assert_eq!(s.players().by_seat(Seat(1)).unwrap().econ.trade_goods, 4);
     assert!(!plain(&s).iter().any(|p| p.kind == PlainKind::QuantumDatahubSwap));
 }
@@ -555,23 +555,23 @@ fn a_relic_and_a_breakthrough_nobody_announced_are_announced_once_each() {
     let (mut s, k) = Scenario::lobby(2).phase(Phase::Action).build();
     let mut e = env(&k);
     e.table.facts.staging = true;
-    advance_reconcile(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &e, None).unwrap();
     s.players_mut().edit(0).cards.relics.push(Relic::TheCodex);
-    advance_reconcile(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &e, None).unwrap();
     let relics: Vec<_> = typed(&s, EventKind::RelicGained);
     assert_eq!(relics.len(), 1);
     assert_eq!(relics[0].payload.get(Key::Player), Some(Val::Seat(Seat(0))));
-    advance_reconcile(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &e, None).unwrap();
     assert_eq!(typed(&s, EventKind::RelicGained).len(), 1, "announced once");
     // A second copy of the same relic is a new gain; one that stays is not.
     s.players_mut().edit(0).cards.relics.push(Relic::TheCodex);
-    advance_reconcile(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &e, None).unwrap();
     assert_eq!(typed(&s, EventKind::RelicGained).len(), 2);
     assert_eq!(s.marks().tail.get(&MarkKey::PrivateSeen(Word::Relics, Seat(0))), Some(&MarkVal::List(vec![MarkVal::Atom(Atom::Relic(Relic::TheCodex)); 2])));
     s.players_mut().edit(1).cards.breakthrough = Some(Breakthrough::Psychospore);
-    advance_reconcile(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &e, None).unwrap();
     assert_eq!(typed(&s, EventKind::BreakthroughGained).len(), 1);
-    advance_reconcile(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &e, None).unwrap();
     assert_eq!(typed(&s, EventKind::BreakthroughGained).len(), 1, "announced once");
 }
 
@@ -581,7 +581,7 @@ fn a_spec_ops_die_survives_on_a_five_or_more() {
     s.players_mut().edit(0).misc.spec_ops_destroyed = 60;
     s.rng = ti4_engine_core_tests::rig::kit_rng(9);
     let e = env(&k);
-    advance_reconcile(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &e, None).unwrap();
     let faces: Vec<u8> = s.ledger.dice.get(0).unwrap().faces.as_slice().to_vec();
     assert_eq!(faces.len(), 60);
     assert!(faces.contains(&5) && faces.iter().any(|f| *f < 5) && faces.iter().all(|f| (1..=10).contains(f)), "{faces:?}");
@@ -604,7 +604,7 @@ fn the_end_of_the_round_resets_both_flags_and_the_levy_needs_the_revolution_agai
     s.pending_mut().driver.set(DriverFlags::STATUS_RESOLVED, true);
     s.pending_mut().driver.set(DriverFlags::AGENDA_RESOLVED, true);
     s.agenda_mut().laws.insert(Agenda::AntiIntellectualRevolution, Outcome::For);
-    advance_phase(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_phase)(&mut s, &env(&k), None).unwrap();
     assert!(!s.pending().driver.has(DriverFlags::STATUS_RESOLVED) && !s.pending().driver.has(DriverFlags::AGENDA_RESOLVED));
     assert!(planets.iter().all(|p| !s.board().planet(*p).flags.has(PlanetFlags::EXHAUSTED)), "a revolution in favour levies nothing");
 }
@@ -649,15 +649,15 @@ fn military_support_returns_home_with_a_token_and_is_announced() {
     })));
     let held = s.clone();
     // Without the play facts the job cannot know the form the holder places.
-    assert_eq!(advance_prelude(&mut s, &env(&k), None), gap(TurnGap::NoRoster));
+    assert_eq!(ti4_engine_chance::resolved(advance_prelude)(&mut s, &env(&k), None), gap(TurnGap::NoRoster));
     assert_eq!(s, held);
-    advance_prelude(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_prelude)(&mut s, &e, None).unwrap();
     assert_eq!(plain(&s), [PlainRec::bare(PlainKind::MilitarySupportUsed)]);
     assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.strategic_tokens, 1, "the strategy token is spent");
     assert_eq!(s.cards().promissory.get(&key).copied(), Some(Seat(0)), "the note goes home");
     // A note nobody holds elsewhere does nothing.
     let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).build();
-    advance_prelude(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_prelude)(&mut s, &env(&k), None).unwrap();
     assert!(plain(&s).is_empty());
 }
 
@@ -670,13 +670,13 @@ fn only_a_locked_commander_without_a_hook_stops_the_prelude() {
     // The commander is unlocked already and the hero is locked: neither is a locked commander.
     s.players_mut().edit(0).leaders.status.insert(of(LeaderType::Commander), LeaderStatus::Unlocked);
     s.players_mut().edit(0).leaders.status.insert(of(LeaderType::Hero), LeaderStatus::Locked);
-    assert_eq!(advance_prelude(&mut s, &env(&k), None).unwrap().0, Live::Done);
+    assert_eq!(ti4_engine_chance::resolved(advance_prelude)(&mut s, &env(&k), None).unwrap().0, Live::Done);
     // A faction with a hook (Hacan's Gila the Silvertongue) is judged, not stopped.
     let (mut s, k) = Scenario::new(&[Faction::TheEmiratesOfHacan, Faction::TheFederationOfSol]).phase(Phase::Action).active(Some(0)).build();
     let gila = Leader::GilaTheSilvertongue;
     s.players_mut().edit(0).leaders.status.insert(gila, LeaderStatus::Locked);
     s.players_mut().edit(0).econ.trade_goods = 10;
-    advance_prelude(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_prelude)(&mut s, &env(&k), None).unwrap();
     assert_eq!(s.players().by_seat(Seat(0)).unwrap().leaders.status.get(&gila), Some(&LeaderStatus::Unlocked));
     assert_eq!(plain(&s), [PlainRec::one(PlainKind::LeaderUnlocked, ti4_engine_core::state::PlainArg::Leader(gila))]);
 }
@@ -717,7 +717,7 @@ fn choosing_a_transaction_partner_from_the_menu_opens_the_trade_window_and_spend
     let e = env_r(&k);
     let q = ask_ask(&s, &e).unwrap().unwrap().choice;
     let open = q.opts.as_slice().iter().copied().find(|o| matches!(o, Opt::Turn(TuOpt::Open { with: Seat(1), .. }))).expect("the neighbour is offered");
-    advance_ask(&mut s, &e, Some(Pick::Opt(open))).unwrap();
+    ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(open))).unwrap();
     assert!(s.pending().window(ti4_engine_core::state::WindowKind::Trade).is_some(), "the trade window is open");
     assert!(ti4_engine_core::query::trade::transacted_with(&s, Seat(0), Seat(1)), "94.1: the pair is spent on opening");
 }
@@ -773,18 +773,18 @@ fn chaos_mapping_offers_every_system_with_a_production_capacity_and_a_decline_th
     use ti4_engine_core::driver::turn::advance_prelude;
     let (mut s, k, system) = chaos_table(5);
     let e = roster_env(&k);
-    let q = asked(advance_prelude(&mut s, &e, None));
+    let q = asked(ti4_engine_chance::resolved(advance_prelude)(&mut s, &e, None));
     assert_eq!((q.actor, q.ask), (Seat(0), Ask::Technology(ti4_engine_core::choice::technology::Ask::ChaosMapping)));
     assert_eq!(q.opts.as_slice(), [Opt::Technology(TOpt::System(system)), Opt::Decline]);
     assert_eq!(s.pending().prepared_turn_seq, None, "nothing of a half-run job is kept");
     // Declining ends the window and the prelude goes on to the turn's beginning.
-    let (live, _) = advance_ask(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
     assert_eq!(live, Live::Done);
     assert_eq!(s.pending().prepared_turn_seq, Some(0));
     // A table without a system that could produce is not asked.
     let (mut s, k, _) = chaos_table(5);
     s.board_mut().planet_mut(ti4_engine_core_tests::scenario::first_planet().1).units.clear();
-    assert_eq!(advance_prelude(&mut s, &roster_env(&k), None).unwrap().0, Live::Done);
+    assert_eq!(ti4_engine_chance::resolved(advance_prelude)(&mut s, &roster_env(&k), None).unwrap().0, Live::Done);
 }
 
 #[test]
@@ -794,16 +794,16 @@ fn chaos_mapping_produces_the_unit_the_seat_picks_and_pays_for_it() {
     use ti4_engine_core::driver::turn::advance_prelude;
     let (mut s, k, system) = chaos_table(5);
     let e = roster_env(&k);
-    asked(advance_prelude(&mut s, &e, None));
-    let q = asked(advance_ask(&mut s, &e, Some(Pick::Opt(Opt::Technology(TOpt::System(system))))));
+    asked(ti4_engine_chance::resolved(advance_prelude)(&mut s, &e, None));
+    let q = asked(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(Opt::Technology(TOpt::System(system))))));
     assert!(matches!(q.ask, Ask::Production(PAsk::One(_))), "{:?}", q.ask);
     let infantry = q.opts.as_slice().iter().copied().find(|o| matches!(o, Opt::Production(POpt::One { unit: Unit::InfantryI, .. }))).expect("an infantry is offered");
-    let mut q = asked(advance_ask(&mut s, &e, Some(Pick::Opt(infantry))));
+    let mut q = asked(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(infantry))));
     // The bill is paid, then the turn begins.
     for _ in 0..8 {
         assert!(matches!(q.ask, Ask::Production(PAsk::Pay(_))), "{:?}", q.ask);
         let pay = q.opts.as_slice().iter().copied().find(|o| matches!(o, Opt::Production(POpt::TradeGood { .. }))).expect("a trade good pays");
-        match advance_ask(&mut s, &e, Some(Pick::Opt(pay))).unwrap() {
+        match ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(pay))).unwrap() {
             (Live::Asks(a), _) => q = a.choice,
             (Live::Done, _) => break,
         }
@@ -827,19 +827,19 @@ fn a_chaos_mapping_unit_over_the_capacity_of_its_system_is_followed_by_the_remov
     }
     assert_eq!(s.board().sys(system).units.as_slice().len(), held + 3);
     let e = roster_env(&k);
-    asked(advance_prelude(&mut s, &e, None));
-    let q = asked(advance_ask(&mut s, &e, Some(Pick::Opt(Opt::Technology(TOpt::System(system))))));
+    asked(ti4_engine_chance::resolved(advance_prelude)(&mut s, &e, None));
+    let q = asked(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(Opt::Technology(TOpt::System(system))))));
     // A fourth fighter has no ship to ride in: it stands over the capacity of the system and the string asks which unit goes.
     let fighter = q.opts.as_slice().iter().copied().find(|o| matches!(o, Opt::Production(POpt::One { unit: Unit::FighterI, .. }))).expect("a fighter is offered");
-    let mut q = asked(advance_ask(&mut s, &e, Some(Pick::Opt(fighter))));
+    let mut q = asked(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(fighter))));
     while matches!(q.ask, Ask::Production(PAsk::Pay(_))) {
         let pay = q.opts.as_slice().iter().copied().find(|o| matches!(o, Opt::Production(POpt::TradeGood { .. }))).expect("a trade good pays");
-        q = asked(advance_ask(&mut s, &e, Some(Pick::Opt(pay))));
+        q = asked(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(pay))));
     }
     assert!(matches!(q.ask, Ask::Tactical(_)), "the enforcement asks which unit goes: {:?}", q.ask);
     assert_eq!(q.actor, Seat(0));
     let remove = q.pick(0).expect("a unit to remove");
-    assert_eq!(advance_ask(&mut s, &e, Some(remove)).unwrap().0, Live::Done);
+    assert_eq!(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(remove)).unwrap().0, Live::Done);
     assert_eq!(s.board().sys(system).units.as_slice().iter().filter(|p| p.owner() == Seat(0)).count(), 3, "one fighter was removed");
     assert_eq!(s.pending().prepared_turn_seq, Some(0));
 }

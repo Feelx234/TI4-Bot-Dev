@@ -112,12 +112,12 @@ fn the_minister_of_war_is_offered_the_discard_then_the_token_and_the_turn_is_ret
     let mut fork = s.clone();
     assert_eq!(ask::<TurnFlowWin>(&fork, &e).unwrap().unwrap().choice, offer.choice, "a replay of the suspension asks the same question");
     let discard = pick(&offer.choice, 0);
-    let Live::Asks(token) = advance::<TurnFlowWin>(&mut s, &e, Some(discard)).unwrap().0 else { panic!("which token comes back") };
+    let Live::Asks(token) = ti4_engine_chance::resolved(advance::<TurnFlowWin>)(&mut s, &e, Some(discard)).unwrap().0 else { panic!("which token comes back") };
     assert_eq!(token.choice.ask, Ask::Turn(TAsk::MinisterToken));
     assert_eq!(token.choice.opts.as_slice(), &[Opt::Turn(TOpt::Token(system))]);
     assert_eq!(s.agenda().laws.get(&Agenda::MinisterOfWar), None.or(Some(&Outcome::Seat(Seat(0)))), "nothing is kept of a half-run job: the law is still on the table");
     let back = pick(&token.choice, 0);
-    let (live, _) = advance::<TurnFlowWin>(&mut s, &e, Some(back)).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance::<TurnFlowWin>)(&mut s, &e, Some(back)).unwrap();
     assert_eq!(live, Live::Done);
     // Law discarded, the token back in the tactic pool, the turn retained and the flag spent.
     assert!(s.agenda().laws.get(&Agenda::MinisterOfWar).is_none());
@@ -127,8 +127,8 @@ fn the_minister_of_war_is_offered_the_discard_then_the_token_and_the_turn_is_ret
     assert_eq!(plain_kinds(&s), [PlainKind::TurnRetained]);
     assert!(!s.transient().misc.flags.has(TransientFlags::ADDITIONAL_ACTION));
     // The fork continues identically.
-    advance::<TurnFlowWin>(&mut fork, &e, Some(discard)).unwrap();
-    advance::<TurnFlowWin>(&mut fork, &e, Some(back)).unwrap();
+    ti4_engine_chance::resolved(advance::<TurnFlowWin>)(&mut fork, &e, Some(discard)).unwrap();
+    ti4_engine_chance::resolved(advance::<TurnFlowWin>)(&mut fork, &e, Some(back)).unwrap();
     assert_eq!(fork, s, "a clone mid-window continues identically");
 }
 
@@ -137,7 +137,7 @@ fn declining_the_minister_of_war_passes_the_turn_on_and_the_law_stays() {
     let (mut s, k) = minister_table();
     let e = env(&k);
     let Live::Asks(offer) = advance_job(TurnJob::End, &mut s, &e, None).unwrap().0 else { panic!("the offer") };
-    let (live, _) = advance::<TurnFlowWin>(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance::<TurnFlowWin>)(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
     assert_eq!(live, Live::Done);
     assert!(s.agenda().laws.get(&Agenda::MinisterOfWar).is_some());
     assert_eq!(s.meta().active, Some(Seat(1)));
@@ -158,6 +158,6 @@ fn an_illegal_answer_leaves_the_job_where_it_was() {
     let e = env(&k);
     advance_job(TurnJob::End, &mut s, &e, None).unwrap();
     let held = s.clone();
-    assert_eq!(advance::<TurnFlowWin>(&mut s, &e, Some(Pick::Number(9))), Err(LiveError::Illegal));
+    assert_eq!(ti4_engine_chance::resolved(advance::<TurnFlowWin>)(&mut s, &e, Some(Pick::Number(9))), Err(LiveError::Illegal));
     assert_eq!(s, held);
 }

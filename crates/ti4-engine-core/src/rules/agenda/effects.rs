@@ -413,7 +413,12 @@ impl Window for Resolve {
                         if held == 0 {
                             continue;
                         }
-                        let face = sx.die(crate::state::RngDomain::Dice, DIE_SIDES);
+                        // (A d10 modulo the hand: kept bit-identical in lane C3, made uniform in C3b.)
+                        let req = crate::chance::Request::new(
+                            crate::state::RngDomain::Dice,
+                            crate::chance::Kind::DieMod { sides: 10, n: u8::try_from(held).unwrap_or(u8::MAX), form: crate::chance::ModForm::Face },
+                        );
+                        let face = sx.chance(&req).as_slice().first().map_or(1, |f| u32::from(*f));
                         self.faces.push(face);
                         if let Some(p) = sx.state.players_mut().by_seat_mut(*seat) {
                             p.cards.hand.remove(usize::try_from(face).unwrap_or(0) % held);
@@ -539,7 +544,7 @@ mod tests {
         let k = Kernel::plain();
         s.rng = crate::state::Rng::new(u64::from(seed));
         let mut d = Driver::new(window, Resolver::new(&[], None), linked(true), 1);
-        assert_eq!(d.run(s, &k).unwrap(), crate::driver::Status::Done);
+        assert_eq!(d.run_r(s, &k).unwrap(), crate::driver::Status::Done);
         d
     }
 
@@ -608,10 +613,10 @@ mod tests {
         let k = Kernel::plain();
         let mut d = Driver::new(Resolve::of_facts(Agenda::UnconventionalMeasures, Outcome::For, &f).unwrap(), Resolver::new(&[], None), linked(true), 1);
         let mut asked = Vec::new();
-        let mut status = d.run(&mut s, &k).unwrap();
+        let mut status = d.run_r(&mut s, &k).unwrap();
         while let crate::driver::Status::Asking(choice) = status {
             asked.push((choice.actor, choice.ask));
-            status = d.resume(&mut s, &k, choice.pick(0).unwrap()).unwrap();
+            status = d.resume_r(&mut s, &k, choice.pick(0).unwrap()).unwrap();
         }
         let ask = Ask::Cards(crate::choice::cards::Ask::HandLimit { held: 8 });
         assert_eq!(asked, vec![(a, ask), (c, ask)], "each voter is asked in the ballot's order");
@@ -621,7 +626,7 @@ mod tests {
         for table in [AbilityTable::default(), linked(false)] {
             let mut s = table_with_hand(a, 6);
             let mut d = Driver::new(Resolve::of_facts(Agenda::UnconventionalMeasures, Outcome::For, &facts(&[a])).unwrap(), Resolver::new(&[], None), table, 1);
-            assert_eq!(d.run(&mut s, &k).unwrap(), crate::driver::Status::Done);
+            assert_eq!(d.run_r(&mut s, &k).unwrap(), crate::driver::Status::Done);
             assert!(d.window.unsupported());
         }
     }

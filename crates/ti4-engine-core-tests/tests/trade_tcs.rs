@@ -104,22 +104,22 @@ fn the_nomad_readies_the_agent_and_deals_with_a_stranger_through_the_card() {
     let e = env(&k, &s);
     open(&mut s, &Exhaust { done: false });
     // The window of AGENT_EXHAUSTED: the Nomad's card.
-    let q = pick(advance::<Exhaust>(&mut s, &e, None).unwrap().0);
+    let q = pick(ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, None).unwrap().0);
     assert_eq!(q.actor, Seat(0));
     let ability = q.opts.iter().find_map(|o| if let Opt::Reaction(ROpt::Ability(a)) = o { Some(*a) } else { None }).expect("the card is offered");
     assert_eq!(ability.kind, AbilityKind::Technology);
-    let q = pick(advance::<Exhaust>(&mut s, &e, Some(Pick::Opt(Opt::Reaction(ROpt::Ability(ability))))).unwrap().0);
+    let q = pick(ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, Some(Pick::Opt(Opt::Reaction(ROpt::Ability(ability))))).unwrap().0);
     assert_eq!((q.actor, q.ask), (Seat(0), Ask::Technology(TAsk::TcsTransaction { partner: Seat(1) })));
     assert!(q.ctx.optional && !q.ctx.space_battle, "the transaction is the holder's \"may\"");
     let status = s.players().by_seat(Seat(1)).unwrap().leaders.status.get(&Leader::BerekarBerekon).copied();
     assert_eq!(status, Some(ti4_engine_core::state::LeaderStatus::Exhausted), "the replay of a suspended step has not applied anything");
     // Transact: the Nomad proposes to a stranger, which only the card allows.
-    let q = pick(advance::<Exhaust>(&mut s, &e, Some(Pick::Opt(Opt::Technology(TOpt::Transact)))).unwrap().0);
+    let q = pick(ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, Some(Pick::Opt(Opt::Technology(TOpt::Transact)))).unwrap().0);
     assert!(matches!(q.ask, Ask::Trade(_)), "{:?}", q.ask);
     assert_eq!(q.actor, Seat(0));
-    let q = pick(advance::<Exhaust>(&mut s, &e, Some(Pick::Opt(Opt::Trade(TrOpt::Deal(Shape::Goods { give: 1, want: 1 }))))).unwrap().0);
+    let q = pick(ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, Some(Pick::Opt(Opt::Trade(TrOpt::Deal(Shape::Goods { give: 1, want: 1 }))))).unwrap().0);
     assert_eq!(q.actor, Seat(1), "the partner answers");
-    let (live, out) = advance::<Exhaust>(&mut s, &e, Some(Pick::Opt(Opt::Trade(TrOpt::Accept)))).unwrap();
+    let (live, out) = ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, Some(Pick::Opt(Opt::Trade(TrOpt::Accept)))).unwrap();
     // The reaction windows of the resolution (nobody holds a card), then the end of the event.
     assert_eq!(live, Live::Done);
     assert!(out.emitted.iter().any(|r| r.kind == EventKind::AgentExhausted));
@@ -138,10 +138,10 @@ fn declining_the_transaction_leaves_only_the_readied_agent_and_a_used_card_is_no
     agent_exhausted(&mut s);
     let e = env(&k, &s);
     open(&mut s, &Exhaust { done: false });
-    let q = pick(advance::<Exhaust>(&mut s, &e, None).unwrap().0);
+    let q = pick(ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, None).unwrap().0);
     let ability = q.opts.iter().find_map(|o| if let Opt::Reaction(ROpt::Ability(a)) = o { Some(*a) } else { None }).unwrap();
-    advance::<Exhaust>(&mut s, &e, Some(Pick::Opt(Opt::Reaction(ROpt::Ability(ability))))).unwrap();
-    let (live, _) = advance::<Exhaust>(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
+    ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, Some(Pick::Opt(Opt::Reaction(ROpt::Ability(ability))))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
     assert_eq!(live, Live::Done);
     assert_eq!(s.players().by_seat(Seat(1)).unwrap().leaders.status.get(&Leader::BerekarBerekon).copied(), Some(ti4_engine_core::state::LeaderStatus::Readied));
     assert!(!ti4_engine_core::query::trade::transacted_with(&s, Seat(0), Seat(1)));
@@ -151,7 +151,7 @@ fn declining_the_transaction_leaves_only_the_readied_agent_and_a_used_card_is_no
     s.players_mut().by_seat_mut(Seat(0)).unwrap().tech.exhausted.insert(Technology::TemporalCommandSuite);
     let e = env(&k, &s);
     open(&mut s, &Exhaust { done: false });
-    assert_eq!(advance::<Exhaust>(&mut s, &e, None).unwrap().0, Live::Done);
+    assert_eq!(ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, None).unwrap().0, Live::Done);
 }
 
 #[test]
@@ -160,14 +160,14 @@ fn a_clone_in_the_middle_of_the_transaction_continues_identically() {
     agent_exhausted(&mut s);
     let e = env(&k, &s);
     open(&mut s, &Exhaust { done: false });
-    let q = pick(advance::<Exhaust>(&mut s, &e, None).unwrap().0);
+    let q = pick(ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, None).unwrap().0);
     let ability = q.opts.iter().find_map(|o| if let Opt::Reaction(ROpt::Ability(a)) = o { Some(*a) } else { None }).unwrap();
-    advance::<Exhaust>(&mut s, &e, Some(Pick::Opt(Opt::Reaction(ROpt::Ability(ability))))).unwrap();
-    advance::<Exhaust>(&mut s, &e, Some(Pick::Opt(Opt::Technology(TOpt::Transact)))).unwrap();
+    ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, Some(Pick::Opt(Opt::Reaction(ROpt::Ability(ability))))).unwrap();
+    ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, Some(Pick::Opt(Opt::Technology(TOpt::Transact)))).unwrap();
     let mut fork = s.clone();
     for state in [&mut s, &mut fork] {
-        advance::<Exhaust>(state, &e, Some(Pick::Opt(Opt::Trade(TrOpt::Deal(Shape::Goods { give: 1, want: 0 }))))).unwrap();
-        advance::<Exhaust>(state, &e, Some(Pick::Opt(Opt::Trade(TrOpt::Refuse)))).unwrap();
+        ti4_engine_chance::resolved(advance::<Exhaust>)(state, &e, Some(Pick::Opt(Opt::Trade(TrOpt::Deal(Shape::Goods { give: 1, want: 0 }))))).unwrap();
+        ti4_engine_chance::resolved(advance::<Exhaust>)(state, &e, Some(Pick::Opt(Opt::Trade(TrOpt::Refuse)))).unwrap();
     }
     assert_eq!(s, fork);
 }
@@ -181,7 +181,7 @@ fn a_seat_that_is_not_the_nomad_is_not_offered_the_card_even_holding_it() {
     s.players_mut().by_seat_mut(Seat(1)).unwrap().tech.owned.insert(Technology::TemporalCommandSuite);
     let e = env(&k, &s);
     open(&mut s, &Exhaust { done: false });
-    assert_eq!(advance::<Exhaust>(&mut s, &e, None).unwrap().0, Live::Done, "nobody is asked");
+    assert_eq!(ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, None).unwrap().0, Live::Done, "nobody is asked");
 }
 
 #[test]
@@ -191,10 +191,10 @@ fn a_module_that_exempts_the_pair_leaves_the_cards_transaction_unrecorded() {
     agent_exhausted(&mut s);
     let e = env(&k, &s);
     open(&mut s, &Exhaust { done: false });
-    let q = pick(advance::<Exhaust>(&mut s, &e, None).unwrap().0);
+    let q = pick(ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, None).unwrap().0);
     let ability = q.opts.iter().find_map(|o| if let Opt::Reaction(ROpt::Ability(a)) = o { Some(*a) } else { None }).unwrap();
-    advance::<Exhaust>(&mut s, &e, Some(Pick::Opt(Opt::Reaction(ROpt::Ability(ability))))).unwrap();
-    advance::<Exhaust>(&mut s, &e, Some(Pick::Opt(Opt::Technology(TOpt::Transact)))).unwrap();
-    advance::<Exhaust>(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
+    ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, Some(Pick::Opt(Opt::Reaction(ROpt::Ability(ability))))).unwrap();
+    ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, Some(Pick::Opt(Opt::Technology(TOpt::Transact)))).unwrap();
+    ti4_engine_chance::resolved(advance::<Exhaust>)(&mut s, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
     assert!(!ti4_engine_core::query::trade::transacted_with(&s, Seat(0), Seat(1)));
 }

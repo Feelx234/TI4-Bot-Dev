@@ -157,7 +157,7 @@ fn chain_trade(core: &mut CoreState, env: &Env<'_>, result: Result<(Live, Out), 
 fn pick_opt(pick: Pick) -> Opt {
     match pick {
         Pick::Opt(o) => o,
-        Pick::Number(_) => Opt::Decline,
+        Pick::Number(_) | Pick::Chance(_) => Opt::Decline,
     }
 }
 

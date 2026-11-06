@@ -117,10 +117,25 @@ impl<'a> Sx<'a> {
         Q::new(&*self.state, self.kernel)
     }
 
-    /// Draw a die with `sides` sides from the state's stream of `domain` (`GameRng::die`). The streams are in
-    /// the state (`rng` slice), so a rolled-back step restores them with the rest and a re-run draws the same.
+    /// A die with `sides` sides from `domain` (`1..=sides`, today's `GameRng::die`): a chance question on the tape (lane C3; the core
+    /// never draws). In play the resolver answers it from the position's streams, so the faces are the ones the core drew before.
     pub fn die(&mut self, domain: RngDomain, sides: u32) -> u32 {
-        crate::state::rng::die(self.state.rng_mut(), domain, sides)
+        self.tape.die(&*self.state, domain, sides)
+    }
+
+    /// `n` dice of `sides` sides from `domain`, in draw order: one chance question per group of at most `MAX_FACES` (12) dice.
+    pub fn dice(&mut self, domain: RngDomain, n: usize, sides: u32) -> Vec<u32> {
+        self.tape.dice(&*self.state, domain, n, sides)
+    }
+
+    /// A uniformly chosen index in `0..n` from `domain`: one `Index` chance question.
+    pub fn index(&mut self, domain: RngDomain, n: usize) -> usize {
+        self.tape.index(&*self.state, domain, n)
+    }
+
+    /// Any chance request (Spy's and Sanctions' choices, which keep their own form).
+    pub fn chance(&mut self, req: &crate::chance::Request) -> crate::chance::Faces {
+        self.tape.chance(&*self.state, req)
     }
 
     /// Fire the observers of a program point (P5).

@@ -6,12 +6,13 @@
 
 use crate::Domain;
 
-/// The most faces one request carries. [`Faces`] is 16 bytes, so the core's `Pick` does not grow; a larger group is
+/// The most faces one request carries. [`Faces`] is 13 bytes, so the core's `Pick` stays 16 bytes (the faces fit beside the niche
+/// of its option variant; with 15 faces it grew to 20, and the browser build by 8 KB: lane C3); a larger group is
 /// split in order ([`Request::dice_groups`]), which draws exactly the same faces as one long group.
-pub const MAX_FACES: usize = 15;
+pub const MAX_FACES: usize = 12;
 
 /// One roll group.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Request {
     pub domain: Domain,
     pub kind: Kind,
@@ -22,7 +23,7 @@ pub struct Request {
 }
 
 /// What is drawn. Every kind draws one die per face, `1..=sides`, as today's `die(domain, sides)`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Kind {
     /// `n` dice of `sides` sides (`n <= MAX_FACES`). `hits_on` is the threshold (a face `>= hits_on` hits); it does not
     /// change the draw and is there for the search helpers and for display.
@@ -36,7 +37,7 @@ pub enum Kind {
 }
 
 /// How a [`Kind::DieMod`] face picks an element. The two sites differ today, so both forms are kept.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ModForm {
     /// `(face - 1) % n` (Spy).
     FaceMinusOne,
@@ -108,9 +109,9 @@ impl Request {
     }
 }
 
-/// The answer to a request: the faces in draw order. 16 bytes (a length and 15 slots; unused slots stay 0 so the
+/// The answer to a request: the faces in draw order. 13 bytes (a length and 12 slots; unused slots stay 0 so the
 /// derived equality is the equality of the faces).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Faces {
     len: u8,
     faces: [u8; MAX_FACES],
@@ -162,8 +163,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn faces_is_sixteen_bytes() {
-        assert_eq!(core::mem::size_of::<Faces>(), 16);
+    fn faces_is_thirteen_bytes() {
+        assert_eq!(core::mem::size_of::<Faces>(), 13);
         assert!(Faces::from_slice(&[1; MAX_FACES]).is_some());
         assert!(Faces::from_slice(&[1; MAX_FACES + 1]).is_none());
     }
@@ -172,9 +173,9 @@ mod tests {
     fn groups_split_in_order() {
         let sizes = |n| Request::dice_groups(Domain::Dice, n, 10, None).map(|r| r.len()).collect::<Vec<_>>();
         assert_eq!(sizes(0), Vec::<usize>::new());
-        assert_eq!(sizes(15), [15]);
-        assert_eq!(sizes(16), [15, 1]);
-        assert_eq!(sizes(47), [15, 15, 15, 2]);
+        assert_eq!(sizes(12), [12]);
+        assert_eq!(sizes(13), [12, 1]);
+        assert_eq!(sizes(47), [12, 12, 12, 11]);
     }
 
     #[test]

@@ -10,5 +10,9 @@ description = "Layer L6 of the typed core (docs/ENGINE_CORE_STATE.md 4.1, wave C
 [dependencies]
 ti4-engine-core.workspace = true
 
+# The tests answer the core's chance questions as the resolver does (lane C3).
+[dev-dependencies]
+ti4-chance.workspace = true
+
 [lints]
 workspace = true

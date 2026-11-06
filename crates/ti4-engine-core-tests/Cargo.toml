@@ -12,6 +12,9 @@ description = "Oracle-free tests of the typed core (docs/todo/D4-core-tests.md):
 # properties on real positions (D4-3) and the golden tool (D4-4).
 [dependencies]
 ti4-engine-core.workspace = true
+# The chance resolver: the rig and the windows' tests answer the core's chance questions (lane C3).
+ti4-engine-chance.workspace = true
+ti4-chance.workspace = true
 ti4-engine-core-factions.workspace = true
 proptest.workspace = true
 ti4-engine = { workspace = true, optional = true }

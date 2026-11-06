@@ -233,21 +233,31 @@ impl RollStep {
         let mut rolls: Vec<FleetRoll> = Vec::new();
         let mut entries: Vec<RerollEntry> = Vec::new();
         let mut meta: Vec<Meta> = Vec::new();
+        // Without Munitions Reserves the groups' dice are drawn back to back: one chance question for the whole side (lane C3; the
+        // faces are the same draws in the same order). With it, a group's reroll comes between two groups: a question per draw.
+        let mut side_dice = (!munitions).then(|| {
+            let total: usize = groups.iter().map(|(_, g)| usize::try_from(g.dice).unwrap_or(0)).sum();
+            sx.dice(RngDomain::Dice, total, DIE_SIDES).into_iter()
+        });
         for ((value, tag), group) in groups {
             let count = usize::try_from(group.dice).unwrap_or(0);
             if count == 0 {
                 continue;
             }
             let hits_on = u32::try_from(value).unwrap_or(u32::MAX);
-            let faces: Vec<u32> = (0..count).map(|_| sx.die(RngDomain::Dice, DIE_SIDES)).collect();
+            let faces: Vec<u32> = match side_dice.as_mut() {
+                Some(drawn) => drawn.by_ref().take(count).collect(),
+                None => sx.dice(RngDomain::Dice, count, DIE_SIDES),
+            };
             let misses: Vec<usize> = faces.iter().enumerate().filter(|(_, f)| **f < hits_on).map(|(i, _)| i).collect();
             rolls.push(FleetRoll { hits_on, faces: faces.clone(), rerolled: Vec::new() });
             let mut last = faces;
             if munitions && !misses.is_empty() {
                 let mut again = last.clone();
                 let rerolled = misses.iter().map(|i| *i as u32).collect();
-                for i in misses {
-                    again[i] = sx.die(RngDomain::Dice, DIE_SIDES);
+                let redrawn = sx.dice(RngDomain::Dice, misses.len(), DIE_SIDES);
+                for (i, face) in misses.into_iter().zip(redrawn) {
+                    again[i] = face;
                 }
                 rolls.push(FleetRoll { hits_on, faces: again.clone(), rerolled });
                 last = again;

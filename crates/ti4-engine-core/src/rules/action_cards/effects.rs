@@ -1510,7 +1510,7 @@ impl Play {
 
     /// Apply the chosen option.
     /// Apply the chosen option; `true` when another question of the same card follows.
-    fn apply(&mut self, core: &mut CoreState, k: &Kernel, links: &AreaLinks, opt: Opt) -> bool {
+    fn apply(&mut self, core: &mut CoreState, k: &Kernel, links: &AreaLinks, tape: &mut crate::kernel::stage::Tape, opt: Opt) -> bool {
         let who = self.who;
         match (self.fx, opt) {
             (Fx::Insubordination, Opt::Seat(target)) => {
@@ -1705,8 +1705,12 @@ impl Play {
                 if held == 0 {
                     return false;
                 }
-                // "Random" comes from the seeded dice too.
-                let face = crate::state::rng::die(core.rng_mut(), RngDomain::Dice, DIE_SIDES);
+                // "Random" comes from the seeded dice too: a d10 modulo the hand (kept bit-identical in lane C3, made uniform in C3b).
+                let req = crate::chance::Request::new(
+                    RngDomain::Dice,
+                    crate::chance::Kind::DieMod { sides: 10, n: u8::try_from(held).unwrap_or(u8::MAX), form: crate::chance::ModForm::FaceMinusOne },
+                );
+                let face = tape.chance(core, &req).as_slice().first().map_or(1, |f| u32::from(*f));
                 self.faces.push(face);
                 let index = (face as usize - 1) % held;
                 if let Some(taken) = super::discard_from_hand(core, victim, index)
@@ -1730,7 +1734,7 @@ impl Play {
                 }
                 let mut kills = 0;
                 for _ in 0..infantry {
-                    let face = crate::state::rng::die(core.rng_mut(), RngDomain::Dice, DIE_SIDES);
+                    let face = tape.die(core, RngDomain::Dice, DIE_SIDES);
                     self.faces.push(face);
                     kills += usize::from(face >= PLAGUE_KILLS_ON);
                 }
@@ -1764,7 +1768,7 @@ impl Play {
                 // SPACE CANNON 5(x3), whichever dock fires: the dice come first, then the active seat (not the holder) takes the hits.
                 let mut hits = 0u8;
                 for _ in 0..BATTLESTATION_DICE {
-                    let face = crate::state::rng::die(core.rng_mut(), RngDomain::Dice, DIE_SIDES);
+                    let face = tape.die(core, RngDomain::Dice, DIE_SIDES);
                     self.faces.push(face);
                     hits += u8::from(face >= BATTLESTATION_HITS_ON);
                 }
@@ -1837,7 +1841,7 @@ impl Play {
                     // The Fracture's roll (nothing for the Cabal's, which enters play without one); a hit puts it into play with
                     // questions of its own, which the window does not carry.
                     let enters = own.data().faction == crate::generated::FactionTag::Cabal || {
-                        let face = crate::state::rng::die(core.rng_mut(), RngDomain::Fracture, 10);
+                        let face = tape.die(core, RngDomain::Fracture, 10);
                         face == 1 || face == 10
                     };
                     if enters {
@@ -1943,7 +1947,7 @@ impl Play {
     }
 
     /// Compute the options of the next question and apply the options that need no asking.
-    fn advance(&mut self, core: &mut CoreState, k: &Kernel, links: &AreaLinks) {
+    fn advance(&mut self, core: &mut CoreState, k: &Kernel, links: &AreaLinks, tape: &mut crate::kernel::stage::Tape) {
         loop {
             if self.fx == Fx::Lie {
                 // The next trader (of the first two) who holds a card.
@@ -1981,7 +1985,7 @@ impl Play {
                 }
                 [only] if self.fx != Fx::Squad => {
                     let only = *only;
-                    if !self.apply(core, k, links, only) {
+                    if !self.apply(core, k, links, tape, only) {
                         self.stage = self.settled();
                         return;
                     }
@@ -2067,7 +2071,7 @@ impl Play {
         if self.fx == Fx::Courageous {
             self.begin_courageous(sx);
         } else {
-            self.start_questions(sx.state, sx.kernel, &sx.table.links);
+            self.start_questions(sx.state, sx.kernel, &sx.table.links, sx.tape);
         }
         self.maybe_bill(sx);
         self.maybe_explore(sx);
@@ -2261,7 +2265,7 @@ impl Play {
             return;
         }
         if self.fx != Fx::Impersonation {
-            self.start_questions(sx.state, sx.kernel, &sx.table.links);
+            self.start_questions(sx.state, sx.kernel, &sx.table.links, sx.tape);
             return;
         }
         self.draw_secret(sx);
@@ -2474,7 +2478,7 @@ impl Play {
     }
 
     /// The first question of the card (after the bill, when it has one).
-    fn start_questions(&mut self, core: &mut CoreState, k: &Kernel, links: &AreaLinks) {
+    fn start_questions(&mut self, core: &mut CoreState, k: &Kernel, links: &AreaLinks, tape: &mut crate::kernel::stage::Tape) {
         if self.fx == Fx::Summit {
             self.stage = Stage::Asking;
             return;
@@ -2483,7 +2487,7 @@ impl Play {
             self.stage = Stage::Done;
             return;
         }
-        self.advance(core, k, links);
+        self.advance(core, k, links, tape);
     }
 
     /// Step the bill until it asks or ends; a paid bill goes on to the questions, an unpaid one ends the card.
@@ -2618,8 +2622,9 @@ impl Play {
             return Err(Illegal);
         }
         let links = &sx.table.links;
-        if self.apply(core, k, links, opt) {
-            self.advance(core, k, links);
+        let tape = &mut *sx.tape;
+        if self.apply(core, k, links, tape, opt) {
+            self.advance(core, k, links, tape);
         } else {
             self.stage = self.settled();
         }
@@ -2868,7 +2873,7 @@ mod tests {
     /// The next `n` draws of the dice stream of `s`, as `GameRng::die(10)` gives them (a copy: `s` stays where it is).
     fn next_draws(s: &CoreState, n: usize) -> Vec<u8> {
         let mut probe = s.clone();
-        (0..n).map(|_| u8::try_from(crate::state::rng::die(probe.rng_mut(), RngDomain::Dice, DIE_SIDES)).unwrap()).collect()
+        (0..n).map(|_| u8::try_from(probe.rng_mut().die(RngDomain::Dice, DIE_SIDES)).unwrap()).collect()
     }
 
     fn dice_positions(s: &CoreState) -> Vec<(RngDomain, u128)> {
@@ -2884,11 +2889,11 @@ mod tests {
         let k = Kernel::plain();
         let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), crate::kernel::stage::AbilityTable::default(), 1);
         let mut asked = Vec::new();
-        let mut status = d.run(&mut s, &k).unwrap();
+        let mut status = d.run_r(&mut s, &k).unwrap();
         while let Status::Asking(choice) = status {
             let pick = answer(&choice);
             asked.push(choice);
-            status = d.resume(&mut s, &k, pick).unwrap();
+            status = d.resume_r(&mut s, &k, pick).unwrap();
         }
         let (unsupported, faces) = (d.window.unsupported(), d.window.faces().to_vec());
         (s, asked, unsupported, faces)
@@ -2948,7 +2953,7 @@ mod tests {
         let mut moved = before.clone();
         assert_eq!(next_draws(&moved, 0), Vec::<u8>::new());
         for _ in 0..3 {
-            crate::state::rng::die(moved.rng_mut(), RngDomain::Dice, DIE_SIDES);
+            moved.rng_mut().die(RngDomain::Dice, DIE_SIDES);
         }
         assert_eq!(dice_positions(&after), dice_positions(&moved));
     }
@@ -3088,7 +3093,7 @@ mod tests {
             assert_eq!(faces, drawn);
             let mut moved = before;
             for _ in 0..3 {
-                crate::state::rng::die(moved.rng_mut(), RngDomain::Dice, DIE_SIDES);
+                moved.rng_mut().die(RngDomain::Dice, DIE_SIDES);
             }
             assert_eq!(dice_positions(&after), dice_positions(&moved));
         }
@@ -3204,10 +3209,10 @@ mod tests {
             let play = Play::of(&s, ActionCard::Brilliance, Seat(0), env).expect("a play");
             let k = Kernel::plain();
             let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), linked(), 1);
-            let mut status = d.run(&mut s, &k).unwrap();
+            let mut status = d.run_r(&mut s, &k).unwrap();
             while let Status::Asking(c) = status {
                 let pick = c.pick(1).unwrap();
-                status = d.resume(&mut s, &k, pick).unwrap();
+                status = d.resume_r(&mut s, &k, pick).unwrap();
             }
             (d.window.unsupported(), s.players().by_seat(Seat(1)).unwrap().cards.breakthrough)
         };
@@ -3230,7 +3235,7 @@ mod tests {
         fx::deal_strategy_card(&mut s, Seat(1), held);
         let play = Play::of(&s, card, Seat(0), Env { facts, ..bare_env() }).expect("a play");
         let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), linked(), 1);
-        let asked = matches!(d.run(&mut s, kernel).unwrap(), Status::Asking(_));
+        let asked = matches!(d.run_r(&mut s, kernel).unwrap(), Status::Asking(_));
         (d.window.unsupported(), s, asked)
     }
 
@@ -3338,8 +3343,8 @@ mod tests {
             .position(|t| !crate::query::tech::prerequisites_met(&s, scope, false, Seat(0), *t, &crate::rules::production::strategy_cards::KernelHooks::new(&s, &k, Seat(0))))
             .expect("the waiver opens a technology the colours do not cover");
         let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), linked(), 1);
-        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("the free research asks") };
-        let status = d.resume(&mut s, &k, c.pick(walled).unwrap()).unwrap();
+        let Status::Asking(c) = d.run_r(&mut s, &k).unwrap() else { panic!("the free research asks") };
+        let status = d.resume_r(&mut s, &k, c.pick(walled).unwrap()).unwrap();
         let Status::Asking(c) = status else { panic!("the waiver is asked") };
         assert!(matches!(c.ask, crate::choice::Ask::Strategy(crate::choice::strategy::Ask::ResearchWaiver { .. })), "{:?}", c.ask);
         assert!(!d.window.unsupported(), "the question is carried");
@@ -3371,7 +3376,7 @@ mod tests {
             fx::deal_strategy_card(&mut s, Seat(1), StrategyCard::Warfare);
             let play = Play::of(&s, ActionCard::Overrule, Seat(0), Env { mahact_held: held, ..bare_env() }).expect("a play");
             let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), linked(), 1);
-            let status = d.run(&mut s, &Kernel::plain()).unwrap();
+            let status = d.run_r(&mut s, &Kernel::plain()).unwrap();
             assert!(matches!(status, Status::Done), "no token on the board: nothing is asked");
             assert_eq!(d.window.unsupported(), bails, "{held} tokens held by Mahact");
         }
@@ -3416,7 +3421,7 @@ mod tests {
         let before = s.clone();
         let play = Play::of(&s, ActionCard::Strategize2, Seat(0), bare_env()).expect("a play");
         let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), linked(), 1);
-        assert!(matches!(d.run(&mut s, &Kernel::plain()).unwrap(), Status::Done));
+        assert!(matches!(d.run_r(&mut s, &Kernel::plain()).unwrap(), Status::Done));
         assert!(!d.window.unsupported() && s.players().by_seat(Seat(0)) == before.players().by_seat(Seat(0)), "nothing happened");
     }
 
@@ -3495,7 +3500,7 @@ mod tests {
         let play = Play::of(&s, ActionCard::ExplorationProbe, Seat(0), probe_env()).expect("a play");
         let k = Kernel::plain();
         let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), linked(), 1);
-        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("a question") };
+        let Status::Asking(c) = d.run_r(&mut s, &k).unwrap() else { panic!("a question") };
         assert_eq!(c.ask, AnyAsk::Cards(Ask::Pick { card: ActionCard::ExplorationProbe, what: What::Probe }));
         let offered: Vec<_> = c.opts.as_slice().iter().map(|o| *o).collect();
         assert_eq!(offered, [AnyOpt::Cards(Opt::System(first)), AnyOpt::Cards(Opt::System(second))]);
@@ -3556,10 +3561,10 @@ mod tests {
         let k = Kernel::plain();
         let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), table, 1);
         let mut asked = 0;
-        let mut status = d.run(&mut s, &k).unwrap();
+        let mut status = d.run_r(&mut s, &k).unwrap();
         while let Status::Asking(choice) = status {
             asked += 1;
-            status = d.resume(&mut s, &k, choice.pick(0).unwrap()).unwrap();
+            status = d.resume_r(&mut s, &k, choice.pick(0).unwrap()).unwrap();
         }
         (d.window.unsupported(), asked, s == before)
     }
@@ -3704,11 +3709,11 @@ mod tests {
         // The dice of the game from a seed: every outcome of a roll is met by running a card under several.
         s.rng = crate::state::Rng::new(u64::from(seed));
         let mut asked = Vec::new();
-        let mut status = d.run(&mut s, &k).unwrap();
+        let mut status = d.run_r(&mut s, &k).unwrap();
         while let Status::Asking(c) = status {
             let answer = c.pick(pick.min(c.opts.len() - 1)).unwrap();
             asked.push(c);
-            status = d.resume(&mut s, &k, answer).unwrap();
+            status = d.resume_r(&mut s, &k, answer).unwrap();
         }
         Ran3 { faces: d.window.faces().to_vec(), unsupported: d.window.unsupported(), after: s, asked }
     }
@@ -3934,11 +3939,11 @@ mod tests {
             let k = Kernel::plain();
             let mut d = Driver::new(play, Resolver::new(&[Seat(0), Seat(1), Seat(2)], Some(Seat(0))), linked(), 1);
             let mut asked = Vec::new();
-            let mut status = d.run(s, &k).unwrap();
+            let mut status = d.run_r(s, &k).unwrap();
             while let Status::Asking(c) = status {
                 let answer = c.pick(0).unwrap();
                 asked.push(c);
-                status = d.resume(s, &k, answer).unwrap();
+                status = d.resume_r(s, &k, answer).unwrap();
             }
             (d.window.faces().to_vec(), asked)
         };

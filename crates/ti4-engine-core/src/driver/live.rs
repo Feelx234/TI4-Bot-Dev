@@ -141,6 +141,8 @@ fn is_option(choice: &Choice, pick: &Pick) -> bool {
     match pick {
         Pick::Opt(o) => choice.opts.iter().any(|x| x == o),
         Pick::Number(_) => matches!(choice.ask, crate::choice::Ask::Generic(crate::choice::generic::Ask::Count { .. })),
+        // The faces of a chance question: as many as it asks, each in range (`Request::accepts`).
+        Pick::Chance(faces) => matches!(choice.ask, crate::choice::Ask::Generic(crate::choice::generic::Ask::Chance(req)) if req.accepts(faces)),
     }
 }
 
@@ -282,6 +284,11 @@ fn as_replayed<M: Held>(core: &CoreState, env: &Env<'_>, asked: &Asked) -> Askin
             w.to_pending(at);
         }
         at.pending_mut().resolver = core.pending().resolver.clone();
+        // (The streams the resolver wrote since: a replay runs on them. Only the debug check of the remembered question compares them; the
+        // core never reads them, so the browser build leaves them out.)
+        if cfg!(debug_assertions) {
+            at.rng = core.rng.clone();
+        }
     }
     asking
 }
@@ -289,7 +296,19 @@ fn as_replayed<M: Held>(core: &CoreState, env: &Env<'_>, asked: &Asked) -> Askin
 /// The question the suspension of `core` remembers, if it was put by a window of kind `M::KIND` in this very position.
 pub(crate) fn recall<M: Held>(core: &CoreState) -> Option<std::sync::Arc<Asked>> {
     let asked = core.pending().nested.as_ref()?.asked.shared::<Asked>()?;
-    (asked.kind == M::KIND && asked.at == *core).then_some(asked)
+    (asked.kind == M::KIND && same_but_streams(&asked.at, core)).then_some(asked)
+}
+
+/// Whether two positions are equal apart from their random streams (lane C3). The core never reads the streams (every random event
+/// is a chance question), so a question remembered in one is the question of the other: the chance resolver answers a chance question by
+/// writing the advanced streams into the position before it hands the faces back, and that answer must still find its question.
+fn same_but_streams(at: &CoreState, core: &CoreState) -> bool {
+    if at.rng == core.rng {
+        return *at == *core;
+    }
+    let mut other = core.clone();
+    other.rng = at.rng.clone();
+    *at == other
 }
 
 /// Answer the suspended question `n` with `pick`: checked against the remembered question `asked` when there is one, else against the
@@ -327,6 +346,8 @@ pub(crate) fn answer_nested<M: Held>(d: &mut Driver<M>, core: &mut CoreState, en
                 w.to_pending(at);
             }
             at.pending_mut().resolver = call.pending().resolver.clone();
+            // The streams of the call: the chance resolver may have advanced them since the park (lane C3).
+            at.rng = call.rng.clone();
         })?;
         if let Some(replayed) = replayed {
             check_parked(&replayed, &Answered::of(d, core, &status));

@@ -66,11 +66,25 @@ pub fn positions_in(texts: &Texts, rng: &CoreRng) -> R<RngPositions> {
     rng.positions().map(|(d, p)| Ok((domain_text_in(texts, d)?, p))).collect()
 }
 
+thread_local! {
+    /// Whether the last load of this slice was handed the positions of the game's streams (`Sources::rng`): the oracle's window duals bail
+    /// on an ability's die in a window that was lent no stream (it could not reproduce the roll). Since lane C2 the core's streams carry no
+    /// seed source to tell it by.
+    static LENT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether the last load of the streams was handed their positions.
+#[must_use]
+pub fn lent() -> bool {
+    LENT.with(std::cell::Cell::get)
+}
+
 impl SliceCodec for Rng {
     const SLICE: Slice = S;
 
     fn load(_: &mut Ctx, gs: &GameState, src: Sources<'_>, core: &mut CoreState) -> R<()> {
         let mut rng = CoreRng::new(gs.rng_seed);
+        LENT.with(|l| l.set(src.rng.is_some()));
         if let Some(pos) = src.rng {
             let typed: Vec<(RngDomain, u128)> =
                 pos.iter().map(|(t, p)| Ok((domain_in(&mut core.texts, t)?, *p))).collect::<R<_>>()?;

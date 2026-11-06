@@ -1272,6 +1272,105 @@ impl Asker for Tape {
     }
 }
 
+// -- chance (lane C3, docs/FORK_RNG_THEORY.md 4.3): every random event is a question on the tape -------------------------------------
+
+impl Tape {
+    /// A random event: the faces the tape holds for it, else a question. The core never draws (decision D1). When the tape is dry,
+    /// the request becomes the question the run stops at (unless an earlier question did: then it is part of the speculative rest of a
+    /// run that will be rolled back), and the run goes on with the fixed placeholder (every face the highest, [`placeholder`]) to the end of
+    /// its operation, exactly as a dry reaction question goes on with its decline. Nothing the placeholder leads to survives the
+    /// rollback; the unknowns noted after the question are dropped with it (`take_unknown`).
+    #[inline(never)] // one copy for every site (the browser build's size budget)
+    pub fn chance(&mut self, state: &CoreState, req: &crate::chance::Request) -> crate::chance::Faces {
+        if let Some(p) = self.answers.get(self.used) {
+            self.used += 1;
+            #[cfg(feature = "probe-counters")]
+            crate::state::census::met(req.len(), true, false);
+            if let Pick::Chance(faces) = p {
+                if req.accepts(faces) {
+                    return *faces;
+                }
+            }
+            // A tape whose answer is no answer to this request belongs to another run of the operation: a defect of the caller.
+            debug_assert!(false, "the tape answers the chance request {req:?} with {p:?}");
+            return placeholder(req);
+        }
+        #[cfg(feature = "probe-counters")]
+        crate::state::census::met(req.len(), false, self.needed.is_none());
+        if self.needed.is_none() {
+            let actor = req.owner.map_or_else(|| state.meta().active.unwrap_or(Seat(0)), Seat);
+            // (`facts` and `state_at` are set with `needed` only, so they are `None` here: a chance question has neither.)
+            self.needed = Some(chance_choice(actor, *req));
+            self.unknown_at_dry = Some(self.unknown.get());
+        }
+        placeholder(req)
+    }
+
+    /// `n` dice of `sides` sides from `domain`, in draw order (one request per group of at most `MAX_FACES`, `Request::dice_groups`).
+    #[inline(never)] // one copy for every site (the browser build's size budget)
+    pub fn dice(&mut self, state: &CoreState, domain: crate::state::RngDomain, n: usize, sides: u32) -> Vec<u32> {
+        let sides = die_sides(sides);
+        let mut out = Vec::with_capacity(n);
+        for req in crate::chance::Request::dice_groups(domain, n, sides, None) {
+            out.extend(self.chance(state, &req).as_slice().iter().map(|f| u32::from(*f)));
+        }
+        out
+    }
+
+    /// One die of `sides` sides from `domain` (`1..=sides`): a request of one die.
+    #[inline(never)] // one copy for every site (the browser build's size budget)
+    pub fn die(&mut self, state: &CoreState, domain: crate::state::RngDomain, sides: u32) -> u32 {
+        let req = crate::chance::Request::new(domain, crate::chance::Kind::Dice { n: 1, sides: die_sides(sides), hits_on: None });
+        self.chance(state, &req).as_slice().first().map_or(1, |f| u32::from(*f))
+    }
+
+    /// A uniformly chosen element among `n` (`0..n`): an `Index` request, one face in `1..=n` (the Kyver hero's card, the Neuraloop's objective).
+    #[inline(never)] // one copy for every site (the browser build's size budget)
+    pub fn index(&mut self, state: &CoreState, domain: crate::state::RngDomain, n: usize) -> usize {
+        let n = u8::try_from(n).unwrap_or(u8::MAX);
+        let req = crate::chance::Request::new(domain, crate::chance::Kind::Index { n });
+        self.chance(state, &req).as_slice().first().map_or(0, |f| usize::from(*f).saturating_sub(1))
+    }
+}
+
+/// The sides of a die as a request carries them (every die of the game has at most 255 sides).
+fn die_sides(sides: u32) -> u8 {
+    debug_assert!(sides <= u32::from(u8::MAX), "a die of {sides} sides");
+    u8::try_from(sides).unwrap_or(u8::MAX)
+}
+
+/// The fixed answer of a chance request in a run that is rolled back (lane C3, docs/FORK_RNG_THEORY.md 4.3): every face the highest
+/// (`sides`). Fixed rather than drawn, so a speculative run moves no stream. The highest, not the lowest the theory proposed: a ground
+/// combat run inline inside one operation (Dannel of the Tenth, the Yin hero's fight) rolls round after round until a side is gone, and with
+/// every die a 1 nobody would ever hit; with every die hitting each such loop ends (found by the core's tests, lane C3).
+#[must_use]
+pub fn placeholder(req: &crate::chance::Request) -> crate::chance::Faces {
+    let mut faces = crate::chance::Faces::default();
+    for _ in 0..req.len() {
+        let _ = faces.try_push(req.sides().max(1));
+    }
+    faces
+}
+
+/// The question of a chance request: no options, the answer is `Pick::Chance`.
+#[must_use]
+pub fn chance_choice(actor: Seat, req: crate::chance::Request) -> Choice {
+    Choice {
+        actor,
+        ask: crate::choice::Ask::Generic(crate::choice::generic::Ask::Chance(req)),
+        ctx: crate::choice::Ctx {
+            origin: crate::choice::Origin::Rule(crate::choice::generic::Rule::R2_4),
+            subtype: crate::choice::Subtype::Generic(crate::choice::generic::Subtype::Chance),
+            optional: false,
+            target: None,
+            outstanding: crate::containers::SmallList::new(),
+            space_battle: false,
+            invasion_seq: None,
+        },
+        opts: crate::choice::Opts::default(),
+    }
+}
+
 /// The resolver's `Host` under the real rules: dispatches on the slot, asks through the tape.
 pub struct RulesHost<'a> {
     pub state: &'a mut CoreState,
@@ -1283,6 +1382,11 @@ pub struct RulesHost<'a> {
 }
 
 impl RulesHost<'_> {
+    /// A die from `domain`: a chance question on the tape (`Sx::die`).
+    pub fn die(&mut self, domain: RngDomain, sides: u32) -> u32 {
+        self.tape.die(&*self.state, domain, sides)
+    }
+
     /// Put a question that belongs to no window of the resolver (a played card's, asked while the play is announced): the
     /// display facts of the question (battle, invasion) are the adapter's, the trigger is not part of it.
     pub fn ask(&mut self, choice: &Choice) -> Pick {
@@ -1464,15 +1568,15 @@ impl<'a> Eff<'_, 'a> {
         self.host.tape.pick_with(state, choice, Some(facts))
     }
 
-    /// Draw a die from the stream of `domain` (`Sx::die`).
+    /// A die from `domain` (`Sx::die`): a chance question on the tape.
     pub fn die(&mut self, domain: RngDomain, sides: u32) -> u32 {
-        crate::state::rng::die(self.host.state.rng_mut(), domain, sides)
+        self.host.tape.die(&*self.host.state, domain, sides)
     }
 
     /// Roll `count` dice with `sides` sides from the dice stream and record the roll in the ledger (`Dice::roll_by`
     /// of an ability: the faces and the record are the string's). Returns the faces.
     pub fn roll(&mut self, by: Seat, count: usize, hits_on: Option<u8>, purpose: crate::state::RollPurpose, sides: u32) -> Vec<u8> {
-        let faces: Vec<u8> = (0..count).map(|_| u8::try_from(self.die(RngDomain::Dice, sides)).unwrap_or(u8::MAX)).collect();
+        let faces: Vec<u8> = self.host.tape.dice(&*self.host.state, RngDomain::Dice, count, sides).into_iter().map(|f| u8::try_from(f).unwrap_or(u8::MAX)).collect();
         self.host.state.ledger_mut().dice.push(crate::state::RollRec {
             purpose,
             owner: Some(by),

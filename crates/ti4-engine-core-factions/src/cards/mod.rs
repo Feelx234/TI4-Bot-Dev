@@ -43,7 +43,7 @@ pub fn register_after_play(t: &mut AbilityTable) {
 fn redraw(host: &mut RulesHost<'_>, roller: Seat, picks: &[(usize, usize)], record: bool) {
     use ti4_engine_core::state::RngDomain;
     for (e, d) in picks {
-        let face = ti4_engine_core::state::rng::die(host.state.rng_mut(), RngDomain::Dice, 10);
+        let face = host.die(RngDomain::Dice, 10);
         let staging = host.state.transient_mut().combat.reroll_staging.edit();
         let Some((_, set)) = staging.iter_mut().find(|(s, _)| *s == roller) else { continue };
         let system = set.system;
@@ -367,11 +367,27 @@ mod tests {
         let mut t = t.clone();
         t.facts.staging = facts_staging;
         let mut tape = Tape::default();
-        let mut next_id = 1_u64;
-        let mut resolver = Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
-        let mut host = RulesHost { state: s, kernel: &kernel, table: &t, tape: &mut tape, next_id: &mut next_id };
         let play = t.card_play(card).copied().expect("a registered card");
-        (play.effect)(&mut host, &mut resolver, who, card)?;
+        // The core asks for every die (lane C3): the effect is run again with each chance question answered from the streams, as the
+        // driver's replay does.
+        let (start, mut streams) = (s.clone(), s.rng.clone());
+        loop {
+            *s = start.clone();
+            s.rng = streams.clone();
+            tape.rewind();
+            let mut next_id = 1_u64;
+            let mut resolver = Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
+            let mut host = RulesHost { state: s, kernel: &kernel, table: &t, tape: &mut tape, next_id: &mut next_id };
+            (play.effect)(&mut host, &mut resolver, who, card)?;
+            match tape.needed().map(|c| c.ask) {
+                Some(ti4_engine_core::choice::Ask::Generic(ti4_engine_core::choice::generic::Ask::Chance(req))) => {
+                    let faces = ti4_chance::answer_mut(&req, &mut streams);
+                    tape.push(ti4_engine_core::choice::Pick::Chance(faces));
+                }
+                _ => break,
+            }
+        }
+        s.rng = streams;
         Ok(tape.take_unknown())
     }
 
@@ -734,7 +750,7 @@ mod tests {
         use ti4_engine_core::state::{RngDomain, RollPurpose};
         let mut s = rolled(Some(Seat(1)));
         let mut stream = s.rng().clone();
-        let faces: Vec<u8> = (0..5).map(|_| u8::try_from(ti4_engine_core::state::rng::die(&mut stream, RngDomain::Dice, 10)).unwrap()).collect();
+        let faces: Vec<u8> = (0..5).map(|_| u8::try_from(stream.die(RngDomain::Dice, 10)).unwrap()).collect();
         assert_eq!(run(&mut s, &registered(), ActionCard::ScrambleFrequency, Seat(0), false), Ok(None));
         let set = s.transient().combat.reroll_staging[0].1.clone();
         assert_eq!(set.rolls[0].faces.to_vec(), faces[0..2].to_vec(), "the faces are the next five draws of the dice stream, in order");
