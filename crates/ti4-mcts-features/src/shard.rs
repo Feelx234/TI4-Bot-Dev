@@ -32,8 +32,9 @@ use crate::encode::{Encoded, ADJ_BYTES, FA, FG, FO, FP, FS, MAX_OBJ, MAX_SYS, PT
 use crate::npy::{self, Dtype};
 
 /// The meta columns, in order.
-pub const META: [&str; 17] = [
+pub const META: [&str; 19] = [
     "game", "seed", "round", "actor", "faction", "ask_kind", "tree_kind", "smart", "picked", "decision", "k", "net", "sims", "rel0", "rel1", "rel2", "rel3",
+    "played", "noise",
 ];
 
 /// What a record says about itself (see [`META`]).
@@ -58,6 +59,10 @@ pub struct Meta {
     pub sims: u32,
     /// The absolute seat of each actor-relative block.
     pub rel: [u8; SEATS],
+    /// The index of the option actually played (differs from `picked` when the exploration noise played another one).
+    pub played: u16,
+    /// The exploration noise chose the played option (uniform among the kept options).
+    pub noise: bool,
 }
 
 /// One decision with its policy target.
@@ -186,6 +191,8 @@ impl ShardWriter {
                 i64::from(m.rel[1]),
                 i64::from(m.rel[2]),
                 i64::from(m.rel[3]),
+                i64::from(m.played),
+                i64::from(m.noise),
             ]);
         }
         let k = opt_kind.len();

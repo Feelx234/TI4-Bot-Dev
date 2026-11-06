@@ -11,6 +11,10 @@ name = "mcts_census"
 path = "src/bin/mcts_census.rs"
 
 [[bin]]
+name = "mcts_dataset"
+path = "src/bin/mcts_dataset.rs"
+
+[[bin]]
 name = "mcts_shards"
 path = "src/bin/mcts_shards.rs"
 

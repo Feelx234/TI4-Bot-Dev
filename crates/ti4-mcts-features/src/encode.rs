@@ -544,6 +544,26 @@ pub fn objective_slots(seen: &Seen<'_>) -> Vec<ObjectiveRef> {
     out
 }
 
+/// An encoder that keeps what does not change between the decisions of one table (lane L4's encode speed-up). Gives exactly
+/// the output of [`encode`].
+#[derive(Default)]
+pub struct Encoder {}
+
+impl Encoder {
+    /// [`encode`].
+    #[must_use]
+    pub fn encode(&mut self, seen: &Seen<'_>, choice: &Choice) -> Encoded {
+        let mut e = Encoded::default();
+        self.encode_into(seen, choice, &mut e);
+        e
+    }
+
+    /// [`encode_into`].
+    pub fn encode_into(&mut self, seen: &Seen<'_>, choice: &Choice, e: &mut Encoded) {
+        encode_into(seen, choice, e);
+    }
+}
+
 /// Encode `choice` for its actor. `seen` must be bound to `choice.actor`.
 #[must_use]
 pub fn encode(seen: &Seen<'_>, choice: &Choice) -> Encoded {

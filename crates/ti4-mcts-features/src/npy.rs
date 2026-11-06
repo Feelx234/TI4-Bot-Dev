@@ -165,9 +165,80 @@ pub fn i64_bytes(values: &[i64]) -> Vec<u8> {
     values.iter().flat_map(|v| v.to_le_bytes()).collect()
 }
 
+/// An array read back: the element type, the shape and the values widened (floats to `f32`, integers to `i64`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Array {
+    pub dtype: Dtype,
+    pub shape: Vec<usize>,
+    pub f: Vec<f32>,
+    pub i: Vec<i64>,
+}
+
+/// Read a plain `.npy` file (format 1.0, C order, the dtypes of [`Dtype`]): what [`write`] writes and what NumPy's `np.save`
+/// writes for those dtypes.
+///
+/// # Errors
+/// I/O, or a header this reader does not understand.
+pub fn read(path: &Path) -> std::io::Result<Array> {
+    let raw = std::fs::read(path)?;
+    let bad = |what: &str| std::io::Error::other(format!("{}: {what}", path.display()));
+    if raw.len() < 10 || &raw[..6] != b"\x93NUMPY" {
+        return Err(bad("not an .npy file"));
+    }
+    let (hlen, start) = match raw[6] {
+        1 => (usize::from(u16::from_le_bytes([raw[8], raw[9]])), 10),
+        2 | 3 => (u32::from_le_bytes([raw[8], raw[9], raw[10], raw[11]]) as usize, 12),
+        _ => return Err(bad("unknown .npy version")),
+    };
+    let dict = std::str::from_utf8(raw.get(start..start + hlen).ok_or_else(|| bad("short header"))?).map_err(|_| bad("header not UTF-8"))?;
+    if dict.contains("'fortran_order': True") {
+        return Err(bad("Fortran order"));
+    }
+    let descr = dict.split("'descr':").nth(1).and_then(|r| r.split('\'').nth(1)).ok_or_else(|| bad("no descr"))?;
+    let dtype = [Dtype::F16, Dtype::F32, Dtype::U8, Dtype::I16, Dtype::U32, Dtype::I64]
+        .into_iter()
+        .find(|d| d.descr() == descr || (descr == "<u1" && *d == Dtype::U8) || (descr == "|b1" && *d == Dtype::U8))
+        .ok_or_else(|| bad("unsupported dtype"))?;
+    let dims = dict.split("'shape':").nth(1).and_then(|r| r.split('(').nth(1)).and_then(|r| r.split(')').next()).ok_or_else(|| bad("no shape"))?;
+    let shape: Vec<usize> = dims.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::parse).collect::<Result<_, _>>().map_err(|_| bad("bad shape"))?;
+    let n: usize = shape.iter().product();
+    let data = raw.get(start + hlen..start + hlen + n * dtype.size()).ok_or_else(|| bad("short payload"))?;
+    let (mut f, mut i) = (Vec::new(), Vec::new());
+    match dtype {
+        Dtype::F16 => f = data.chunks_exact(2).map(|c| f16_value(u16::from_le_bytes([c[0], c[1]]))).collect(),
+        Dtype::F32 => f = data.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect(),
+        Dtype::U8 => i = data.iter().map(|b| i64::from(*b)).collect(),
+        Dtype::I16 => i = data.chunks_exact(2).map(|c| i64::from(i16::from_le_bytes([c[0], c[1]]))).collect(),
+        Dtype::U32 => i = data.chunks_exact(4).map(|c| i64::from(u32::from_le_bytes([c[0], c[1], c[2], c[3]]))).collect(),
+        Dtype::I64 => i = data.chunks_exact(8).map(|c| i64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]])).collect(),
+    }
+    Ok(Array { dtype, shape, f, i })
+}
+
+/// `x` rounded to the nearest half and back (the precision the shards store and the trainer sees).
+#[must_use]
+pub fn f16_round(x: f32) -> f32 {
+    f16_value(f16_bits(x))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arrays_read_back() {
+        let dir = std::env::temp_dir().join(format!("ti4-npy-read-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let p = dir.join("a.npy");
+        write(&p, Dtype::F16, &[2, 3], &f16_bytes(&[0.0, 1.0, -2.5, 0.25, 3.0, 1.0 / 3.0])).expect("write");
+        let a = read(&p).expect("read");
+        assert_eq!(a.shape, vec![2, 3]);
+        assert_eq!(a.f[2], -2.5);
+        assert_eq!(a.f[5], f16_round(1.0 / 3.0));
+        write(&p, Dtype::I16, &[3], &i16_bytes(&[-1, 7, 300])).expect("write");
+        assert_eq!(read(&p).expect("read").i, vec![-1, 7, 300]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn halves_round_trip_and_round_to_even() {
