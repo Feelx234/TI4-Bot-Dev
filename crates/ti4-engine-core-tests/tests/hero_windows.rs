@@ -369,8 +369,8 @@ fn each_ship_rolls_one_die_and_a_one_to_three_captures_it_from_the_board() {
     let mut faces_seen = std::collections::BTreeSet::new();
     for seed in 0..60 {
         // The two dice the window draws from the dice stream, read off a copy of the start position's streams.
-        let mut probe = carrion(sc.clone(), true, Vec::new(), Vec::new()).state.rng().clone();
-        let faces: Vec<u32> = (0..2).map(|_| probe.die(ti4_engine_core::state::RngDomain::Dice, &ti4_engine_core_tests::rig::KitSeeds(seed), 10)).collect();
+        let mut probe = ti4_engine_core_tests::rig::kit_at(seed, carrion(sc.clone(), true, Vec::new(), Vec::new()).state.rng());
+        let faces: Vec<u32> = (0..2).map(|_| probe.die(ti4_engine_core::state::RngDomain::Dice, 10)).collect();
         faces_seen.extend(faces.iter().copied());
         let rig = play(&sc, true, &targets, &[], seed);
         assert!(rig.driver.window.used);
@@ -478,7 +478,11 @@ fn owners_and_systems_are_enforced_in_the_order_the_adapter_gives() {
         if rig.is_done() {
             continue;
         }
-        assert_eq!(rig.asked().actor, Seat(2), "the first pair of the list is enforced first when both lost a ship, or the only one that did");
+        // The two dice the window draws, one per target in the adapter's order (a 1 to 3 captures): seat 2 is first when its carrier was taken.
+        let mut probe = ti4_engine_core_tests::rig::kit_at(seed, rig.start_state().rng());
+        let first: u32 = probe.die(ti4_engine_core::state::RngDomain::Dice, 10);
+        let expect = if first <= 3 { Seat(2) } else { Seat(1) };
+        assert_eq!(rig.asked().actor, expect, "the first pair of the list is enforced first when both lost a ship, or the only one that did");
         let both = {
             while !rig.is_done() {
                 rig.pick(0);

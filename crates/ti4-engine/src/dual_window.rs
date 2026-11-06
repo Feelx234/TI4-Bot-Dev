@@ -781,12 +781,16 @@ pub fn drive_windowed<W: Window>(
             return Err(DriverError::NotAsking);
         }
     }
-    // The core draws an ability's die from the game's stream; a window that was lent none cannot reproduce the roll.
-    if script.nested && !script.dice.is_empty() && !driver.is_seeded() {
+    // The core draws an ability's die from the game's stream; a window that was lent none (no stream positions) cannot reproduce the roll.
+    if script.nested && !script.dice.is_empty() && !crate::core_sync::codec::rng::lent() {
         crate::dual::note_bail(LABEL.with(Cell::get), "nested (dice rolled by an ability in a window lent no stream)");
         return Err(DriverError::NotAsking);
     }
-    let mut status = driver.run(core, kernel)?;
+    // (Every chance question of the core is answered from the lent streams, lane C3.)
+    let mut status = {
+        let ran = driver.run(core, kernel);
+        ti4_engine_chance::settle(driver, core, kernel, ran)?
+    };
     loop {
         if let Some(why) = driver.unknown() {
             let why = match why {
@@ -876,7 +880,10 @@ pub fn drive_windowed<W: Window>(
                 let Some(pick) = pick else {
                     return Ok(out);
                 };
-                status = driver.resume(core, kernel, pick)?;
+                status = {
+                    let ran = driver.resume(core, kernel, pick);
+                    ti4_engine_chance::settle(driver, core, kernel, ran)?
+                };
             }
         }
     }
@@ -1546,9 +1553,6 @@ pub fn agenda_effect(gs: &mut GameState, agenda: &str, outcome: &str, a: &Effect
         footprint = footprint.union(Footprint::new(&[Slice::Rng], &[Slice::Rng]));
     }
     let src = Sources { galaxy: a.galaxy.filter(|_| driver.window.needs_map()), rng: rolls };
-    if rolls.is_some() {
-        driver = driver.with_seeds(std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?)));
-    }
     let mut rng_after = None;
     let driven = with_core(gs, &mut cx, src, footprint, |core, _| {
         let driven = drive(&mut driver, core, &kernel, &r, &before, script);
@@ -2421,28 +2425,9 @@ pub struct BarrageArgs<'a> {
 /// (hit number, faces) and where the streams stand.
 pub type BarrageOut = (Vec<PlayerId>, Vec<(u32, Vec<u32>)>, crate::rng::RngPositions);
 
-/// The seeds of the Dice stream (the only one a window draws from here): `SHA-256(seed || "dice")`.
-pub(crate) struct DiceSeeds(pub(crate) String);
-
 /// The streams lent to a window that rolls: where they stood before the string effect.
 pub(crate) struct Lent {
     pub(crate) before: crate::rng::RngPositions,
-}
-
-impl ti4_engine_core::state::SeedSource for DiceSeeds {
-    fn seed_for(&self, seed: u64, domain: ti4_engine_core::state::RngDomain) -> [u8; 32] {
-        if domain == ti4_engine_core::state::RngDomain::Dice {
-            crate::rng::GameRng::derive_seed(seed, &self.0)
-        } else if domain == ti4_engine_core::state::RngDomain::Neuraloop {
-            // The Neuraloop's replacement objective (`relics::neuraloop`).
-            crate::rng::GameRng::derive_seed(seed, "neuraloop")
-        } else if domain == ti4_engine_core::state::RngDomain::Fracture {
-            // Brilliance's roll for the Fracture (`fracture::breakthrough_roll`).
-            crate::rng::GameRng::derive_seed(seed, "fracture-breakthrough")
-        } else {
-            [0; 32]
-        }
-    }
 }
 
 /// Whether the barrage step holds something the core window does not carry: a reroll question (Jol-Nar
@@ -2563,9 +2548,8 @@ pub fn barrage_step(
         extra_shown: r.code("extra barrage"),
         hit_texts: ti4_engine_core::kernel::children::HitTexts { staging: a.staging, commander: r.code("letnevcommander"), casualty: r.code("assign_casualty"), effect_hit: r.code("unit_ability:anti_fighter_barrage") },
     };
-    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
-    let mut driver = crate::window_driver::driver_for(BarrageStep::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(BarrageStep::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
@@ -2652,9 +2636,8 @@ pub fn produce_hits(
         cause_core: r.code("technology:impulse_core"),
         cause_devotion: r.code("faction_ability:devotion"),
     };
-    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
-    let mut driver = crate::window_driver::driver_for(ProduceHits::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(ProduceHits::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
@@ -2769,9 +2752,8 @@ pub fn roll_step(
         cause: r.code("space_combat"),
         hacan: r.code("hacan_flagship"),
     };
-    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
-    let mut driver = crate::window_driver::driver_for(RollStep::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(RollStep::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
@@ -3702,9 +3684,8 @@ pub fn space_cannon_defense(
         planets_key: r.code("planets"),
         unit_codes,
     };
-    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[invader], Some(invader));
-    let mut driver = crate::window_driver::driver_for(SpaceCannonDefense::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(SpaceCannonDefense::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
@@ -3788,10 +3769,9 @@ pub fn bombard_rolled(
         }
     }
     let facts = Facts { invader, system, announce: a.announce, kind: r.code("bombardment"), commander, shown };
-    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
     let resolver = Resolver::new(&seats, Some(invader));
-    let mut driver = Driver::new(BombardRolled::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = Driver::new(BombardRolled::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
@@ -3897,8 +3877,7 @@ pub fn ground_roll(gs: &mut GameState, a: &GroundRollArgs<'_>, rng_before: &crat
         names.push(cx.texts.intern(Slice::Transient, &format!("combat value {n}")).why("the text table of the typed state is full")?);
     }
     let facts = Facts { attacker, defender, system, planet, kind: cx.texts.intern(Slice::Transient, "ground").why("the text table of the typed state is full")?, names, unit_codes, x89: [holds_x89(gs, a.attacker), holds_x89(gs, a.defender)] };
-    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
-    let mut driver = crate::window_driver::driver_for(GroundRoll::new(facts), Resolver::new(&[attacker, defender], Some(attacker)), AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(GroundRoll::new(facts), Resolver::new(&[attacker, defender], Some(attacker)), AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
@@ -4012,8 +3991,7 @@ pub fn round_hits(gs: &mut GameState, sources: ti4_model::content_types::SourceS
         template,
         harrow: a.harrow.then(|| ti4_engine_core::rules::invasion::harrow::Facts { invader, defender, system, planet, announce: a.announce, cause: r.code("harrow") }),
     };
-    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
-    let mut driver = crate::window_driver::driver_for(GroundRoundHits::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(GroundRoundHits::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(a.rng_before) };
@@ -4269,8 +4247,7 @@ pub fn roll_tail(
     let before = gs.clone();
     let env = crate::core_invasion::ground_env(&before, &cx, ti4_model::content_types::SourceSet::default()).why("the invasion environment could not be built from the position")?;
     let facts = Facts { invader, defender, system, planet, rolled: (u32::try_from(a.rolled.0).ok()?, u32::try_from(a.rolled.1).ok()?), bump: a.bump, announce: a.announce, x89: [holds_x89(gs, a.invader), holds_x89(gs, a.defender)] };
-    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
-    let mut driver = crate::window_driver::driver_for(GroundRollTail::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(GroundRollTail::new(facts), Resolver::new(&[invader, defender], Some(invader)), AbilityTable::default(), 1);
     // The cards that reroll the staged dice (Fire Team) read the texts of the staged sets.
     let (reroll, texts) = reroll_facts(&mut cx, &r, &before)?;
     let mut staged = Vec::new();
@@ -4671,11 +4648,10 @@ pub fn mahact_hero(
         before: snapshot,
     };
     let before = gs.clone();
-    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
     let resolver = Resolver::new(&seats, Some(seat));
-    let mut driver = crate::window_driver::driver_for(MahactHero::new(seat, core_pairs, vec![prepared]), resolver, table, 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(MahactHero::new(seat, core_pairs, vec![prepared]), resolver, table, 1);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };
@@ -4870,11 +4846,10 @@ pub fn yin_hero(
     let facts = YinFacts { spots: core_spots, stock: u8::try_from(stock).ok()?, infantry, fight, minister: r.code("minister_exploration") };
     let before = gs.clone();
     let env = crate::core_invasion::ground_env(&sim, &cx, sources.clone()).why("the invasion environment could not be built from the position")?;
-    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
     let resolver = Resolver::new(&seats, Some(seat));
-    let mut driver = crate::window_driver::driver_for(YinHero::new(seat, facts), resolver, table, 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(YinHero::new(seat, facts), resolver, table, 1);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let mut scoring_plain: Vec<ti4_engine_core::state::PlainRec> = Vec::new();
@@ -5116,10 +5091,9 @@ fn settle_run(
     let before = gs.clone();
     let env = crate::core_combat::window_env(&before, &cx, sources).why(WINDOW_ENV)?;
     let (menv, fields, texts) = build_settle_env(&before, &mut cx, &r, sources, &a, begin_occurrence)?;
-    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let resolver = Resolver::new(&[attacker, defender], Some(attacker));
     let machine = if answering.is_some() { Machine::awaiting(menv, fields) } else { Machine::new(menv, fields) };
-    let mut driver = crate::window_driver::driver_for(machine, resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(machine, resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy: None, rng: Some(rng_before) };

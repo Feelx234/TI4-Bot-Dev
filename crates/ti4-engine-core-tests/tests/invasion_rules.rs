@@ -10,7 +10,6 @@ use ti4_engine_core::rules::invasion::{
 };
 use ti4_engine_core::state::{LeaderStatus, MetaFlags, Piece, RoundKind};
 use ti4_engine_core_tests::prelude::*;
-use ti4_engine_core_tests::rig::KitSeeds;
 use ti4_engine_core_tests::scenario::plain_systems;
 
 /// A plain tile with two planets.
@@ -163,11 +162,11 @@ fn bombardment_dice_are_drawn_planet_by_planet_unit_by_unit() {
     let (s, k) = arena().unit(sys(), None, Unit::DreadnoughtI, 0, 1).unit(sys(), None, Unit::WarSun, 0, 1).unit(sys(), Some(p1), Unit::InfantryI, 1, 1).control(p1, 1).build();
     let plan = bombard_plan(rd(&s, &k), sys(), Seat(0));
     let mut rng = s.rng.clone();
-    let drawn = roll_bombard(&plan, &mut rng, &KitSeeds(5));
+    let drawn = roll_bombard(&plan, &mut |n| (0..n).map(|_| rng.die(ti4_engine_core::state::RngDomain::Dice, 10)).collect());
     assert_eq!(drawn.iter().map(|d| (d.unit, d.hits_on, d.faces.len())).collect::<Vec<_>>(), vec![(Unit::DreadnoughtI, 5, 1), (Unit::WarSun, 3, 3)]);
     assert!(drawn.iter().flat_map(|d| d.faces.iter()).all(|f| (1..=10).contains(f)));
     let mut again = s.rng.clone();
-    assert_eq!(roll_bombard(&plan, &mut again, &KitSeeds(5)), drawn, "the same stream gives the same dice");
+    assert_eq!(roll_bombard(&plan, &mut |n| (0..n).map(|_| again.die(ti4_engine_core::state::RngDomain::Dice, 10)).collect()), drawn, "the same stream gives the same dice");
 }
 
 // ---- landing -------------------------------------------------------------------------------

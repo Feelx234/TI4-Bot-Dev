@@ -1032,14 +1032,18 @@ fn effect_sanctions(
         if held == 0 {
             continue;
         }
-        let face = ctx
-            .dice
-            .roll(ctx.rng, 1, "sanctions", None)
-            .faces
-            .first()
-            .copied()
-            .unwrap_or(1) as usize;
-        if let Some(card) = crate::action_cards::discard(state, &player, face % held) {
+        // One card of the hand, uniformly (lane C3b, decision D4: the core's `Index { n: held }`; no more d10 modulo the hand).
+        // (Older rules versions, replayed by the frozen string engine, keep the d10 modulo the hand.)
+        let index = if state.rules_version >= crate::action_cards::UNBIASED_PICKS {
+            ctx.rng.observe_randomness();
+            let face = ctx.rng.die(crate::rng::domain::DICE, u32::try_from(held).unwrap_or(u32::MAX));
+            ctx.dice.record_rolled("sanctions", vec![face], None);
+            face as usize - 1
+        } else {
+            let face = ctx.dice.roll(ctx.rng, 1, "sanctions", None).faces.first().copied().unwrap_or(1) as usize;
+            face % held
+        };
+        if let Some(card) = crate::action_cards::discard(state, &player, index) {
             crate::action_cards::discarded(state, &player, &card, false);
         }
     }

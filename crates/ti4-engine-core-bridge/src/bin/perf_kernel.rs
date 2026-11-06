@@ -20,7 +20,6 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
 use std::time::Instant;
 
 use ti4_engine::live::{self, arms};
@@ -124,11 +123,45 @@ struct Phases {
     pick: Phase,
 }
 
+/// The chance questions the resolver answered (lane C3): counts for the summary, and with `PERF_KERNEL_DRAWS=<file>` the answered faces of
+/// each game (`game domain sides face`, in draw order per domain), the sequence the draws of the core made before lane C3 must equal.
+mod chance {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Mutex;
+
+    pub static REQUESTS: AtomicU64 = AtomicU64::new(0);
+    pub static FACES: AtomicU64 = AtomicU64::new(0);
+    pub static SEQ: Mutex<Vec<(ti4_chance::Domain, u8, u8)>> = Mutex::new(Vec::new());
+
+    pub fn note(req: &ti4_chance::Request, faces: &ti4_chance::Faces) {
+        REQUESTS.fetch_add(1, Ordering::Relaxed);
+        FACES.fetch_add(faces.len() as u64, Ordering::Relaxed);
+        if let Ok(mut seq) = SEQ.lock() {
+            seq.extend(faces.as_slice().iter().map(|f| (req.domain, req.sides(), *f)));
+        }
+    }
+
+    /// Append the game's answered faces to the `PERF_KERNEL_DRAWS` file (and forget them).
+    pub fn dump(game: &str) {
+        let mut seq = SEQ.lock().map(|mut s| std::mem::take(&mut *s)).unwrap_or_default();
+        let Some(path) = std::env::var_os("PERF_KERNEL_DRAWS") else { return };
+        seq.sort_by_key(|(d, _, _)| *d);
+        let text: String = seq.iter().map(|(d, sides, face)| format!("{game}\t{d:?}\t{sides}\t{face}\n")).collect();
+        use std::io::Write as _;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = f.write_all(text.as_bytes());
+        }
+    }
+
+    pub fn summary() -> String {
+        format!("{{\"chance_requests\":{},\"chance_faces\":{}}}", REQUESTS.load(Ordering::Relaxed), FACES.load(Ordering::Relaxed))
+    }
+}
+
 struct Game {
     core: CoreState,
     render: Render,
     sources: SourceSet,
-    seeds: Rc<dyn ti4_engine_core::state::SeedSource>,
     kernel: &'static Kernel,
     seed: u64,
     decided: usize,
@@ -247,10 +280,10 @@ impl Game {
     fn new(players: usize, seed: u64, faction: &str) -> Result<Self, String> {
         let spec = lobby_spec(faction, players, seed);
         let g = NativeGame::from_spec(&spec)?;
-        let (core, cx, render, _base, kernel, seeds, sources) = g.probe();
+        let (core, cx, render, _base, kernel, sources) = g.probe();
         let mut fresh = Render::new(cx.owners.ids().to_vec()).with_codes(render.codes_snapshot());
         fresh.factions.clone_from(&render.factions);
-        Ok(Self { core: core.clone(), render: fresh, sources, seeds, kernel, seed, decided: 0, steps: 0, chain: 0xcbf2_9ce4_8422_2325, after_glue: false, ph: Phases::default(), marks: Vec::new(), sample: false, check: std::env::var_os("PERF_KERNEL_CHECK").is_some() })
+        Ok(Self { core: core.clone(), render: fresh, sources, kernel, seed, decided: 0, steps: 0, chain: 0xcbf2_9ce4_8422_2325, after_glue: false, ph: Phases::default(), marks: Vec::new(), sample: false, check: std::env::var_os("PERF_KERNEL_CHECK").is_some() })
     }
 
     /// The seeded weighted random pick over the typed options. `None` for a question with no option.
@@ -303,11 +336,11 @@ impl Game {
         let first = ask(&self.core, env).map_err(|e| format!("ask: {e:?}"))?;
         self.ph.ask.add(t, a0);
         let mut asking = match first {
-            Some(a) => a,
-            None => {
+            Some(a) if ti4_engine_chance::chance_asked(&a).is_none() => a,
+            _ => {
                 let t = Instant::now();
                 let a0 = counts();
-                let (live, out) = advance(&mut self.core, env, None).map_err(|e| format!("advance: {e:?}"))?;
+                let (live, out) = ti4_engine_chance::advance_observed(&mut self.core, env, advance, None, &mut chance::note).map_err(|e| format!("advance: {e:?}"))?;
                 self.ph.advance.add(t, a0);
                 let t = Instant::now();
                 let a0 = counts();
@@ -324,7 +357,7 @@ impl Game {
             let Some(pick) = self.pick(&asking.choice) else { return Err("a question with no option".to_owned()) };
             let t = Instant::now();
             let a0 = counts();
-            let (live, out) = advance(&mut self.core, env, Some(pick)).map_err(|e| format!("advance({pick:?}): {e:?}"))?;
+            let (live, out) = ti4_engine_chance::advance_observed(&mut self.core, env, advance, Some(pick), &mut chance::note).map_err(|e| format!("advance({pick:?}): {e:?}"))?;
             self.ph.advance.add(t, a0);
             let t = Instant::now();
             let a0 = counts();
@@ -359,7 +392,7 @@ impl Game {
         if self.check {
             live::env::verify_cache(true);
         }
-        let env = live::env::env_with_plays(&self.render, &self.core, self.kernel, self.seeds.clone(), self.sources);
+        let env = live::env::env_with_plays(&self.render, &self.core, self.kernel, self.sources);
         self.ph.env.add(t, a0);
         // The deferred play facts: armed on the position the step starts from, read after the step has changed the position, they equal the facts
         // the provider computes at once at the start (and the roster shortcut equals the provider's roster).
@@ -565,7 +598,7 @@ fn micro(players: usize, seed: u64, faction: &str, at: usize) {
     let mut g = Game::new(players, seed, faction).expect("builds");
     let end = g.play(at);
     println!("{players}p seed {seed} {faction}: played {} steps ({end:?}); per-step pieces on this position (tight loops, hot cache):", g.steps);
-    let env = live::env::env_with_plays(&g.render, &g.core, g.kernel, g.seeds.clone(), g.sources);
+    let env = live::env::env_with_plays(&g.render, &g.core, g.kernel, g.sources);
     println!("  ability specs {}, size_of Spec {} B, AbilityDef {} B, AbilityTable {} B, Env {} B, CoreState {} B", env.table.specs().len(), std::mem::size_of::<ti4_engine_core::kernel::ability::Spec>(), std::mem::size_of::<ti4_engine_core::kernel::AbilityDef>(), std::mem::size_of::<ti4_engine_core::kernel::stage::AbilityTable>(), std::mem::size_of::<Env<'_>>(), std::mem::size_of::<CoreState>());
     {
         use ti4_engine_core::kernel::ability::Applies;
@@ -589,7 +622,7 @@ fn micro(players: usize, seed: u64, faction: &str, at: usize) {
         c.ledger.vp.push(ti4_engine_core::state::VpRec { player: ti4_engine_core::Seat(0), delta: 0, reason: ti4_engine_core::state::LedgerReason::Custodians });
         c
     });
-    timeit("env_with_plays (registry + table + codes)", 400, || live::env::env_with_plays(&g.render, &g.core, g.kernel, g.seeds.clone(), g.sources));
+    timeit("env_with_plays (registry + table + codes)", 400, || live::env::env_with_plays(&g.render, &g.core, g.kernel, g.sources));
     timeit("Env::clone (AbilityTable + registry)", 4_000, || env.clone());
     timeit("AbilityTable::clone", 4_000, || env.table.clone());
     timeit("Facts::of_core", 200_000, || Facts::of_core(&g.core, false));
@@ -648,6 +681,8 @@ fn main() {
             }
             let r = play_one(p, s, f).expect("builds");
             println!("{}", json(&r));
+            chance::dump(&format!("{p}-{s}-{f}"));
+            eprintln!("{}", chance::summary());
             if runs {
                 let (parks, resumed) = ti4_engine_core::driver::park_stats();
                 eprintln!("{{\"probe_calls\":{},\"parks\":{parks},\"parked_answers\":{resumed}}}", SEEN.load(std::sync::atomic::Ordering::Relaxed));
@@ -678,6 +713,7 @@ fn main() {
                 for &(p, s, f) in SUITE {
                     let r = play_one(p, s, f).expect("builds");
                     println!("{}", json(&r));
+                    chance::dump(&format!("{p}-{s}-{f}"));
                     steps += r.steps;
                     dec += r.decisions;
                     ms += r.ms;
@@ -692,6 +728,7 @@ fn main() {
             }
             let (parks, resumed) = ti4_engine_core::driver::park_stats();
             eprintln!("{{\"parks\":{parks},\"parked_answers\":{resumed}}}");
+            eprintln!("{}", chance::summary());
             print_park_detail();
             println!("{{\"summary\":true,\"games\":{},\"unfinished\":{bad},\"steps\":{steps},\"decisions\":{dec},\"ms\":{ms:.1},\"steps_per_s\":{:.0},\"allocs\":{allocs},\"mb\":{:.1},\"suite_hash\":\"{all:016x}\"}}", SUITE.len() * reps, steps as f64 / (ms / 1e3), bytes as f64 / 1e6);
         }

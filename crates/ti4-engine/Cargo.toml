@@ -20,6 +20,9 @@ ts-rs = { workspace = true, optional = true }
 ti4-engine-core = { workspace = true, optional = true }
 # The faction modules of the typed core (wave C): `register_all` fills the kernel hook table. Unused until a shard is merged.
 ti4-engine-core-factions = { workspace = true, optional = true }
+# The chance resolver (lane C3): the core asks for every random event; the oracle's live copy and its window duals answer from the streams.
+ti4-engine-chance = { workspace = true, optional = true }
+ti4-chance = { workspace = true, optional = true }
 
 # The TypeScript types of the wire (`ti4_wasm::wire_ts`); off but in the tests of the browser game.
 [features]
@@ -27,7 +30,7 @@ ts = ["dep:ts-rs", "ti4-model/ts"]
 # Movement and adjacency answered by the typed core (`core_adapter`; docs/ENGINE_CORE.md). On by
 # default; same answers by construction and by the dual run (`core_equivalence`).
 default = ["typed-core"]
-typed-core = ["dep:ti4-engine-core", "dep:ti4-engine-core-factions"]
+typed-core = ["dep:ti4-engine-core", "dep:ti4-engine-core-factions", "dep:ti4-engine-chance", "dep:ti4-chance"]
 # The off switch: with it, every call site uses the string search again although `typed-core`
 # (a default feature, which a dependent cannot turn off) is compiled in. For A/B and spot checks:
 # `cargo build -p ti4-selfplay --features ti4-engine/string-movement` (the product crate `ti4-engine` forwards it).

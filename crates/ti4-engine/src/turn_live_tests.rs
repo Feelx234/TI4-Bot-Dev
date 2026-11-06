@@ -20,7 +20,6 @@ use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
 use crate::choice::{Choice, ChoiceOption, Decider, IllegalChoice, Table};
-use crate::core_sync::codec::rng::TextSeeds;
 use crate::core_sync::{materialize, Codec, Ctx, Sources};
 use crate::live::{self, Scripted};
 use crate::render::Render;
@@ -137,7 +136,7 @@ fn native_marked_arms(state: &GameState, steps: &[(bool, Option<Arm>, Option<Tur
     let mut core = Codec::load(&mut cx, state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("the position loads");
     let sources = DEFAULT;
     let kernel = live::kernel::kernel_for(sources);
-    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
+    let env = live::env::env_with_plays(&render, &core, kernel, sources);
     let lcx = live::Cx::new(&render, &env);
     let mut scripted = Scripted::new(ids.iter().copied());
     // The table's rule for the draft: the last card is not a choice and is never put (nor journaled).

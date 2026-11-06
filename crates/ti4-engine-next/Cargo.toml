@@ -12,6 +12,9 @@ ti4-engine-legacy = { workspace = true, optional = true }
 ti4-model.workspace = true
 ti4-content.workspace = true
 ti4-engine-core.workspace = true
+# The chance resolver (docs/FORK_RNG_THEORY.md 4.4): every arm and the reconcile run through it; no chance question reaches a decider.
+ti4-engine-chance.workspace = true
+ti4-chance.workspace = true
 ti4-engine-core-factions.workspace = true
 ti4-engine-core-setup.workspace = true
 serde.workspace = true

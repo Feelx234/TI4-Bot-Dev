@@ -11,10 +11,8 @@ ti4-model.workspace = true
 ti4-content.workspace = true
 ti4-engine-core.workspace = true
 ti4-engine-core-factions.workspace = true
-# Default features off, as the thin crate and the core have them: no OS entropy (the wasm build has no backend for it).
-rand = { version = "0.9", default-features = false }
-rand_chacha.workspace = true
-sha2.workspace = true
+# The setup's deck permutations and the seeded speaker (docs/FORK_RNG_THEORY.md 4.1): the bottom crate of the randomness.
+ti4-chance.workspace = true
 thiserror.workspace = true
 
 [lints]

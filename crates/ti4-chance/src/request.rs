@@ -6,12 +6,14 @@
 
 use crate::Domain;
 
-/// The most faces one request carries. [`Faces`] is 16 bytes, so the core's `Pick` does not grow; a larger group is
+/// The most faces one request carries. [`Faces`] is 13 bytes, so the core's `Pick` stays 16 bytes (the faces fit beside the niche
+/// of its option variant; with 15 faces it grew to 20, and the browser build by 8 KB: lane C3); a larger group is
 /// split in order ([`Request::dice_groups`]), which draws exactly the same faces as one long group.
-pub const MAX_FACES: usize = 15;
+pub const MAX_FACES: usize = 12;
 
 /// One roll group.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(not(target_family = "wasm"), derive(Debug))]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Request {
     pub domain: Domain,
     pub kind: Kind,
@@ -22,37 +24,14 @@ pub struct Request {
 }
 
 /// What is drawn. Every kind draws one die per face, `1..=sides`, as today's `die(domain, sides)`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(not(target_family = "wasm"), derive(Debug))]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Kind {
     /// `n` dice of `sides` sides (`n <= MAX_FACES`). `hits_on` is the threshold (a face `>= hits_on` hits); it does not
     /// change the draw and is there for the search helpers and for display.
     Dice { n: u8, sides: u8, hits_on: Option<u8> },
-    /// A uniform choice of one element among `n`: one face in `1..=n` (Kyver hero, Neuraloop: today's `die(n)`).
+    /// A uniform choice of one element among `n`: one face in `1..=n` (Kyver hero, Neuraloop, Spy, Sanctions: `die(n)`).
     Index { n: u8 },
-    /// A choice among `n` elements made with one die of `sides` sides and a modulo (Spy, Sanctions). Biased whenever
-    /// `n` does not divide `sides`; kept bit-identical on purpose and fixed separately (lane C9, one re-record). The
-    /// face is returned raw (it is what the ledger records); [`ModForm::index`] maps it.
-    DieMod { sides: u8, n: u8, form: ModForm },
-}
-
-/// How a [`Kind::DieMod`] face picks an element. The two sites differ today, so both forms are kept.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ModForm {
-    /// `(face - 1) % n` (Spy).
-    FaceMinusOne,
-    /// `face % n` (Sanctions).
-    Face,
-}
-
-impl ModForm {
-    /// The element a face picks among `n` (`n > 0`).
-    #[must_use]
-    pub const fn index(self, face: u8, n: u8) -> u8 {
-        match self {
-            Self::FaceMinusOne => face.saturating_sub(1) % n,
-            Self::Face => face % n,
-        }
-    }
 }
 
 impl Request {
@@ -81,7 +60,7 @@ impl Request {
     pub const fn len(&self) -> usize {
         match self.kind {
             Kind::Dice { n, .. } => n as usize,
-            Kind::Index { .. } | Kind::DieMod { .. } => 1,
+            Kind::Index { .. } => 1,
         }
     }
 
@@ -94,7 +73,7 @@ impl Request {
     #[must_use]
     pub const fn sides(&self) -> u8 {
         match self.kind {
-            Kind::Dice { sides, .. } | Kind::DieMod { sides, .. } => sides,
+            Kind::Dice { sides, .. } => sides,
             Kind::Index { n } => n,
         }
     }
@@ -108,9 +87,10 @@ impl Request {
     }
 }
 
-/// The answer to a request: the faces in draw order. 16 bytes (a length and 15 slots; unused slots stay 0 so the
+/// The answer to a request: the faces in draw order. 13 bytes (a length and 12 slots; unused slots stay 0 so the
 /// derived equality is the equality of the faces).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(not(target_family = "wasm"), derive(Debug))]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Faces {
     len: u8,
     faces: [u8; MAX_FACES],
@@ -162,8 +142,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn faces_is_sixteen_bytes() {
-        assert_eq!(core::mem::size_of::<Faces>(), 16);
+    fn faces_is_thirteen_bytes() {
+        assert_eq!(core::mem::size_of::<Faces>(), 13);
         assert!(Faces::from_slice(&[1; MAX_FACES]).is_some());
         assert!(Faces::from_slice(&[1; MAX_FACES + 1]).is_none());
     }
@@ -172,9 +152,9 @@ mod tests {
     fn groups_split_in_order() {
         let sizes = |n| Request::dice_groups(Domain::Dice, n, 10, None).map(|r| r.len()).collect::<Vec<_>>();
         assert_eq!(sizes(0), Vec::<usize>::new());
-        assert_eq!(sizes(15), [15]);
-        assert_eq!(sizes(16), [15, 1]);
-        assert_eq!(sizes(47), [15, 15, 15, 2]);
+        assert_eq!(sizes(12), [12]);
+        assert_eq!(sizes(13), [12, 1]);
+        assert_eq!(sizes(47), [12, 12, 12, 11]);
     }
 
     #[test]
@@ -189,13 +169,27 @@ mod tests {
         assert!(!i.accepts(&Faces::from_slice(&[4]).unwrap()));
     }
 
-    #[test]
-    fn mod_forms_are_todays_formulas() {
-        for face in 1..=10u8 {
-            for n in 1..=12u8 {
-                assert_eq!(usize::from(ModForm::FaceMinusOne.index(face, n)), (usize::from(face) - 1) % usize::from(n));
-                assert_eq!(usize::from(ModForm::Face.index(face, n)), usize::from(face) % usize::from(n));
-            }
-        }
+}
+
+// The browser build prints a chance request or its faces nowhere a player sees: a fixed text keeps the derived `Debug` (and the names of
+// the variants and fields) out of the wasm file (lane C3, the size budget). Every native build derives it.
+#[cfg(target_family = "wasm")]
+impl core::fmt::Debug for Request {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("Request")
+    }
+}
+
+#[cfg(target_family = "wasm")]
+impl core::fmt::Debug for Kind {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("Kind")
+    }
+}
+
+#[cfg(target_family = "wasm")]
+impl core::fmt::Debug for Faces {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("Faces")
     }
 }

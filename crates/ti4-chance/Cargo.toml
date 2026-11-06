@@ -20,12 +20,8 @@ sha2 = { version = "0.10", default-features = false }
 # ti4-wasm: the browser build only answers requests.
 search = []
 
-# The old implementations, only to prove bit-identity (docs/C1_RESUME.md). Dev-dependencies are not part of the
-# production graph of this crate (tools/engine_core/check_production_graph.sh), and neither crate depends on this one,
-# so there is no cycle.
-[dev-dependencies]
-ti4-engine-core.workspace = true
-ti4-engine-core-setup.workspace = true
+# No dev-dependencies: the old implementation the bit-identity tests compare against is a frozen copy in
+# tests/reference (since lane C2 the core's streams are this crate's own).
 
 [lints]
 workspace = true

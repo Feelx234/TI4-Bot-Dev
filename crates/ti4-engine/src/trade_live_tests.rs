@@ -7,7 +7,6 @@
 //! the negotiation. The native side opens the same transaction with `trade::begin` (what the dispatch of the menu calls) and takes one
 //! `live_step` of `Arm::Trade` per string step with the same ids.
 
-use std::rc::Rc;
 
 use ti4_content::ContentStore;
 use ti4_engine_core::driver::session::Arm;
@@ -19,7 +18,6 @@ use ti4_model::state::{GameState, Phase, TransientFlags};
 
 use super::turn_live_tests::{assert_same, based, pid, string_run_first, without_staged, Run};
 use crate::choice::{Choice, Table};
-use crate::core_sync::codec::rng::TextSeeds;
 use crate::core_sync::{materialize, Codec, Ctx, Sources};
 use crate::live::{self, Scripted};
 use crate::render::Render;
@@ -100,7 +98,7 @@ fn native_side(t: &Table2, start: &GameState, partner: &str, ids: &[String]) -> 
     let mut core = Codec::load(&mut cx, start, Sources { galaxy: Some(&t.hub.galaxy), rng: Some(&positions) }, SliceSet::ALL).expect("the position loads");
     let sources = DEFAULT;
     let kernel = live::kernel::kernel_for(sources);
-    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
+    let env = live::env::env_with_plays(&render, &core, kernel, sources);
     let lcx = live::Cx::new(&render, &env);
     let proposer = cx.owners.seat(start.active.as_ref().expect("an active seat").as_str()).expect("seated");
     let partner = cx.owners.seat(partner).expect("seated");
@@ -556,7 +554,7 @@ fn temporal_command_suite_readies_the_agent_and_runs_the_transaction_like_the_st
         let seat_b = cx.owners.seat("b").expect("seated");
         ti4_engine_core::kernel::fx::stage(&mut core, ti4_engine_core::kernel::fx::event(ti4_engine_core::state::EventKind::AgentExhausted, ti4_engine_core::state::Payload::new().with(ti4_engine_core::state::Key::Player, ti4_engine_core::state::Val::Seat(seat_b)).with(ti4_engine_core::state::Key::Leader, ti4_engine_core::state::Val::Leader(leader))));
         let kernel = live::kernel::kernel_for(DEFAULT);
-        let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
+        let env = live::env::env_with_plays(&render, &core, kernel, DEFAULT);
         let lcx = live::Cx::new(&render, &env);
         let mut asker = Scripted::new(script.iter().copied());
         reconcile(&mut core, &lcx, &mut asker);

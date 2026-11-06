@@ -406,17 +406,17 @@ impl Window for Resolve {
                     sx.state.explore_mut().wormhole_tokens.insert(Wormhole::Gamma, mecatol);
                 }
                 Kind::Sanctions => {
-                    // Each seat with a hand discards the card at `face % held`: random through the seeded dice. The card
-                    // is gone (`discarded` with no pile).
+                    // Each seat with a hand discards a card of it chosen uniformly (lane C3b, decision D4: no more d10 modulo the
+                    // hand). The card is gone (`discarded` with no pile).
                     for seat in SmallList::<Seat, 8>::from_slice(sx.state.seats().seating_order()).as_slice() {
                         let held = sx.state.players().by_seat(*seat).map_or(0, |p| p.cards.hand.len());
                         if held == 0 {
                             continue;
                         }
-                        let face = sx.die(crate::state::RngDomain::Dice, DIE_SIDES);
-                        self.faces.push(face);
+                        let index = sx.index(crate::state::RngDomain::Dice, held);
+                        self.faces.push(u32::try_from(index + 1).unwrap_or(u32::MAX));
                         if let Some(p) = sx.state.players_mut().by_seat_mut(*seat) {
-                            p.cards.hand.remove(usize::try_from(face).unwrap_or(0) % held);
+                            p.cards.hand.remove(index);
                         }
                     }
                 }
@@ -507,13 +507,6 @@ mod tests {
     use crate::state::{Code, Player, Players, Seats};
     use crate::tables::Scope;
 
-    struct Seeds(u8);
-    impl crate::state::SeedSource for Seeds {
-        fn seed_for(&self, _: u64, _: crate::state::RngDomain) -> [u8; 32] {
-            [self.0; 32]
-        }
-    }
-
     fn facts(for_voters: &[Seat]) -> EffectFacts {
         EffectFacts {
             for_voters: SmallList::from_slice(for_voters),
@@ -544,8 +537,9 @@ mod tests {
 
     fn run(window: Resolve, s: &mut CoreState, seed: u8) -> Driver<Resolve> {
         let k = Kernel::plain();
-        let mut d = Driver::new(window, Resolver::new(&[], None), linked(true), 1).with_seeds(std::rc::Rc::new(Seeds(seed)));
-        assert_eq!(d.run(s, &k).unwrap(), crate::driver::Status::Done);
+        s.rng = crate::state::Rng::new(u64::from(seed));
+        let mut d = Driver::new(window, Resolver::new(&[], None), linked(true), 1);
+        assert_eq!(d.run_r(s, &k).unwrap(), crate::driver::Status::Done);
         d
     }
 
@@ -614,10 +608,10 @@ mod tests {
         let k = Kernel::plain();
         let mut d = Driver::new(Resolve::of_facts(Agenda::UnconventionalMeasures, Outcome::For, &f).unwrap(), Resolver::new(&[], None), linked(true), 1);
         let mut asked = Vec::new();
-        let mut status = d.run(&mut s, &k).unwrap();
+        let mut status = d.run_r(&mut s, &k).unwrap();
         while let crate::driver::Status::Asking(choice) = status {
             asked.push((choice.actor, choice.ask));
-            status = d.resume(&mut s, &k, choice.pick(0).unwrap()).unwrap();
+            status = d.resume_r(&mut s, &k, choice.pick(0).unwrap()).unwrap();
         }
         let ask = Ask::Cards(crate::choice::cards::Ask::HandLimit { held: 8 });
         assert_eq!(asked, vec![(a, ask), (c, ask)], "each voter is asked in the ballot's order");
@@ -627,7 +621,7 @@ mod tests {
         for table in [AbilityTable::default(), linked(false)] {
             let mut s = table_with_hand(a, 6);
             let mut d = Driver::new(Resolve::of_facts(Agenda::UnconventionalMeasures, Outcome::For, &facts(&[a])).unwrap(), Resolver::new(&[], None), table, 1);
-            assert_eq!(d.run(&mut s, &k).unwrap(), crate::driver::Status::Done);
+            assert_eq!(d.run_r(&mut s, &k).unwrap(), crate::driver::Status::Done);
             assert!(d.window.unsupported());
         }
     }
@@ -667,15 +661,15 @@ mod tests {
             let d = run(w, &mut s, seed);
             assert_eq!((held(&s, Seat(0)), held(&s, Seat(1)), held(&s, Seat(2))), (2, 0, 4));
             assert_eq!(d.window.faces().len(), 2, "one die for each hand, none for the empty one");
-            assert!(d.window.faces().iter().all(|f| (1..=10).contains(f)));
+            assert!(d.window.faces()[0] >= 1 && d.window.faces()[0] <= 3 && d.window.faces()[1] >= 1 && d.window.faces()[1] <= 5, "one face per card of the hand (lane C3b: uniform)");
             distinct.insert(d.window.faces().to_vec());
         }
         assert!(distinct.len() > 1, "the dice follow the stream");
-        // The card picked is the one at `face % held`.
+        // The card picked is the one at `face - 1` (lane C3b: a die with one side per card).
         let mut s = table(1);
         s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand = ActionCard::ALL[..4].iter().copied().collect();
         let d = run(Resolve::of_facts(Agenda::ExecutiveSanctions, Outcome::Against, &f).unwrap(), &mut s, 3);
-        let gone = usize::try_from(d.window.faces()[0]).unwrap() % 4;
+        let gone = usize::try_from(d.window.faces()[0]).unwrap() - 1;
         let mut left: Vec<ActionCard> = ActionCard::ALL[..4].to_vec();
         left.remove(gone);
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.as_slice(), left.as_slice());

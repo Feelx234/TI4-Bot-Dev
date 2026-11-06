@@ -302,8 +302,7 @@ impl KyverHero {
                 if held == 0 {
                     break;
                 }
-                let sides = u32::try_from(held).unwrap_or(u32::MAX);
-                let index = sx.die(crate::state::RngDomain::YssarilHero, sides) as usize - 1;
+                let index = sx.index(crate::state::RngDomain::YssarilHero, held);
                 let picked = sx.state.players().by_seat(*target).and_then(|p| p.cards.hand.as_slice().get(index).copied());
                 if let Some(picked) = picked {
                     fx::discard_action_card_staged(sx.state, *target, picked);

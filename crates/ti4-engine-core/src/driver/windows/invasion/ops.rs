@@ -155,7 +155,7 @@ impl InvasionMachine {
         combat.reroll_staging.edit().clear();
         combat.last_reroll_player = None;
         let planned = bombard_plan(rd(sx.state, sx.kernel), system, invader);
-        let dice = roll_bombard(&planned, sx.state.rng_mut(), sx.seeds);
+        let dice = roll_bombard(&planned, &mut |n| sx.dice(crate::state::RngDomain::Dice, n, crate::rules::combat::DIE_SIDES));
         let multiplier = x89_multiplier(sx.state, invader);
         let mut staged: Vec<RerollEntry> = Vec::new();
         let mut at = 0_usize;

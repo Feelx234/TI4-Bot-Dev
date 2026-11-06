@@ -13,7 +13,6 @@ use ti4_model::id::{ActionCardId, ObjectiveId, RelicId, SecretObjectiveId};
 
 use ti4_engine_core::state::{Rng, RngDomain};
 
-use crate::rng::Literals;
 
 /// The four exploration decks in the oracle's construction order.
 pub const EXPLORATION_TRAITS: [&str; 4] = ["CULTURAL", "HAZARDOUS", "INDUSTRIAL", "FRONTIER"];
@@ -82,8 +81,8 @@ pub fn build_starting_decks_excluding(
         })
         .map(ObjectiveId::new)
         .collect::<Vec<_>>();
-    rng.shuffle(RngDomain::Objectives, &Literals, &mut stage_one);
-    rng.shuffle(RngDomain::Objectives, &Literals, &mut stage_two);
+    rng.shuffle(RngDomain::Objectives, &mut stage_one);
+    rng.shuffle(RngDomain::Objectives, &mut stage_two);
     stage_one.retain(|id| !excluded.public.iter().any(|a| a == id.as_str()));
     stage_two.retain(|id| !excluded.public.iter().any(|a| a == id.as_str()));
     let objectives = stage_one
@@ -103,7 +102,7 @@ pub fn build_starting_decks_excluding(
                     .is_some_and(|kind| kind.eq_ignore_ascii_case(trait_name))
             })
             .collect::<Vec<_>>();
-        rng.shuffle(RngDomain::Exploration, &Literals, &mut cards);
+        rng.shuffle(RngDomain::Exploration, &mut cards);
         exploration.insert(trait_name.to_owned(), cards);
     }
 
@@ -116,22 +115,22 @@ pub fn build_starting_decks_excluding(
         })
         .map(RelicId::new)
         .collect::<Vec<_>>();
-    rng.shuffle(RngDomain::Relics, &Literals, &mut relics);
+    rng.shuffle(RngDomain::Relics, &mut relics);
 
     let mut agendas = agenda_ids(content, sources);
-    rng.shuffle(RngDomain::Agendas, &Literals, &mut agendas);
+    rng.shuffle(RngDomain::Agendas, &mut agendas);
 
     let mut action_cards = ids(content, ContentType::ActionCards, sources)
         .into_iter()
         .map(ActionCardId::new)
         .collect::<Vec<_>>();
-    rng.shuffle(RngDomain::ActionCards, &Literals, &mut action_cards);
+    rng.shuffle(RngDomain::ActionCards, &mut action_cards);
 
     let mut secrets = ids(content, ContentType::SecretObjectives, sources)
         .into_iter()
         .map(SecretObjectiveId::new)
         .collect::<Vec<_>>();
-    rng.shuffle(RngDomain::Secrets, &Literals, &mut secrets);
+    rng.shuffle(RngDomain::Secrets, &mut secrets);
     secrets.retain(|id| !excluded.secret.iter().any(|a| a == id.as_str()));
 
     StartingDecks {

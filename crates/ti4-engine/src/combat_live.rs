@@ -414,7 +414,6 @@ mod tests {
     use ti4_model::state::GameState;
 
     use crate::choice::Choice;
-    use crate::core_sync::codec::rng::TextSeeds;
     use crate::core_sync::{materialize, Codec, Ctx, Sources};
     use crate::dual::{diff_json, take_report, with_mask, AreaMask};
     use crate::game::{Game, TACTICAL_ACTION_ID};
@@ -551,7 +550,7 @@ mod tests {
         let seat = render.seat("a").expect("seat a");
         open_tactical(&mut core, seat);
         let kernel = crate::live::kernel::kernel_for(sources);
-        let env = crate::live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
+        let env = crate::live::env::env_with_plays(&render, &core, kernel, sources);
         if std::env::var_os("M5_DEBUG").is_some() {
             use ti4_engine_core::choice::reaction::Relation;
             use ti4_engine_core::state::EventKind;
@@ -1621,10 +1620,10 @@ mod tests {
         let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
         let core = Codec::load(&mut cx, &state, Sources { galaxy: None, rng: Some(&rng) }, slices).expect("the position loads");
         let kernel = crate::live::kernel::kernel_for(POK);
-        let env = crate::live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), POK);
+        let env = crate::live::env::env_with_plays(&render, &core, kernel, POK);
         let roster = env.table.facts.roster.expect("a roster");
         assert_eq!(roster.get(Faction::TheNaaluCollective, UnitBaseType::Mech), Unit::from_id("naalu_mech"), "a game of the Prophecy of Kings places the printed mech");
-        let full = crate::live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), ti4_model::content_types::FULL);
+        let full = crate::live::env::env_with_plays(&render, &core, kernel, ti4_model::content_types::FULL);
         assert_eq!(full.table.facts.roster.expect("a roster").get(Faction::TheNaaluCollective, UnitBaseType::Mech), Unit::from_id("naalu_mech_te"), "a game with Thunder's Edge its reprint");
     }
 

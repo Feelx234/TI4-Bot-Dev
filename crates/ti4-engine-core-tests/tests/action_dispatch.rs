@@ -2,13 +2,11 @@
 //! menu question: what the step writes, Extreme Duress, the verdict events, the failed-action withholding, and the counted gap that names an option
 //! no window runs yet. (The lockstep against the string is `ti4-engine`'s `action_dispatch_live_tests`.)
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::turn::Opt as TuOpt;
 use ti4_engine_core::containers::Cow;
 use ti4_engine_core::driver::live::{Env, Live, LiveError, Out};
 use ti4_engine_core::driver::turn::ask::{advance_ask, ask_ask};
-use ti4_engine_core::driver::NoSeeds;
 use ti4_engine_core::kernel::ability::Unknown;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::turn_codes::{MenuGap, TurnGap};
@@ -19,7 +17,7 @@ use ti4_engine_core_tests::prelude::*;
 fn env(k: &Kernel) -> Env<'_> {
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(NoSeeds) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table }
 }
 
 /// [`env`] whose play facts hold the unit roster (the menu sources and the finish of an action need it).
@@ -63,7 +61,7 @@ fn typed(s: &CoreState, kind: EventKind) -> usize {
 fn pick(s: &mut CoreState, e: &Env<'_>, want: impl Fn(&Opt) -> bool) -> Result<(Live, Out), LiveError> {
     let q = ask_ask(s, e).unwrap().unwrap().choice;
     let opt = q.opts.as_slice().iter().copied().find(|o| want(o)).expect("the option is on the menu");
-    advance_ask(s, e, Some(Pick::Opt(opt)))
+    ti4_engine_chance::resolved(advance_ask)(s, e, Some(Pick::Opt(opt)))
 }
 
 fn with_map(seats: usize) -> (CoreState, Kernel) {
@@ -998,7 +996,7 @@ fn build_only(s: &mut CoreState, e: &Env<'_>, mut live: Live, wanted: Unit, time
         if matches!(take, Opt::Production(POpt::Build { unit, .. }) if unit == wanted) {
             built += 1;
         }
-        live = advance_ask(s, e, Some(Pick::Opt(take))).unwrap().0;
+        live = ti4_engine_chance::resolved(advance_ask)(s, e, Some(Pick::Opt(take))).unwrap().0;
     }
 }
 
@@ -1976,8 +1974,8 @@ fn dannel_of_the_tenth_fights_with_the_doubled_hits_of_a_holder_of_x89() {
             }
             let (mut s, k) = scenario.build();
             s.players_mut().edit(0).leaders.status.insert(Leader::DannelOfTheTenth, LeaderStatus::Unlocked);
-            let mut e = env_r(&k);
-            e.seeds = Rc::new(ti4_engine_core_tests::rig::KitSeeds(seed));
+            let e = env_r(&k);
+            s.rng = ti4_engine_core_tests::rig::kit_rng(seed);
             let first = pick(&mut s, &e, |o| matches!(o, Opt::Turn(TuOpt::Leader(Leader::DannelOfTheTenth)))).expect("the hero is native");
             first_options_emitted(&mut s, &e, first, 80);
             left += s.board().planet(planet).units.iter().filter(|u| u.owner() == Seat(1)).count();

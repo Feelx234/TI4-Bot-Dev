@@ -8,24 +8,22 @@
 //! alone leaves them out: a card played inside such an `Env`'s window stops the step with `LiveError::Unknown(PlayFacts)`, which the
 //! playthrough counts as a bail (never a silent skip).
 
-use std::rc::Rc;
 
 use ti4_engine_core::containers::Cow;
 use ti4_engine_core::driver::live::Env;
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::kernel::stage::Spec;
 use ti4_engine_core::kernel::{Kernel, Resolver};
-use ti4_engine_core::state::{CoreState, SeedSource};
+use ti4_engine_core::state::CoreState;
 
 use crate::kernel_sync::text::ability_id;
 use crate::reactions_core::{id_text, set_table_codes, table};
 use crate::render::Render;
 
-/// The environment of a live game at `core`: every seat's abilities in the string order, the table with its codes, the game's
-/// seeds. Built once per game (the registry is derived from the position; call again when the seats' abilities change: a faction
+/// The environment of a live game at `core`: every seat's abilities in the string order, the table with its codes. Built once per game (the registry is derived from the position; call again when the seats' abilities change: a faction
 /// swap, a copied ability).
 #[must_use]
-pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<dyn SeedSource>) -> Env<'a> {
+pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel) -> Env<'a> {
     let order: Vec<Seat> = (0..core.players().len()).filter_map(|i| u8::try_from(i).ok().map(Seat)).collect();
     let faction = |who: Seat| core.players().by_seat(who).map_or_else(String::new, |p| crate::generated::IdStr::as_str(p.faction).to_owned());
     let mut table = table();
@@ -44,14 +42,14 @@ pub fn env_for<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<d
     let defs = table.registry(core, &order, &mut name);
     let mut resolver = Resolver::new(&order, None);
     resolver.register(defs);
-    Env { kernel, registry: Cow::new(resolver.registry().clone()), table, seeds }
+    Env { kernel, registry: Cow::new(resolver.registry().clone()), table }
 }
 
 /// [`env_for`] with the play facts: a card played from inside a live window finds the facts of the position it is played in
 /// (`live::plays`), computed from the core alone. `sources` is the game's content scope (the unit roster of the forms).
 #[must_use]
-pub fn env_with_plays<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, seeds: Rc<dyn SeedSource>, sources: ti4_model::content_types::SourceSet) -> Env<'a> {
-    let mut env = env_for(r, core, kernel, seeds);
+pub fn env_with_plays<'a>(r: &Render, core: &CoreState, kernel: &'a Kernel, sources: ti4_model::content_types::SourceSet) -> Env<'a> {
+    let mut env = env_for(r, core, kernel);
     env.table.facts.plays_provider = Some(super::plays::provider(r, sources));
     // The faction units of the game's own scope: a game without Thunder's Edge places the Naalu mech, not its reprint (`env_for` names the full scope,
     // which the buildable units of a production step and the form an Assimilate seat places would follow).

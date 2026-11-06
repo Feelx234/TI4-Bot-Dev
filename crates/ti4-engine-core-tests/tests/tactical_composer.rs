@@ -3,7 +3,6 @@
 //! (`tactical.rs`, `fleet`); these check what the composer adds: the order of the stages, the payload round trip, a clone in the middle, the hand-off,
 //! the enforcement in the head, the tail, the bails.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::tactical::{Ask as TAsk, Opt as TOpt};
 use ti4_engine_core::containers::Cow;
@@ -14,7 +13,6 @@ use ti4_engine_core::kernel::ability::TacticalCodes;
 use ti4_engine_core::kernel::stage::{AbilityTable, Held};
 use ti4_engine_core::state::{AStage, Code, Emit, EventKind, PlainKind, THeadStep, TStage, Window as OpenWindow, WindowKind};
 use ti4_engine_core_tests::prelude::*;
-use ti4_engine_core_tests::rig::KitSeeds;
 use ti4_engine_core_tests::scenario::plain_systems;
 
 
@@ -22,7 +20,7 @@ fn codes() -> TacticalCodes {
     TacticalCodes { tactic: Code(21), space_cannon: Code(22), space_cannon_cause: Code(23), casualty: Code(24), commander: Code(25), pre_roll: Code(26), faction_technology: Code(27), nullification_field: Code(28), starlancer: Code(29), peace_prompt: Code(30), peace_source: Code(31) }
 }
 
-fn env(k: &Kernel, seed: u64) -> Env<'_> {
+fn env(k: &Kernel, _seed: u64) -> Env<'_> {
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
     // The activation marks of the Sardakk agent and of the Winnu are abilities of the activation window (`leader:*:sardakkagent_mark:SYSTEM_ACTIVATED:after`,
@@ -34,7 +32,7 @@ fn env(k: &Kernel, seed: u64) -> Env<'_> {
     for seat in [Seat(0), Seat(1)] {
         resolver.register(table.specs().iter().map(|spec| spec.def(ti4_engine_core::choice::reaction::AbilityId { kind: spec.kind, key: Code(spec.slot.0) }, seat)).collect::<Vec<_>>());
     }
-    Env { kernel: k, registry: Cow::new(resolver.registry().clone()), table, seeds: Rc::new(KitSeeds(seed)) }
+    Env { kernel: k, registry: Cow::new(resolver.registry().clone()), table }
 }
 
 fn t(o: TOpt) -> Opt {
@@ -73,9 +71,9 @@ fn asked(core: &CoreState, env: &Env<'_>) -> Choice {
 /// Open the action, activate D and finish the movement step at once; the live position after the last call.
 fn to_the_close(core: &mut CoreState, env: &Env<'_>, tiles: &[System; 4]) -> Result<Live, LiveError> {
     open_tactical(core, Seat(0));
-    let Live::Asks(q) = advance_tactical(core, env, None)?.0 else { panic!("the activation is asked") };
-    let Live::Asks(q) = advance_tactical(core, env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3])))))?.0 else { panic!("the movement step is asked") };
-    Ok(advance_tactical(core, env, Some(pick(&q.choice, |o| *o == t(TOpt::DoneMoving))))?.0)
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(core, env, None)?.0 else { panic!("the activation is asked") };
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(core, env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3])))))?.0 else { panic!("the movement step is asked") };
+    Ok(ti4_engine_chance::resolved(advance_tactical)(core, env, Some(pick(&q.choice, |o| *o == t(TOpt::DoneMoving))))?.0)
 }
 
 #[test]
@@ -89,11 +87,11 @@ fn a_whole_action_opens_activates_moves_closes_hands_the_aftermath_over_and_ends
     assert_eq!(events(&core), vec![PlainKind::TacticalActionBegan]);
 
     // The activation question lists the systems without our token; D is chosen.
-    let (live, _) = advance_tactical(&mut core, &env, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None).unwrap();
     let Live::Asks(q) = live else { panic!("the activation is asked") };
     assert_eq!(q.choice.ask, Ask::Tactical(TAsk::Activate { seat: Seat(0) }));
     assert_eq!(tactical(&core).unwrap().stage, TStage::Activating);
-    let (live, _) = advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3]))))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3]))))).unwrap();
     // Straight on to the movement step (no hook in the position).
     let Live::Asks(q) = live else { panic!("the movement step is asked") };
     assert_eq!(q.choice.ask, Ask::Tactical(TAsk::Move { seat: Seat(0) }));
@@ -103,13 +101,13 @@ fn a_whole_action_opens_activates_moves_closes_hands_the_aftermath_over_and_ends
     assert_eq!(events(&core), vec![PlainKind::TacticalActionBegan, PlainKind::SystemActivated]);
 
     // The cruiser on C moves; no capacity to fill: it sails at once.
-    let (live, _) = advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| matches!(o, Opt::Tactical(TOpt::Move { origin, .. }) if *origin == tiles[2])))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, Some(pick(&q.choice, |o| matches!(o, Opt::Tactical(TOpt::Move { origin, .. }) if *origin == tiles[2])))).unwrap();
     let Live::Asks(q) = live else { panic!("movement goes on") };
     assert!(core.board().sys(tiles[3]).units.iter().any(|p| p.owner() == Seat(0)), "the cruiser arrived");
     assert!(events(&core).ends_with(&[PlainKind::ShipMoved]));
 
     // "Finish movement": the close, the head (nothing to enforce, no gun), and the hand-off to the aftermath.
-    let (live, _) = advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::DoneMoving)))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::DoneMoving)))).unwrap();
     assert_eq!(live, Live::Done, "the step ends at the hand-off");
     assert_eq!(tactical(&core).unwrap().stage, TStage::Aftermath, "the action waits under the aftermath");
     let Some(OpenWindow::Aftermath(a)) = core.pending().window(WindowKind::Aftermath) else { panic!("the aftermath is open") };
@@ -118,7 +116,7 @@ fn a_whole_action_opens_activates_moves_closes_hands_the_aftermath_over_and_ends
 
     // The aftermath arm (not this lane's) runs the chain and closes its entry; the action then runs its tail.
     core.pending_mut().close(WindowKind::Aftermath);
-    let (live, _) = advance_tactical(&mut core, &env, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None).unwrap();
     assert_eq!(live, Live::Done);
     assert!(tactical(&core).is_none(), "the action left the stack");
     assert_eq!(core.meta().active_system, None);
@@ -136,6 +134,7 @@ fn the_space_cannon_offense_of_the_head_is_part_of_the_steps_events_even_with_no
     for seed in 1..=24 {
         let (sc, tiles) = row();
         let (mut core, k) = sc.unit(tiles[3], None, Unit::LoncaraSsodu, 1, 1).build();
+        core.rng = ti4_engine_core_tests::rig::kit_rng(seed);
         let env = env(&k, seed);
         to_the_close(&mut core, &env, &tiles).expect("the head runs");
         let typed: Vec<EventKind> = core.ledger().events.iter().filter_map(|e| if let Emit::Typed(t) = e { Some(t.kind) } else { None }).collect();
@@ -166,7 +165,7 @@ fn the_payload_round_trips_at_every_question_and_a_clone_in_the_middle_continues
     let mut next: Option<Pick> = None;
     let mut step = 0;
     loop {
-        let (live, _) = advance_tactical(&mut core, &env, next.take()).unwrap();
+        let (live, _) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, next.take()).unwrap();
         // The held payload is exactly what the machine reads back.
         if let Some(t) = tactical(&core) {
             let m = TacticalAction::from_pending(&core, &k).expect("open");
@@ -192,7 +191,7 @@ fn the_payload_round_trips_at_every_question_and_a_clone_in_the_middle_continues
     let mut again: Option<Pick> = None;
     let mut asks = 0;
     loop {
-        let (live, _) = advance_tactical(&mut other, &env, again.take()).unwrap();
+        let (live, _) = ti4_engine_chance::resolved(advance_tactical)(&mut other, &env, again.take()).unwrap();
         match live {
             Live::Asks(q) => {
                 asks += 1;
@@ -212,7 +211,7 @@ fn a_free_tactical_action_activates_without_a_token_and_asks_for_the_movement() 
     let (mut core, k) = sc.build();
     let env = env(&k, 1);
     open_free(&mut core, Seat(0), tiles[3]);
-    let (live, _) = advance_tactical(&mut core, &env, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None).unwrap();
     let Live::Asks(q) = live else { panic!("the movement step is asked") };
     assert_eq!(q.choice.ask, Ask::Tactical(TAsk::Move { seat: Seat(0) }));
     assert_eq!(core.meta().active_system, Some(tiles[3]));
@@ -231,14 +230,14 @@ fn a_hook_of_the_activation_that_asks_puts_its_question_and_a_clone_taken_while_
     let (mut core, k) = sc.tech(0, Technology::SpatialConduitCylinders).build();
     let env = env(&k, 1);
     open_tactical(&mut core, Seat(0));
-    let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!("the activation is asked") };
-    let Live::Asks(hook) = advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[1]))))).unwrap().0 else { panic!("the hook asks") };
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None).unwrap().0 else { panic!("the activation is asked") };
+    let Live::Asks(hook) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[1]))))).unwrap().0 else { panic!("the hook asks") };
     assert!(matches!(hook.choice.ask, Ask::Tactical(TAsk::Hook { hook: ti4_engine_core::choice::tactical::Hook::SpatialConduit, .. })), "{:?}", hook.choice.ask);
     assert_eq!(hook.choice.actor, Seat(0));
     assert!(core.pending().nested.is_some(), "the question is held in the journal");
     let mut twin = core.clone();
     for (who, c) in [("original", &mut core), ("clone", &mut twin)] {
-        let Live::Asks(next) = advance_tactical(c, &env, Some(Pick::Opt(Opt::Decline))).unwrap().0 else { panic!("{who}: the movement step is asked") };
+        let Live::Asks(next) = ti4_engine_chance::resolved(advance_tactical)(c, &env, Some(Pick::Opt(Opt::Decline))).unwrap().0 else { panic!("{who}: the movement step is asked") };
         assert_eq!(next.choice.ask, Ask::Tactical(TAsk::Move { seat: Seat(0) }), "{who}");
     }
     assert_eq!(core, twin, "the clone continues to the same position");
@@ -247,9 +246,9 @@ fn a_hook_of_the_activation_that_asks_puts_its_question_and_a_clone_taken_while_
     let (mut core, k) = sc.tech(0, Technology::SpatialConduitCylinders).build();
     let env2 = crate::env(&k, 1);
     open_tactical(&mut core, Seat(0));
-    let Live::Asks(q) = advance_tactical(&mut core, &env2, None).unwrap().0 else { panic!("the activation is asked") };
-    let Live::Asks(hook) = advance_tactical(&mut core, &env2, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[1]))))).unwrap().0 else { panic!("the hook asks") };
-    let Live::Asks(_) = advance_tactical(&mut core, &env2, Some(pick(&hook.choice, |o| matches!(o, Opt::Tactical(TOpt::Use))))).unwrap().0 else { panic!("the movement step is asked") };
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env2, None).unwrap().0 else { panic!("the activation is asked") };
+    let Live::Asks(hook) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env2, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[1]))))).unwrap().0 else { panic!("the hook asks") };
+    let Live::Asks(_) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env2, Some(pick(&hook.choice, |o| matches!(o, Opt::Tactical(TOpt::Use))))).unwrap().0 else { panic!("the movement step is asked") };
     let kinds: Vec<PlainKind> = core.ledger().events.iter().filter_map(|e| e.plain().map(|p| p.kind)).collect();
     assert!(kinds.contains(&PlainKind::SpatialConduit));
     assert!(core.players().by_seat(Seat(0)).unwrap().tech.exhausted.contains(Technology::SpatialConduitCylinders));
@@ -269,7 +268,7 @@ fn the_tail_announces_the_end_of_the_action_only_when_somebody_listens() {
         let env = env(&k, 1);
         assert_eq!(to_the_close(&mut core, &env, &tiles).unwrap(), Live::Done);
         core.pending_mut().close(WindowKind::Aftermath);
-        assert_eq!(advance_tactical(&mut core, &env, None).unwrap().0, Live::Done);
+        assert_eq!(ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None).unwrap().0, Live::Done);
         assert_eq!(ended(&core), expect, "listener {listener}");
         assert!(tactical(&core).is_none());
     }
@@ -286,11 +285,11 @@ fn the_crown_of_emphidia_asks_at_the_end_of_the_action_and_a_clone_continues_ide
     let env = env(&k, 1);
     assert_eq!(to_the_close(&mut core, &env, &tiles).unwrap(), Live::Done);
     core.pending_mut().close(WindowKind::Aftermath);
-    let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!("the Crown asks") };
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None).unwrap().0 else { panic!("the Crown asks") };
     assert!(matches!(q.choice.ask, Ask::Relic(_)), "{:?}", q.choice.ask);
     let mut twin = core.clone();
-    let (a, _) = advance_tactical(&mut core, &env, Some(Pick::Opt(Opt::Decline))).unwrap();
-    let (b, _) = advance_tactical(&mut twin, &env, Some(Pick::Opt(Opt::Decline))).unwrap();
+    let (a, _) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, Some(Pick::Opt(Opt::Decline))).unwrap();
+    let (b, _) = ti4_engine_chance::resolved(advance_tactical)(&mut twin, &env, Some(Pick::Opt(Opt::Decline))).unwrap();
     assert_eq!((a, b), (Live::Done, Live::Done));
     assert_eq!(core, twin);
     assert!(tactical(&core).is_none(), "declined, the action ends");
@@ -303,9 +302,9 @@ fn the_enforcement_of_the_head_is_held_between_its_questions_and_a_clone_continu
     let (mut core, k) = sc.tokens(0, 3, 1, 2).unit(tiles[3], None, Unit::CruiserI, 0, 3).build();
     let env = env(&k, 5);
     open_tactical(&mut core, Seat(0));
-    let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!() };
-    let Live::Asks(q) = advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3]))))).unwrap().0 else { panic!() };
-    let Live::Asks(q) = advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::DoneMoving)))).unwrap().0 else { panic!("the enforcement asks") };
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None).unwrap().0 else { panic!() };
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3]))))).unwrap().0 else { panic!() };
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::DoneMoving)))).unwrap().0 else { panic!("the enforcement asks") };
     assert!(matches!(q.choice.ask, Ask::Tactical(TAsk::Remove { .. })), "{:?}", q.choice.ask);
     assert_eq!(q.choice.actor, Seat(0));
     let Some(ti4_engine_core::state::Tactical { stage: TStage::Heading(h), .. }) = tactical(&core) else { panic!("held in the head") };
@@ -318,7 +317,7 @@ fn the_enforcement_of_the_head_is_held_between_its_questions_and_a_clone_continu
             left -= 1;
             assert!(left > 0, "the enforcement ends");
             let c = asked(state, &env);
-            let live = advance_tactical(state, &env, Some(pick(&c, |_| true))).unwrap().0;
+            let live = ti4_engine_chance::resolved(advance_tactical)(state, &env, Some(pick(&c, |_| true))).unwrap().0;
             if live == Live::Done {
                 break;
             }
@@ -349,8 +348,8 @@ fn activated(sc: Scenario, tiles_d: usize) -> (CoreState, Kernel, Result<Live, L
     let tiles = plain_systems();
     let env = env(&k, 9);
     open_tactical(&mut core, Seat(0));
-    let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!("the activation is asked") };
-    let got = advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[tiles_d]))))).map(|r| r.0);
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None).unwrap().0 else { panic!("the activation is asked") };
+    let got = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[tiles_d]))))).map(|r| r.0);
     (core, k, got)
 }
 
@@ -372,8 +371,8 @@ fn the_sardakk_agent_and_the_winnu_remember_the_activation() {
     core.players.edit(1).leaders.status.insert(Leader::Tro, ti4_engine_core::state::LeaderStatus::Readied);
     let env = env(&k, 1);
     open_tactical(&mut core, Seat(0));
-    let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!() };
-    advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3]))))).unwrap();
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None).unwrap().0 else { panic!() };
+    ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3]))))).unwrap();
     assert_eq!(marks_of(&core, MarkKey::SardakkAgentTactical(Seat(0))), Some(MarkVal::Atom(Atom::System(tiles[3]))));
     // The Winnu remember that a tactical action began.
     let winnu = Scenario::new(&[Faction::TheWinnu, Faction::TheArborec]).map_hexes(&[(p[0], Hex::new(0, 0)), (p[1], Hex::new(1, 0)), (p[2], Hex::new(2, 0)), (p[3], Hex::new(3, 0))]).tokens(0, 3, 4, 2).active(Some(0));
@@ -409,7 +408,7 @@ fn a_free_tactical_action_leaves_the_marks_of_the_activation_the_string_leaves()
     core.players.edit(1).leaders.status.insert(Leader::Tro, ti4_engine_core::state::LeaderStatus::Readied);
     let zeu = env(&k, 1);
     open_free(&mut core, Seat(0), tiles[3]);
-    advance_tactical(&mut core, &zeu, None).unwrap();
+    ti4_engine_chance::resolved(advance_tactical)(&mut core, &zeu, None).unwrap();
     assert_eq!(marks_of(&core, MarkKey::PrivateSeat(Seat(0), Word::WinnuTactical)), Some(MarkVal::Atom(Atom::Num(1))), "Z'eu: the Winnu mark");
     assert_eq!(marks_of(&core, MarkKey::SardakkAgentTactical(Seat(0))), Some(MarkVal::Atom(Atom::System(tiles[3]))), "Z'eu: the Sardakk mark");
     // ... and Thunder's Edge Warfare's primary (`begin_free`).
@@ -424,7 +423,7 @@ fn a_free_tactical_action_leaves_the_marks_of_the_activation_the_string_leaves()
             Ask::Strategy(ti4_engine_core::choice::strategy::Ask::TeWarfareTactical) => pick(&q.choice, |o| *o == Opt::Strategy(SOpt::System(tiles[3]))),
             _ => Pick::Opt(q.choice.opts.as_slice()[0]),
         };
-        live = ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut core, &env, Some(answer)).unwrap().0;
+        live = ti4_engine_chance::resolved(ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>)(&mut core, &env, Some(answer)).unwrap().0;
     }
     assert_eq!(marks_of(&core, MarkKey::PrivateSeat(Seat(0), Word::WinnuTactical)), Some(MarkVal::Atom(Atom::Num(1))), "Warfare: the Winnu mark");
     assert_eq!(marks_of(&core, MarkKey::SardakkAgentTactical(Seat(0))), Some(MarkVal::Atom(Atom::System(tiles[3]))), "Warfare: the Sardakk mark");
@@ -440,8 +439,8 @@ fn an_event_staged_before_the_activation_waits_for_the_next_step_and_is_not_anno
     ti4_engine_core::kernel::fx::stage(&mut core, ti4_engine_core::kernel::fx::trade_goods_gained(Seat(0), 1, Code(5)));
     let env = env(&k, 1);
     open_tactical(&mut core, Seat(0));
-    let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!("the activation is asked") };
-    advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3]))))).unwrap();
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None).unwrap().0 else { panic!("the activation is asked") };
+    ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3]))))).unwrap();
     let staged: Vec<EventKind> = core.pending().staged.iter().map(|e| e.kind).collect();
     assert_eq!(staged, vec![EventKind::TradeGoodsGained], "still staged: the next step announces it");
     let announced = core.ledger.events.iter().filter(|e| matches!(e, Emit::Typed(t) if t.kind == EventKind::TradeGoodsGained)).count();
@@ -474,8 +473,8 @@ fn a_ceasefire_note_denies_the_movement_step_and_goes_home() {
     core.cards.promissory.edit().insert(NoteKey { note: PromissoryNote::Ceasefire, faction: Faction::TheEmbersOfMuaat }, Seat(1));
     let env = env(&k, 1);
     open_tactical(&mut core, Seat(0));
-    let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!() };
-    let got = advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3]))))).unwrap().0;
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None).unwrap().0 else { panic!() };
+    let got = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3]))))).unwrap().0;
     // No movement question: the step closed and the action went on to the aftermath.
     assert_eq!(got, Live::Done);
     assert_eq!(tactical(&core).map(|t| t.stage), Some(TStage::Aftermath));
@@ -501,7 +500,7 @@ fn a_yssaril_ssruu_next_to_a_sardakk_seat_is_a_gap_at_the_tail_only_where_t_ro_c
         let tiles = [p[0], p[1], p[2], p[3]];
         assert_eq!(to_the_close(&mut core, &env, &tiles).unwrap(), Live::Done);
         core.pending_mut().close(WindowKind::Aftermath);
-        let got = advance_tactical(&mut core, &env, None);
+        let got = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None);
         let _ = expect_gap;
         assert_eq!(got.map(|r| r.0), Ok(Live::Done), "ssruu {ssruu} sardakk {sardakk}");
     }
@@ -534,8 +533,8 @@ fn the_sardakk_mark_is_written_for_a_readied_or_exhausted_tro_only() {
         }
         let env = env(&k, 1);
         open_tactical(&mut core, Seat(0));
-        let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!() };
-        advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(p[3]))))).unwrap();
+        let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None).unwrap().0 else { panic!() };
+        ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(p[3]))))).unwrap();
         let want = expect.then(|| MarkVal::Atom(Atom::System(p[3])));
         assert_eq!(marks_of(&core, MarkKey::SardakkAgentTactical(Seat(0))), want, "T'ro {status:?}");
     }
@@ -562,8 +561,8 @@ fn the_conduit_links_are_cleared_when_a_hook_ends_the_turn_and_when_the_tail_clo
     assert!(conduit_links(&core) > 0, "the links are set before the activation");
     let env1 = env(&k, 1);
     open_tactical(&mut core, Seat(0));
-    let Live::Asks(q) = advance_tactical(&mut core, &env1, None).unwrap().0 else { panic!() };
-    advance_tactical(&mut core, &env1, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3]))))).unwrap();
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env1, None).unwrap().0 else { panic!() };
+    ti4_engine_chance::resolved(advance_tactical)(&mut core, &env1, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(tiles[3]))))).unwrap();
     assert_eq!(conduit_links(&core), 0, "the turn ended by the hook: the links are gone");
 
     // A plain action: the tail clears them.
@@ -574,7 +573,7 @@ fn the_conduit_links_are_cleared_when_a_hook_ends_the_turn_and_when_the_tail_clo
     core.pending_mut().close(WindowKind::Aftermath);
     ti4_engine_core::kernel::fx_move::set_conduit_links(&mut core, Seat(0), tiles[3]);
     assert!(conduit_links(&core) > 0);
-    assert_eq!(advance_tactical(&mut core, &env, None).unwrap().0, Live::Done);
+    assert_eq!(ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None).unwrap().0, Live::Done);
     assert_eq!(conduit_links(&core), 0, "the tail cleared the links");
 }
 
@@ -596,7 +595,7 @@ fn mercer_hears_the_end_of_the_action_when_readied_and_the_tail_never_stops_for_
         let env = env(&k, 1);
         assert_eq!(to_the_close(&mut core, &env, &tiles).unwrap(), Live::Done);
         core.pending_mut().close(WindowKind::Aftermath);
-        let got = advance_tactical(&mut core, &env, None);
+        let got = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None);
         assert_eq!(got.map(|r| r.0), Ok(Live::Done), "mercer {status:?} ssruu {ssruu}");
         assert_eq!(ended(&core), expect, "mercer {status:?} ssruu {ssruu}");
     }
@@ -613,7 +612,7 @@ fn mercer_hears_the_end_of_the_action_when_readied_and_the_tail_never_stops_for_
         let env = env(&k, 1);
         assert_eq!(to_the_close(&mut core, &env, &tiles).unwrap(), Live::Done);
         core.pending_mut().close(WindowKind::Aftermath);
-        let _ = advance_tactical(&mut core, &env, None);
+        let _ = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None);
         assert_eq!(ended(&core), expect, "ssruu {ssruu}");
     }
 }
@@ -684,7 +683,7 @@ fn thunders_edge_warfares_free_action_begins_inside_its_job_in_the_strings_order
             Ask::Strategy(ti4_engine_core::choice::strategy::Ask::TeWarfareTactical) => pick(&q.choice, |o| *o == Opt::Strategy(SOpt::System(tiles[3]))),
             _ => Pick::Opt(q.choice.opts.as_slice()[0]),
         };
-        live = ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>(&mut core, &env, Some(answer)).unwrap().0;
+        live = ti4_engine_chance::resolved(ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>)(&mut core, &env, Some(answer)).unwrap().0;
     }
     assert!(asked >= 1, "the system of the free action is asked");
     assert_eq!(&events(&core)[..3], [PlainKind::SystemActivated, PlainKind::FreeTacticalAction, PlainKind::StrategicActionBegan], "the string activates, then says the action began");
@@ -693,11 +692,11 @@ fn thunders_edge_warfares_free_action_begins_inside_its_job_in_the_strings_order
     assert!(!core.board().sys(tiles[3]).cmd.contains(Seat(0)), "no token placed");
     assert!(core.pending().window(WindowKind::StrategySecondaryAfterTactical).is_some(), "the follower window waits for the end of the action");
     // Finish the movement step; the aftermath is the aftermath arm's.
-    let Live::Asks(q) = advance_tactical(&mut core, &env, None).unwrap().0 else { panic!("the movement step is asked") };
-    let (live, _) = advance_tactical(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::DoneMoving)))).unwrap();
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None).unwrap().0 else { panic!("the movement step is asked") };
+    let (live, _) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, Some(pick(&q.choice, |o| *o == t(TOpt::DoneMoving)))).unwrap();
     assert_eq!(live, Live::Done);
     core.pending_mut().close(WindowKind::Aftermath);
-    let (live, _) = advance_tactical(&mut core, &env, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &env, None).unwrap();
     // The tail ends the action and opens the strategic action's job after it instead of stopping with a gap.
     assert_eq!(live, Live::Done);
     assert!(tactical(&core).is_none(), "the action left the stack");
@@ -714,7 +713,7 @@ fn the_tail_of_a_heros_free_action_opens_the_job_after_it_too() {
     let e1 = env(&k, 5);
     core.pending_mut().open(OpenWindow::LeaderStrategy { player: Seat(0), leader: Leader::MathisMathinus, card: StrategyCard::Trade });
     TacticalAction::new(Tactical { player: Seat(0), stage: TStage::Tail, notes_at_start: ti4_engine_core::driver::windows::tactical::note_holdings(&core) }).to_pending(&mut core);
-    let (live, _) = advance_tactical(&mut core, &e1, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &e1, None).unwrap();
     assert_eq!(live, Live::Done);
     assert_eq!(ti4_engine_core::driver::turn::open_job_of(&core), Some(TurnJob::AfterTactical));
     // Nobody waits for the end of this action: the tail opens the end of the action itself (`Finish`: `ACTION_COMPLETED`, then the closing menu or the end of the
@@ -724,7 +723,7 @@ fn the_tail_of_a_heros_free_action_opens_the_job_after_it_too() {
     let (mut plain, k) = sc.build();
     let env2 = env(&k, 5);
     TacticalAction::new(Tactical { player: Seat(0), stage: TStage::Tail, notes_at_start: ti4_engine_core::driver::windows::tactical::note_holdings(&plain) }).to_pending(&mut plain);
-    assert_eq!(advance_tactical(&mut plain, &env2, None).unwrap().0, Live::Done);
+    assert_eq!(ti4_engine_chance::resolved(advance_tactical)(&mut plain, &env2, None).unwrap().0, Live::Done);
     assert_eq!(ti4_engine_core::driver::turn::open_job_of(&plain), Some(TurnJob::Finish));
 }
 
@@ -753,14 +752,14 @@ fn shval(status: ti4_engine_core::state::LeaderStatus) -> (CoreState, Kernel, Sy
 /// Open the action, activate the planet tile, sail the cruiser in and finish the movement: the live position after the close.
 fn shval_to_the_close(core: &mut CoreState, env: &Env<'_>, target: System) -> Live {
     open_tactical(core, Seat(0));
-    let Live::Asks(q) = advance_tactical(core, env, None).unwrap().0 else { panic!("the activation is asked") };
-    let Live::Asks(q) = advance_tactical(core, env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(target))))).unwrap().0 else { panic!("the movement is asked") };
-    let mut live = advance_tactical(core, env, Some(pick(&q.choice, |o| matches!(o, Opt::Tactical(TOpt::Move { .. }))))).unwrap().0;
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(core, env, None).unwrap().0 else { panic!("the activation is asked") };
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_tactical)(core, env, Some(pick(&q.choice, |o| *o == t(TOpt::Activate(target))))).unwrap().0 else { panic!("the movement is asked") };
+    let mut live = ti4_engine_chance::resolved(advance_tactical)(core, env, Some(pick(&q.choice, |o| matches!(o, Opt::Tactical(TOpt::Move { .. }))))).unwrap().0;
     // The ship may ask about its cargo first: the first option each time, until the movement can be finished.
     for _ in 0..12 {
         let Live::Asks(q) = live else { break };
         let finish = q.choice.opts.as_slice().contains(&t(TOpt::DoneMoving));
-        live = advance_tactical(core, env, Some(if finish { pick(&q.choice, |o| *o == t(TOpt::DoneMoving)) } else { Pick::Opt(q.choice.opts.as_slice()[0]) })).unwrap().0;
+        live = ti4_engine_chance::resolved(advance_tactical)(core, env, Some(if finish { pick(&q.choice, |o| *o == t(TOpt::DoneMoving)) } else { Pick::Opt(q.choice.opts.as_slice()[0]) })).unwrap().0;
         if finish {
             return live;
         }
@@ -784,14 +783,14 @@ fn shvals_skip_is_offered_after_the_movement_to_an_unlocked_hero_and_the_answer_
     assert!(q.choice.opts.as_slice().contains(&Opt::Decline));
     assert_eq!(mark(&core), None);
     let clone = core.clone();
-    let (live, _) = advance_tactical(&mut core, &e, Some(pick(&q.choice, |o| *o == Opt::Leaders(LOpt::SardakkSkip)))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_tactical)(&mut core, &e, Some(pick(&q.choice, |o| *o == Opt::Leaders(LOpt::SardakkSkip)))).unwrap();
     assert_eq!(live, Live::Done);
     assert_eq!(mark(&core), Some(MarkVal::Rec(vec![MarkVal::Atom(Atom::Seat(Seat(0))), MarkVal::Atom(Atom::System(target))])));
     let Some(OpenWindow::Aftermath(a)) = core.pending().window(WindowKind::Aftermath) else { panic!("the aftermath is open") };
     assert_eq!(a.stage, AStage::Invading, "the skip goes straight to the commitment");
     // Declined: no mark, the fight stage as usual.
     let mut declined = clone;
-    let (live, _) = advance_tactical(&mut declined, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_tactical)(&mut declined, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
     assert_eq!(live, Live::Done);
     assert_eq!(mark(&declined), None);
     let Some(OpenWindow::Aftermath(a)) = declined.pending().window(WindowKind::Aftermath) else { panic!("the aftermath is open") };

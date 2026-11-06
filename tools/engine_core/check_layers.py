@@ -3,12 +3,16 @@
 
     python3 -I tools/engine_core/check_layers.py core [ROOT]     the gate (exit 1 on a violation)
     python3 -I tools/engine_core/check_layers.py chance [CRATE]  the bottom crate ti4-chance (exit 1 on a violation)
+    python3 -I tools/engine_core/check_layers.py resolver [CRATE]  the chance resolver ti4-engine-chance (exit 1 on a violation)
     python3 -I tools/engine_core/check_layers.py engine [ROOT]   the report on ti4-engine/src (4.2 table)
 
 core:   every module of `crates/ti4-engine-core/src` (and `ti4-engine-core-factions`, when it exists)
         belongs to a layer; a module may import only from LOWER layers (or its own subtree), and the
         files of `rules/` (L4 areas) may not import each other: they talk through `Next`.
         L3 (`kernel`) never imports L6. Test code (`#[cfg(test)] mod` blocks, `tests/`) is ignored.
+        No-draw rule (docs/FORK_RNG_THEORY.md 4.2, lane C3): the core and the factions never draw. Every random event is a chance
+        question (`Tape::chance`); no `rng_mut()`, no stream draw (`.die(` / `.shuffle(` / `.index(` on the streams), no
+        `answer` / `answer_mut` / `try_answer_mut`, no `rand` / `ChaCha` / `random_range` in their non-test code.
 setup:  (docs/SETUP_NATIVE_DESIGN.md) `crates/ti4-engine-core-setup/src` is layer L7: it may use every layer of the core and the
         factions crate (L6), and it must name neither the thin crate `ti4_engine` nor the legacy crate nor the host. Exit 1 on a violation.
 thin:   (D2-9 lane 9a) `crates/ti4-engine-next/src` may name `ti4_engine_legacy` only inside the module `lend_string`
@@ -17,7 +21,10 @@ thin:   (D2-9 lane 9a) `crates/ti4-engine-next/src` may name `ti4_engine_legacy`
         is still there; the gate of lane 9b/9d).
 chance: (docs/FORK_RNG_THEORY.md 4.2, lane C1) `crates/ti4-chance` is the bottom crate of the randomness: its Cargo.toml
         names no `ti4-` crate outside `[dev-dependencies]`, its sources (test code ignored) name no `ti4_` crate, and they use
-        no clock, thread or OS entropy (wasm) and no unsafe. Exit 1 on a violation. (The resolver crate's rules come with lane C3.)
+        no clock, thread or OS entropy (wasm) and no unsafe. Exit 1 on a violation.
+resolver: (4.2, lane C3) `crates/ti4-engine-chance`, the chance resolver over the core: its Cargo.toml names no `ti4-` crate but
+        `ti4-engine-core` and `ti4-chance` outside `[dev-dependencies]`, its sources (test code ignored) name no other `ti4_` crate,
+        and they use no clock, thread or OS entropy and no unsafe (it is linked into the browser build).
 engine: the tier table of 4.2 over the string engine; counts the module references that point up or
         sideways inside L4 (the number the port brings to zero). Reporting only, exit 0.
 """
@@ -105,6 +112,20 @@ def top_module(root, path):
     return head, sub
 
 
+# The no-draw rule of lane C3: what may not appear in the non-test code of the core and the factions.
+NO_DRAW = (
+    r'\brng_mut\s*\(',
+    r'\brng\s*\(\s*\)\s*\.\s*(die|shuffle|index)\s*\(',
+    r'\.rng\s*\.\s*(die|shuffle|index|set_positions)\s*\(',
+    r'\b(try_)?answer_mut\b',
+    r'\bti4_chance\s*::\s*answer\b',
+    r'\bchance\s*::\s*answer\b',
+    r'\brandom_range\b',
+    r'\bChaCha\w*',
+    r'\brand(_core|_chacha)?\s*::',
+)
+
+
 def check_core(core_root, factions_root):
     bad, units = [], 0
     for root, own_crate, floor in ((core_root, 'crate', None), (factions_root, 'ti4_engine_core', FACTIONS_LAYER)):
@@ -139,6 +160,12 @@ def check_core(core_root, factions_root):
             if floor is None and head in ('kernel', 'hooks'):
                 if re.search(r'ti4_engine_core_factions', text):
                     bad.append(f'{os.path.relpath(path, REPO)}: L3 imports L6')
+            for pat in NO_DRAW:
+                for line in text.split('\n'):
+                    code = line.split('//')[0]
+                    m = re.search(pat, code)
+                    if m:
+                        bad.append(f'{os.path.relpath(path, REPO)}: `{m.group(0)}`: the core draws nothing (lane C3: a random event is a chance question, Tape::chance)')
     return bad, units
 
 
@@ -191,6 +218,38 @@ def check_chance(crate):
             m = re.search(pat, text)
             if m:
                 bad.append(f'{os.path.relpath(path, REPO)}: uses `{m.group(0)}`, which the bottom crate must not (no ti4_ crate; wasm: no clock, threads, entropy; no unsafe)')
+    return bad, units
+
+
+RESOLVER_DEPS = ('ti4-engine-core', 'ti4-chance')
+RESOLVER_FORBIDDEN = (r'std::time', r'std::thread', r'\bgetrandom\b', r'thread_rng', r'rand::rng\(', r'from_os_rng', r'from_entropy', r'\bunsafe\b')
+
+
+def check_resolver(crate):
+    """The chance resolver `ti4-engine-chance`: over the core and the bottom crate only, nothing that breaks the wasm build."""
+    import tomllib
+    bad, units = [], 0
+    cargo = os.path.join(crate, 'Cargo.toml')
+    t = tomllib.load(open(cargo, 'rb'))
+    sections = [('dependencies', t.get('dependencies', {})), ('build-dependencies', t.get('build-dependencies', {}))]
+    for target, tt in t.get('target', {}).items():
+        for k in ('dependencies', 'build-dependencies'):
+            sections.append((f'target.{target}.{k}', tt.get(k, {})))
+    for where, deps in sections:
+        for name, spec in deps.items():
+            real = spec.get('package', name) if isinstance(spec, dict) else name
+            if (real.startswith('ti4-') or real.startswith('ti4_')) and real not in RESOLVER_DEPS:
+                bad.append(f'{os.path.relpath(cargo, REPO)}: [{where}] names {real}; the resolver depends on ti4-engine-core and ti4-chance only')
+    for path in rs_files(os.path.join(crate, 'src')):
+        units += 1
+        text = strip_tests(open(path, encoding='utf-8').read())
+        for m in re.finditer(r'\bti4_\w+', text):
+            if m.group(0) not in ('ti4_engine_core', 'ti4_chance'):
+                bad.append(f'{os.path.relpath(path, REPO)}: names `{m.group(0)}`; the resolver names ti4_engine_core and ti4_chance only')
+        for pat in RESOLVER_FORBIDDEN:
+            m = re.search(pat, text)
+            if m:
+                bad.append(f'{os.path.relpath(path, REPO)}: uses `{m.group(0)}`, which the resolver must not (wasm: no clock, threads, entropy; no unsafe)')
     return bad, units
 
 
@@ -283,6 +342,13 @@ def main():
         for b in bad:
             print('CHANCE', b)
         print(f'check_layers chance: {units} files checked, {len(bad)} violations')
+        sys.exit(1 if bad else 0)
+    elif mode == 'resolver':
+        root = sys.argv[2] if len(sys.argv) > 2 else os.path.join(REPO, 'crates/ti4-engine-chance')
+        bad, units = check_resolver(root)
+        for b in bad:
+            print('RESOLVER', b)
+        print(f'check_layers resolver: {units} files checked, {len(bad)} violations')
         sys.exit(1 if bad else 0)
     elif mode == 'engine':
         check_engine(sys.argv[2] if len(sys.argv) > 2 else os.path.join(REPO, 'crates/ti4-engine/src'))

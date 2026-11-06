@@ -1,12 +1,14 @@
 //! Proof tests U (docs/FORK_RNG_THEORY.md 4.7): `ti4-chance` reproduces today's draws bit for bit.
 //!
-//! The reference is the live implementation, not recorded vectors: the core's `state::Rng` seeded by the setup's
+//! The reference is the old implementation, not recorded vectors: the core's `state::Rng` seeded by the setup's
 //! `rng::Literals` (the same `SHA-256(seed_le || text)` as the thin crate's `GameRng`, which the core's own tests and
-//! the dual runs pin against it). Both are dev-dependencies only.
+//! the dual runs pin against it). Since lane C2 the core's streams are this crate's, so the old code is kept as a frozen
+//! copy in `tests/reference` (see there).
 
-use ti4_chance::{Domain, Kind, ModForm, Request, Streams, answer, answer_mut, derive_seed};
-use ti4_engine_core::state::{Rng as OldRng, RngDomain};
-use ti4_engine_core_setup::rng::{Literals, domain_text, seeded_speaker_index};
+use ti4_chance::{Domain, Kind, Request, Streams, answer, answer_mut, derive_seed};
+mod reference;
+
+use reference::{Literals, Rng as OldRng, RngDomain, domain_text, seeded_speaker_index};
 
 /// The new domain of an old one; exhaustive, so a variant added to either side fails to compile here.
 fn new_of(d: RngDomain) -> Domain {
@@ -33,7 +35,6 @@ fn new_of(d: RngDomain) -> Domain {
         RngDomain::WideRoster => Domain::WideRoster,
         RngDomain::KeleresVariant => Domain::KeleresVariant,
         RngDomain::YinAscendant => Domain::YinAscendant,
-        RngDomain::Dyn(a, b) => Domain::Dyn(a, b),
     }
 }
 
@@ -87,21 +88,18 @@ fn domains_texts_seeds_and_order_are_todays() {
         let new = new_of(old);
         assert_eq!(new, Domain::LITERALS[i], "the literal list is in domain order");
         assert_eq!(new.text(), domain_text(old), "{old:?}");
-        assert_eq!(Domain::of_text(new.text().unwrap()), Some(new));
+        assert_eq!(Domain::of_text(new.text()), Some(new));
         for seed in [0, 1, 7, u64::MAX, 0x5eed_1234_abcd] {
-            let text = new.text().unwrap();
-            assert_eq!(derive_seed(seed, text), ti4_engine_core_setup::rng::derive_seed(seed, text));
+            let text = new.text();
+            assert_eq!(derive_seed(seed, text), reference::derive_seed(seed, text));
         }
     }
-    let mut all: Vec<RngDomain> = OLD.to_vec();
-    all.extend([RngDomain::Dyn(0, 0), RngDomain::Dyn(0, 9), RngDomain::Dyn(3, 1)]);
+    let all: Vec<RngDomain> = OLD.to_vec();
     for a in &all {
         for b in &all {
             assert_eq!(a.cmp(b), new_of(*a).cmp(&new_of(*b)), "{a:?} vs {b:?}: positions are reported in domain order");
         }
     }
-    assert_eq!(domain_text(RngDomain::Dyn(1, 0)), None);
-    assert_eq!(Domain::Dyn(1, 0).text(), None);
 }
 
 #[test]
@@ -134,11 +132,10 @@ fn answers_of_every_kind_match_one_core_die_per_face() {
         for _ in 0..300 {
             let d = OLD[usize::try_from(mix.below(22)).unwrap()];
             let sides = u8::try_from(mix.below(255) + 1).unwrap();
-            let n = u8::try_from(mix.below(16)).unwrap();
-            let kind = match mix.below(3) {
+            let n = u8::try_from(mix.below(13)).unwrap();
+            let kind = match mix.below(2) {
                 0 => Kind::Dice { n, sides, hits_on: Some(sides) },
-                1 => Kind::Index { n: sides },
-                _ => Kind::DieMod { sides, n: n.max(1), form: ModForm::Face },
+                _ => Kind::Index { n: sides },
             };
             let req = Request::new(new_of(d), kind);
             let (pure, next) = answer(&req, &new);
@@ -153,23 +150,15 @@ fn answers_of_every_kind_match_one_core_die_per_face() {
 }
 
 #[test]
-fn spy_and_sanctions_die_mod_is_todays_biased_pick() {
-    // Spy: `(face - 1) % held` of `die(Dice, 10)`; Sanctions: `face % held`. Bit-identical, bias included (lane C9 fixes it).
+fn spy_and_sanctions_pick_a_card_with_one_die_of_the_hand_size() {
+    // Lane C3b (decision D4): Spy and Sanctions pick uniformly, `Index { n: held }`, one `die(Dice, held)` (no more d10 modulo).
     for seed in 0..300u64 {
         let mut old = OldRng::new(seed);
         let mut new = Streams::new(seed);
         for held in 1..=12u8 {
-            for form in [ModForm::FaceMinusOne, ModForm::Face] {
-                let face = old.die(RngDomain::Dice, &Literals, 10);
-                let held_us = usize::from(held);
-                let today = match form {
-                    ModForm::FaceMinusOne => (usize::try_from(face).unwrap() - 1) % held_us,
-                    ModForm::Face => usize::try_from(face).unwrap() % held_us,
-                };
-                let f = answer_mut(&Request::new(Domain::Dice, Kind::DieMod { sides: 10, n: held, form }), &mut new);
-                assert_eq!(u32::from(f.as_slice()[0]), face, "the raw face is what the ledger records");
-                assert_eq!(usize::from(form.index(f.as_slice()[0], held)), today);
-            }
+            let face = old.die(RngDomain::Dice, &Literals, u32::from(held));
+            let f = answer_mut(&Request::new(Domain::Dice, Kind::Index { n: held }), &mut new);
+            assert_eq!(u32::from(f.as_slice()[0]), face);
         }
     }
 }

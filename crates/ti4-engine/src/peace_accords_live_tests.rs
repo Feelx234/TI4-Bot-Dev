@@ -18,7 +18,6 @@ use ti4_model::state::{GameState, Phase};
 
 use super::turn_live_tests::{based, pid, without_staged, Run, Seen};
 use crate::choice::{Choice, ChoiceOption, Decider, IllegalChoice, Table};
-use crate::core_sync::codec::rng::TextSeeds;
 use crate::core_sync::{materialize, Codec, Ctx, Sources};
 use crate::live::{self, Scripted};
 use crate::render::Render;
@@ -103,7 +102,7 @@ fn native_run(state: &GameState, galaxy: &ti4_content::galaxy::Galaxy, ids: &[St
     let positions = game.rng_positions();
     let mut core = Codec::load(&mut cx, state, Sources { galaxy: Some(galaxy), rng: Some(&positions) }, SliceSet::ALL).expect("the position loads");
     let kernel = live::kernel::kernel_for(DEFAULT);
-    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
+    let env = live::env::env_with_plays(&render, &core, kernel, DEFAULT);
     let lcx = live::Cx::new(&render, &env);
     let mut asker = Scripted::new(ids.iter().cloned());
     loop {

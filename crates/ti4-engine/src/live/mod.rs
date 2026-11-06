@@ -268,11 +268,14 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
         step.out.emitted.extend(out.emitted);
         step.out.opened.extend(out.opened);
     };
-    // The arm's pending question; a fresh window (or one about to end) asks nothing yet: run it.
+    // The arm's pending question; a fresh window (or one about to end) asks nothing yet: run it. Every call of the arm goes through the
+    // chance resolver (lane C3): the core asks for each random event and the position's streams answer it, so no chance question reaches the
+    // asker.
     let mut asking = match ask(core, env)? {
-        Some(a) => a,
-        None => {
-            let (live, out) = advance(core, env, None)?;
+        // (A chance question left pending by a search: the resolver answers it like any other.)
+        Some(a) if ti4_engine_chance::chance_asked(&a).is_none() => a,
+        _ => {
+            let (live, out) = ti4_engine_chance::advance_resolved(core, env, advance, None)?;
             cx.render.sync_codes(&mut core.texts.codes);
             let held = out.held;
             merge(&mut step, out);
@@ -300,7 +303,7 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
                 None => return Err(Stop::Illegal),
             },
         };
-        let (live, out) = advance(core, env, Some(pick))?;
+        let (live, out) = ti4_engine_chance::advance_resolved(core, env, advance, Some(pick))?;
         cx.render.sync_codes(&mut core.texts.codes);
         let held = out.held;
         merge(&mut step, out);
@@ -322,11 +325,9 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
 
     use ti4_engine_core::containers::{Cow, SmallList};
     use ti4_engine_core::driver::live::{open, Env};
-    use ti4_engine_core::driver::NoSeeds;
     use ti4_engine_core::kernel::stage::AbilityTable;
     use ti4_engine_core::kernel::{Kernel, Registry};
     use ti4_engine_core::rules::token_gain::TokenGain;
@@ -391,7 +392,7 @@ mod tests {
 
         // The live run, one `live_step` per string step.
         let kernel = Kernel::plain();
-        let env = Env { kernel: &kernel, registry: Cow::new(Registry::default()), table: AbilityTable::default(), seeds: Rc::new(NoSeeds) };
+        let env = Env { kernel: &kernel, registry: Cow::new(Registry::default()), table: AbilityTable::default() };
         let render = &r;
         let reads: Vec<Slice> = Slice::ALL.iter().copied().filter(|s| *s != Slice::Map).collect();
         let fp = Footprint::new(&reads, &[Slice::Players, Slice::Pending]);
@@ -443,7 +444,7 @@ mod tests {
         let mut gs = crate::fixtures::seated_dealt(&[("a", "mentak"), ("b", "letnev")], ti4_model::content_types::POK);
         let (mut cx, r) = crate::dual_window::tables_for_tests(&gs).expect("a position the codecs carry");
         let kernel = Kernel::plain();
-        let env = Env { kernel: &kernel, registry: Cow::new(Registry::default()), table: AbilityTable::default(), seeds: Rc::new(NoSeeds) };
+        let env = Env { kernel: &kernel, registry: Cow::new(Registry::default()), table: AbilityTable::default() };
         let reads: Vec<Slice> = Slice::ALL.iter().copied().filter(|s| *s != Slice::Map).collect();
         with_core(&mut gs, &mut cx, Sources::default(), Footprint::new(&reads, &[Slice::Transient]), |core, _| {
             let choice = CoreChoice {
@@ -478,7 +479,7 @@ mod tests {
         let mut gs = gs;
         let (mut cx, r) = crate::dual_window::tables_for_tests(&gs).unwrap();
         let kernel = Kernel::plain();
-        let env = Env { kernel: &kernel, registry: Cow::new(Registry::default()), table: AbilityTable::default(), seeds: Rc::new(NoSeeds) };
+        let env = Env { kernel: &kernel, registry: Cow::new(Registry::default()), table: AbilityTable::default() };
         let reads: Vec<Slice> = Slice::ALL.iter().copied().filter(|s| *s != Slice::Map).collect();
         with_core(&mut gs, &mut cx, Sources::default(), Footprint::new(&reads, &[Slice::Players, Slice::Pending]), |core, _| {
             open(core, &TokenGain::new(Tokens { pending: SmallList::from_slice(&[ti4_engine_core::Seat(0)]), placed: SmallList::new(), report: StatusReport::default() }));

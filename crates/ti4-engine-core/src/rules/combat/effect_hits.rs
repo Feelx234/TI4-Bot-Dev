@@ -469,7 +469,7 @@ mod tests {
             let mut resolver = Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0)));
             let mut next_id = 1_u64;
             let mut emitted = Vec::new();
-            let mut sx = Sx { state: &mut s, kernel: &k, resolver: &mut resolver, table: &table, tape: &mut tape, next_id: &mut next_id, emitted: &mut emitted, seeds: &crate::driver::NoSeeds };
+            let mut sx = Sx { state: &mut s, kernel: &k, resolver: &mut resolver, table: &table, tape: &mut tape, next_id: &mut next_id, emitted: &mut emitted };
             assert!(matches!(window.step(&mut sx), Next::Done));
             assert_eq!(window.report(), Report::Destroyed(want));
         }

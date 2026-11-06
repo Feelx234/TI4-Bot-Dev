@@ -7,6 +7,7 @@ members = [
     "crates/ti4-engine",
     "crates/ti4-engine-next",
     "crates/ti4-engine-core",
+    "crates/ti4-engine-chance",
     "crates/ti4-engine-core-factions",
     "crates/ti4-engine-core-setup",
     "crates/ti4-engine-core-bridge",
@@ -50,6 +51,8 @@ ti4-engine = { path = "crates/ti4-engine-next" }
 # The string engine (the directory keeps its old name `crates/ti4-engine`): tests and comparison oracle, never production after the flip.
 ti4-engine-legacy = { path = "crates/ti4-engine" }
 ti4-engine-core = { path = "crates/ti4-engine-core" }
+# The chance resolver over the core (docs/FORK_RNG_THEORY.md 4.4): answers the core's chance questions in play, passes them up in search.
+ti4-engine-chance = { path = "crates/ti4-engine-chance" }
 ti4-engine-core-factions = { path = "crates/ti4-engine-core-factions" }
 ti4-engine-core-setup = { path = "crates/ti4-engine-core-setup" }
 ti4-engine-core-tests = { path = "crates/ti4-engine-core-tests" }

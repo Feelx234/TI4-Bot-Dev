@@ -5,10 +5,10 @@
 //! names of the string engine (`ti4_engine::rng::domain`, setup `rng::domain_text`, the codec's `LITERALS`): a stream's
 //! seed is `SHA-256(seed_le || text)`, so a text is part of every game's dice and must never change.
 
-/// A random stream. The 22 literal domains of today's engine, plus `Dyn(family, n)`, a stream whose name is not a
-/// literal (only old saves carry one; the text lives in the adapter's code table). A `Dyn` stream keeps its position
-/// but is never drawn from ([`crate::Refused::Dyn`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A random stream: the 22 literal domains of the engine. There are no dynamically named streams (decision D3 of
+/// docs/FORK_RNG_THEORY.md: old saves that carried one are not supported).
+#[cfg_attr(not(target_family = "wasm"), derive(Debug))]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Domain {
     /// Every die of the game (combat, bombardment, space cannon, abilities, Spy, Sanctions, ...).
     Dice,
@@ -36,7 +36,6 @@ pub enum Domain {
     WideRoster,
     KeleresVariant,
     YinAscendant,
-    Dyn(u16, u32),
 }
 
 impl Domain {
@@ -66,10 +65,10 @@ impl Domain {
         Self::YinAscendant,
     ];
 
-    /// The literal stream name; `None` for `Dyn`.
+    /// The literal stream name.
     #[must_use]
-    pub const fn text(self) -> Option<&'static str> {
-        Some(match self {
+    pub const fn text(self) -> &'static str {
+        match self {
             Self::Dice => "dice",
             Self::Objectives => "deck:objectives",
             Self::Agendas => "deck:agendas",
@@ -92,14 +91,13 @@ impl Domain {
             Self::WideRoster => "seating:wide-roster:v1",
             Self::KeleresVariant => "seating:keleres-variant:v1",
             Self::YinAscendant => "yinbt:unused_commander",
-            Self::Dyn(..) => return None,
-        })
+        }
     }
 
     /// The literal domain named `text`, if any.
     #[must_use]
     pub fn of_text(text: &str) -> Option<Self> {
-        Self::LITERALS.into_iter().find(|d| d.text() == Some(text))
+        Self::LITERALS.into_iter().find(|d| d.text() == text)
     }
 }
 
@@ -112,4 +110,13 @@ pub fn derive_seed(seed: u64, text: &str) -> [u8; 32] {
     hasher.update(seed.to_le_bytes());
     hasher.update(text.as_bytes());
     hasher.finalize().into()
+}
+
+/// The browser build prints a domain as its stream name (the text is linked anyway, for the seeds): no table of variant names in the wasm
+/// file (lane C3, the size budget). Native builds derive `Debug` (perf_kernel's state hash reads it).
+#[cfg(target_family = "wasm")]
+impl core::fmt::Debug for Domain {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.text())
+    }
 }

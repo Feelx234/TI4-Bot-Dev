@@ -16,7 +16,7 @@ use crate::choice::{Choice, Pick};
 use crate::kernel::ability::Unknown;
 use crate::kernel::stage::{AbilityTable, Illegal, NestedFacts, Sx, Tape, Window};
 use crate::kernel::{Kernel, Next, Resolver, TimingError};
-use crate::state::{CoreState, EventRec, RngDomain, SeedSource, Window as OpenWindow};
+use crate::state::{CoreState, EventRec, Window as OpenWindow};
 
 pub mod agenda;
 pub mod aftermath;
@@ -103,10 +103,6 @@ pub struct Driver<W: Window> {
     pub emitted: Vec<EventRec>,
     /// The windows the rule areas asked the driver to open (`Next::Open`), in order.
     pub opened: Vec<OpenWindow>,
-    /// The seeds of the random streams a window draws from (`Sx::die`); `NoSeeds` until the adapter gives some.
-    pub seeds: std::rc::Rc<dyn SeedSource>,
-    /// The adapter gave the driver seeds (`with_seeds`): it draws from the streams of the game.
-    seeded: bool,
     tape: Tape,
     facts: Option<NestedFacts>,
     facts_state: Option<CoreState>,
@@ -235,16 +231,6 @@ pub enum Resumed {
     Stepped,
 }
 
-/// The seeds of a driver that never draws: every stream is all zeros.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NoSeeds;
-
-impl SeedSource for NoSeeds {
-    fn seed_for(&self, _: u64, _: RngDomain) -> [u8; 32] {
-        [0; 32]
-    }
-}
-
 impl<W: Window> Driver<W> {
     #[must_use]
     pub fn new(window: W, resolver: Resolver, table: AbilityTable, next_id: u64) -> Self {
@@ -255,8 +241,6 @@ impl<W: Window> Driver<W> {
             next_id,
             emitted: Vec::new(),
             opened: Vec::new(),
-            seeds: std::rc::Rc::new(NoSeeds),
-            seeded: false,
             tape: Tape::default(),
             facts: None,
             facts_state: None,
@@ -282,14 +266,6 @@ impl<W: Window> Driver<W> {
         state.pending_mut().resolver = self.resolver.into_state(self.next_id);
     }
 
-    /// The same driver drawing its dice from streams seeded by `seeds`.
-    #[must_use]
-    pub fn with_seeds(mut self, seeds: std::rc::Rc<dyn SeedSource>) -> Self {
-        self.seeds = seeds;
-        self.seeded = true;
-        self
-    }
-
     /// Step the window to its next question or its end.
     ///
     /// # Errors
@@ -313,6 +289,8 @@ impl<W: Window> Driver<W> {
                 let legal = match pick {
                     Pick::Opt(o) => choice.opts.iter().any(|x| *x == o) || self.window.accepts_unlisted(&pick),
                     Pick::Number(_) => counts,
+                    // A chance question is never a stage of a window (it is put on the tape).
+                    Pick::Chance(_) => false,
                 };
                 if !legal {
                     self.awaiting = Awaiting::Stage(choice);
@@ -455,7 +433,6 @@ impl<W: Window> Driver<W> {
                 tape: &mut self.tape,
                 next_id: &mut self.next_id,
                 emitted: &mut self.emitted,
-                seeds: &*self.seeds,
             };
             park.at.resume(&mut sx, &mut self.window as &mut dyn std::any::Any, pick)
         };
@@ -511,7 +488,6 @@ impl<W: Window> Driver<W> {
             tape: &mut self.tape,
             next_id: &mut self.next_id,
             emitted: &mut self.emitted,
-            seeds: &*self.seeds,
         };
         let next = match op {
             Op::Step => self.window.step(&mut sx),
@@ -598,12 +574,6 @@ impl<W: Window> Driver<W> {
         self.facts.as_ref()
     }
 
-    /// Whether the driver draws from the streams of the game (`with_seeds`); without, its dice are all zeros.
-    #[must_use]
-    pub fn is_seeded(&self) -> bool {
-        self.seeded
-    }
-
     /// The state a nested question was put in (`nested_facts` says whether the last question was one).
     #[must_use]
     pub fn nested_state(&self) -> Option<&CoreState> {
@@ -614,6 +584,37 @@ impl<W: Window> Driver<W> {
     #[must_use]
     pub fn is_done(&self) -> bool {
         self.finished
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_chance {
+    use super::*;
+
+    /// The core's own tests stand in for the chance resolver (`ti4-engine-chance`, which depends on this crate): every chance question
+    /// `status` stops at is answered from `s`'s streams and the driver resumed, until another question or the end (lane C3).
+    pub(crate) fn settle_chance<W: Window>(d: &mut Driver<W>, s: &mut CoreState, k: &Kernel, status: Result<Status, DriverError>) -> Result<Status, DriverError> {
+        let mut status = status?;
+        loop {
+            let Status::Asking(choice) = &status else { return Ok(status) };
+            let crate::choice::Ask::Generic(crate::choice::generic::Ask::Chance(req)) = choice.ask else { return Ok(status) };
+            let faces = ti4_chance::answer_mut(&req, &mut s.rng);
+            status = d.resume(s, k, Pick::Chance(faces))?;
+        }
+    }
+
+    impl<W: Window> Driver<W> {
+        /// [`Self::run`] with its chance questions answered from the position's streams ([`settle_chance`]).
+        pub(crate) fn run_r(&mut self, s: &mut CoreState, k: &Kernel) -> Result<Status, DriverError> {
+            let r = self.run(s, k);
+            settle_chance(self, s, k, r)
+        }
+
+        /// [`Self::resume`] with its chance questions answered from the position's streams ([`settle_chance`]).
+        pub(crate) fn resume_r(&mut self, s: &mut CoreState, k: &Kernel, pick: Pick) -> Result<Status, DriverError> {
+            let r = self.resume(s, k, pick);
+            settle_chance(self, s, k, r)
+        }
     }
 }
 
@@ -634,6 +635,7 @@ enum Flow {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::RngDomain;
     use crate::choice::reaction::{AbilityId, AbilityKind, Ask as RAsk, Opt as ROpt, Relation};
     use crate::choice::{Ask, Opt};
     use crate::generated::Faction;
@@ -699,16 +701,16 @@ mod tests {
     #[test]
     fn an_emission_asks_inside_the_step_and_the_replay_applies_it_once() {
         let (mut s, k, mut d) = setup();
-        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("the reaction window asks") };
+        let Status::Asking(c) = d.run_r(&mut s, &k).unwrap() else { panic!("the reaction window asks") };
         assert_eq!(c.ask, Ask::Reaction(RAsk::Window { event: EventKind::TradeGoodsGained, relation: Relation::After }));
         assert_eq!(c.opts.len(), 3, "two abilities and decline");
         assert!(d.emitted.is_empty() && !d.window.done, "the run was rolled back");
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 0);
         // Pick the first ability; the second window question (the other ability, still eligible) follows.
-        let st = d.resume(&mut s, &k, Pick::Opt(Opt::Reaction(ROpt::Ability(ability())))).unwrap();
+        let st = d.resume_r(&mut s, &k, Pick::Opt(Opt::Reaction(ROpt::Ability(ability())))).unwrap();
         let Status::Asking(c2) = st else { panic!("the second ability may still be used") };
         assert!(!c2.opts.iter().any(|o| *o == Opt::Reaction(ROpt::Ability(ability()))), "already resolved in this window");
-        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap(), Status::Done);
+        assert_eq!(d.resume_r(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap(), Status::Done);
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 1, "the effect ran once");
         assert_eq!(d.emitted.len(), 1);
         assert_eq!(d.emitted[0].id, 10, "trace ids come from the driver");
@@ -718,9 +720,9 @@ mod tests {
     #[test]
     fn a_driver_made_from_the_state_continues_the_trace_ids_and_the_spent_keys() {
         let (mut s, k, mut d) = setup();
-        d.run(&mut s, &k).unwrap();
-        d.resume(&mut s, &k, Pick::Opt(Opt::Reaction(ROpt::Ability(ability())))).unwrap();
-        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap(), Status::Done);
+        d.run_r(&mut s, &k).unwrap();
+        d.resume_r(&mut s, &k, Pick::Opt(Opt::Reaction(ROpt::Ability(ability())))).unwrap();
+        assert_eq!(d.resume_r(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap(), Status::Done);
         assert!(!d.resolver.used_keys().is_empty(), "the window spent a once-per-trigger key");
         assert_eq!(s.pending().resolver.next_id, 1, "nothing is stored before the driver says so");
         d.store(&mut s);
@@ -739,9 +741,9 @@ mod tests {
     fn the_same_answers_give_the_same_state() {
         let run = || {
             let (mut s, k, mut d) = setup();
-            d.run(&mut s, &k).unwrap();
-            d.resume(&mut s, &k, Pick::Opt(Opt::Reaction(ROpt::Ability(ability())))).unwrap();
-            d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap();
+            d.run_r(&mut s, &k).unwrap();
+            d.resume_r(&mut s, &k, Pick::Opt(Opt::Reaction(ROpt::Ability(ability())))).unwrap();
+            d.resume_r(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap();
             (s, d.emitted.clone(), d.resolver.log().to_vec())
         };
         let (a, b) = (run(), run());
@@ -813,13 +815,13 @@ mod tests {
         let _ = ask_choice;
         let k = Kernel::plain();
         let mut d = Driver::new(Announce { done: false }, resolver, table, 10);
-        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("the ability asks") };
+        let Status::Asking(c) = d.run_r(&mut s, &k).unwrap() else { panic!("the ability asks") };
         assert_eq!(c.ask, Ask::Generic(crate::choice::generic::Ask::Confirm));
         let facts = d.nested_facts().expect("a nested question carries the facts of its window");
         assert_eq!((facts.event.kind, facts.event.id, facts.relation), (EventKind::TradeGoodsGained, 10, Relation::After));
         assert!(facts.chain.is_empty());
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 0, "rolled back");
-        assert_eq!(d.resume(&mut s, &k, Pick::Opt(Opt::Done)).unwrap(), Status::Done);
+        assert_eq!(d.resume_r(&mut s, &k, Pick::Opt(Opt::Done)).unwrap(), Status::Done);
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 13, "the effect and the nested one, once");
         assert_eq!(d.emitted.len(), 1, "only the window's own emission is the window's");
         assert_eq!(d.next_id, 12, "the nested event took the next trace id");
@@ -853,26 +855,17 @@ mod tests {
         }
     }
 
-    struct Plain;
-    impl SeedSource for Plain {
-        fn seed_for(&self, seed: u64, _: RngDomain) -> [u8; 32] {
-            let mut out = [0u8; 32];
-            out[..8].copy_from_slice(&seed.to_le_bytes());
-            out
-        }
-    }
-
     #[test]
     fn dice_drawn_in_a_step_that_is_rolled_back_are_drawn_once() {
         let (mut s, k, d) = setup();
         s.rng = crate::state::Rng::new(5);
-        let mut d = Driver::new(Roller { done: false, faces: Vec::new() }, d.resolver, d.table, 10).with_seeds(std::rc::Rc::new(Plain));
+        let mut d = Driver::new(Roller { done: false, faces: Vec::new() }, d.resolver, d.table, 10);
         // The reaction window asks inside the emission: the step is rolled back, the dice with it.
-        assert!(matches!(d.run(&mut s, &k).unwrap(), Status::Asking(_)));
-        d.resume(&mut s, &k, Pick::Opt(Opt::Reaction(ROpt::Ability(ability())))).unwrap();
-        d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap();
+        assert!(matches!(d.run_r(&mut s, &k).unwrap(), Status::Asking(_)));
+        d.resume_r(&mut s, &k, Pick::Opt(Opt::Reaction(ROpt::Ability(ability())))).unwrap();
+        d.resume_r(&mut s, &k, Pick::Opt(Opt::Decline)).unwrap();
         let mut bare = crate::state::Rng::new(5);
-        let expect: Vec<u32> = (0..3).map(|_| bare.die(RngDomain::Dice, &Plain, 10)).collect();
+        let expect: Vec<u32> = (0..3).map(|_| bare.die(crate::state::RngDomain::Dice, 10)).collect();
         assert_eq!(d.window.faces, expect);
         assert!(s.rng.positions().eq(bare.positions()), "three draws were taken, not six");
     }
@@ -885,7 +878,7 @@ mod tests {
         let (mut s, k, mut d) = setup();
         s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::LastBastion)]);
         with_policy(Policy::Off, || {
-            let _ = d.run(&mut s.clone(), &k);
+            let _ = d.run_r(&mut s.clone(), &k);
         });
         let (mut s2, k2, mut d2) = setup();
         s2.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheCrimsonRebellion)]);
@@ -893,7 +886,7 @@ mod tests {
         std::panic::set_hook(Box::new(|_| {}));
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             with_policy(Policy::Panic, || {
-                let _ = d2.run(&mut s2, &k2);
+                let _ = d2.run_r(&mut s2, &k2);
             });
         }));
         std::panic::set_hook(prev);

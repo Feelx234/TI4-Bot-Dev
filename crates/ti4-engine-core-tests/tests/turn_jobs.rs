@@ -2,14 +2,12 @@
 //! or the end, a clone of the position standing for a checkpoint. The lockstep against the string bodies is `ti4-engine`'s
 //! `turn_live_tests`; these tests pin what the jobs write, announce and refuse, without an engine.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt};
 use ti4_engine_core::choice::technology::{Ask as TAsk, Opt as TOpt, StartRule};
 use ti4_engine_core::containers::Cow;
 use ti4_engine_core::driver::live::{advance, ask, is_open, Env, Live, LiveError};
 use ti4_engine_core::driver::turn::{advance_announce, advance_job, advance_phase, advance_prelude, advance_reconcile, TurnFlowWin};
-use ti4_engine_core::driver::NoSeeds;
 use ti4_engine_core::kernel::ability::Unknown;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::turn_codes::TurnGap;
@@ -21,7 +19,7 @@ use ti4_engine_core_tests::prelude::*;
 fn env(k: &Kernel) -> Env<'_> {
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(NoSeeds) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table }
 }
 
 fn plain(s: &CoreState) -> Vec<PlainRec> {
@@ -51,7 +49,7 @@ fn mat(s: &mut CoreState) {
 fn the_start_of_a_turn_prepares_it_and_announces_it() {
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).build();
     s.meta_mut().turn_seq = 4;
-    let (live, _) = advance_prelude(&mut s, &env(&k), None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_prelude)(&mut s, &env(&k), None).unwrap();
     assert_eq!(live, Live::Done);
     assert_eq!(s.pending().prepared_turn_seq, Some(4), "the turn is the prepared one");
     assert_eq!(typed(&s), [EventKind::TurnBegan]);
@@ -67,7 +65,7 @@ fn a_spec_ops_unit_waiting_on_the_card_is_placed_at_the_start_of_the_turn_and_an
     let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).control(planet, 0).build();
     s.players_mut().edit(0).home_system = Some(home);
     s.players_mut().edit(0).misc.spec_ops_card = 2;
-    advance_prelude(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_prelude)(&mut s, &env(&k), None).unwrap();
     assert_eq!(s.board().planet(planet).units.len(), 2);
     assert_eq!(s.players().by_seat(Seat(0)).unwrap().misc.spec_ops_card, 0);
     assert_eq!(plain(&s), [PlainRec::two(PlainKind::SpecOpsReturned, PlainArg::Seat(Seat(0)), PlainArg::Count(2))]);
@@ -78,7 +76,7 @@ fn psychoarchaeology_asks_for_a_ready_specialty_planet_and_a_clone_continues_ide
     let planet = Planet::ALL.iter().copied().find(|p| !p.data().specialties.is_empty() && p.data().system.is_some()).unwrap();
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).control(planet, 0).tech(0, Technology::Psychoarchaeology).build();
     let e = env(&k);
-    let (live, _) = advance_prelude(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_prelude)(&mut s, &e, None).unwrap();
     let Live::Asks(q) = live else { panic!("the planet is offered") };
     assert_eq!(q.choice.ask, Ask::Technology(TAsk::Psychoarchaeology));
     assert!(s.pending().prepared_turn_seq.is_none(), "nothing of a half-run job is kept");
@@ -86,7 +84,7 @@ fn psychoarchaeology_asks_for_a_ready_specialty_planet_and_a_clone_continues_ide
     assert_eq!(ask::<TurnFlowWin>(&fork, &e).unwrap().unwrap().choice, q.choice, "a replay of the suspension asks the same question");
     let exhaust = q.choice.pick(0).unwrap();
     for state in [&mut s, &mut fork] {
-        let (live, _) = advance::<TurnFlowWin>(state, &e, Some(exhaust)).unwrap();
+        let (live, _) = ti4_engine_chance::resolved(advance::<TurnFlowWin>)(state, &e, Some(exhaust)).unwrap();
         assert_eq!(live, Live::Done);
     }
     assert_eq!(s, fork, "a clone mid-window continues identically");
@@ -100,14 +98,14 @@ fn a_start_of_turn_the_core_cannot_follow_is_a_counted_gap_and_leaves_the_positi
     // Chaos Mapping needs the unit roster of the play facts (the forms the seat may produce).
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(Some(0)).tech(0, Technology::ChaosMapping).build();
     let held = s.clone();
-    assert_eq!(advance_prelude(&mut s, &env(&k), None), gap(TurnGap::NoRoster));
+    assert_eq!(ti4_engine_chance::resolved(advance_prelude)(&mut s, &env(&k), None), gap(TurnGap::NoRoster));
     assert_eq!(s, held);
     // A locked commander of a faction whose unlock condition a hook states (lane F2) is judged at the start of the turn, not left to the string: it stays
     // locked here (the Arborec condition is not met) and the prelude goes on.
     let (mut s, k) = Scenario::new(&[Faction::TheArborec, Faction::TheEmiratesOfHacan]).phase(Phase::Action).active(Some(0)).build();
     let commander = Leader::ALL.iter().copied().find(|l| l.data().faction == FactionTag::Arborec && l.data().kind == LeaderType::Commander).unwrap();
     s.players_mut().edit(0).leaders.status.insert(commander, ti4_engine_core::state::LeaderStatus::Locked);
-    let (live, _) = advance_prelude(&mut s, &env(&k), None).expect("the commander is judged, not a gap");
+    let (live, _) = ti4_engine_chance::resolved(advance_prelude)(&mut s, &env(&k), None).expect("the commander is judged, not a gap");
     assert_eq!(live, Live::Done);
     assert_eq!(s.players().by_seat(Seat(0)).unwrap().leaders.status.get(&commander), Some(&ti4_engine_core::state::LeaderStatus::Locked));
     assert_eq!(s.pending().prepared_turn_seq, Some(0));
@@ -127,7 +125,7 @@ fn strategy_end() -> (CoreState, Kernel) {
 #[test]
 fn the_strategy_phase_ends_into_the_action_phase_with_the_first_seat_in_initiative_order() {
     let (mut s, k) = strategy_end();
-    let (live, _) = advance_phase(&mut s, &env(&k), None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_phase)(&mut s, &env(&k), None).unwrap();
     assert_eq!(live, Live::Done);
     // Seat 1 holds Leadership (initiative 1).
     assert_eq!((s.meta().phase, s.meta().active, s.meta().turn_seq), (Phase::Action, Some(Seat(1)), 1));
@@ -141,12 +139,12 @@ fn the_strategy_phase_ends_into_the_action_phase_with_the_first_seat_in_initiati
 fn the_action_phase_ends_into_the_status_phase_only_when_everyone_passed() {
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).active(None).build();
     let held = s.clone();
-    assert_eq!(advance_phase(&mut s, &env(&k), None), gap(TurnGap::PhaseNotReady), "the string reports MissingActivePlayer");
+    assert_eq!(ti4_engine_chance::resolved(advance_phase)(&mut s, &env(&k), None), gap(TurnGap::PhaseNotReady), "the string reports MissingActivePlayer");
     assert_eq!(s, held);
     for i in 0..3 {
         s.players_mut().edit(i).econ.passed = true;
     }
-    advance_phase(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_phase)(&mut s, &env(&k), None).unwrap();
     assert_eq!((s.meta().phase, s.meta().active), (Phase::Status, None));
     assert_eq!(plain(&s), [PlainRec::bare(PlainKind::StatusPhaseBegan)]);
     assert_eq!(typed(&s), [EventKind::StatusPhaseBegan]);
@@ -156,13 +154,13 @@ fn the_action_phase_ends_into_the_status_phase_only_when_everyone_passed() {
 fn the_status_phase_ends_into_the_agenda_phase_after_the_custodians_and_into_the_next_round_before() {
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Status).active(None).build();
     s.meta_mut().flags.set(MetaFlags::CUSTODIANS_REMOVED, true);
-    advance_phase(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_phase)(&mut s, &env(&k), None).unwrap();
     assert_eq!(s.meta().phase, Phase::Agenda);
     assert_eq!(plain(&s), [PlainRec::bare(PlainKind::AgendaPhaseBegan)]);
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Status).active(None).build();
     mat(&mut s);
     s.pending_mut().driver.set(ti4_engine_core::state::DriverFlags::STATUS_RESOLVED, true);
-    advance_phase(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_phase)(&mut s, &env(&k), None).unwrap();
     assert_eq!((s.meta().phase, s.meta().round), (Phase::Strategy, 2));
     assert_eq!(s.strategy().unclaimed.len(), 8, "the mat is laid out again from the initiative table");
     assert!(!s.pending().driver.has(ti4_engine_core::state::DriverFlags::STATUS_RESOLVED), "the round's flags start again");
@@ -176,7 +174,7 @@ fn the_revolution_levies_one_planet_per_technology_at_the_start_of_the_next_stra
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Status).active(None).control(planets[0], 0).control(planets[1], 0).control(planets[2], 0).tech(0, Technology::Psychoarchaeology).tech(0, Technology::AntimassDeflectors).build();
     mat(&mut s);
     s.agenda_mut().laws.insert(Agenda::AntiIntellectualRevolution, Outcome::Against);
-    advance_phase(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_phase)(&mut s, &env(&k), None).unwrap();
     let exhausted = planets.iter().filter(|p| s.board().planet(**p).flags.has(ti4_engine_core::state::PlanetFlags::EXHAUSTED)).count();
     assert_eq!(exhausted, 2, "two technologies, two planets");
 }
@@ -184,7 +182,7 @@ fn the_revolution_levies_one_planet_per_technology_at_the_start_of_the_next_stra
 #[test]
 fn the_first_strategy_phase_announces_itself_once() {
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Strategy).active(None).build();
-    advance_announce(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_announce)(&mut s, &env(&k), None).unwrap();
     assert!(s.pending().driver.has(ti4_engine_core::state::DriverFlags::STRATEGY_PHASE_ANNOUNCED));
     assert_eq!(typed(&s), [EventKind::StrategyPhaseBegan]);
 }
@@ -203,7 +201,7 @@ fn the_draft_asks_the_picker_for_a_card_and_the_pick_pays_the_goods_on_it() {
     assert_eq!((q.actor, q.ask), (Seat(0), Ask::Strategy(SAsk::Draft)));
     assert_eq!(q.opts.len(), 8);
     let pick = Pick::Opt(Opt::Strategy(SOpt::Card(StrategyCard::Trade)));
-    let (live, _) = advance_ask(&mut s, &e, Some(pick)).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(pick)).unwrap();
     assert_eq!(live, Live::Done);
     assert_eq!(s.players().by_seat(Seat(0)).unwrap().strat.as_slice(), &[StrategyCard::Trade]);
     assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 3);
@@ -215,7 +213,7 @@ fn the_draft_asks_the_picker_for_a_card_and_the_pick_pays_the_goods_on_it() {
     let q = ask_ask(&s, &e).unwrap().unwrap().choice;
     assert_eq!(q.actor, Seat(1));
     let held = s.clone();
-    assert_eq!(advance_ask(&mut s, &e, Some(pick)), Err(LiveError::Illegal));
+    assert_eq!(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(pick)), Err(LiveError::Illegal));
     assert_eq!(s, held);
 }
 
@@ -233,11 +231,11 @@ fn the_end_of_the_draft_offers_the_arbiter_swap_where_one_could_be_made() {
     let pick = Pick::Opt(Opt::Strategy(SOpt::Card(StrategyCard::Imperial)));
     let e = env(&k);
     // Without the law the draft simply ends.
-    let (live, _) = advance_ask(&mut s, &e, Some(pick)).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(pick)).unwrap();
     assert_eq!(live, Live::Done);
     assert!(ti4_engine_core::rules::strategy::draft(&s).is_none());
     // With Imperial Arbiter elected and a card on both sides, the owner is asked whether to discard it.
-    let (live, _) = advance_ask(&mut arbiter, &e, Some(pick)).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_ask)(&mut arbiter, &e, Some(pick)).unwrap();
     let Live::Asks(q) = live else { panic!("the owner is offered the swap") };
     assert!(matches!(q.choice.ask, Ask::Agenda(AAsk::DiscardLaw { law: Agenda::ImperialArbiter, .. })));
     assert_eq!(q.choice.actor, Seat(0));
@@ -283,12 +281,12 @@ fn a_listed_starting_technology_is_asked_one_at_a_time_and_the_last_one_left_is_
     assert_eq!(q.opts.len(), 3);
     // An answer that is not offered is refused and changes nothing.
     let held = s.clone();
-    assert_eq!(advance_ask(&mut s, &e, Some(Pick::Opt(Opt::Technology(TOpt::Tech(Technology::Psychoarchaeology))))), Err(LiveError::Illegal));
+    assert_eq!(ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(Opt::Technology(TOpt::Tech(Technology::Psychoarchaeology))))), Err(LiveError::Illegal));
     assert_eq!(s, held);
     let first = Pick::Opt(Opt::Technology(TOpt::Tech(Technology::SarweenTools)));
     let mut fork = s.clone();
     for state in [&mut s, &mut fork] {
-        assert_eq!(advance_ask(state, &e, Some(first)).unwrap().0, Live::Done);
+        assert_eq!(ti4_engine_chance::resolved(advance_ask)(state, &e, Some(first)).unwrap().0, Live::Done);
     }
     assert_eq!(s, fork, "a clone continues identically");
     assert!(s.players().by_seat(Seat(0)).unwrap().tech.owned.contains(Technology::SarweenTools));
@@ -297,7 +295,7 @@ fn a_listed_starting_technology_is_asked_one_at_a_time_and_the_last_one_left_is_
     let q = ask_ask(&s, &e).unwrap().unwrap().choice;
     assert_eq!(q.ask, Ask::Technology(TAsk::StartingTech { number: 2, of: 2, rule: StartRule::Listed }));
     assert_eq!(q.opts.len(), 2, "what the seat owns is no longer offered");
-    advance_ask(&mut s, &e, Some(Pick::Opt(Opt::Technology(TOpt::Tech(Technology::NeuralMotivator))))).unwrap();
+    ti4_engine_chance::resolved(advance_ask)(&mut s, &e, Some(Pick::Opt(Opt::Technology(TOpt::Tech(Technology::NeuralMotivator))))).unwrap();
     assert!(s.transient().misc.starting_tech_picks.is_empty(), "the picks are spent");
     assert!(ask_ask(&s, &e).is_err() || ask_ask(&s, &e).unwrap().is_none());
 }
@@ -307,7 +305,7 @@ fn a_pick_with_one_technology_left_to_give_is_settled_without_a_decision_by_the_
     let list = ti4_engine_core::state::TechList::from_slice(&[Technology::NeuralMotivator, Technology::SarweenTools]).unwrap();
     let (mut s, k) = Scenario::new(&[Faction::TheArgentFlight, Faction::TheFederationOfSol]).phase(Phase::Strategy).active(None).build();
     s.transient_mut().misc.starting_tech_picks.push(StartingTechPick { player: Seat(0), of: 2, remaining: 2, source: StartingTechSource::Listed(list) });
-    let (live, _) = advance_reconcile(&mut s, &env_with_roster(&k), None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env_with_roster(&k), None).unwrap();
     assert_eq!(live, Live::Done);
     let owned = &s.players().by_seat(Seat(0)).unwrap().tech.owned;
     assert!(owned.contains(Technology::NeuralMotivator) && owned.contains(Technology::SarweenTools), "as many options as picks: both are given");
@@ -319,16 +317,16 @@ fn a_pick_with_one_technology_left_to_give_is_settled_without_a_decision_by_the_
 #[test]
 fn the_nexus_latch_is_set_by_a_unit_in_the_locked_nexus_or_a_controlled_mallice_and_stays_set() {
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).build();
-    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env(&k), None).unwrap();
     assert!(!s.meta().flags.has(MetaFlags::NEXUS_UNLOCKED));
     s.board_mut().planet_mut(Planet::Mallice).control = Some(Seat(1));
-    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env(&k), None).unwrap();
     assert!(s.meta().flags.has(MetaFlags::NEXUS_UNLOCKED));
     s.board_mut().planet_mut(Planet::Mallice).control = None;
-    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env(&k), None).unwrap();
     assert!(s.meta().flags.has(MetaFlags::NEXUS_UNLOCKED), "sticky");
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Action).unit(System::MalliceLockedNexus, None, Unit::CruiserI, 1, 1).build();
-    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env(&k), None).unwrap();
     assert!(s.meta().flags.has(MetaFlags::NEXUS_UNLOCKED), "a unit in the nexus opens it");
 }
 
@@ -345,31 +343,31 @@ fn the_wormholes_the_tokens_give_join_the_map_at_the_reconcile_and_leave_with_th
     let next_to = |s: &CoreState, x: System, y: System| {
         s.galaxy().unwrap().adjacent(system_at(x as usize)).contains(y as usize) && s.map().adjacency().unwrap().of(system_at(x as usize)).contains(y as usize)
     };
-    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env(&k), None).unwrap();
     assert!(!next_to(&s, a, nexus) && !next_to(&s, b, nexus), "far apart, and the locked nexus holds only its gamma wormhole");
     // A gamma token joins the system to the nexus (a gamma wormhole), in both directions, in the map and in the adjacency the rules read.
     s.explore_mut().wormhole_tokens.insert(Wormhole::Gamma, a);
-    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env(&k), None).unwrap();
     assert!(next_to(&s, a, nexus) && next_to(&s, nexus, a), "the gamma token joined the gamma wormhole of the nexus");
     assert!(!next_to(&s, b, nexus));
     // The token leaves (a tile replaced by Nova Seed): so does the link.
     s.explore_mut().wormhole_tokens.remove(&Wormhole::Gamma);
-    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env(&k), None).unwrap();
     assert!(!next_to(&s, a, nexus), "a token that is gone links nothing");
     // The open nexus has an alpha and a beta wormhole: an alpha token joins it, a gamma one no longer matters.
     s.explore_mut().wormhole_tokens.insert(Wormhole::Alpha, b);
-    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env(&k), None).unwrap();
     assert!(!next_to(&s, b, nexus), "the nexus is still locked");
     s.board_mut().planet_mut(Planet::Mallice).control = Some(Seat(1));
-    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env(&k), None).unwrap();
     assert!(next_to(&s, b, nexus), "the open nexus holds an alpha wormhole");
     // The ion storm's face is a wormhole too, and it turns over.
     s.explore_mut().wormhole_tokens.clear();
     s.meta_mut().ion_storm = Some((a, Wormhole::Beta));
-    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env(&k), None).unwrap();
     assert!(next_to(&s, a, nexus) && !next_to(&s, b, nexus), "the storm shows a beta wormhole, which the open nexus holds");
     s.meta_mut().ion_storm = None;
-    advance_reconcile(&mut s, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env(&k), None).unwrap();
     assert!(!next_to(&s, a, nexus), "no storm, no wormhole");
 }
 
@@ -377,10 +375,9 @@ fn the_wormholes_the_tokens_give_join_the_map_at_the_reconcile_and_leave_with_th
 fn spec_ops_destroyed_roll_a_die_each_and_the_survivors_wait_on_the_card() {
     let (mut s, k) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).build();
     s.players_mut().edit(0).misc.spec_ops_destroyed = 5;
-    s.rng = ti4_engine_core::state::Rng::new(3);
-    let mut e = env(&k);
-    e.seeds = Rc::new(ti4_engine_core_tests::rig::KitSeeds(7));
-    advance_reconcile(&mut s, &e, None).unwrap();
+    s.rng = ti4_engine_core_tests::rig::kit_rng(7);
+    let e = env(&k);
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &e, None).unwrap();
     let p = s.players().by_seat(Seat(0)).unwrap();
     assert_eq!(p.misc.spec_ops_destroyed, 0);
     let lines = plain(&s);
@@ -391,8 +388,8 @@ fn spec_ops_destroyed_roll_a_die_each_and_the_survivors_wait_on_the_card() {
     // The same position and seeds roll the same faces.
     let (mut again, _) = Scenario::new(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan]).phase(Phase::Action).build();
     again.players_mut().edit(0).misc.spec_ops_destroyed = 5;
-    again.rng = ti4_engine_core::state::Rng::new(3);
-    advance_reconcile(&mut again, &e, None).unwrap();
+    again.rng = ti4_engine_core_tests::rig::kit_rng(7);
+    ti4_engine_chance::resolved(advance_reconcile)(&mut again, &e, None).unwrap();
     assert_eq!(plain(&again), lines);
 }
 
@@ -401,13 +398,13 @@ fn a_gain_nobody_announced_is_announced_once_and_the_first_look_announces_nothin
     let (mut s, k) = Scenario::lobby(2).phase(Phase::Action).build();
     let mut e = env(&k);
     e.table.facts.staging = true;
-    advance_reconcile(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &e, None).unwrap();
     assert!(typed(&s).is_empty(), "the first look at the technologies records the starting set");
     assert!(s.marks().tail.contains_key(&MarkKey::PrivateSeen(Word::Technologies, Seat(0))));
     s.players_mut().edit(0).tech.owned.insert(Technology::SarweenTools);
-    advance_reconcile(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &e, None).unwrap();
     assert_eq!(typed(&s), [EventKind::TechnologyGained]);
-    advance_reconcile(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut s, &e, None).unwrap();
     assert_eq!(typed(&s), [EventKind::TechnologyGained], "announced once");
     assert_eq!(
         s.marks().tail.get(&MarkKey::PrivateSeen(Word::Technologies, Seat(0))),
@@ -416,7 +413,7 @@ fn a_gain_nobody_announced_is_announced_once_and_the_first_look_announces_nothin
     // Without a faction module at the table nothing is announced (nothing listens).
     let (mut quiet, k) = Scenario::lobby(2).phase(Phase::Action).build();
     quiet.players_mut().edit(0).tech.owned.insert(Technology::SarweenTools);
-    advance_reconcile(&mut quiet, &env(&k), None).unwrap();
+    ti4_engine_chance::resolved(advance_reconcile)(&mut quiet, &env(&k), None).unwrap();
     assert!(typed(&quiet).is_empty());
 }
 
@@ -425,14 +422,14 @@ fn a_recorded_map_edit_and_a_pending_propagation_are_counted_gaps() {
     let (mut s, k) = Scenario::lobby(2).phase(Phase::Action).build();
     s.marks_mut().tail.edit().insert(MarkKey::MapEdit(0), MarkVal::Rec(vec![MarkVal::Atom(Atom::Word(Word::Swap)), MarkVal::Atom(Atom::System(System::ALL[0])), MarkVal::Atom(Atom::System(System::ALL[1]))]));
     let held = s.clone();
-    assert_eq!(advance_reconcile(&mut s, &env(&k), None), gap(TurnGap::MapEdits));
+    assert_eq!(ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env(&k), None), gap(TurnGap::MapEdits));
     assert_eq!(s, held);
     let (mut s, k) = Scenario::new(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan]).phase(Phase::Action).build();
     s.marks_mut().tail.edit().insert(MarkKey::NekroPropagation(Seat(0)), MarkVal::Atom(Atom::Num(1)));
     let mut e = env(&k);
     e.table.facts.staging = true;
     // Propagation is announced as an event of the table (the Nekro rule settles it): the step no longer stops.
-    assert!(advance_reconcile(&mut s, &e, None).is_ok());
+    assert!(ti4_engine_chance::resolved(advance_reconcile)(&mut s, &e, None).is_ok());
 }
 
 #[test]

@@ -483,14 +483,12 @@ mod real {
         let seat = r.seat(holder.as_str()).why(crate::dual::reason::NO_SEAT)?;
         let before = gs.clone();
         let kernel = Kernel::plain();
-        let seeds = std::rc::Rc::new(crate::dual_window::DiceSeeds(String::new()));
         let mut driver = crate::window_driver::driver_for(
             Neuraloop::new(seat, revealed).in_invasion(gs.active_invasion.as_ref().map(|a| a.seq)),
             Resolver::new(&[seat], Some(seat)),
             AbilityTable::default(),
             1,
-        )
-        .with_seeds(seeds);
+        );
         let fp = Footprint::new(
             &[Slice::Meta, Slice::Seats, Slice::Players, Slice::Board, Slice::Decks, Slice::Objectives, Slice::Rng, Slice::Pending],
             &[Slice::Players, Slice::Decks, Slice::Objectives, Slice::Rng],

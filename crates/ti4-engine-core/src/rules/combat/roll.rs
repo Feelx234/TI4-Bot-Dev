@@ -239,15 +239,17 @@ impl RollStep {
                 continue;
             }
             let hits_on = u32::try_from(value).unwrap_or(u32::MAX);
-            let faces: Vec<u32> = (0..count).map(|_| sx.die(RngDomain::Dice, DIE_SIDES)).collect();
+            // One chance question per value group (lane C3).
+            let faces: Vec<u32> = sx.dice(RngDomain::Dice, count, DIE_SIDES);
             let misses: Vec<usize> = faces.iter().enumerate().filter(|(_, f)| **f < hits_on).map(|(i, _)| i).collect();
             rolls.push(FleetRoll { hits_on, faces: faces.clone(), rerolled: Vec::new() });
             let mut last = faces;
             if munitions && !misses.is_empty() {
                 let mut again = last.clone();
                 let rerolled = misses.iter().map(|i| *i as u32).collect();
-                for i in misses {
-                    again[i] = sx.die(RngDomain::Dice, DIE_SIDES);
+                let redrawn = sx.dice(RngDomain::Dice, misses.len(), DIE_SIDES);
+                for (i, face) in misses.into_iter().zip(redrawn) {
+                    again[i] = face;
                 }
                 rolls.push(FleetRoll { hits_on, faces: again.clone(), rerolled });
                 last = again;

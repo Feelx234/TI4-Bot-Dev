@@ -1,5 +1,5 @@
 //! Property tests of the request/answer model (docs/FORK_RNG_THEORY.md 4.7 U): positions, determinism, splitting,
-//! reseeding. No reference implementation needed: these are statements about `ti4-chance` alone.
+//! independence of seeds. No reference implementation needed: these are statements about `ti4-chance` alone.
 
 use ti4_chance::{Domain, Faces, Kind, Request, Streams, answer, answer_mut};
 
@@ -17,7 +17,7 @@ fn an_answer_moves_its_stream_exactly_as_far_as_its_dice() {
         let mut b = Streams::new(seed);
         a.die(Domain::Neuraloop, 7);
         b.die(Domain::Neuraloop, 7);
-        for n in 0..=15u8 {
+        for n in 0..=12u8 {
             for sides in [1u8, 2, 3, 6, 10, 20, 255] {
                 let before = a.position(Domain::Dice);
                 let faces = answer_mut(&dice(n, sides), &mut a);
@@ -75,26 +75,16 @@ fn a_split_group_equals_drawing_one_by_one() {
 }
 
 #[test]
-fn reseed_gives_independent_streams() {
+fn another_seed_gives_independent_streams() {
+    // What a search would need instead of reseeding (decision D2: a search never touches the streams, it answers with its
+    // own randomness): another game's streams do not reveal this game's future.
     let draw = |s: &mut Streams, d: Domain| (0..64).map(|_| s.die(d, 1 << 30)).collect::<Vec<_>>();
     for seed in 0..50u64 {
         let mut real = Streams::new(seed);
         real.die(Domain::Dice, 10);
-        let mut copy = real.clone();
-        copy.reseed(seed ^ 0xfeed);
-        assert_eq!(copy, Streams::new(seed ^ 0xfeed), "reseed is a fresh game seed, every stream at its start");
+        let mut other = Streams::new(seed ^ 0xfeed);
         let mut future = real.clone();
-        assert_ne!(draw(&mut copy, Domain::Dice), draw(&mut future, Domain::Dice), "a reseeded copy cannot read the future");
-
-        let mut one = real.clone();
-        one.reseed_domain(Domain::Dice, seed + 1).unwrap();
-        assert_eq!(one.position(Domain::Dice), 0);
-        assert_eq!(one.seed(), seed);
-        let mut untouched = real.clone();
-        assert_eq!(draw(&mut one, Domain::Agendas), draw(&mut untouched, Domain::Agendas), "other domains unchanged");
-        let mut other_game = Streams::new(seed + 1);
-        assert_eq!(draw(&mut one, Domain::Dice)[..], draw(&mut other_game, Domain::Dice)[..]);
-        assert_ne!(draw(&mut one, Domain::Dice), draw(&mut real, Domain::Dice));
+        assert_ne!(draw(&mut other, Domain::Dice), draw(&mut future, Domain::Dice));
     }
     // Domains of one seed are independent streams too.
     let mut s = Streams::new(9);

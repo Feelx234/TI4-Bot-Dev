@@ -78,7 +78,7 @@ impl GroundRoll {
                 continue;
             }
             let on = u32::try_from(pool.value).unwrap_or(u32::MAX);
-            let faces: Vec<u32> = (0..count).map(|_| sx.die(RngDomain::Dice, DIE_SIDES)).collect();
+            let faces: Vec<u32> = sx.dice(RngDomain::Dice, usize::try_from(count).unwrap_or(0), DIE_SIDES);
             sx.state.ledger_mut().dice.push(RollRec {
                 purpose: RollPurpose::GroundCombat,
                 owner: Some(side),

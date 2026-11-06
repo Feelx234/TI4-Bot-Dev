@@ -2,7 +2,6 @@
 //! live loop runs them: a held window, `advance` to a question or the end, a clone of the position standing for a checkpoint. The lockstep
 //! against the string steps is `ti4-engine`'s `status_live_tests`; these tests pin what the arms write, announce and refuse.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::objectives::Opt as OOpt;
 use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt, Pool};
@@ -10,7 +9,6 @@ use ti4_engine_core::containers::Cow;
 use ti4_engine_core::driver::live::{advance, ask, is_open, Env, Live, LiveError, Out};
 use ti4_engine_core::driver::turn::TurnFlowWin;
 use ti4_engine_core::driver::windows::status::{advance_scoring, advance_status, advance_tokens, ask_scoring, ask_tokens};
-use ti4_engine_core::driver::NoSeeds;
 use ti4_engine_core::kernel::ability::Unknown;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::turn_codes::TurnGap;
@@ -23,7 +21,7 @@ fn env(k: &Kernel) -> Env<'_> {
     ti4_engine_core::driver::children::register(&mut table);
     // Every card its own printed name.
     table.facts.card_groups = (0..ActionCard::COUNT).map(|i| u8::try_from(i).unwrap_or(u8::MAX)).collect();
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(NoSeeds) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table }
 }
 
 fn plain(s: &CoreState) -> Vec<PlainRec> {
@@ -59,7 +57,7 @@ fn pool(p: Pool) -> Pick {
 #[test]
 fn the_status_phase_opens_its_scoring_window_in_initiative_order() {
     let (mut s, k) = status(3);
-    let (live, _) = advance_status(&mut s, &env(&k), None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_status)(&mut s, &env(&k), None).unwrap();
     assert_eq!(live, Live::Done);
     assert!(s.pending().driver.has(DriverFlags::STATUS_RESOLVED), "the flag the step loop reads");
     assert!(is_open::<ti4_engine_core::driver::windows::scoring::StatusScoring>(&s));
@@ -75,7 +73,7 @@ fn a_ship_in_an_entropic_scar_is_a_counted_gap_and_leaves_the_position_alone() {
     let scar = System::ALL.iter().copied().find(|s| s.data().anomalies.scar).expect("a scar system");
     let (mut s, k) = Scenario::lobby(3).phase(Phase::Status).unit(scar, None, Unit::CruiserI, 0, 1).build();
     let held = s.clone();
-    assert_eq!(advance_status(&mut s, &env(&k), None), gap(TurnGap::EntropicScar));
+    assert_eq!(ti4_engine_chance::resolved(advance_status)(&mut s, &env(&k), None), gap(TurnGap::EntropicScar));
     assert_eq!(s, held);
 }
 
@@ -85,9 +83,9 @@ fn a_ship_in_an_entropic_scar_is_a_counted_gap_and_leaves_the_position_alone() {
 fn a_window_nobody_can_score_in_closes_into_the_bookkeeping_in_one_call() {
     let (mut s, k) = status(3);
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
     assert_eq!(ask_scoring(&s, &e).unwrap(), None, "nobody has anything to score");
-    let (live, _) = advance_scoring(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, None).unwrap();
     assert_eq!(live, Live::Done);
     assert!(!is_open::<ti4_engine_core::driver::windows::scoring::StatusScoring>(&s));
     assert!(is_open::<ti4_engine_core::rules::token_gain::TokenGain>(&s), "the token window is open");
@@ -106,8 +104,8 @@ fn an_empty_objective_deck_ends_the_game_at_the_reveal() {
     let (mut s, k) = status(3);
     s.decks_mut().objective.set(Vec::new());
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
-    let (live, _) = advance_scoring(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, None).unwrap();
     assert_eq!(live, Live::Done);
     assert!(s.meta().finished);
     assert_eq!(plain(&s).last().map(|p| p.kind), Some(PlainKind::GameFinished));
@@ -128,21 +126,21 @@ fn marvel() -> (CoreState, Kernel) {
 fn a_seat_that_can_score_is_asked_scores_and_the_window_goes_on_to_the_close() {
     let (mut s, k) = marvel();
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
     let q = ask_scoring(&s, &e).unwrap().expect("seat 0 may score").choice;
     assert_eq!(q.actor, Seat(0));
     assert!(q.opts.iter().any(|o| *o == Opt::Objectives(OOpt::Score(ObjectiveRef::Public(PublicObjective::EngineerAMarvel)))));
     assert!(q.can_decline());
     // Declining ends the player's turn; the close follows in the same call.
     let mut declined = s.clone();
-    let (live, _) = advance_scoring(&mut declined, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_scoring)(&mut declined, &e, Some(Pick::Opt(Opt::Decline))).unwrap();
     assert_eq!(live, Live::Done);
     assert_eq!(declined.players().by_seat(Seat(0)).unwrap().econ.victory_points, 0);
     // Scoring.
     let score = Pick::Opt(Opt::Objectives(OOpt::Score(ObjectiveRef::Public(PublicObjective::EngineerAMarvel))));
     let mut fork = s.clone();
     for st in [&mut s, &mut fork] {
-        let (live, _) = advance_scoring(st, &e, Some(score)).unwrap();
+        let (live, _) = ti4_engine_chance::resolved(advance_scoring)(st, &e, Some(score)).unwrap();
         assert_eq!(live, Live::Done);
     }
     assert_eq!(s, fork, "a clone continues identically");
@@ -157,10 +155,10 @@ fn a_seat_that_can_score_is_asked_scores_and_the_window_goes_on_to_the_close() {
 fn an_answer_that_is_no_option_leaves_the_window_as_it_was() {
     let (mut s, k) = marvel();
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
     let held = s.clone();
     let bogus = Pick::Opt(Opt::Objectives(OOpt::Score(ObjectiveRef::Public(PublicObjective::ExpandBorders))));
-    assert_eq!(advance_scoring(&mut s, &e, Some(bogus)), Err(LiveError::Illegal));
+    assert_eq!(ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, Some(bogus)), Err(LiveError::Illegal));
     assert_eq!(s, held);
 }
 
@@ -169,9 +167,9 @@ fn the_win_ends_the_game_without_the_close() {
     let (mut s, k) = marvel();
     s.players_mut().edit(0).econ.victory_points = 9;
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
     let score = Pick::Opt(Opt::Objectives(OOpt::Score(ObjectiveRef::Public(PublicObjective::EngineerAMarvel))));
-    let (live, _) = advance_scoring(&mut s, &e, Some(score)).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, Some(score)).unwrap();
     assert_eq!(live, Live::Done);
     assert!(s.meta().finished);
     assert_eq!(kinds(&s)[kinds(&s).len() - 2..], [PlainKind::ObjectiveScored, PlainKind::GameFinished]);
@@ -188,9 +186,9 @@ fn the_third_scored_objective_unlocks_the_hero() {
         ti4_engine_core::kernel::fx::record_score(&mut s, Seat(0), ObjectiveRef::Public(o));
     }
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
     let score = Pick::Opt(Opt::Objectives(OOpt::Score(ObjectiveRef::Public(PublicObjective::EngineerAMarvel))));
-    advance_scoring(&mut s, &e, Some(score)).unwrap();
+    ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, Some(score)).unwrap();
     assert_eq!(s.players().by_seat(Seat(0)).unwrap().leaders.status.get(&hero), Some(&LeaderStatus::Unlocked));
 }
 
@@ -201,8 +199,8 @@ fn a_locked_commander_of_a_faction_with_a_hook_is_judged_by_its_hook_not_stopped
     let commander = Leader::ALL.iter().copied().find(|l| l.data().faction == FactionTag::Arborec && l.data().kind == LeaderType::Commander).unwrap();
     s.players_mut().edit(0).leaders.status.insert(commander, LeaderStatus::Locked);
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
-    assert_ne!(advance_scoring(&mut s, &e, None), gap(TurnGap::CommanderUnlock), "the Arborec's commander condition is a hook (12 ground forces on planets), not a gap");
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
+    assert_ne!(ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, None), gap(TurnGap::CommanderUnlock), "the Arborec's commander condition is a hook (12 ground forces on planets), not a gap");
 }
 
 // -- KS4, KS5: the tokens and the close ----------------------------------------------------------------------------------------
@@ -210,8 +208,8 @@ fn a_locked_commander_of_a_faction_with_a_hook_is_judged_by_its_hook_not_stopped
 fn at_tokens() -> (CoreState, Kernel) {
     let (mut s, k) = status(2);
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
-    advance_scoring(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, None).unwrap();
     (s, k)
 }
 
@@ -222,11 +220,11 @@ fn the_last_token_closes_into_the_redistribution_and_the_end_of_the_phase() {
     let (pa, pb) = (s.players().by_seat(Seat(0)).unwrap().econ.clone(), s.players().by_seat(Seat(1)).unwrap().econ.clone());
     // Four tokens: asked one at a time, the seat that holds them first.
     for i in 0..3 {
-        let (live, _) = advance_tokens(&mut s, &e, Some(pool(Pool::Strategic))).map(|(l, o)| (l, o)).unwrap_or_else(|_| panic!("token {i}"));
+        let (live, _) = ti4_engine_chance::resolved(advance_tokens)(&mut s, &e, Some(pool(Pool::Strategic))).map(|(l, o)| (l, o)).unwrap_or_else(|_| panic!("token {i}"));
         let Live::Asks(_) = live else { panic!("another token is owed") };
     }
     // The last token ends the window and asks the first redistribution in the same call.
-    let (live, _) = advance_tokens(&mut s, &e, Some(pool(Pool::Strategic))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_tokens)(&mut s, &e, Some(pool(Pool::Strategic))).unwrap();
     let Live::Asks(q) = live else { panic!("the redistribution of the first seat") };
     assert!(matches!(q.choice.ask, Ask::Strategy(SAsk::StatusRedistribute { .. })), "{:?}", q.choice.ask);
     assert_eq!(q.choice.actor, Seat(0));
@@ -238,10 +236,10 @@ fn the_last_token_closes_into_the_redistribution_and_the_end_of_the_phase() {
     assert_eq!(ask_tokens(&fork, &e).unwrap().unwrap().choice, q.choice);
     let first = q.choice.pick(0).unwrap();
     for st in [&mut s, &mut fork] {
-        let (live, _) = advance_tokens(st, &e, Some(first)).unwrap();
+        let (live, _) = ti4_engine_chance::resolved(advance_tokens)(st, &e, Some(first)).unwrap();
         let Live::Asks(second) = live else { panic!("the second seat's redistribution") };
         assert_eq!(second.choice.actor, Seat(1));
-        let (live, _) = advance_tokens(st, &e, Some(second.choice.pick(0).unwrap())).unwrap();
+        let (live, _) = ti4_engine_chance::resolved(advance_tokens)(st, &e, Some(second.choice.pick(0).unwrap())).unwrap();
         assert_eq!(live, Live::Done);
     }
     assert_eq!(s, fork, "a clone mid-window continues identically");
@@ -265,15 +263,15 @@ fn the_close_readies_repairs_and_returns_the_strategy_cards_except_a_retained_on
     s.players_mut().edit(1).econ.stability = true;
     s.players_mut().edit(1).strat_exhausted.insert(StrategyCard::Politics);
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
-    advance_scoring(&mut s, &e, None).unwrap();
-    let mut live = advance_tokens(&mut s, &e, None);
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, None).unwrap();
+    let mut live = ti4_engine_chance::resolved(advance_tokens)(&mut s, &e, None);
     let mut guard = 0;
     while let Ok((Live::Asks(q), _)) = &live {
         guard += 1;
         assert!(guard < 40);
         let pick = q.choice.pick(0).unwrap();
-        live = advance_tokens(&mut s, &e, Some(pick));
+        live = ti4_engine_chance::resolved(advance_tokens)(&mut s, &e, Some(pick));
     }
     assert_eq!(live.unwrap().0, Live::Done);
     assert!(!s.board().planet(planet).flags.has(PlanetFlags::EXHAUSTED), "81.6: the planet readies");
@@ -310,9 +308,9 @@ fn yssaril_table() -> (CoreState, Kernel) {
 fn scheming_draws_one_more_and_asks_which_card_to_discard_and_a_clone_continues_identically() {
     let (mut s, k) = yssaril_table();
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
     let before = s.players().by_seat(Seat(1)).unwrap().cards.hand.len();
-    let (live, _) = advance_scoring(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, None).unwrap();
     let Live::Asks(q) = live else { panic!("Yssaril draws two cards and discards one: a question") };
     assert_eq!(q.choice.ask, Ask::Cards(ti4_engine_core::choice::cards::Ask::OwnHand { reason: ti4_engine_core::choice::cards::Reason::Scheming }));
     assert_eq!(q.choice.actor, Seat(1));
@@ -324,7 +322,7 @@ fn scheming_draws_one_more_and_asks_which_card_to_discard_and_a_clone_continues_
     assert_eq!(ask_scoring(&fork, &e).unwrap().unwrap().choice, q.choice, "a replay of the suspension asks the same question");
     let discard = q.choice.pick(0).unwrap();
     for st in [&mut s, &mut fork] {
-        let (live, _) = advance_scoring(st, &e, Some(discard)).unwrap();
+        let (live, _) = ti4_engine_chance::resolved(advance_scoring)(st, &e, Some(discard)).unwrap();
         assert_eq!(live, Live::Done);
     }
     assert_eq!(s, fork, "a clone mid-window continues identically");
@@ -336,17 +334,17 @@ fn scheming_draws_one_more_and_asks_which_card_to_discard_and_a_clone_continues_
 fn the_staged_discard_is_announced_after_the_first_typed_event_of_the_close() {
     let (mut s, k) = yssaril_table();
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
-    let (live, _) = advance_scoring(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, None).unwrap();
     let Live::Asks(q) = live else { panic!("the discard") };
-    advance_scoring(&mut s, &e, Some(q.choice.pick(0).unwrap())).unwrap();
-    let mut live = advance_tokens(&mut s, &e, None);
+    ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, Some(q.choice.pick(0).unwrap())).unwrap();
+    let mut live = ti4_engine_chance::resolved(advance_tokens)(&mut s, &e, None);
     let mut guard = 0;
     while let Ok((Live::Asks(q), _)) = &live {
         guard += 1;
         assert!(guard < 40);
         let pick = q.choice.pick(0).unwrap();
-        live = advance_tokens(&mut s, &e, Some(pick));
+        live = ti4_engine_chance::resolved(advance_tokens)(&mut s, &e, Some(pick));
     }
     assert_eq!(live.unwrap().0, Live::Done);
     let order = typed(&s);
@@ -365,8 +363,8 @@ fn a_hand_over_its_limit_after_the_draw_is_asked_to_discard_one() {
     s.decks_mut().action.set(ActionCard::ALL.iter().copied().skip(20).take(30).collect());
     s.players_mut().edit(0).cards.hand = ActionCard::ALL.iter().copied().take(7).collect();
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
-    let (live, _) = advance_scoring(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, None).unwrap();
     let Live::Asks(q) = live else { panic!("eight cards: discard one") };
     assert!(matches!(q.choice.ask, Ask::Cards(ti4_engine_core::choice::cards::Ask::HandLimit { held: 8 })), "{:?}", q.choice.ask);
     // Before rules version 17 the status draw is not subject to the hand limit.
@@ -375,8 +373,8 @@ fn a_hand_over_its_limit_after_the_draw_is_asked_to_discard_one() {
     old.decks_mut().action.set(ActionCard::ALL.iter().copied().skip(20).take(30).collect());
     old.players_mut().edit(0).cards.hand = ActionCard::ALL.iter().copied().take(7).collect();
     let e = env(&k);
-    advance_status(&mut old, &e, None).unwrap();
-    assert_eq!(advance_scoring(&mut old, &e, None).unwrap().0, Live::Done);
+    ti4_engine_chance::resolved(advance_status)(&mut old, &e, None).unwrap();
+    assert_eq!(ti4_engine_chance::resolved(advance_scoring)(&mut old, &e, None).unwrap().0, Live::Done);
     assert_eq!(old.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 8);
 }
 
@@ -386,8 +384,8 @@ fn the_neural_motivator_draws_a_second_card() {
     s.decks_mut().objective.set(vec![PublicObjective::ALL[0]]);
     s.decks_mut().action.set(ActionCard::ALL.iter().copied().skip(20).take(30).collect());
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
-    advance_scoring(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, None).unwrap();
     assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 2);
     assert_eq!(s.players().by_seat(Seat(1)).unwrap().cards.hand.len(), 1);
 }
@@ -399,8 +397,8 @@ fn the_command_tokens_on_the_board_come_back_at_81_4() {
     let (mut s, k) = Scenario::lobby(2).phase(Phase::Status).active(None).command_token(system, 0).command_token(system, 1).build();
     s.decks_mut().objective.set(vec![PublicObjective::ALL[0]]);
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
-    advance_scoring(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, None).unwrap();
     assert!(s.board().sys(system).cmd.is_empty());
     let Some(ti4_engine_core::state::Window::Tokens(t)) = s.pending().window(WindowKind::Tokens) else { panic!("tokens") };
     assert_eq!(t.report.returned_command_tokens.as_slice(), [(system, Seat(0)), (system, Seat(1))]);
@@ -425,7 +423,7 @@ fn finish_of(factions: &[Faction], rules: u32, tokens: (i16, i16, i16)) -> (Core
 }
 
 fn ask_redistribution(s: &mut CoreState, k: &Kernel) -> Option<(u8, u8)> {
-    match advance_tokens(s, &env(k), None).unwrap().0 {
+    match ti4_engine_chance::resolved(advance_tokens)(s, &env(k), None).unwrap().0 {
         Live::Asks(q) => match q.choice.ask {
             Ask::Strategy(SAsk::StatusRedistribute { total, floor }) => {
                 assert_eq!(q.choice.actor, Seat(0));
@@ -448,7 +446,7 @@ fn the_redistribution_asks_the_whole_sheet_with_the_floor_of_the_faction_and_the
     let (mut s, k) = finish_of(&[Faction::TheBaronyOfLetnev, Faction::TheEmiratesOfHacan], 3, (3, 3, 2));
     assert_eq!(ask_redistribution(&mut s, &k), Some((8, 2)), "before the version the usual floor");
     let (mut s, k) = finish_of(&[Faction::TheFederationOfSol, Faction::TheEmiratesOfHacan], 40, (0, 0, 0));
-    assert_eq!(advance_tokens(&mut s, &env(&k), None).map(|r| r.0.clone()).unwrap_or(Live::Done), Live::Done, "an empty sheet asks nothing (the other seat has the default tokens)");
+    assert_eq!(ti4_engine_chance::resolved(advance_tokens)(&mut s, &env(&k), None).map(|r| r.0.clone()).unwrap_or(Live::Done), Live::Done, "an empty sheet asks nothing (the other seat has the default tokens)");
 }
 
 #[test]
@@ -504,7 +502,7 @@ fn a_secret_is_offered_in_the_window_of_the_occurrence_its_feat_was_recorded_for
 }
 
 fn advance_scoring_event(s: &mut CoreState, e: &Env<'_>, pick: Pick) -> (Live, Out) {
-    ti4_engine_core::driver::windows::status::advance_event_scoring(s, e, Some(pick)).unwrap()
+    ti4_engine_chance::resolved(ti4_engine_core::driver::windows::status::advance_event_scoring)(s, e, Some(pick)).unwrap()
 }
 
 #[test]
@@ -566,13 +564,13 @@ fn an_event_window_that_leaves_the_agenda_queue_behind_closes_into_the_next_reve
     let (mut s, k) = Scenario::lobby(2).phase(Phase::Agenda).build();
     open_event(&mut s, ScoringTiming::Agenda, 1, true);
     s.pending_mut().open(ti4_engine_core::state::Window::AgendaQueueAfterEventScoring([Agenda::ALL[0]].into_iter().collect()));
-    let (live, _) = ti4_engine_core::driver::windows::status::advance_event_scoring(&mut s, &env(&k), None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(ti4_engine_core::driver::windows::status::advance_event_scoring)(&mut s, &env(&k), None).unwrap();
     assert_eq!(live, Live::Done);
     assert!(s.pending().window(ti4_engine_core::state::WindowKind::AgendaQueueAfterEventScoring).is_none(), "the queue was taken");
     assert!(s.pending().window(ti4_engine_core::state::WindowKind::TurnFlow).is_none() && s.pending().window(ti4_engine_core::state::WindowKind::Voting).is_none());
     let (mut plain, k) = Scenario::lobby(2).phase(Phase::Agenda).build();
     open_event(&mut plain, ScoringTiming::Agenda, 1, true);
-    assert_eq!(ti4_engine_core::driver::windows::status::advance_event_scoring(&mut plain, &env(&k), None).unwrap().0, Live::Done);
+    assert_eq!(ti4_engine_chance::resolved(ti4_engine_core::driver::windows::status::advance_event_scoring)(&mut plain, &env(&k), None).unwrap().0, Live::Done);
 }
 
 #[test]
@@ -582,14 +580,14 @@ fn a_hand_exactly_at_the_limit_after_the_draw_asks_nothing_and_one_distinct_card
     s.decks_mut().action.set(ActionCard::ALL.iter().copied().skip(20).take(30).collect());
     s.players_mut().edit(0).cards.hand = ActionCard::ALL.iter().copied().take(6).collect();
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
-    assert_eq!(advance_scoring(&mut s, &e, None).unwrap().0, Live::Done, "seven cards are within the limit");
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
+    assert_eq!(ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, None).unwrap().0, Live::Done, "seven cards are within the limit");
     // Scheming over a hand whose cards all share one printed name: nothing to choose.
     let (mut y, k) = yssaril_table();
     let mut e = env(&k);
     e.table.facts.card_groups = vec![0; ActionCard::COUNT];
-    advance_status(&mut y, &e, None).unwrap();
-    assert_eq!(advance_scoring(&mut y, &e, None).unwrap().0, Live::Done);
+    ti4_engine_chance::resolved(advance_status)(&mut y, &e, None).unwrap();
+    assert_eq!(ti4_engine_chance::resolved(advance_scoring)(&mut y, &e, None).unwrap().0, Live::Done);
     assert_eq!(y.players().by_seat(Seat(1)).unwrap().cards.hand.len(), 3, "2 held + 2 drawn - 1 discarded");
     assert!(y.marks().tail.iter().any(|(k, _)| matches!(k, ti4_engine_core::keys::MarkKey::CardsStaged(_))), "the discard waits for the announcement");
 }
@@ -598,16 +596,16 @@ fn a_hand_exactly_at_the_limit_after_the_draw_asks_nothing_and_one_distinct_card
 fn a_fresh_window_with_something_to_score_runs_to_its_question() {
     let (mut s, k) = marvel();
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
     let held = s.clone();
-    let (live, _) = advance_scoring(&mut s, &e, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, None).unwrap();
     let Live::Asks(q) = live else { panic!("seat 0 is asked") };
     assert_eq!(q.choice.ask, Ask::Objectives(ti4_engine_core::choice::objectives::Ask::Score { vp: 0 }));
     assert_eq!(q.choice, ask_scoring(&held, &e).unwrap().unwrap().choice, "the stage question and the question the step puts are one");
     // The seat holds points: the question shows them.
     let mut rich = held.clone();
     rich.players_mut().edit(0).econ.victory_points = 4;
-    let Live::Asks(q) = advance_scoring(&mut rich, &e, None).unwrap().0 else { panic!("asked") };
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_scoring)(&mut rich, &e, None).unwrap().0 else { panic!("asked") };
     assert_eq!(q.choice.ask, Ask::Objectives(ti4_engine_core::choice::objectives::Ask::Score { vp: 4 }));
     assert_eq!(q.choice, ask_scoring(&rich, &e).unwrap().unwrap().choice);
 }
@@ -622,10 +620,10 @@ fn the_close_readies_the_technologies_of_every_seat_and_repairs_the_units_on_pla
     }
     ti4_engine_core::rules::token_gain::TokenGain::new(Tokens { pending: Default::default(), placed: Default::default(), report: Default::default() }).to_pending(&mut s);
     let e = env(&k);
-    let mut live = advance_tokens(&mut s, &e, None);
+    let mut live = ti4_engine_chance::resolved(advance_tokens)(&mut s, &e, None);
     while let Ok((Live::Asks(q), _)) = &live {
         let pick = q.choice.pick(0).unwrap();
-        live = advance_tokens(&mut s, &e, Some(pick));
+        live = ti4_engine_chance::resolved(advance_tokens)(&mut s, &e, Some(pick));
     }
     assert_eq!(live.unwrap().0, Live::Done);
     assert!(s.players().iter().all(|p| p.tech.exhausted.is_empty()), "every seat's technologies ready");
@@ -674,8 +672,8 @@ fn a_seat_with_one_token_is_asked_to_redistribute_and_an_empty_deck_draws_nothin
     s.decks_mut().objective.set(vec![PublicObjective::ALL[0]]);
     s.decks_mut().action.set(Vec::new());
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
-    advance_scoring(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, None).unwrap();
     let Some(ti4_engine_core::state::Window::Tokens(t)) = s.pending().window(WindowKind::Tokens) else { panic!("tokens") };
     assert_eq!(t.report.action_cards_drawn.as_slice(), [(Seat(0), 0), (Seat(1), 0)]);
 }
@@ -713,9 +711,9 @@ fn scheming_without_the_printed_name_groups_is_a_counted_gap_and_a_public_leak_s
     let (mut y, k) = yssaril_table();
     let mut e = env(&k);
     e.table.facts.card_groups = Vec::new();
-    advance_status(&mut y, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut y, &e, None).unwrap();
     let held = y.clone();
-    assert_eq!(advance_scoring(&mut y, &e, None), gap(TurnGap::NoRoster));
+    assert_eq!(ti4_engine_chance::resolved(advance_scoring)(&mut y, &e, None), gap(TurnGap::NoRoster));
     assert_eq!(y, held);
     // A secret made public that its holder's position satisfies is scored as a public objective: the public cap is used, the hand untouched.
     let planet = Planet::ALL.iter().copied().find(|p| p.data().legendary && p.data().system.is_some()).unwrap();
@@ -723,9 +721,9 @@ fn scheming_without_the_printed_name_groups_is_a_counted_gap_and_a_public_leak_s
     s.decks_mut().objective.set(vec![PublicObjective::ALL[0]]);
     s.objectives_mut().revealed.push(ObjectiveRef::Secret(SecretObjective::SeizeAnIcon));
     let e = env(&k);
-    advance_status(&mut s, &e, None).unwrap();
+    ti4_engine_chance::resolved(advance_status)(&mut s, &e, None).unwrap();
     let pick = Pick::Opt(Opt::Objectives(OOpt::Score(ObjectiveRef::Secret(SecretObjective::SeizeAnIcon))));
-    advance_scoring(&mut s, &e, Some(pick)).unwrap();
+    ti4_engine_chance::resolved(advance_scoring)(&mut s, &e, Some(pick)).unwrap();
     assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.victory_points, 1);
 }
 
@@ -746,7 +744,7 @@ fn the_status_phase_readies_artunos_card_and_pays_out_its_pile() {
     let artuno = ti4_engine_core::state::Code(77);
     e.table.codes.not_from_supply[4] = artuno;
     ti4_engine_core::driver::turn::open_job(&mut s, ti4_engine_core::state::TurnJob::StatusFinish);
-    advance::<TurnFlowWin>(&mut s, &e, None).expect("the finish of the status phase runs");
+    ti4_engine_chance::resolved(advance::<TurnFlowWin>)(&mut s, &e, None).expect("the finish of the status phase runs");
     let p = s.players().by_seat(Seat(0)).unwrap();
     assert_eq!(p.leaders.status.get(&Leader::ArtunoTheBetrayer), Some(&LeaderStatus::Readied), "the card readied");
     assert_eq!(p.econ.trade_goods, before + 3, "the pile is paid");

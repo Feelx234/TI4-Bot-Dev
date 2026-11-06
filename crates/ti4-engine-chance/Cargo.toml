@@ -1,0 +1,16 @@
+[package]
+name = "ti4-engine-chance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "The chance resolver over the core (docs/FORK_RNG_THEORY.md 4.4): the core asks a question for every random event; in play this crate answers it from the streams held in the position, in search it passes it up untouched. Names only ti4-engine-core and ti4-chance."
+
+# Only the core and the bottom crate of the randomness (tools/engine_core/check_layers.py `resolver`): not the factions, the setup, the
+# legacy string engine or the thin crate. No clock, threads or OS entropy (it is linked into the browser build).
+[dependencies]
+ti4-chance.workspace = true
+ti4-engine-core.workspace = true
+
+[lints]
+workspace = true

@@ -141,8 +141,7 @@ mod real {
         let mut table = AbilityTable::default();
         table.facts.card_groups = crate::reactions_core::card_groups();
         ti4_engine_core::driver::children::register(&mut table);
-        let seeds = std::rc::Rc::new(crate::core_sync::codec::rng::TextSeeds::of(&cx));
-        let mut driver = crate::window_driver::driver_for(KyverHero::new(seat, limit == plain), Resolver::new(&seats, Some(seat)), table, 1).with_seeds(seeds);
+        let mut driver = crate::window_driver::driver_for(KyverHero::new(seat, limit == plain), Resolver::new(&seats, Some(seat)), table, 1);
         let mut after = None;
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy: None, rng: Some(rng_before) }, KYVER, |core, _| {
             let driven = crate::dual_window::drive(&mut driver, core, &kernel, &r, &before, script);
@@ -224,8 +223,7 @@ mod real {
         let kernel = crate::core_adapter::kernel_for(sources);
         let mut table = AbilityTable::default();
         ti4_engine_core::driver::children::register(&mut table);
-        let seeds = std::rc::Rc::new(crate::core_sync::codec::rng::TextSeeds::of(&cx));
-        let mut driver = crate::window_driver::driver_for(CabalHero::new(seat, true, pieces, stranded), Resolver::new(&seats, Some(seat)), table, 1).with_seeds(seeds);
+        let mut driver = crate::window_driver::driver_for(CabalHero::new(seat, true, pieces, stranded), Resolver::new(&seats, Some(seat)), table, 1);
         let mut after = None;
         let driven = crate::core_sync::with_core(gs, &mut cx, Sources { galaxy: None, rng: Some(rng_before) }, CARRION, |core, _| {
             let driven = crate::dual_window::drive(&mut driver, core, kernel, &r, &before, script);

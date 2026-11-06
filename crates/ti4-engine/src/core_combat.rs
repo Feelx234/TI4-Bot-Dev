@@ -355,17 +355,16 @@ impl<'g> CombatView<'g> {
         &mut self,
         seed: u64,
         positions: &crate::rng::RngPositions,
-        f: impl FnOnce(Rd<'_>, &mut ti4_engine_core::state::Rng, &dyn ti4_engine_core::state::SeedSource) -> Vec<cc::FleetRoll>,
+        f: impl FnOnce(Rd<'_>, &mut ti4_engine_core::state::Rng) -> Vec<cc::FleetRoll>,
     ) -> Option<(Vec<cc::FleetRoll>, crate::rng::RngPositions)> {
-        use ti4_engine_core::state::{Rng as CoreRng, RngDomain, SeedSource};
+        use ti4_engine_core::state::{Rng as CoreRng, RngDomain};
         let mut typed_pos: Vec<(RngDomain, u128)> = Vec::new();
         for (t, p) in positions {
             typed_pos.push((crate::core_sync::codec::rng::domain(&mut self.cx, t).ok()?, *p));
         }
-        let seeds = crate::core_sync::codec::rng::TextSeeds::of(&self.cx);
         let mut rng = CoreRng::new(seed);
-        rng.set_positions(&typed_pos, &seeds as &dyn SeedSource);
-        let rolls = self.with(|rd| f(rd, &mut rng, &seeds));
+        rng.set_positions(&typed_pos);
+        let rolls = self.with(|rd| f(rd, &mut rng));
         let after = crate::core_sync::codec::rng::positions(&self.cx, &rng).ok()?;
         Some((rolls, after))
     }
@@ -380,7 +379,7 @@ impl<'g> CombatView<'g> {
         system: &SystemId,
     ) -> Option<(Vec<cc::FleetRoll>, crate::rng::RngPositions)> {
         let (seat, sys) = (self.seat(player)?, typed::<System>(system.as_str())?);
-        self.drawn(seed, positions, |rd, rng, seeds| cc::roll_fleet(rd, rng, seeds, seat, sys))
+        self.drawn(seed, positions, |rd, rng| cc::roll_fleet(rd, &mut || rng.die(ti4_engine_core::state::RngDomain::Dice, 10), seat, sys))
     }
 
     /// `combat::roll_barrage_side`'s dice from the dice stream standing at `positions`.
@@ -393,7 +392,7 @@ impl<'g> CombatView<'g> {
         system: &SystemId,
     ) -> Option<(Vec<cc::FleetRoll>, crate::rng::RngPositions)> {
         let (seat, sys) = (self.seat(player)?, typed::<System>(system.as_str())?);
-        self.drawn(seed, positions, |rd, rng, seeds| cc::roll_barrage(rd, rng, seeds, seat, sys))
+        self.drawn(seed, positions, |rd, rng| cc::roll_barrage(rd, &mut || rng.die(ti4_engine_core::state::RngDomain::Dice, 10), seat, sys))
     }
 
     /// [`Self::roll_fleet_raw`] (or the barrage when `barrage`) as the dice history it leaves: each entry as
@@ -415,9 +414,9 @@ impl<'g> CombatView<'g> {
             None => None,
         };
         let (rolls, after) = if barrage {
-            self.drawn(seed, positions, |rd, rng, seeds| cc::roll_barrage(rd, rng, seeds, seat, sys))?
+            self.drawn(seed, positions, |rd, rng| cc::roll_barrage(rd, &mut || rng.die(ti4_engine_core::state::RngDomain::Dice, 10), seat, sys))?
         } else {
-            self.drawn(seed, positions, |rd, rng, seeds| cc::roll_fleet(rd, rng, seeds, seat, sys))?
+            self.drawn(seed, positions, |rd, rng| cc::roll_fleet(rd, &mut || rng.die(ti4_engine_core::state::RngDomain::Dice, 10), seat, sys))?
         };
         let mut ledger = ti4_engine_core::state::Ledger::default();
         let purpose = if barrage { RollPurpose::AntiFighterBarrage } else { RollPurpose::SpaceCombat };

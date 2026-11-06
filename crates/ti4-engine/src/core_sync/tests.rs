@@ -200,7 +200,7 @@ fn state_sizes_stay_inside_the_f1_targets() {
 // ---- D2-3: the text tables travel with the state --------------------------------------------------
 
 mod text_tables {
-    use ti4_engine_core::state::{Code, CoreState, RngDomain, SeedSource};
+    use ti4_engine_core::state::{Code, CoreState, RngDomain};
     use ti4_model::id::PlayerId;
 
     use super::*;
@@ -363,21 +363,14 @@ mod text_tables {
         assert!(named.refresh(&gs).is_ok());
     }
 
-    #[cfg(debug_assertions)]
     #[test]
-    #[should_panic(expected = "has no text in the code table")]
-    fn a_dyn_rng_domain_without_a_text_fails_in_debug_instead_of_seeding_wrong() {
-        let seeds = super::codec::rng::TextSeeds(CoreState::default().texts);
-        let _ = seeds.seed_for(1, RngDomain::Dyn(9, 0));
-    }
-
-    #[test]
-    fn a_dyn_rng_domain_minted_before_the_clone_seeds_like_the_string_engine() {
+    fn a_stream_name_that_is_no_literal_is_refused_at_load() {
+        // Decision D3 (docs/FORK_RNG_THEORY.md 4.0): no dynamic stream domains; an unknown name is an error, not a stream.
         let mut cx = Ctx::of(&game()).unwrap();
-        let d = super::codec::rng::domain(&mut cx, "a stream nobody named before").unwrap();
-        assert!(matches!(d, RngDomain::Dyn(..)));
-        let seeds = super::codec::rng::TextSeeds::of(&cx);
-        assert_eq!(seeds.seed_for(5, d), crate::rng::GameRng::derive_seed(5, "a stream nobody named before"));
+        assert!(super::codec::rng::domain(&mut cx, "a stream nobody named before").is_err());
+        let d = super::codec::rng::domain(&mut cx, "dice").unwrap();
+        assert_eq!(d, RngDomain::Dice);
+        assert_eq!(super::codec::rng::domain_text(&cx, d).unwrap(), "dice");
     }
 }
 

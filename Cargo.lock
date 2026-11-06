@@ -4077,8 +4077,6 @@ dependencies = [
  "rand_chacha 0.9.0",
  "rand_core 0.9.5",
  "sha2",
- "ti4-engine-core",
- "ti4-engine-core-setup",
 ]
 
 [[package]]
@@ -4125,7 +4123,9 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror 2.0.20",
+ "ti4-chance",
  "ti4-content",
+ "ti4-engine-chance",
  "ti4-engine-core",
  "ti4-engine-core-factions",
  "ti4-engine-core-setup",
@@ -4137,12 +4137,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ti4-engine-chance"
+version = "0.1.0"
+dependencies = [
+ "ti4-chance",
+ "ti4-engine-core",
+]
+
+[[package]]
 name = "ti4-engine-core"
 version = "0.1.0"
 dependencies = [
- "rand 0.9.5",
- "rand_chacha 0.9.0",
- "rand_core 0.9.5",
+ "ti4-chance",
  "ti4-content",
  "ti4-model",
 ]
@@ -4158,8 +4164,10 @@ dependencies = [
  "serde_json",
  "sha2",
  "strum",
+ "ti4-chance",
  "ti4-content",
  "ti4-engine",
+ "ti4-engine-chance",
  "ti4-engine-core",
  "ti4-engine-core-setup",
  "ti4-engine-legacy",
@@ -4178,6 +4186,7 @@ dependencies = [
 name = "ti4-engine-core-factions"
 version = "0.1.0"
 dependencies = [
+ "ti4-chance",
  "ti4-engine-core",
 ]
 
@@ -4185,10 +4194,8 @@ dependencies = [
 name = "ti4-engine-core-setup"
 version = "0.1.0"
 dependencies = [
- "rand 0.9.5",
- "rand_chacha 0.9.0",
- "sha2",
  "thiserror 2.0.20",
+ "ti4-chance",
  "ti4-content",
  "ti4-engine-core",
  "ti4-engine-core-factions",
@@ -4201,8 +4208,10 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "serde_json",
+ "ti4-chance",
  "ti4-content",
  "ti4-engine",
+ "ti4-engine-chance",
  "ti4-engine-core",
  "ti4-engine-core-bridge",
  "ti4-engine-core-factions",
@@ -4221,7 +4230,9 @@ dependencies = [
  "sha2",
  "strum",
  "thiserror 2.0.20",
+ "ti4-chance",
  "ti4-content",
+ "ti4-engine-chance",
  "ti4-engine-core",
  "ti4-engine-core-factions",
  "ti4-model",

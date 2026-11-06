@@ -39,12 +39,15 @@ impl Family for Fam {
         match a {
             GAsk::Confirm => "Continue?".to_owned(),
             GAsk::Count { .. } => "Choose a number".to_owned(),
+            // A random event of the core (lane C3). The chance resolver answers it before any table sees it.
+            GAsk::Chance(_) => "Roll".to_owned(),
         }
     }
 
     fn subtype(_: &Render, s: &GSubtype) -> String {
         match s {
             GSubtype::Unclassified => "unclassified".to_owned(),
+            GSubtype::Chance => "chance".to_owned(),
         }
     }
 

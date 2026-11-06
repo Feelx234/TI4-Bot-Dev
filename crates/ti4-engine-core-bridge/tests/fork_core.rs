@@ -20,7 +20,6 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
 
 use ti4_engine::live;
 use ti4_engine::render::Render;
@@ -29,7 +28,7 @@ use ti4_engine_core::driver::live::{ask_arm_fn, is_open, live_arm, AskFn, Asking
 use ti4_engine_core::driver::session::{live_ask_arm, step_arm, Arm, AskArm, Facts};
 use ti4_engine_core::driver::turn::{self, TurnFlowWin};
 use ti4_engine_core::kernel::Kernel;
-use ti4_engine_core::state::{census, CoreState, RngDomain, SeedSource, WindowKind};
+use ti4_engine_core::state::{census, CoreState, RngDomain, WindowKind};
 use ti4_engine_core_bridge::native_play::{lobby_spec, NativeGame};
 use ti4_model::content_types::SourceSet;
 
@@ -96,6 +95,9 @@ struct Calls {
     advance_draws: u64,
     failed_advances: u64,
     failed_draws: u64,
+    /// The chance requests the resolver answered and their faces (lane C3: what the game committed).
+    answered: u64,
+    answered_faces: u64,
 }
 
 /// A game on the core live API, the bot of `perf_kernel` (seeded weighted random pick over the typed options).
@@ -104,7 +106,6 @@ struct Play {
     render: Render,
     ids: Vec<String>,
     sources: SourceSet,
-    seeds: Rc<dyn SeedSource>,
     kernel: &'static Kernel,
     /// The bot's seed: a copy with another seed answers differently.
     seed: u64,
@@ -124,6 +125,74 @@ struct Play {
     rolled_steps: Vec<usize>,
     record: bool,
     calls: Calls,
+    /// Search mode (lane C4): the chance questions are answered from these streams of the caller, never from the position's.
+    search: Option<Box<Search>>,
+}
+
+/// What a game played in Search mode carries (lane C4, decision D2): its own streams, the position's streams it must never move, and
+/// whether every call is also made on a copy (a fork at every question and at every chance question).
+#[derive(Clone)]
+struct Search {
+    streams: ti4_chance::Streams,
+    untouched: ti4_chance::Streams,
+    fork_every: bool,
+    /// Calls repeated on a copy, and chance questions answered otherwise on a copy.
+    forks: u64,
+    chance_forks: u64,
+    /// The chance questions answered.
+    chances: u64,
+}
+
+/// Other faces than `faces` for `req` (every face moved by one, wrapping inside `1..=sides`).
+fn other_faces(req: &ti4_chance::Request, faces: &ti4_chance::Faces) -> ti4_chance::Faces {
+    let sides = req.sides().max(1);
+    let mut out = ti4_chance::Faces::default();
+    for f in faces.as_slice() {
+        let _ = out.try_push(if *f >= sides { 1 } else { f + 1 });
+    }
+    out
+}
+
+/// One call of `f` in Search mode; with `fork_every`, the same call is first made on a copy, which must give the same result.
+fn search_call(core: &mut CoreState, env: &Env<'_>, f: LiveFn, pick: Option<Pick>, s: &mut Search) -> Result<(Live, ti4_engine_core::driver::live::Out), ti4_engine_core::driver::live::LiveError> {
+    let copy = s.fork_every.then(|| core.clone());
+    let r = f(core, env, pick);
+    if let Some(mut copy) = copy {
+        s.forks += 1;
+        let again = f(&mut copy, env, pick);
+        assert_eq!(again, r, "a copy answered the same way gives the same result");
+        assert!(copy == *core, "and the same position");
+    }
+    r
+}
+
+/// [`ti4_engine_chance::advance_in`] in Search mode with the caller's own answers: every chance question is answered from `s.streams`; the
+/// position's streams are asserted untouched after every call. With `fork_every`, at every chance question a copy is also answered with
+/// other faces: the copy's streams do not move either, and the original goes on unaffected.
+fn advance_search(core: &mut CoreState, env: &Env<'_>, f: LiveFn, pick: Option<Pick>, s: &mut Search) -> Result<(Live, ti4_engine_core::driver::live::Out), ti4_engine_core::driver::live::LiveError> {
+    let (mut live, mut out) = search_call(core, env, f, pick, s)?;
+    loop {
+        assert!(core.rng == s.untouched, "a search never touches the position's streams");
+        let Live::Asks(asking) = &live else { return Ok((live, out)) };
+        let Some(req) = ti4_engine_chance::chance_asked(asking) else { return Ok((live, out)) };
+        let faces = ti4_chance::answer_mut(&req, &mut s.streams);
+        if s.fork_every {
+            let mut copy = core.clone();
+            let other = other_faces(&req, &faces);
+            if let Ok((other_live, _)) = f(&mut copy, env, Some(Pick::Chance(other))) {
+                assert!(copy.rng == s.untouched, "a copy answered with other faces leaves the streams alone too");
+                let _ = other_live;
+            }
+            s.chance_forks += 1;
+        }
+        s.chances += 1;
+        let (next, more) = search_call(core, env, f, Some(Pick::Chance(faces)), s)?;
+        out.emitted.extend(more.emitted);
+        out.journal.extend(more.journal);
+        out.opened.extend(more.opened);
+        out.held = more.held;
+        live = next;
+    }
 }
 
 fn weight(o: &Opt) -> u64 {
@@ -143,10 +212,10 @@ fn positions(core: &CoreState) -> Vec<(RngDomain, u128)> {
 impl Play {
     fn new(players: usize, seed: u64, faction: &str) -> Self {
         let g = NativeGame::from_spec(&lobby_spec(faction, players, seed)).expect("the lobby game builds");
-        let (core, cx, render, _base, kernel, seeds, sources) = g.probe();
+        let (core, cx, render, _base, kernel, sources) = g.probe();
         let ids = cx.owners.ids().to_vec();
         let render = Self::cold_render(&ids, render);
-        Self { core: core.clone(), render, ids, sources, seeds, kernel, seed, decided: 0, steps: 0, chain: 0xcbf2_9ce4_8422_2325, outs: 0, after_glue: false, rolled_in_step: false, rolled_since_answer: false, seen: Vec::new(), rolled_steps: Vec::new(), record: false, calls: Calls::default() }
+        Self { core: core.clone(), render, ids, sources, kernel, seed, decided: 0, steps: 0, chain: 0xcbf2_9ce4_8422_2325, outs: 0, after_glue: false, rolled_in_step: false, rolled_since_answer: false, seen: Vec::new(), rolled_steps: Vec::new(), record: false, calls: Calls::default(), search: None }
     }
 
     /// A render that knows nothing but the code table of `r` (the memos are rebuilt on demand).
@@ -163,7 +232,6 @@ impl Play {
             render: Self::cold_render(&self.ids, &self.render),
             ids: self.ids.clone(),
             sources: self.sources,
-            seeds: Rc::clone(&self.seeds),
             kernel: self.kernel,
             seed: self.seed,
             decided: self.decided,
@@ -177,6 +245,7 @@ impl Play {
             rolled_steps: Vec::new(),
             record: false,
             calls: Calls::default(),
+            search: self.search.clone(),
         }
     }
 
@@ -215,7 +284,18 @@ impl Play {
     fn advance(&mut self, advance: LiveFn, env: &Env<'_>, pick: Option<Pick>) -> Result<(Live, bool), String> {
         let mark = census::mark();
         let before = positions(&self.core);
-        match advance(&mut self.core, env, pick) {
+        // Every chance question of the core is answered from the position's streams (lane C3).
+        let (mut answered, mut faces) = (0u64, 0u64);
+        let ran = match self.search.as_deref_mut() {
+            Some(search) => advance_search(&mut self.core, env, advance, pick, search),
+            None => ti4_engine_chance::advance_observed(&mut self.core, env, advance, pick, &mut |_, f| {
+                answered += 1;
+                faces += f.len() as u64;
+            }),
+        };
+        self.calls.answered += answered;
+        self.calls.answered_faces += faces;
+        match ran {
             Ok((live, out)) => {
                 self.calls.advance_draws += census::mark() - mark;
                 if positions(&self.core) != before {
@@ -321,7 +401,7 @@ impl Play {
             Some(mid) => mid.step_env.clone(),
             None => {
                 self.rolled_in_step = false;
-                live::env::env_with_plays(render, &self.core, self.kernel, self.seeds.clone(), self.sources)
+                live::env::env_with_plays(render, &self.core, self.kernel, self.sources)
             }
         };
         let mut resumed = from;
@@ -812,19 +892,21 @@ impl Tally {
         let to: Vec<(RngDomain, u128)> = end.rng.positions().collect();
         let upto = |d: RngDomain| to.iter().find(|(x, _)| *x == d).map_or(0, |(_, p)| *p);
         let committed_words = to.iter().map(|(d, p)| u64::try_from(p - from(*d)).unwrap_or(0)).sum();
-        let committed_draws = counts.starts.iter().filter(|(d, p)| *p >= from(*d) && *p < upto(*d)).count() as u64;
+        // (Lane C3: the core draws nothing; the faces the resolver answered are what the game committed, and they moved the streams.)
+        let _ = upto;
+        let committed_draws = calls.answered_faces;
         let ledger_faces = end.ledger.dice.iter().map(|r| r.faces.len() as u64).sum();
         Self {
             steps,
-            draws: counts.draws,
-            words: counts.words,
+            draws: counts.faces,
+            words: counts.requests,
             committed_draws,
             committed_words,
             ledger_faces,
             dry_rollbacks: counts.dry_rollbacks,
-            dry_draws: counts.dry_draws,
+            dry_draws: counts.dry_requests,
             err_rollbacks: counts.err_rollbacks,
-            err_draws: counts.err_draws,
+            err_draws: counts.err_requests,
             ask_draws: calls.ask_draws,
             failed_advances: calls.failed_advances,
             failed_draws: calls.failed_draws,
@@ -886,7 +968,7 @@ fn the_draw_census_counts_the_draws_the_rollbacks_throw_away() {
         eprintln!("CENSUS core {players}p seed {seed} {faction}: {}", t.line());
         // A committed draw was drawn; every other draw was thrown away with a rolled-back run (or a scratch / failed call).
         assert!(t.committed_draws <= t.draws && t.committed_draws > 0);
-        assert!(counts.shuffles == 0, "no in-game shuffle");
+        assert!(counts.asked > 0 && counts.from_tape > 0, "the requests were asked, then read back from the tape");
         total.add(&t);
     }
     eprintln!("CENSUS core total: {}", total.line());
@@ -935,9 +1017,9 @@ fn the_draw_census_of_the_quick_game_and_two_bot_games_on_the_thin_game() {
         let (from, to) = (start, game.rng_positions());
         let committed_words: u64 = to.iter().map(|(d, p)| u64::try_from(p - from.get(d).copied().unwrap_or(0)).unwrap_or(0)).sum();
         let faces: u64 = game.rolls().iter().map(|r| r.faces.len() as u64).sum();
-        let t = Tally { steps, draws: counts.draws, words: counts.words, committed_draws: committed_words, committed_words, ledger_faces: faces, dry_rollbacks: counts.dry_rollbacks, dry_draws: counts.dry_draws, err_rollbacks: counts.err_rollbacks, err_draws: counts.err_draws, ..Tally::default() };
+        let t = Tally { steps, draws: counts.faces, words: counts.requests, committed_draws: committed_words, committed_words, ledger_faces: faces, dry_rollbacks: counts.dry_rollbacks, dry_draws: counts.dry_requests, err_rollbacks: counts.err_rollbacks, err_draws: counts.err_requests, ..Tally::default() };
         eprintln!("CENSUS thin {players}p seed {seed} {faction}: {} (committed = stream words; {} roll rows)", t.line(), game.rolls().len());
-        assert!(t.committed_words <= t.words);
+        assert!(t.dry_draws <= t.draws, "requests met in rolled-back runs are requests met");
         total.add(&t);
     }
     eprintln!("CENSUS thin total: {}", total.line());
@@ -997,5 +1079,88 @@ fn the_remembered_nested_question_serves_the_answers_and_the_debug_check_finds_n
         if debug {
             assert_eq!(c.checked, c.answer_hits + c.read_hits, "every memo use was checked");
         }
+    }
+}
+
+// -- lane C4: Search mode (docs/FORK_RNG_THEORY.md 4.4, 4.7 T3c) ------------------------------------------------------------------------
+
+/// The fourteen games of `perf_kernel suite 1`.
+const SUITE: &[(usize, u64, &str)] = &[
+    (3, 1, "sol"), (3, 2, "hacan"), (3, 3, "yssaril"),
+    (4, 1, "sol"), (4, 2, "letnev"), (4, 3, "jolnar"), (4, 4, "mahact"), (4, 5, "nekro"),
+    (5, 1, "xxcha"), (5, 2, "l1z1x"), (5, 3, "ghost"),
+    (6, 1, "arborec"), (6, 2, "muaat"), (6, 3, "naalu"),
+];
+
+/// T3c over the suite. Each game is played twice: in Play mode (the resolver answers every chance question from the position's
+/// streams) and in Search mode, where the test answers them from its OWN copy of the starting streams and every call is also made on a
+/// fork (a fork at every question and at every chance question; a fork of each chance question is answered with other faces too).
+/// Required: the Search game never moves the position's streams; the two games give the same answers, outputs and positions (with the
+/// streams set aside), and the Play game's streams end where the search's own copy ends; every fork answered the same way gives the same
+/// result, and a fork answered otherwise leaves the streams alone as well.
+#[test]
+fn a_search_answers_every_chance_question_itself_never_moves_the_streams_and_forks_anywhere() {
+    let (mut games, mut forks, mut chance_forks, mut chances) = (0, 0, 0, 0);
+    for &(players, seed, faction) in SUITE {
+        let mut play = Play::new(players, seed, faction);
+        let mut search = Play::new(players, seed, faction);
+        let start = search.core.rng.clone();
+        search.search = Some(Box::new(Search { streams: start.clone(), untouched: start.clone(), fork_every: true, forks: 0, chance_forks: 0, chances: 0 }));
+        assert!(play.play_until(None, 20_000).expect("plays"), "{players}p {seed} {faction}: the game ends");
+        assert!(search.play_until(None, 20_000).expect("searches"), "{players}p {seed} {faction}: the searched game ends");
+        let s = search.search.take().expect("search mode");
+        assert!(search.core.rng == start, "the searched game's streams never moved");
+        assert!(play.core.rng == s.streams, "the played game's streams end where the search's own copy ends");
+        assert_eq!((play.chain, play.outs, play.decided, play.steps), (search.chain, search.outs, search.decided, search.steps), "{players}p {seed} {faction}: the same game");
+        let mut searched = search.core.clone();
+        searched.rng = play.core.rng.clone();
+        assert!(searched == play.core, "{players}p {seed} {faction}: the same position, the streams set aside");
+        assert_eq!(s.chances, play.calls.answered, "as many chance questions answered");
+        eprintln!("C4 {players}p {seed} {faction}: steps {} chance {} forks {} chance forks {}", search.steps, s.chances, s.forks, s.chance_forks);
+        games += 1;
+        forks += s.forks;
+        chance_forks += s.chance_forks;
+        chances += s.chances;
+    }
+    eprintln!("C4 total: {games} games, {chances} chance questions, {forks} forks at a call, {chance_forks} chance forks answered otherwise");
+    assert!(chances > 100 && chance_forks == chances);
+}
+
+/// T3c at the core live API without a game: at every chance question of a suite game played in Search mode, a copy is taken and resumed
+/// later (after the original played on 40 steps) with the same faces; the copy then plays the same 40 steps to the same position.
+#[test]
+fn a_copy_taken_at_a_chance_question_resumes_later_to_the_same_game() {
+    let mut resumed = 0;
+    for &(players, seed, faction) in &[(4, 3, "jolnar"), (6, 2, "muaat")] {
+        let mut a = Play::new(players, seed, faction);
+        let start = a.core.rng.clone();
+        a.search = Some(Box::new(Search { streams: start.clone(), untouched: start, fork_every: false, forks: 0, chance_forks: 0, chances: 0 }));
+        let mut last = 0;
+        while !a.play_until(None, a.steps + 1).expect("plays") {
+            let chances = a.search.as_ref().map_or(0, |s| s.chances);
+            if chances > last && a.steps % 3 == 0 {
+                last = chances;
+                let fork = a.fork();
+                let target = a.steps + 40;
+                let mut b = fork;
+                let over_a = a.clone_to(target);
+                let over_b = b.play_until(None, target).expect("the copy plays");
+                assert_eq!(over_a.0, over_b);
+                assert!(over_a.1.core == b.core && over_a.1.chain == b.chain, "{players}p {seed} {faction}: the copy plays the same steps");
+                resumed += 1;
+            }
+            last = last.max(chances);
+        }
+    }
+    eprintln!("C4: {resumed} copies resumed");
+    assert!(resumed > 5);
+}
+
+impl Play {
+    /// A fork of `self` played to step `target` (whether the game ended, and the fork).
+    fn clone_to(&self, target: usize) -> (bool, Self) {
+        let mut f = self.fork();
+        let over = f.play_until(None, target).expect("plays");
+        (over, f)
     }
 }

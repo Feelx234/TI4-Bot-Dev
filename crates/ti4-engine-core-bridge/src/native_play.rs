@@ -22,11 +22,9 @@
 //! step by the arm and the question source the native loop would need (the volume of each gap).
 
 use std::collections::BTreeMap;
-use std::rc::Rc;
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use ti4_engine::core_sync::codec::rng::TextSeeds;
 use ti4_engine::core_sync::{materialize, Codec, Ctx, Sources};
 use ti4_engine::game::Game;
 use ti4_engine::live::{self, arms, Asker, Question, Stop};
@@ -245,7 +243,6 @@ pub struct NativeGame {
     cx: Ctx,
     render: Render,
     sources: SourceSet,
-    seeds: Rc<TextSeeds>,
     kernel: &'static Kernel,
     /// The position the game began from (the fields no loaded slice carries stay as they were).
     base: ti4_model::state::GameState,
@@ -324,7 +321,6 @@ impl NativeGame {
         let render = Render::new(cx.owners.ids().to_vec()).with_factions(factions).with_codes(core.texts.codes.clone());
         let seats = cx.owners.ids().to_vec();
         Ok(Self {
-            seeds: Rc::new(TextSeeds::of(&cx)),
             kernel: live::kernel::kernel_for(sources),
             base: state.clone(),
             core,
@@ -367,7 +363,6 @@ impl NativeGame {
         let render = Render::new(cx.owners.ids().to_vec()).with_factions(factions).with_codes(core.texts.codes.clone());
         let seats = cx.owners.ids().to_vec();
         Ok(Self {
-            seeds: Rc::new(TextSeeds::of(&cx)),
             kernel: live::kernel::kernel_for(sources),
             base: state,
             core,
@@ -395,7 +390,6 @@ impl NativeGame {
             cx: self.cx.clone(),
             render,
             sources: self.sources,
-            seeds: Rc::clone(&self.seeds),
             kernel: self.kernel,
             base: self.base.clone(),
             seats: self.seats.clone(),
@@ -467,7 +461,7 @@ impl NativeGame {
     }
 
     fn step_inner(&mut self) -> Step {
-        let env = live::env::env_with_plays(&self.render, &self.core, self.kernel, self.seeds.clone(), self.sources);
+        let env = live::env::env_with_plays(&self.render, &self.core, self.kernel, self.sources);
         let lcx = live::Cx::new(&self.render, &env);
         let mut bot = Bot { seed: self.seed, seats: &self.seats, index: self.decided, asked: Vec::new() };
         let from = self.core.ledger.events.len();
@@ -563,10 +557,10 @@ impl NativeGame {
     }
 
     /// The live pieces of the game, for the perf probe (`perf_why micro`, docs/PERF_WHY.md): the core, its context, the renderer, the opening position
-    /// (`base`), the kernel and the text seeds.
+    /// (`base`) and the kernel.
     #[must_use]
-    pub fn probe(&self) -> (&CoreState, &Ctx, &Render, &ti4_model::state::GameState, &'static Kernel, Rc<TextSeeds>, SourceSet) {
-        (&self.core, &self.cx, &self.render, &self.base, self.kernel, self.seeds.clone(), self.sources)
+    pub fn probe(&self) -> (&CoreState, &Ctx, &Render, &ti4_model::state::GameState, &'static Kernel, SourceSet) {
+        (&self.core, &self.cx, &self.render, &self.base, self.kernel, self.sources)
     }
 
     /// The final scores `(faction, victory points)` in seat order.
@@ -1734,7 +1728,7 @@ mod tests {
         assert_eq!((played.rounds, played.steps), (9, 1165), "nine rounds of the table");
         assert!(native.get("tokens").copied().unwrap_or(0) >= 8 && native.get("status").copied().unwrap_or(0) >= 8, "the status phases ran natively, their close included: {native:?}");
         // (Rules version 36 moved the pin from `74d5675ac754ac81`: the hashed position carries `rules_version` 36; the game is the same, see `tests/wrapper_native.rs`.)
-        assert_eq!(played.fingerprint, "538dc68f23dddcc9");
+        assert_eq!(played.fingerprint, "43c985a35397f2c9");
         assert_eq!(g.step(), Step::Finished, "a finished game stops the loop");
     }
 
@@ -1853,7 +1847,7 @@ mod tests {
         let render = Render::new(g.cx.owners.ids().to_vec());
         let core = turn::draft::question(&g.core).expect("the draft is asked");
         let asking = ti4_engine_core::driver::live::Asking { choice: core.clone(), nested: None, at: None };
-        let rendered = live::render_asking(&live::Cx::new(&render, &live::env::env_with_plays(&render, &g.core, g.kernel, g.seeds.clone(), g.sources)), &g.core, &asking);
+        let rendered = live::render_asking(&live::Cx::new(&render, &live::env::env_with_plays(&render, &g.core, g.kernel, g.sources)), &g.core, &asking);
         let seats = g.seats.clone();
         for place in 0..seats.len() {
             let mut choice = rendered.clone();

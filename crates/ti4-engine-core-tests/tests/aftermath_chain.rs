@@ -3,7 +3,6 @@
 //! windows have their own tests; these check what the composers add: the order of the stages, the payload round trip, a clone in the middle, the
 //! hand-off to the invasion, the scoring pauses and the bails.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::production::{Ask as PAsk, Opt as POpt};
 use ti4_engine_core::containers::Cow;
@@ -16,7 +15,6 @@ use ti4_engine_core::kernel::stage::{AbilityTable, Held};
 use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::state::{AFight, AStage, Aftermath, Before, Code, Emit, Feat, NoteHold, PlainKind, WindowKind};
 use ti4_engine_core_tests::prelude::*;
-use ti4_engine_core_tests::rig::KitSeeds;
 use ti4_engine_core_tests::scenario::plain_systems;
 
 fn sys() -> System {
@@ -68,7 +66,7 @@ fn texts(present: &[Unit]) -> CombatTexts {
     t
 }
 
-fn env<'a>(k: &'a Kernel, seed: u64, present: &[Unit]) -> Env<'a> {
+fn env<'a>(k: &'a Kernel, _seed: u64, present: &[Unit]) -> Env<'a> {
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
     table.codes.ground_combat = Code(1);
@@ -81,7 +79,7 @@ fn env<'a>(k: &'a Kernel, seed: u64, present: &[Unit]) -> Env<'a> {
     table.codes.production.production = Code(902);
     table.codes.production.units = Code(903);
     table.facts.combat = texts(present);
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(KitSeeds(seed)) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table }
 }
 
 /// Seat 0 (active) against seat 1 in the two-planet system; the head has written the sides.
@@ -113,7 +111,7 @@ fn play(core: &mut CoreState, env: &Env<'_>, pol: &mut Pol) -> (Vec<Choice>, Res
     let mut asked = Vec::new();
     let mut answer: Option<Pick> = None;
     for _ in 0..800 {
-        match advance_aftermath(core, env, answer.take()) {
+        match ti4_engine_chance::resolved(advance_aftermath)(core, env, answer.take()) {
             Err(e) => return (asked, Err(e)),
             Ok((Live::Asks(a), _)) => {
                 let i = pol(&a.choice).min(a.choice.opts.len() - 1);
@@ -160,7 +158,7 @@ fn a_clone_in_the_middle_of_the_window_continues_identically() {
     let mut answer: Option<Pick> = None;
     let mut questions = 0;
     loop {
-        match advance_aftermath(&mut core, &env, answer.take()).expect("legal") {
+        match ti4_engine_chance::resolved(advance_aftermath)(&mut core, &env, answer.take()).expect("legal") {
             (Live::Asks(a), _) => {
                 questions += 1;
                 let mut copy = core.clone();
@@ -173,7 +171,7 @@ fn a_clone_in_the_middle_of_the_window_continues_identically() {
                 let run = |c: &mut CoreState| {
                     let mut answer = Some(pick);
                     for _ in 0..800 {
-                        match advance_aftermath(c, &env, answer.take()).expect("legal") {
+                        match ti4_engine_chance::resolved(advance_aftermath)(c, &env, answer.take()).expect("legal") {
                             (Live::Asks(a), _) => answer = Some(Pick::Opt(a.choice.opts.as_slice()[p(&a.choice)])),
                             (Live::Done, _) => {
                                 c.pending_mut().close(WindowKind::EventScoring);
@@ -209,7 +207,7 @@ fn the_payload_on_the_stack_is_the_chain_after_every_question() {
     open_aftermath(&mut core);
     let mut answer: Option<Pick> = None;
     for _ in 0..400 {
-        match advance_aftermath(&mut core, &env, answer.take()).expect("legal") {
+        match ti4_engine_chance::resolved(advance_aftermath)(&mut core, &env, answer.take()).expect("legal") {
             (Live::Asks(a), _) => {
                 let held = AftermathChain::from_pending(&core, &k).expect("open");
                 let mut copy = core.clone();
@@ -393,7 +391,7 @@ fn a_production_capacity_hands_the_step_to_the_production_use_and_announces_it_r
     let mut emitted = Vec::new();
     let mut answer: Option<Pick> = None;
     for _ in 0..200 {
-        let (live, out) = advance_aftermath(&mut core, &env, answer.take()).expect("the aftermath runs natively");
+        let (live, out) = ti4_engine_chance::resolved(advance_aftermath)(&mut core, &env, answer.take()).expect("the aftermath runs natively");
         emitted.extend(out.emitted.iter().map(|e| e.kind));
         match live {
             Live::Asks(a) => {
@@ -443,7 +441,7 @@ fn the_events_an_earlier_step_of_the_chain_emitted_survive_a_reaction_question_o
     a.holds = true;
     AftermathChain::new(a).to_pending(&mut core);
     // At the question itself: the invasion's event is in the queue, the aftermath's own line (`INVASION_RESOLVED`) is not (it is drained when the step ends).
-    let Live::Asks(q) = advance_aftermath(&mut core, &env, None).expect("runs").0 else { panic!("the reaction is asked") };
+    let Live::Asks(q) = ti4_engine_chance::resolved(advance_aftermath)(&mut core, &env, None).expect("runs").0 else { panic!("the reaction is asked") };
     assert!(matches!(q.choice.ask, Ask::Reaction(_)) && q.nested.is_some(), "a question from inside an emission");
     assert!(core.ledger().events.iter().any(|e| matches!(e, Emit::Typed(t) if t.kind == EventKind::InvasionBegan)), "mirrored at the suspension");
     assert!(plain_kinds(&core).is_empty(), "the aftermath's plain log waits for the end of the step");
@@ -574,14 +572,14 @@ fn a_unit_built_in_the_aftermath_production_step_is_announced_before_it_is_resol
     let mut cloned_ok = false;
     let mut emitted = Vec::new();
     for _ in 0..200 {
-        let (live, out) = advance_aftermath(&mut core, &env, answer.take()).expect("legal");
+        let (live, out) = ti4_engine_chance::resolved(advance_aftermath)(&mut core, &env, answer.take()).expect("legal");
         emitted.extend(out.emitted.iter().map(|e| e.kind));
         match live {
             Live::Asks(a) => {
                 let mut copy = core.clone();
                 let from_copy = ask_aftermath(&copy, &env).expect("asks").expect("a question");
                 cloned_ok |= from_copy.choice == a.choice;
-                let _ = advance_aftermath(&mut copy, &env, None);
+                let _ = ti4_engine_chance::resolved(advance_aftermath)(&mut copy, &env, None);
                 let i = match a.choice.ask {
                     Ask::Production(PAsk::Choose(_)) if !built => {
                         built = true;
@@ -655,7 +653,7 @@ fn a_feat_of_the_fight_opens_the_scoring_window_and_the_aftermath_waits_for_it()
     let mut answer: Option<Pick> = None;
     let mut scored = false;
     for _ in 0..800 {
-        match advance_aftermath(&mut core, &env, answer.take()).expect("legal") {
+        match ti4_engine_chance::resolved(advance_aftermath)(&mut core, &env, answer.take()).expect("legal") {
             (Live::Asks(a), _) => answer = Some(Pick::Opt(a.choice.opts.as_slice()[0])),
             (Live::Done, _) => {
                 if core.pending().window(WindowKind::EventScoring).is_some() {
@@ -663,7 +661,7 @@ fn a_feat_of_the_fight_opens_the_scoring_window_and_the_aftermath_waits_for_it()
                     let ask = ask::<EventScoring>(&core, &env).expect("asks").expect("a question");
                     assert_eq!(ask.choice.actor, Seat(0));
                     let first = Pick::Opt(ask.choice.opts.as_slice()[0]);
-                    let (live, _) = advance_event_scoring(&mut core, &env, Some(first)).expect("legal");
+                    let (live, _) = ti4_engine_chance::resolved(advance_event_scoring)(&mut core, &env, Some(first)).expect("legal");
                     assert!(matches!(live, Live::Done), "the one seat with something to score is done");
                     assert!(plain_kinds(&core).contains(&PlainKind::ObjectiveScored));
                     scored = true;
@@ -709,11 +707,11 @@ fn the_window_asks_the_seats_in_initiative_order_and_a_decline_ends_a_seats_turn
     open_event_scoring(&mut core, 5, true);
     let (first, opts) = offers(&core, &env).expect("someone has something to score");
     assert_eq!(opts.len(), 2, "the secret and the decline");
-    let (live, _) = advance_event_scoring(&mut core, &env, Some(Pick::Opt(Opt::Decline))).expect("legal");
+    let (live, _) = ti4_engine_chance::resolved(advance_event_scoring)(&mut core, &env, Some(Pick::Opt(Opt::Decline))).expect("legal");
     let (second, _) = offers(&core, &env).expect("the other seat is next");
     assert_ne!(first, second, "a decline ends the whole turn of the first seat");
     assert!(matches!(live, Live::Asks(_)));
-    let (live, _) = advance_event_scoring(&mut core, &env, Some(Pick::Opt(Opt::Decline))).expect("legal");
+    let (live, _) = ti4_engine_chance::resolved(advance_event_scoring)(&mut core, &env, Some(Pick::Opt(Opt::Decline))).expect("legal");
     assert!(matches!(live, Live::Done), "nobody is left");
     assert!(core.pending().window(WindowKind::EventScoring).is_none());
     assert!(plain_kinds(&core).is_empty(), "two declines announce nothing");
@@ -727,7 +725,7 @@ fn a_score_is_announced_pays_the_point_and_uses_the_seats_one_score_of_the_occur
     open_event_scoring(&mut core, 5, true);
     let (who, opts) = offers(&core, &env).expect("asks");
     let before = core.players().by_seat(who).map(|p| p.econ.victory_points).unwrap();
-    advance_event_scoring(&mut core, &env, Some(Pick::Opt(opts[0]))).expect("legal");
+    ti4_engine_chance::resolved(advance_event_scoring)(&mut core, &env, Some(Pick::Opt(opts[0]))).expect("legal");
     assert_eq!(plain_kinds(&core), [PlainKind::ObjectiveScored]);
     assert_eq!(core.players().by_seat(who).map(|p| p.econ.victory_points), Some(before + 1));
     assert!(core.objectives().scored_feats.iter().any(|(s, o)| *s == who && *o == 5), "the one score of the occurrence is spent");
@@ -779,7 +777,7 @@ fn a_score_that_ends_the_game_announces_it_and_closes_the_window_at_once() {
     open_event_scoring(&mut core, 5, true);
     let (who, opts) = offers(&core, &env).expect("asks");
     core.players_mut().edit(usize::from(who.0)).econ.victory_points = 9;
-    let (live, _) = advance_event_scoring(&mut core, &env, Some(Pick::Opt(opts[0]))).expect("legal");
+    let (live, _) = ti4_engine_chance::resolved(advance_event_scoring)(&mut core, &env, Some(Pick::Opt(opts[0]))).expect("legal");
     assert!(matches!(live, Live::Done));
     assert_eq!(plain_kinds(&core), [PlainKind::ObjectiveScored, PlainKind::GameFinished]);
     assert!(core.meta().finished);
@@ -813,7 +811,7 @@ fn the_question_shows_the_points_and_a_second_secret_of_the_same_event_waits_for
         assert_eq!(asking.choice.ask, Ask::Objectives(ti4_engine_core::choice::objectives::Ask::Score { vp: 3 }), "the question shows the points held");
         assert_eq!(asking.choice.opts.len(), 3, "two secrets and the decline");
         let who = asking.choice.actor;
-        advance_event_scoring(&mut core, &env, Some(Pick::Opt(asking.choice.opts.as_slice()[0]))).expect("legal");
+        ti4_engine_chance::resolved(advance_event_scoring)(&mut core, &env, Some(Pick::Opt(asking.choice.opts.as_slice()[0]))).expect("legal");
         let next = ask::<EventScoring>(&core, &env).expect("open").expect("someone is asked");
         assert_eq!(next.choice.actor == who, again, "capped {capped}: the seat that scored is asked again only without the one-per-player cap");
     }

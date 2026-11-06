@@ -22,7 +22,7 @@ use ti4_model::state::GameState;
 
 use crate::core_sync::{Footprint, Sources, with_core};
 use crate::dual::{CoreWindow, Run, note_bail};
-use crate::dual_window::{DiceSeeds, Recording, apply_staged, drive_windowed, event_of, nested_check, nested_fp, tables, tables_of_sides};
+use crate::dual_window::{Recording, apply_staged, drive_windowed, event_of, nested_check, nested_fp, tables, tables_of_sides};
 use crate::event::Event;
 use crate::generated::IdStr;
 
@@ -164,10 +164,9 @@ pub fn space_cannon_offense(
         unit_texts: texts.units.clone(),
         planet_texts: texts.planets.clone(),
     };
-    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
     let resolver = Resolver::new(&seats, Some(active));
-    let mut driver = crate::window_driver::driver_for(SpaceCannonOffense::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(SpaceCannonOffense::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy, rng: Some(rng_before) };
@@ -321,10 +320,9 @@ pub fn aftermath_head(
         skip_to_commit: a.skip_to_commit,
         pre_roll: cx.texts.intern(Slice::Transient, "pre_roll").ok()?,
     };
-    let seeds = std::rc::Rc::new(DiceSeeds(crate::core_sync::codec::rng::domain_text(&cx, ti4_engine_core::state::RngDomain::Dice).ok()?));
     let seats: Vec<ti4_engine_core::ids::Seat> = (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::ids::Seat)).collect();
     let resolver = Resolver::new(&seats, Some(active));
-    let mut driver = crate::window_driver::driver_for(Head::new(facts), resolver, AbilityTable::default(), 1).with_seeds(seeds);
+    let mut driver = crate::window_driver::driver_for(Head::new(facts), resolver, AbilityTable::default(), 1);
     let mut staged = Vec::new();
     let mut rng_after = None;
     let src = Sources { galaxy, rng: Some(rng_before) };

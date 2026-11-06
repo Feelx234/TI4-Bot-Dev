@@ -34,7 +34,7 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-PROD_CRATES="${PROD_CRATES:-ti4-host ti4-server ti4-wasm ti4-rule-bot ti4-model ti4-content ti4-calc ti4-engine ti4-chance}"
+PROD_CRATES="${PROD_CRATES:-ti4-host ti4-server ti4-wasm ti4-rule-bot ti4-model ti4-content ti4-calc ti4-engine ti4-chance ti4-engine-chance}"
 WASM_CRATE="${WASM_CRATE:-ti4-wasm}"
 DEV_TOOLS="${DEV_TOOLS:-ti4-engine-core-bridge ti4-engine-core-tests ti4-perf-alloc ti4-training ti4-sim ti4-policy ti4-mlp ti4-review ti4-replayer ti4-cli ti4-bot-agent ti4-selfplay ti4-bridge ti4-legacy ti4-advisor ti4-rule-bot-typed ti4-tensor xtask}"
 ALLOW_LEND="${ALLOW_LEND:-ti4-engine ti4-engine-core-bridge ti4-engine-core-tests ti4-training ti4-review ti4-replayer ti4-sim ti4-selfplay ti4-cli ti4-mlp ti4-bridge ti4-legacy ti4-advisor}"

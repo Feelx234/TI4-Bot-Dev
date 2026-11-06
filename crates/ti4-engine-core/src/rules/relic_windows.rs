@@ -66,8 +66,7 @@ impl Neuraloop {
         if pool.is_empty() {
             return;
         }
-        let sides = u32::try_from(pool.len()).unwrap_or(u32::MAX);
-        let roll = sx.die(RngDomain::Neuraloop, sides) as usize;
+        let roll = sx.index(RngDomain::Neuraloop, pool.len()) + 1;
         let pick = pool[roll.saturating_sub(1).min(pool.len() - 1)];
         explore::purge_relic(sx.state, self.holder, relic);
         let gone = ObjectiveRef::Public(self.revealed);

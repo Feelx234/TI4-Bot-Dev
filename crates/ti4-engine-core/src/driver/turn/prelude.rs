@@ -172,7 +172,7 @@ pub fn sync_wormhole_tokens(core: &mut CoreState, k: &crate::kernel::Kernel) {
 fn spec_ops(sx: &mut Sx<'_>) {
     let owed: Vec<(Seat, u32)> = sx.state.players().iter().filter(|p| p.misc.spec_ops_destroyed > 0).map(|p| (p.seat, p.misc.spec_ops_destroyed)).collect();
     for (owner, count) in owed {
-        let faces: Vec<u8> = (0..count).map(|_| u8::try_from(sx.die(RngDomain::Dice, DIE_SIDES)).unwrap_or(u8::MAX)).collect();
+        let faces: Vec<u8> = sx.dice(RngDomain::Dice, usize::try_from(count).unwrap_or(0), DIE_SIDES).into_iter().map(|f| u8::try_from(f).unwrap_or(u8::MAX)).collect();
         let scene = sx.state.meta().active_system;
         sx.state.ledger_mut().dice.push(RollRec {
             purpose: RollPurpose::Other(sx.table.codes.turn.spec_ops),

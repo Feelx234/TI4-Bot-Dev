@@ -2,7 +2,6 @@
 //! gain, held as a payload on the `Pending` stack between the questions. The leaf windows have their own tests (`invasion_windows.rs`); these check what the
 //! composer adds: the order of the stages, the payload round trip, a clone in the middle, the pause for a scoring window, the bails.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::invasion::Opt as IOpt;
 use ti4_engine_core::containers::Cow;
@@ -13,7 +12,6 @@ use ti4_engine_core::kernel::stage::{AbilityTable, Held};
 use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::state::{Code, IStage, NoteHold, Piece, WindowKind};
 use ti4_engine_core_tests::prelude::*;
-use ti4_engine_core_tests::rig::KitSeeds;
 use ti4_engine_core_tests::scenario::plain_systems;
 
 fn sys() -> System {
@@ -56,13 +54,13 @@ fn codes() -> InvasionCodes {
     c
 }
 
-fn env(k: &Kernel, seed: u64) -> Env<'_> {
+fn env(k: &Kernel, _seed: u64) -> Env<'_> {
     let mut table = AbilityTable::default();
     ti4_engine_core::driver::children::register(&mut table);
     table.codes.invasion = codes();
     table.codes.ground_combat = Code(1);
     table.codes.harrow = Code(2);
-    Env { kernel: k, registry: Cow::new(Registry::default()), table, seeds: Rc::new(KitSeeds(seed)) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table }
 }
 
 /// How a test answers: the index of the option for a question.
@@ -73,7 +71,7 @@ fn play(core: &mut CoreState, env: &Env<'_>, pol: &mut Pol) -> (Vec<Choice>, Res
     let mut asked = Vec::new();
     let mut answer: Option<Pick> = None;
     for _ in 0..600 {
-        match advance_invasion(core, env, answer.take()) {
+        match ti4_engine_chance::resolved(advance_invasion)(core, env, answer.take()) {
             Err(e) => return (asked, Err(e)),
             Ok((Live::Asks(a), _)) => {
                 let i = pol(&a.choice).min(a.choice.opts.len() - 1);
@@ -141,7 +139,7 @@ fn a_clone_in_the_middle_of_the_window_continues_identically() {
     let mut answer: Option<Pick> = None;
     let mut questions = 0;
     loop {
-        match advance_invasion(&mut core, &env, answer.take()).expect("legal") {
+        match ti4_engine_chance::resolved(advance_invasion)(&mut core, &env, answer.take()).expect("legal") {
             (Live::Asks(a), _) => {
                 questions += 1;
                 // A copy of the position at this question stands for a checkpoint: it asks the same question and ends in the same position.
@@ -171,7 +169,7 @@ fn play_from(core: &mut CoreState, env: &Env<'_>, pick: Pick) -> (Vec<Choice>, R
     let mut asked = Vec::new();
     let mut answer = Some(pick);
     for _ in 0..600 {
-        match advance_invasion(core, env, answer.take()) {
+        match ti4_engine_chance::resolved(advance_invasion)(core, env, answer.take()) {
             Err(e) => return (asked, Err(e)),
             Ok((Live::Asks(a), _)) => {
                 answer = Some(Pick::Opt(a.choice.opts.as_slice()[0]));
@@ -196,7 +194,7 @@ fn the_payload_on_the_stack_is_the_machine_after_every_question() {
     open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
     let mut answer: Option<Pick> = None;
     for _ in 0..200 {
-        match advance_invasion(&mut core, &env, answer.take()).expect("legal") {
+        match ti4_engine_chance::resolved(advance_invasion)(&mut core, &env, answer.take()).expect("legal") {
             (Live::Asks(a), _) => {
                 let machine = InvasionMachine::from_pending(&core, &k).expect("open");
                 let mut again = core.clone();
@@ -333,7 +331,7 @@ fn the_public_boundary_follows_the_stage_the_question_is_asked_in() {
     let mut answer: Option<Pick> = None;
     let (mut rounds_seen, mut commits_seen) = (0, 0);
     for _ in 0..200 {
-        match advance_invasion(&mut core, &env, answer.take()).expect("legal") {
+        match ti4_engine_chance::resolved(advance_invasion)(&mut core, &env, answer.take()).expect("legal") {
             (Live::Asks(a), _) => {
                 let active = core.transient().invasion.active.clone().expect("an invasion is public while it runs");
                 assert_eq!((active.system, active.invader), (sys(), Seat(0)));
@@ -382,12 +380,13 @@ fn the_commander_of_the_invader_is_asked_about_each_die_of_the_bombardment_and_t
         let (mut core, k) = arena().unit(sys(), None, Unit::DreadnoughtI, 0, 3).unit(sys(), Some(p1), Unit::InfantryI, 1, 2).control(p1, 1).build();
         carry(&mut core, 3);
         core.players_mut().edit(0).leaders.status.insert(ti4_engine_core::generated::Leader::AgnlanOln, ti4_engine_core::state::LeaderStatus::Unlocked);
+        core.rng = ti4_engine_core_tests::rig::kit_rng(seed);
         let env = env(&k, seed);
         open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
         let mut answer: Option<Pick> = None;
         let mut asks = Vec::new();
         for _ in 0..200 {
-            match advance_invasion(&mut core, &env, answer.take()).expect("legal") {
+            match ti4_engine_chance::resolved(advance_invasion)(&mut core, &env, answer.take()).expect("legal") {
                 (Live::Asks(a), _) => {
                     let is_walk = matches!(a.choice.ask, Ask::Combat(CAsk::RerollDie { source: RerollSource::Commander, .. }));
                     // Reroll every other die, keep the rest; the other questions take their first option.
@@ -434,6 +433,7 @@ fn a_bombardment_without_the_commander_is_not_walked_and_the_labels_are_the_rend
     for seed in 0..6_u64 {
         let (mut core, k) = arena().unit(sys(), None, Unit::DreadnoughtI, 0, 3).unit(sys(), Some(p1), Unit::InfantryI, 1, 2).control(p1, 1).build();
         carry(&mut core, 3);
+        core.rng = ti4_engine_core_tests::rig::kit_rng(seed);
         let env = env(&k, seed);
         open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
         let (asked, end) = play(&mut core, &env, &mut first);
@@ -620,6 +620,7 @@ fn x89_run(scenario: Scenario, holder: Option<u8>, seed: u64, carried: usize, dr
     };
     let (mut core, k) = scenario.build();
     carry(&mut core, carried);
+    core.rng = ti4_engine_core_tests::rig::kit_rng(seed);
     let env = env(&k, seed);
     open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
     let (_, end) = play(&mut core, &env, &mut first);
@@ -689,6 +690,7 @@ fn dacxive_animators_places_an_infantry_for_the_winner_of_the_composed_fight() {
         if let Some(seat) = holder {
             core.players_mut().by_seat_mut(Seat(seat)).expect("seated").tech.owned.insert(Technology::DacxiveAnimators);
         }
+        core.rng = ti4_engine_core_tests::rig::kit_rng(seed);
         let mut env = env(&k, seed);
         with_plays(&mut env);
         open_invasion(&mut core, Seat(0), sys(), NoteHold::new());
@@ -733,6 +735,7 @@ fn thundarian_run(carried: usize, defenders: usize, seed: u64, use_card: bool) -
         .build();
     carry(&mut core, carried);
     core.players_mut().by_seat_mut(Seat(0)).unwrap().leaders.status.insert(Leader::TheThundarian, ti4_engine_core::state::LeaderStatus::Readied);
+    core.rng = ti4_engine_core_tests::rig::kit_rng(seed);
     let mut e = env(&k, seed);
     with_plays(&mut e);
     ti4_engine_core_factions::ce_movement::register_late_abilities(&mut e.table);

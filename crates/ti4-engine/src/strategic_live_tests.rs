@@ -6,7 +6,6 @@
 //! The string side plays `Game::step` with the follower window open until `STRATEGIC_ACTION_COMPLETE`, answering the scripted ids and then the
 //! first option; the native side takes the answers the string was given and runs one `live_step` per step the position's arm names.
 
-use std::rc::Rc;
 
 use ti4_content::ContentStore;
 use ti4_engine_core::driver::session::{step_arm, Arm, Facts};
@@ -17,7 +16,6 @@ use ti4_model::id::{PlayerId, StrategyCardId};
 use ti4_model::state::{GameState, Phase};
 
 use super::turn_live_tests::{assert_same as assert_same_plain, based, pid, shape, string_run_first, without_staged, Run};
-use crate::core_sync::codec::rng::TextSeeds;
 use crate::core_sync::{materialize, Codec, Ctx, Sources};
 use crate::live::{self, Scripted};
 use crate::render::Render;
@@ -94,7 +92,7 @@ fn native_arms(state: &GameState, ids: &[String], setup: &dyn Fn(&mut ti4_engine
     let mut core = Codec::load(&mut cx, state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("the position loads");
     let sources = DEFAULT;
     let kernel = live::kernel::kernel_for(sources);
-    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
+    let env = live::env::env_with_plays(&render, &core, kernel, sources);
     let lcx = live::Cx::new(&render, &env);
     setup(&mut core, &render);
     let mut asker = Scripted::new(ids.iter().cloned());
@@ -427,7 +425,7 @@ fn native_job_with(state: &GameState, ids: &[String], reconcile: bool, setup: &d
     let mut core = Codec::load(&mut cx, state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("the position loads");
     let sources = DEFAULT;
     let kernel = live::kernel::kernel_for(sources);
-    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), sources);
+    let env = live::env::env_with_plays(&render, &core, kernel, sources);
     let lcx = live::Cx::new(&render, &env);
     let mut asker = Scripted::new(ids.iter().cloned());
     if reconcile {
@@ -517,7 +515,7 @@ fn native_te_warfare(state: &GameState, galaxy: &ti4_content::galaxy::Galaxy, id
     let positions = game.rng_positions();
     let mut core = Codec::load(&mut cx, state, Sources { galaxy: Some(galaxy), rng: Some(&positions) }, SliceSet::ALL).expect("the position loads");
     let kernel = live::kernel::kernel_for(DEFAULT);
-    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
+    let env = live::env::env_with_plays(&render, &core, kernel, DEFAULT);
     let lcx = live::Cx::new(&render, &env);
     let mut asker = Scripted::new(ids.iter().cloned());
     loop {
@@ -611,7 +609,7 @@ fn native_action(faction: &str, others: [&str; 3], card: &str) -> usize {
     let slices = SliceSet(SliceSet::ALL.0 & !(1 << ti4_engine_core::state::Slice::Map as u32));
     let mut core = Codec::load(&mut cx, &state, Sources { galaxy: None, rng: Some(&positions) }, slices).expect("the position loads");
     let kernel = live::kernel::kernel_for(DEFAULT);
-    let env = live::env::env_with_plays(&render, &core, kernel, Rc::new(TextSeeds::of(&cx)), DEFAULT);
+    let env = live::env::env_with_plays(&render, &core, kernel, DEFAULT);
     let lcx = live::Cx::new(&render, &env);
     let typed_card = <ti4_engine_core::generated::StrategyCard as crate::generated::IdStr>::from_id(card).expect("a card of the tables");
     let mut asker = FirstOption;

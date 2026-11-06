@@ -2,13 +2,11 @@
 //! against the string (`ti4-engine`'s `agenda_live_tests`): the window is rebuilt from `(payload, position)` at every call, a clone of the
 //! position in the middle of a vote continues identically, and the last answer closes the vote.
 
-use std::rc::Rc;
 
 use ti4_engine_core::choice::agenda::Opt as AOpt;
 use ti4_engine_core::containers::{Cow, SmallList};
 use ti4_engine_core::driver::agenda::VotingWin;
 use ti4_engine_core::driver::live::{advance, ask, open, Env, Live, LiveError};
-use ti4_engine_core::driver::NoSeeds;
 use ti4_engine_core::kernel::stage::AbilityTable;
 use ti4_engine_core::kernel::Registry;
 use ti4_engine_core::rules::agenda::window::{Facts, Vote};
@@ -38,7 +36,7 @@ fn table() -> CoreState {
 }
 
 fn env(k: &Kernel) -> Env<'_> {
-    Env { kernel: k, registry: Cow::new(Registry::default()), table: AbilityTable::default(), seeds: Rc::new(NoSeeds) }
+    Env { kernel: k, registry: Cow::new(Registry::default()), table: AbilityTable::default() }
 }
 
 fn opened(s: &mut CoreState, k: &Kernel, agenda: Agenda, queue: &[Agenda]) {
@@ -75,10 +73,10 @@ fn a_clone_in_the_middle_of_a_vote_continues_to_the_same_position_and_the_last_a
     let mut s = table();
     opened(&mut s, &k, Agenda::ChecksAndBalances, &[Agenda::RegulatedConscription]);
     // Seat 0 backs "for" and exhausts its planet; the position is cloned while seat 1 is asked.
-    let (live, _) = advance::<VotingWin>(&mut s, &env, Some(back(Outcome::For))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance::<VotingWin>)(&mut s, &env, Some(back(Outcome::For))).unwrap();
     let Live::Asks(asked) = live else { panic!("the planets stage asks") };
     let planet = asked.choice.opts.as_slice().iter().find_map(|o| if let Opt::Agenda(AOpt::Exhaust { .. }) = o { Some(*o) } else { None }).expect("a planet to exhaust");
-    advance::<VotingWin>(&mut s, &env, Some(Pick::Opt(planet))).unwrap();
+    ti4_engine_chance::resolved(advance::<VotingWin>)(&mut s, &env, Some(Pick::Opt(planet))).unwrap();
     let mut other = s.clone();
     let answers = [Pick::Opt(Opt::Decline), Pick::Opt(Opt::Decline), Pick::Opt(Opt::Decline), Pick::Opt(Opt::Decline)];
     let run = |s: &mut CoreState| -> Result<Live, LiveError> {
@@ -87,7 +85,7 @@ fn a_clone_in_the_middle_of_a_vote_continues_to_the_same_position_and_the_last_a
             if !ti4_engine_core::driver::live::is_open::<VotingWin>(s) {
                 break;
             }
-            last = Some(advance::<VotingWin>(s, &env, Some(a))?.0);
+            last = Some(ti4_engine_chance::resolved(advance::<VotingWin>)(s, &env, Some(a))?.0);
         }
         Ok(last.expect("the vote was answered"))
     };
@@ -110,7 +108,7 @@ fn an_illegal_answer_leaves_the_position_exactly_as_it_was() {
     let mut s = table();
     opened(&mut s, &k, Agenda::ChecksAndBalances, &[]);
     let held = s.clone();
-    assert_eq!(advance::<VotingWin>(&mut s, &env, Some(Pick::Number(3))), Err(LiveError::Illegal));
+    assert_eq!(ti4_engine_chance::resolved(advance::<VotingWin>)(&mut s, &env, Some(Pick::Number(3))), Err(LiveError::Illegal));
     assert_eq!(s, held);
 }
 
@@ -123,10 +121,10 @@ fn a_silent_table_asks_the_speaker_and_the_answer_closes_the_vote() {
     let mut vote = Vote::new(Agenda::ChecksAndBalances, &[Outcome::For, Outcome::Against], &[], Facts::of_core(&s, &k));
     vote.settle(&mut s, &k);
     open(&mut s, &VotingWin::new(vote, SmallList::new()));
-    let (live, _) = advance::<VotingWin>(&mut s, &env, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance::<VotingWin>)(&mut s, &env, None).unwrap();
     let Live::Asks(asked) = live else { panic!("nobody voted: the speaker decides") };
     assert_eq!(asked.choice.actor, s.meta().speaker);
-    let (live, _) = advance::<VotingWin>(&mut s, &env, Some(back(Outcome::Against))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance::<VotingWin>)(&mut s, &env, Some(back(Outcome::Against))).unwrap();
     assert_eq!(live, Live::Done);
     assert!(s.pending().window(WindowKind::Voting).is_none());
     assert_eq!(s.agenda().log.last().map(|r| (r.outcome, r.speaker_decided)), Some((Some(Outcome::Against), true)));
@@ -141,10 +139,10 @@ fn backed_with_planet(s: &mut CoreState, k: &Kernel, spender: bool) -> Live {
     }
     vote.settle(s, k);
     open(s, &VotingWin::new(vote, SmallList::new()));
-    let (live, _) = advance::<VotingWin>(s, &env, Some(back(Outcome::For))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance::<VotingWin>)(s, &env, Some(back(Outcome::For))).unwrap();
     let Live::Asks(asked) = live else { panic!("the planets stage asks") };
     let planet = asked.choice.opts.as_slice().iter().find_map(|o| if let Opt::Agenda(AOpt::Exhaust { .. }) = o { Some(*o) } else { None }).expect("a planet to exhaust");
-    advance::<VotingWin>(s, &env, Some(Pick::Opt(planet))).unwrap().0
+    ti4_engine_chance::resolved(advance::<VotingWin>)(s, &env, Some(Pick::Opt(planet))).unwrap().0
 }
 
 #[test]
@@ -156,7 +154,7 @@ fn a_held_vote_offers_the_spender_its_trade_goods_after_the_planets_and_a_declin
     let Live::Asks(asked) = backed_with_planet(&mut s, &k, true) else { panic!("the spender is asked about its trade goods") };
     assert_eq!(asked.choice.actor, Seat(0));
     assert!(matches!(asked.choice.ask, Ask::Agenda(ti4_engine_core::choice::agenda::Ask::TradeGoods { .. })), "{:?}", asked.choice.ask);
-    let (live, _) = advance::<VotingWin>(&mut s, &env(&k), Some(Pick::Opt(Opt::Decline))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance::<VotingWin>)(&mut s, &env(&k), Some(Pick::Opt(Opt::Decline))).unwrap();
     let Live::Asks(next) = live else { panic!("the next voter is asked") };
     assert_eq!(next.choice.actor, Seat(1), "the trade goods were declined: the vote moves on");
 }
@@ -170,7 +168,7 @@ fn a_held_vote_offers_predictive_intelligence_after_a_cast_vote_and_spends_it_wh
     let Live::Asks(asked) = backed_with_planet(&mut s, &k, false) else { panic!("Predictive Intelligence is offered") };
     assert_eq!(asked.choice.actor, Seat(0));
     assert!(asked.choice.opts.as_slice().contains(&Opt::Agenda(AOpt::CastPredictive)), "{:?}", asked.choice.opts);
-    let (live, _) = advance::<VotingWin>(&mut s, &env(&k), Some(Pick::Opt(Opt::Agenda(AOpt::CastPredictive)))).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance::<VotingWin>)(&mut s, &env(&k), Some(Pick::Opt(Opt::Agenda(AOpt::CastPredictive)))).unwrap();
     let Live::Asks(next) = live else { panic!("the next voter is asked") };
     assert_eq!(next.choice.actor, Seat(1));
 }
@@ -193,12 +191,12 @@ fn the_agenda_job_is_a_counted_gap_outside_the_agenda_phase_and_before_the_custo
     s.meta_mut().flags.set(MetaFlags::CUSTODIANS_REMOVED, true);
     s.meta_mut().phase = Phase::Strategy;
     let held = s.clone();
-    assert_eq!(advance_agenda(&mut s, &env, None), gap);
+    assert_eq!(ti4_engine_chance::resolved(advance_agenda)(&mut s, &env, None), gap);
     assert_eq!(s, held, "a gap leaves the position as it was");
     // The agenda phase, the custodians still on Mecatol Rex.
     let mut s = table();
     s.meta_mut().phase = Phase::Agenda;
-    assert_eq!(advance_agenda(&mut s, &env, None), gap);
+    assert_eq!(ti4_engine_chance::resolved(advance_agenda)(&mut s, &env, None), gap);
     // Both in order, and nothing in the deck: the phase ends, the flag is set, the planets ready.
     let mut s = table();
     s.meta_mut().phase = Phase::Agenda;
@@ -206,7 +204,7 @@ fn the_agenda_job_is_a_counted_gap_outside_the_agenda_phase_and_before_the_custo
     s.decks_mut().agenda.set(Vec::new());
     let held = Planet::ALL.iter().copied().find(|p| s.board().planet(*p).control.is_some()).expect("a held planet");
     ti4_engine_core::kernel::fx::exhaust_planet(&mut s, held);
-    let (live, _) = advance_agenda(&mut s, &env, None).unwrap();
+    let (live, _) = ti4_engine_chance::resolved(advance_agenda)(&mut s, &env, None).unwrap();
     assert_eq!(live, Live::Done);
     assert!(s.pending().driver.has(DriverFlags::AGENDA_RESOLVED));
     assert!(s.board().planets().all(|(_, c)| !c.flags.has(ti4_engine_core::state::PlanetFlags::EXHAUSTED)), "8.4: the planets ready");
@@ -229,7 +227,7 @@ fn the_staged_ground_forces_of_an_agenda_are_announced_with_their_cause_by_the_n
     let system = planet.data().system.expect("a placed planet");
     let piece = Piece::new(Unit::FactionlessMech, Seat(1)).with_sustained(true).with_galvanized(true);
     ti4_engine_core::kernel::fx_ground::stage_destroyed(&mut s, system, planet, piece, DestroyReason::Agenda(Agenda::CoreMining));
-    let (_, out) = advance_reconcile(&mut s, &env, None).unwrap();
+    let (_, out) = ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env, None).unwrap();
     let rec = out.emitted.iter().find(|e| e.kind == ti4_engine_core::state::EventKind::GroundForceDestroyed).expect("the destruction is announced");
     assert_eq!(rec.payload.get(Key::Cause), Some(Val::Code(Code(7))), "the cause is the agenda's text");
     assert_eq!(rec.payload.get(Key::Damaged), Some(Val::Flag(true)));
@@ -267,7 +265,7 @@ fn the_staged_ground_forces_of_other_effects_are_announced_in_the_order_staged_w
     stage(&mut s, DestroyReason::NovaSeed);
     // A cause nobody announces here (a ground combat's) stays staged for the lane that owns it.
     stage(&mut s, DestroyReason::GroundCombat);
-    let (_, out) = advance_reconcile(&mut s, &env, None).unwrap();
+    let (_, out) = ti4_engine_chance::resolved(advance_reconcile)(&mut s, &env, None).unwrap();
     let causes: Vec<Val> = out.emitted.iter().filter(|e| e.kind == ti4_engine_core::state::EventKind::GroundForceDestroyed).filter_map(|e| e.payload.get(Key::Cause)).collect();
     let at = |r: DestroyReason| Val::Code(Code(30 + GROUND_OTHER.iter().position(|x| *x == r).unwrap() as u16));
     assert_eq!(

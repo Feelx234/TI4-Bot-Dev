@@ -21,7 +21,6 @@ use ti4_model::state::GameState;
 
 use super::{Aftermath, AftermathWindow};
 use crate::choice::{Choice, ChoiceOption, Decider, IllegalChoice, Resolving, Table, Window as _};
-use crate::core_sync::codec::rng::TextSeeds;
 use crate::core_sync::{with_core, Footprint, Sources};
 use crate::dice::Dice;
 use crate::live::{live_step, Cx, Scripted, Stop};
@@ -195,7 +194,6 @@ const FP: Footprint = Footprint::new(
 fn live_run(mut gs: GameState, system: &SystemId, policy: &Policy, mode: Mode) -> Result<Run, (Stop, Vec<Choice>)> {
     let (mut cx, r) = crate::dual_window::tables_for_tests(&gs).expect("a position the codecs carry");
     let rng_before = GameRng::new(gs.rng_seed).positions();
-    let seeds: Rc<dyn ti4_engine_core::state::SeedSource> = Rc::new(TextSeeds::of(&cx));
     let seat = r.seat("a").expect("a seat");
     let sys = <ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(system.as_str()).expect("a system");
     let src = Sources { galaxy: None, rng: Some(&rng_before) };
@@ -206,7 +204,7 @@ fn live_run(mut gs: GameState, system: &SystemId, policy: &Policy, mode: Mode) -
     let r_ref = &r;
     with_core(&mut gs, &mut cx, src, FP, |core, _| {
         let kernel = crate::live::kernel::kernel_for(POK);
-        let mut env: Env<'_> = crate::live::env::env_with_plays(r_ref, core, kernel, seeds.clone(), POK);
+        let mut env: Env<'_> = crate::live::env::env_with_plays(r_ref, core, kernel, POK);
         // (The live Env names the faction units of the FULL scope; this game is a POK game.)
         env.table.facts.roster = crate::technology_core::roster_for(ContentStore::embedded(), POK);
         let open = match mode {

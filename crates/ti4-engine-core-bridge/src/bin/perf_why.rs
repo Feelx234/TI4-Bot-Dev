@@ -152,7 +152,7 @@ fn main() {
             for _ in 0..at {
                 assert!(matches!(g.step(), Step::Played(_)));
             }
-            let (core, cx, render, base, kernel, seeds, sources) = g.probe();
+            let (core, cx, render, base, kernel, sources) = g.probe();
             println!("{players}p seed {seed}: the LIVE core after {at} kernel steps (round {})", g.round());
             let mirror = materialize::materialize(core, cx, base).expect("mirror");
             println!("  mirror GameState json {} KB; opening position json {} KB; ledger events {}", serde_json::to_string(&mirror).map_or(0, |s| s.len()) / 1024, serde_json::to_string(base).map_or(0, |s| s.len()) / 1024, core.ledger.events.len());
@@ -177,7 +177,7 @@ fn main() {
                 cx2 = Ctx::of(&mirror).unwrap();
                 Codec::load(&mut cx2, &mirror, Sources { galaxy: None, rng: None }, SliceSet(SliceSet::ALL.0 & !(1 << Slice::Map as u32))).unwrap()
             });
-            time("env_with_plays (registry etc.)", 200, || ti4_engine::live::env::env_with_plays(render, core, kernel, seeds.clone(), sources));
+            time("env_with_plays (registry etc.)", 200, || ti4_engine::live::env::env_with_plays(render, core, kernel, sources));
             time("roster_for x2", 200, || {
                 ti4_engine::ties::technology_core::roster_for(ContentStore::embedded(), ti4_model::content_types::FULL);
                 ti4_engine::ties::technology_core::roster_for(ContentStore::embedded(), sources)
