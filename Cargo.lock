@@ -4275,6 +4275,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "ti4-mcts-features"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "ti4-engine-core",
+]
+
+[[package]]
+name = "ti4-mcts-lab"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "mimalloc",
+ "serde_json",
+ "ti4-content",
+ "ti4-engine",
+ "ti4-engine-core",
+ "ti4-mcts-features",
+ "ti4-model",
+ "ti4-rule-bot",
+ "ti4-rule-bot-typed",
+ "ti4-selfplay",
+]
+
+[[package]]
 name = "ti4-mlp"
 version = "0.1.0"
 dependencies = [

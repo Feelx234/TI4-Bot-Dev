@@ -433,6 +433,13 @@ impl CoreGalaxy {
         self.adjacent_with(system, &self.holders())
     }
 
+    /// [`Self::adjacent`] of each of `systems`, the wormhole holders computed once.
+    #[must_use]
+    pub fn adjacent_of_each(&self, systems: &[SystemIx]) -> Vec<SysSet> {
+        let holders = self.holders();
+        systems.iter().map(|s| self.adjacent_with(*s, &holders)).collect()
+    }
+
     /// Every system's neighbours, for a run of queries on this board.
     #[must_use]
     pub fn adjacency(&self) -> Adjacency {

@@ -32,6 +32,8 @@ members = [
     "crates/ti4-selfplay",
     "crates/ti4-replayer",
     "crates/ti4-wasm",
+    "crates/ti4-mcts-features",
+    "crates/ti4-mcts-lab",
     "crates/xtask",
 ]
 

@@ -1,0 +1,16 @@
+[package]
+name = "ti4-mcts-features"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "MCTS bot features (docs/MCTS_BOT_PLAN.md 3.1, lane L1): the actor-relative encoding of a decision from Seen, the Activate hard filter, the schema and the .npy shard writer. A research crate: never in the production graph or the wasm."
+
+# Only the core: the features read `Seen` (what the actor may know) and the core `Choice`, nothing of the thin crate.
+[dependencies]
+ti4-engine-core.workspace = true
+# The shards are gzip-compressed `.npy` files (the features are mostly zeros: 45x smaller; Python reads them with `gzip`).
+flate2.workspace = true
+
+[lints]
+workspace = true

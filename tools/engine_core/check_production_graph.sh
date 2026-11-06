@@ -13,7 +13,8 @@
 #   2 the thin crate `ti4-engine` as resolved for P carries none of the dev features (typed-core, native-subject,
 #     observed-count, string-*, lend-string);
 #   3 `ti4-wasm` again for --target wasm32-unknown-unknown;
-#   4 `ti4-engine-core-bridge` / `ti4-engine-core-tests` / `ti4-perf-alloc` (counting allocator, unsafe, perf tools only) are not in the tree of P (normal, build, dev);
+#   4 `ti4-engine-core-bridge` / `ti4-engine-core-tests` / `ti4-perf-alloc` (counting allocator, unsafe, perf tools only) and the MCTS research
+#     crates `ti4-mcts-features` / `ti4-mcts-lab` are not in the tree of P (normal, build, dev);
 # and statically: 5 the production alias sets of .cargo/config.toml list no dev-tool crate and no legacy;
 # 6 `lend-string` appears in Cargo.toml files only of the allow-list; 7 the thin crate has no default feature that
 # reaches lend-string/legacy; 8 deploy/, web-shared/scripts, scripts/ never use `--workspace` or `lend-string`.
@@ -36,7 +37,7 @@ done
 
 PROD_CRATES="${PROD_CRATES:-ti4-host ti4-server ti4-wasm ti4-rule-bot ti4-model ti4-content ti4-calc ti4-engine ti4-chance ti4-engine-chance}"
 WASM_CRATE="${WASM_CRATE:-ti4-wasm}"
-DEV_TOOLS="${DEV_TOOLS:-ti4-engine-core-bridge ti4-engine-core-tests ti4-perf-alloc ti4-training ti4-sim ti4-policy ti4-mlp ti4-review ti4-replayer ti4-cli ti4-bot-agent ti4-selfplay ti4-bridge ti4-legacy ti4-advisor ti4-rule-bot-typed ti4-tensor xtask}"
+DEV_TOOLS="${DEV_TOOLS:-ti4-engine-core-bridge ti4-engine-core-tests ti4-perf-alloc ti4-training ti4-sim ti4-policy ti4-mlp ti4-review ti4-replayer ti4-cli ti4-bot-agent ti4-selfplay ti4-bridge ti4-legacy ti4-advisor ti4-rule-bot-typed ti4-tensor ti4-mcts-features ti4-mcts-lab xtask}"
 ALLOW_LEND="${ALLOW_LEND:-ti4-engine ti4-engine-core-bridge ti4-engine-core-tests ti4-training ti4-review ti4-replayer ti4-sim ti4-selfplay ti4-cli ti4-mlp ti4-bridge ti4-legacy ti4-advisor}"
 DEV_FEATURES='typed-core|native-subject|observed-count|string-[a-z]+|lend-string'
 
@@ -70,7 +71,7 @@ crate_violations() {
   out="$(tree "$dir" -p "$p" $extra -e normal,build,features -i ti4-engine --prefix none 2>&1)"
   f="$(grep -oE "feature \"($DEV_FEATURES)\"" <<<"$out" | sort -u | tr '\n' ' ')"
   [[ -n "$f" ]] && echo "VIOLATION $label [normal,build]: thin crate ti4-engine carries $f"
-  for t in ti4-engine-core-bridge ti4-engine-core-tests ti4-perf-alloc; do
+  for t in ti4-engine-core-bridge ti4-engine-core-tests ti4-perf-alloc ti4-mcts-features ti4-mcts-lab; do
     out="$(tree "$dir" -p "$p" $extra -e normal,build,dev --prefix none)"
     grep -q "^$t " <<<"$out" && echo "VIOLATION $label [normal,build,dev]: tree contains $t"
   done

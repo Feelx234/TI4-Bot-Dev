@@ -129,4 +129,41 @@ impl Seen<'_> {
     pub fn planet_value(&self, planet: Planet, kind: Spend) -> i64 {
         economy::value_now(self.st(), self.scope(), self.blanked(), planet, kind, 0)
     }
+
+    /// The systems placed on the map, in hex order (by `q`, then `r`); empty without a map. Public: the map is on the table
+    /// (the MCTS features, docs/MCTS_BOT_PLAN.md 3.1).
+    #[must_use]
+    pub fn map_systems(&self) -> Vec<System> {
+        if !self.st().loaded.has(crate::state::Slice::Map) {
+            return Vec::new();
+        }
+        self.st().galaxy().map_or_else(Vec::new, |g| g.placed_in_hex_order().collect())
+    }
+
+    /// The neighbours of a system now (lanes, wormholes, the links the laws and tokens add); empty without a map.
+    #[must_use]
+    pub fn adjacent(&self, system: System) -> SysSet {
+        if !self.st().loaded.has(crate::state::Slice::Map) {
+            return SysSet::EMPTY;
+        }
+        self.st().galaxy().map_or(SysSet::EMPTY, |g| g.adjacent(system))
+    }
+
+    /// [`Self::adjacent`] of each of `systems` (one pass over the wormholes); empty sets without a map.
+    #[must_use]
+    pub fn adjacent_of_each(&self, systems: &[System]) -> Vec<SysSet> {
+        if !self.st().loaded.has(crate::state::Slice::Map) {
+            return vec![SysSet::EMPTY; systems.len()];
+        }
+        self.st().galaxy().map_or_else(|| vec![SysSet::EMPTY; systems.len()], |g| g.adjacent_of_each(systems))
+    }
+
+    /// The hex of a placed system, `(q, r)`; `None` off the map or without a map.
+    #[must_use]
+    pub fn hex_of(&self, system: System) -> Option<(i32, i32)> {
+        if !self.st().loaded.has(crate::state::Slice::Map) {
+            return None;
+        }
+        self.st().galaxy().and_then(|g| g.coord_of(system)).map(|h| (h.q, h.r))
+    }
 }
