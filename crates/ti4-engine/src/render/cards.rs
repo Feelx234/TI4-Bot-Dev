@@ -34,7 +34,8 @@ impl Family for Fam {
                 Reason::Scheming => "Scheming: choose and discard 1 action card from your hand".to_owned(),
                 Reason::Show { viewer } => format!("show {} 1 action card from your hand", r.seat_text(*viewer)),
             },
-            Ask::HandLimit { held } => format!("over the hand limit — discard one of {held}"),
+            Ask::HandLimit { held, discard: 1 } => format!("over the hand limit — discard one of {held}"),
+            Ask::HandLimit { held, discard } => format!("over the hand limit — discard {discard} of {held}"),
             Ask::TakeRevealed { owner } => format!("take 1 of {}'s action cards", r.seat_text(*owner)),
             Ask::Pick { what: What::Crash { system, second }, .. } => format!("Crash Landing: choose a {} in {}", if *second { "planet" } else { "ground force" }, system.as_str()),
             Ask::Pick { what: What::Squad { system }, .. } => format!("Ghost Squad: move ground forces in {}", system.as_str()),
@@ -82,9 +83,11 @@ impl Family for Fam {
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
         match o {
-            Opt::Discard { index, card } => {
+            // The answer to a hand limit question: the counts per option, raw (`counts:{n}`): a client names the options' ids joined by `+`.
+            Opt::DiscardSet { counts } => ChoiceOption::labelled(format!("counts:{}", counts.bits()), "multi_pick", "discard these"),
+            Opt::Discard { index, card, .. } => {
                 let before = match a {
-                    Ask::HandLimit { held } => i64::from(*held),
+                    Ask::HandLimit { held, .. } => i64::from(*held),
                     _ => 0,
                 };
                 let name = crate::action_cards::name_of(ContentStore::embedded(), &ActionCardId::new(card.as_str()));
@@ -267,7 +270,7 @@ impl Family for Fam {
         match a {
             Ask::OwnHand { .. } | Ask::PlayCard { .. } | Ask::TakeRevealed { .. } => ActionCard::from_id(id).map(Opt::Card),
             // The index names a place in the hand, not a card: the id is matched against the options of the question itself.
-            Ask::HandLimit { .. } => None,
+            Ask::HandLimit { .. } => id.strip_prefix("counts:").and_then(|n| n.parse().ok()).map(|bits| Opt::DiscardSet { counts: ti4_engine_core::choice::cards::Counts::of(bits) }),
             Ask::Pick { what: What::Player | What::Elect | What::Gain, .. } => r.seat(id).map(Opt::Seat),
             Ask::Pick { what: What::JamWho { .. }, .. } => (0..r.seats.len()).filter_map(|i| u8::try_from(i).ok().map(ti4_engine_core::Seat)).find(|s| r.faction_text(*s) == id).map(Opt::Seat),
             Ask::Pick { what: What::Recall | What::Silence | What::Bombard | What::Deploy | What::Rescue | What::Pirate | What::Probe | What::Ghost | What::Jam | What::Dock, .. } => System::from_id(id).map(Opt::System),

@@ -139,7 +139,7 @@ pub enum Ask {
     PlayCard { relation: Relation, event: EventKind },
     /// `action_cards::enforce_hand_limit` (rule 2.4): the hand of `held` cards is over its limit, discard one (one option per
     /// printed name, in the order of the names).
-    HandLimit { held: u8 },
+    HandLimit { held: u8, discard: u8 },
     /// `action_cards::take_from_revealed_hand`: the seat has seen the hand of `owner` and takes 1 of those cards (Mageon Implants; one
     /// option per printed name, in the order of the names; no decline).
     TakeRevealed { owner: Seat },
@@ -187,8 +187,12 @@ pub enum Opt {
     /// A strategy card another seat holds (`holder`) or nobody does (`None`, on the mat) (`What::Perform`).
     Perform { card: crate::generated::StrategyCard, holder: Option<Seat> },
     Move { from: Planet, to: Planet, kind: crate::generated::Unit, count: u8 },
-    /// `Ask::HandLimit`: the card at place `index` of the hand (the first copy of its printed name) goes.
-    Discard { index: u8, card: ActionCard },
+    /// `Ask::HandLimit`: the card at place `index` of the hand (the first copy of its printed name) goes; `copies` of that printed name
+    /// are held (the most a [`Opt::DiscardSet`] may discard of it).
+    Discard { index: u8, card: ActionCard, copies: u8 },
+    /// The answer to `Ask::HandLimit` (a multi-pick, `docs/MULTIASK1_RESUME.md`): how many cards of each option's printed name go, four
+    /// bits per option in option order. Never an offered option.
+    DiscardSet { counts: Counts },
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -225,4 +229,85 @@ impl Reason {
             Self::Show { .. } => Subtype::ShowActionCard,
         }
     }
+}
+
+/// The counts of a [`Opt::DiscardSet`]: four bits per option, twelve options (bytes, so the option stays small and `Copy`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct Counts(pub [u8; 6]);
+
+impl Counts {
+    /// The counts as one number (option `i` in bits `4i..4i+4`).
+    #[must_use]
+    pub fn bits(self) -> u64 {
+        self.0.iter().rev().fold(0u64, |acc, b| (acc << 8) | u64::from(*b))
+    }
+
+    /// The counts of a number ([`Self::bits`]); bits past the twelfth option are dropped.
+    #[must_use]
+    pub fn of(bits: u64) -> Self {
+        let mut out = [0u8; 6];
+        for (i, b) in out.iter_mut().enumerate() {
+            *b = ((bits >> (8 * i)) & 0xff) as u8;
+        }
+        Self(out)
+    }
+}
+
+/// The count of option `i` in a [`Opt::DiscardSet`].
+#[must_use]
+pub const fn discard_count(counts: u64, i: usize) -> u8 {
+    if i >= 12 { 0 } else { ((counts >> (4 * i)) & 0xf) as u8 }
+}
+
+/// `counts` with option `i` at `n` (at most 15).
+#[must_use]
+pub const fn with_discard_count(counts: u64, i: usize, n: u8) -> u64 {
+    if i >= 12 {
+        return counts;
+    }
+    let n = if n > 15 { 15 } else { n };
+    (counts & !(0xf << (4 * i))) | ((n as u64) << (4 * i))
+}
+
+/// Whether `counts` answers a hand limit question that discards `discard` cards over the options `opts` ([`Opt::Discard`] in order):
+/// exactly `discard` cards, no option more than its copies. Every such multiset is what the string's one-card-per-question loop reaches
+/// (each answer removes one card of an offered printed name, nothing reacts in between, the loop stops at the limit).
+#[must_use]
+pub fn discard_set_ok(opts: &[Opt], discard: u8, counts: u64) -> bool {
+    let mut total = 0u32;
+    for (i, o) in opts.iter().enumerate() {
+        let Opt::Discard { copies, .. } = o else { return false };
+        let n = discard_count(counts, i);
+        if n > *copies {
+            return false;
+        }
+        total += u32::from(n);
+    }
+    // No count beyond the options.
+    let used = (1u64 << (4 * opts.len().min(12))) - 1;
+    counts & !used == 0 && total == u32::from(discard)
+}
+
+/// A canonical discard: one card of option `first`, then one of each option in order, then more copies in order, up to `discard`.
+#[must_use]
+pub fn discard_from(opts: &[Opt], discard: u8, first: usize) -> Option<u64> {
+    let copies: Vec<u8> = opts.iter().map(|o| if let Opt::Discard { copies, .. } = o { *copies } else { 0 }).collect();
+    if first >= copies.len() || copies[first] == 0 {
+        return None;
+    }
+    let mut counts = with_discard_count(0, first, 1);
+    let mut left = discard.checked_sub(1)?;
+    for round in 1..=15u8 {
+        for (i, c) in copies.iter().enumerate() {
+            if left == 0 {
+                break;
+            }
+            let have = discard_count(counts, i);
+            if have < round && have < *c {
+                counts = with_discard_count(counts, i, have + 1);
+                left -= 1;
+            }
+        }
+    }
+    (left == 0 && discard_set_ok(opts, discard, counts)).then_some(counts)
 }

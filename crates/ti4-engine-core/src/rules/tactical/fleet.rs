@@ -103,6 +103,71 @@ impl Enforce {
         }
     }
 
+    /// The offered kinds of the stage's question, in option order: one per (kind, sustained), as [`Window::ask_of`] lists them.
+    fn keys(&self, core: &CoreState, over: Over) -> Vec<(Unit, bool)> {
+        let mut seen: Vec<(Unit, bool)> = Vec::new();
+        for piece in self.candidates(core, over) {
+            let key = (piece.kind(), piece.sustained());
+            if !seen.contains(&key) {
+                seen.push(key);
+            }
+        }
+        seen
+    }
+
+    /// Remove `counts` (four bits per key of `keys`): the first candidates of each key, as the string's answers named them one by one.
+    /// The units removed.
+    fn remove(&self, core: &mut CoreState, over: Over, keys: &[(Unit, bool)], counts: u64) -> u32 {
+        let mut n = 0;
+        for (i, key) in keys.iter().enumerate() {
+            for _ in 0..crate::choice::cards::discard_count(counts, i) {
+                let Some(doomed) = self.candidates(core, over).into_iter().find(|p| (p.kind(), p.sustained()) == *key) else { break };
+                fx_move::destroy_ship(core, self.system, doomed);
+                n += 1;
+            }
+        }
+        n
+    }
+
+    /// The removal led by one unit of key `first`, then one unit at a time of the first key that still has a unit, until the excess is gone.
+    fn lead_set(&self, core: &CoreState, k: &Kernel, over: Over, keys: &[(Unit, bool)], first: usize) -> Option<u64> {
+        let mut counts = crate::choice::cards::with_discard_count(0, first, 1);
+        let mut scratch = core.clone();
+        if self.remove(&mut scratch, over, keys, counts) == 0 {
+            return None;
+        }
+        while self.excess(&scratch, k, over) > 0 {
+            let next = keys.iter().position(|key| self.candidates(&scratch, over).iter().any(|p| (p.kind(), p.sustained()) == *key))?;
+            let c = crate::choice::cards::discard_count(counts, next);
+            counts = crate::choice::cards::with_discard_count(counts, next, c.checked_add(1)?);
+            self.remove(&mut scratch, over, keys, crate::choice::cards::with_discard_count(0, next, 1));
+        }
+        Some(counts)
+    }
+
+    /// Whether `counts` is an ending of the string's one-unit-per-question loop of this stage: every unit it names is there, the excess is
+    /// gone after it, and some unit of it was still needed (without one unit of some kind the excess would remain: ordered with that unit
+    /// last, every earlier removal was asked while the excess stood; removing a unit never adds to the excess of the stage).
+    fn removal_ok(&self, core: &CoreState, k: &Kernel, over: Over, keys: &[(Unit, bool)], counts: u64) -> bool {
+        let used = (1u64 << (4 * keys.len().min(12))) - 1;
+        if counts == 0 || counts & !used != 0 {
+            return false;
+        }
+        let after = |counts: u64| -> Option<i64> {
+            let mut scratch = core.clone();
+            let n = self.remove(&mut scratch, over, keys, counts);
+            let wanted: u32 = (0..keys.len()).map(|i| u32::from(crate::choice::cards::discard_count(counts, i))).sum();
+            (n == wanted).then(|| self.excess(&scratch, k, over))
+        };
+        if after(counts).is_none_or(|e| e > 0) {
+            return false;
+        }
+        (0..keys.len()).any(|i| {
+            let c = crate::choice::cards::discard_count(counts, i);
+            c > 0 && after(crate::choice::cards::with_discard_count(counts, i, c - 1)).is_some_and(|e| e > 0)
+        })
+    }
+
     fn over(&self) -> Option<Over> {
         match self.stage {
             EStage::Supply => Some(Over::Supply),
@@ -165,16 +230,28 @@ impl Window for Enforce {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
-        let Pick::Opt(COpt::Tactical(Opt::Remove { index, kind })) = pick else { return Err(Illegal) };
+        // ONE answer for every unit of the stage (the multi-ask conversion): how many of each offered kind go. An option alone means "this
+        // one first, then the first options until the excess is gone" (what the string's loop did when answered with the first option).
         let over = self.over().ok_or(Illegal)?;
-        let cands = self.candidates(sx.state, over);
-        // The string reads the index back from the id and removes that candidate (the first when it names none).
-        let doomed = *cands.get(usize::from(index)).ok_or(Illegal)?;
-        if doomed.kind() != kind {
+        let keys = self.keys(sx.state, over);
+        let counts = match pick {
+            Pick::Opt(COpt::Tactical(Opt::RemoveSet { counts })) => counts.bits(),
+            Pick::Opt(COpt::Tactical(Opt::Remove { index, kind })) => {
+                let cands = self.candidates(sx.state, over);
+                let lead = cands.get(usize::from(index)).ok_or(Illegal)?;
+                if lead.kind() != kind {
+                    return Err(Illegal);
+                }
+                let first = keys.iter().position(|k| *k == (lead.kind(), lead.sustained())).ok_or(Illegal)?;
+                self.lead_set(sx.state, sx.kernel, over, &keys, first).ok_or(Illegal)?
+            }
+            _ => return Err(Illegal),
+        };
+        if !self.removal_ok(sx.state, sx.kernel, over, &keys, counts) {
             return Err(Illegal);
         }
-        fx_move::destroy_ship(sx.state, self.system, doomed);
-        self.removed += 1;
+        let n = self.remove(sx.state, over, &keys, counts);
+        self.removed += n;
         self.settle(sx.state, sx.kernel);
         Ok(())
     }

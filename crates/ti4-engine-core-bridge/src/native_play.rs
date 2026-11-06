@@ -215,8 +215,15 @@ impl Asker for Bot<'_> {
         // names the whole set, so the shadow can play it to the string atom by atom.
         if rendered.multi_pick.is_some() {
             let choice = &q.asking.choice;
-            if let Some(ti4_engine_core::choice::Pick::Opt(ti4_engine_core::choice::Opt::Production(ti4_engine_core::choice::production::Opt::Set(set)))) = choice.pick(picked) {
-                chosen = ti4_engine::render::production::set_text(choice.opts.as_slice(), &rendered.options, set);
+            match choice.pick(picked) {
+                Some(ti4_engine_core::choice::Pick::Opt(ti4_engine_core::choice::Opt::Production(ti4_engine_core::choice::production::Opt::Set(set)))) => {
+                    chosen = ti4_engine::render::production::set_text(choice.opts.as_slice(), &rendered.options, set);
+                }
+                Some(ti4_engine_core::choice::Pick::Opt(ti4_engine_core::choice::Opt::Cards(ti4_engine_core::choice::cards::Opt::DiscardSet { counts }))) => {
+                    let parts: Vec<&str> = rendered.options.iter().enumerate().flat_map(|(i, o)| std::iter::repeat_n(o.id.as_str(), usize::from(ti4_engine_core::choice::cards::discard_count(counts.bits(), i)))).collect();
+                    chosen = parts.join("+");
+                }
+                _ => {}
             }
         }
         // The shadow's string cannot reach two of Politics' six orders (S10): the harness seat takes the other order of the same piles, so a

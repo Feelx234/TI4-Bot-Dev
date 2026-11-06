@@ -53,7 +53,6 @@ fn enforce_all_walks_the_pairs_in_order_and_asks_each_owner_about_their_own_over
     assert!(matches!(rig.asked().ask, Ask::Tactical(TAsk::Remove { over: Over::Supply, .. })));
     rig.assert_options_sound();
     rig.pick(0);
-    rig.pick(0);
     assert_eq!(rig.asked().actor, Seat(1), "then the second pair, asked of its own owner");
     rig.pick(0);
     assert!(rig.is_done());
@@ -195,7 +194,6 @@ fn the_head_enforces_the_active_seats_fleet_before_the_guns_and_the_fight() {
     assert_eq!(rig.asked().actor, Seat(0));
     assert!(matches!(rig.asked().ask, Ask::Tactical(TAsk::Remove { over: Over::Supply, .. })));
     assert!(rig.state.transient().combat.active_space_combat.is_none(), "the fight is not open yet");
-    rig.pick(0);
     rig.pick(0);
     assert!(rig.is_done());
     assert_eq!(count(&rig.state, sys(), 0, Unit::CruiserI), 1);

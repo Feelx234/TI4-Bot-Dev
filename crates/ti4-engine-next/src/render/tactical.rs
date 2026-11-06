@@ -142,6 +142,8 @@ impl Family for Fam {
                     .with("system", system_id(*origin))
             }
             Opt::Remove { index, kind } => ChoiceOption::labelled(format!("remove|{index}"), REMOVE_KIND, format!("remove {}", unit_id(*kind))),
+            // The answer to a removal: the counts per option, raw (`removals:{n}`); a client names the options' ids joined by `+`.
+            Opt::RemoveSet { counts } => ChoiceOption::labelled(format!("removals:{}", counts.bits()), "multi_pick", "remove these"),
             Opt::Use => match a {
                 Ask::Hook { hook: Hook::SpatialConduit, .. } => ChoiceOption::labelled("use", "technology", "exhaust it"),
                 Ask::Hook { hook: Hook::NullificationField, .. } => ChoiceOption::labelled("use", "technology", "end their turn"),

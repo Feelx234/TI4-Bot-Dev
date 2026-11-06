@@ -66,6 +66,9 @@ pub enum Opt {
     DoneLoading { ground: u8, fighters: u8, available: u8 },
     /// Remove candidate `index` (a unit `kind` of the seat in the space area); interchangeable units are offered once.
     Remove { index: u16, kind: Unit },
+    /// The answer to `Ask::Remove` (a multi-pick, `docs/MULTIASK1_RESUME.md`): how many units of each option's kind go, four bits per
+    /// option in option order (`choice::cards::Counts`). Never an offered option.
+    RemoveSet { counts: super::cards::Counts },
     /// Use the hook (id `use`).
     Use,
     /// Explore this planet (Scanlink Drone Network).

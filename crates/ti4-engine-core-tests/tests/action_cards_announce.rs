@@ -144,18 +144,22 @@ fn drawing_within_the_hand_limit_takes_the_cards_from_the_top_of_the_deck_and_as
 }
 
 #[test]
-fn a_draw_over_the_limit_asks_which_card_goes_once_per_extra_card() {
+fn a_draw_over_the_limit_asks_which_cards_go_in_one_question() {
     covers!("rules::action_cards::draw::DrawCards");
     let deck = [ActionCard::Plague, ActionCard::Upgrade];
     let mut rig = drawing(&HAND7, &deck, 2);
     rig.run();
-    assert!(matches!(rig.asked().ask, Ask::Cards(CAsk::HandLimit { held: 9 })), "seven plus two drawn: {:?}", rig.asked().ask);
+    assert!(matches!(rig.asked().ask, Ask::Cards(CAsk::HandLimit { held: 9, discard: 2 })), "seven plus two drawn: {:?}", rig.asked().ask);
     assert_eq!(rig.opts().len(), 9, "every card has its own printed name here: one option each");
     rig.assert_options_sound();
-    rig.pick_opt(Opt::Cards(CO::Discard { index: 0, card: ActionCard::Rally }));
-    assert!(matches!(rig.asked().ask, Ask::Cards(CAsk::HandLimit { held: 8 })), "still one over: asked again");
-    rig.expect_illegal(Pick::Opt(Opt::Cards(CO::Discard { index: 0, card: ActionCard::Rally })));
-    rig.pick_opt(Opt::Cards(CO::Discard { index: 7, card: ActionCard::Upgrade }));
+    // Two over: both cards in one answer (the multi-ask conversion); one card alone or an option alone is no answer.
+    let at = |card: ActionCard| rig.opts().iter().position(|o| matches!(o, Opt::Cards(CO::Discard { card: c, .. }) if *c == card)).unwrap();
+    let (rally, upgrade) = (at(ActionCard::Rally), at(ActionCard::Upgrade));
+    let one = ti4_engine_core::choice::cards::with_discard_count(0, rally, 1);
+    rig.expect_illegal(Pick::Opt(Opt::Cards(CO::DiscardSet { counts: ti4_engine_core::choice::cards::Counts::of(one) })));
+    rig.expect_illegal(Pick::Opt(Opt::Cards(CO::Discard { index: 0, card: ActionCard::Rally, copies: 1 })));
+    let both = ti4_engine_core::choice::cards::with_discard_count(one, upgrade, 1);
+    rig.answer_pick(Pick::Opt(Opt::Cards(CO::DiscardSet { counts: ti4_engine_core::choice::cards::Counts::of(both) })));
     assert!(rig.is_done());
     let hand = rig.state.players().by_seat(Seat(0)).unwrap().cards.hand.as_slice().to_vec();
     assert_eq!(hand.len(), 7);
@@ -176,7 +180,7 @@ fn copies_of_one_printed_name_are_one_option_and_a_table_without_name_groups_dec
     let mut rig = Rig::from_parts(st.clone(), kernel_all(), DrawCards::new(Seat(0), 2, false)).with_table(t);
     rig.run();
     assert_eq!(rig.opts().len(), 8, "nine cards, the two Flank Speeds one name: eight options");
-    assert!(!rig.opts().contains(&Opt::Cards(CO::Discard { index: 8, card: ActionCard::FlankSpeed2 })));
+    assert!(!rig.opts().contains(&Opt::Cards(CO::Discard { index: 8, card: ActionCard::FlankSpeed2, copies: 1 })));
     let mut bare = Rig::from_parts(st, kernel_all(), DrawCards::new(Seat(0), 2, false)).with_table(linked());
     bare.run();
     assert!(bare.is_done() && bare.driver.window.unsupported, "no printed-name groups: the question cannot be built, the caller declines");
