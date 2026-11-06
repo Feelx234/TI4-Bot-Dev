@@ -57,26 +57,22 @@ mod propagation {
     }
 
     #[test]
-    fn a_replaced_research_asks_the_pool_three_times_and_settles_one_pending_research() {
+    fn a_replaced_research_asks_the_pools_of_three_tokens_once_and_settles_one_pending_research() {
         covers!("silent::g4::propagation::PROPAGATION");
         let mut r = rig(Scenario::new(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan]), owes(0, 2), announced(0));
         let before: Vec<i16> = [Pool::Tactic, Pool::Fleet, Pool::Strategic].iter().map(|p| pool_of(&r, 0, *p)).collect();
-        for left in [3_u8, 2, 1] {
-            assert_eq!(r.asked().actor, Seat(0), "{}", r.transcript());
-            assert_eq!(r.asked().ask, Ask::Strategy(SAsk::GainPool { left }), "{}", r.transcript());
-            // Tactic, Fleet, Strategic in this order.
-            let at = r.opts().iter().position(|o| *o == Opt::Strategy(SOpt::Pool(Pool::Fleet))).expect("the fleet pool");
-            r.pick(at);
-        }
+        // One question for the three tokens.
+        assert_eq!(r.asked().actor, Seat(0), "{}", r.transcript());
+        assert_eq!(r.asked().ask, Ask::Strategy(SAsk::GainPool { left: 3 }), "{}", r.transcript());
+        let at = r.opts().iter().position(|o| *o == Opt::Strategy(SOpt::gain_of(&[Pool::Fleet; 3]))).expect("all three in the fleet pool");
+        r.pick(at);
         assert!(r.is_done(), "{}", r.transcript());
         assert_eq!(pool_of(&r, 0, Pool::Fleet) - before[1], 3);
         assert_eq!((pool_of(&r, 0, Pool::Tactic), pool_of(&r, 0, Pool::Strategic)), (before[0], before[2]));
         assert_eq!(pending(&r, 0), Some(MarkVal::Atom(Atom::Num(1))), "one research is settled, one is left for the next announcement");
         // The last pending research removes the mark.
         let mut last = rig(Scenario::new(&[Faction::TheNekroVirus, Faction::TheEmiratesOfHacan]), owes(0, 1), announced(0));
-        for _ in 0..3 {
-            last.pick(0);
-        }
+        last.pick(0);
         assert!(last.is_done(), "{}", last.transcript());
         assert_eq!(pending(&last, 0), None);
     }

@@ -728,19 +728,20 @@ fn summit_gains_two_command_tokens_each_into_the_pool_of_the_holders_choice() {
     let st = four().tokens(0, 1, 1, 1).state();
     let mut r = rig(ActionCard::Summit, st.clone());
     r.run();
+    // One question for both tokens: the six splits of two, the most tactic tokens first.
     assert_eq!(r.asked().ask, Ask::Strategy(SAsk::GainPool { left: 2 }));
-    assert_eq!(r.opts(), vec![Opt::Strategy(SOpt::Pool(Pool::Tactic)), Opt::Strategy(SOpt::Pool(Pool::Fleet)), Opt::Strategy(SOpt::Pool(Pool::Strategic))]);
+    assert_eq!(r.opts().len(), 6);
+    assert_eq!(r.opts()[0], Opt::Strategy(SOpt::gain_of(&[Pool::Tactic, Pool::Tactic])));
     r.assert_options_sound();
-    r.pick(2);
-    assert_eq!(r.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 }));
     r.expect_illegal(Pick::Opt(o(CO::Seat(Seat(1)))));
-    r.pick(0);
+    r.expect_illegal(Pick::Opt(Opt::Strategy(SOpt::gain_of(&[Pool::Tactic]))));
+    r.pick_opt(Opt::Strategy(SOpt::gain_of(&[Pool::Strategic, Pool::Tactic])));
     assert!(r.is_done());
     let e = r.state.players().by_seat(Seat(0)).unwrap().econ;
     assert_eq!((e.tactic_tokens, e.fleet_tokens, e.strategic_tokens), (2, 1, 2));
 }
 
-/// A command token held in a Mahact fleet pool is not in the reinforcements: Summit asks both pool questions all the same (the string does) and
+/// A command token held in a Mahact fleet pool is not in the reinforcements: Summit asks the pool question for both tokens all the same (the string does) and
 /// gains only what is left. The core used to decline the card for a holder with a token in a Mahact pool.
 #[test]
 fn summit_counts_the_tokens_a_mahact_fleet_pool_holds_out_of_the_reinforcements() {
@@ -752,9 +753,8 @@ fn summit_counts_the_tokens_a_mahact_fleet_pool_holds_out_of_the_reinforcements(
         let mut r = rig_env(ActionCard::Summit, st, Env { mahact_held: held, ..env() });
         r.run();
         assert_eq!(r.asked().ask, Ask::Strategy(SAsk::GainPool { left: 2 }), "{held} held");
-        r.pick(0);
-        assert_eq!(r.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 }), "{held} held");
-        r.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Fleet)));
+        // Tactic first in the canonical order: the one token left goes there.
+        r.pick_opt(Opt::Strategy(SOpt::gain_of(&[Pool::Tactic, Pool::Fleet])));
         assert!(r.is_done());
         let e = r.state.players().by_seat(Seat(0)).unwrap().econ;
         assert_eq!(e.tactic_tokens + e.fleet_tokens + e.strategic_tokens, 15 + gained, "{held} held");

@@ -3,7 +3,6 @@
 //! The adapter side is `ti4-engine/src/render/technology.rs`.
 
 use super::agenda::Shown;
-use super::strategy::Pool;
 use crate::generated::{Planet, System, Technology, Unit};
 use crate::ids::Seat;
 
@@ -12,7 +11,7 @@ use crate::ids::Seat;
 pub enum Ask {
     /// "Psychoarchaeology: exhaust a specialty for 1 trade good".
     Psychoarchaeology,
-    /// "Predictive Intelligence: redistribute command tokens".
+    /// "Predictive Intelligence: redistribute command tokens": ONE question over every final split of the tokens held (no fleet floor).
     Restack,
     /// "Bio-Stims".
     BioStims,
@@ -54,8 +53,9 @@ pub enum StartRule {
 pub enum Opt {
     /// A specialty planet to exhaust (`exhaust {planet}`) or, for Bio-Stims, to ready; `Shown::system` is its place on the map.
     Planet(Planet, Shown),
-    /// Move one token from a pool to another (`{from}|{to}`).
-    Move { from: Pool, to: Pool },
+    /// Predictive Intelligence: the tokens end up split this way across the pools (`{tactic}|{fleet}|{strategic}`; the current split keeps
+    /// them where they are).
+    Split { tactic: u8, fleet: u8, strategic: u8 },
     /// Bio-Stims readies an exhausted technology.
     ReadyTechnology(Technology),
     /// Exhaust AI Development Algorithm for the discount.

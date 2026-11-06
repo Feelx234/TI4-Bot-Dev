@@ -1,7 +1,6 @@
 //! D4A4: the free technology windows of `rules::technology_windows` against the printed cards: Psychoarchaeology, Production Biomes, Vortex,
 //! Wormhole Generator, the end of a turn (Predictive Intelligence, Bio-Stims), Sarween Tools / AI Development Algorithm, Transit Diodes.
 
-use ti4_engine_core::choice::strategy::Pool;
 use ti4_engine_core::choice::technology::{Ask as TAsk, Opt as TOpt};
 use ti4_engine_core::generated::{Planet, Technology as T, Wormhole};
 use ti4_engine_core::rules::technology_windows::{ProductionBiomes, ProductionUsed, Psychoarchaeology, TransitDiodes, TurnEnd, TurnStart, Vortex, WormholeGenerator};
@@ -238,36 +237,69 @@ fn wormhole_generator_may_be_declined_and_needs_a_ready_card_and_a_destination()
 // ---- end of turn: Predictive Intelligence, Bio-Stims ------------------------------------------
 
 #[test]
-fn predictive_intelligence_moves_one_token_per_answer_and_exhausts_the_card_only_when_something_moved() {
+fn predictive_intelligence_asks_one_split_of_every_token_and_exhausts_the_card_only_when_something_moved() {
     covers!("rules::technology_windows::TurnEnd");
     let sc = || three().tech(0, T::PredictiveIntelligence).tokens(0, 2, 1, 0);
     let mut rig = Rig::new(sc(), TurnEnd::new(Seat(0)));
     rig.run();
     assert!(matches!(rig.asked().ask, Ask::Technology(TAsk::Restack)));
-    assert_eq!(rig.opts().len(), 5, "tactic and fleet hold tokens, each can go to the two other pools, plus Done");
+    assert_eq!(rig.opts().len(), 10, "every split of the three tokens held, no fleet floor, no Done: the current split keeps them");
+    assert!(!rig.opts().contains(&Opt::Done));
     rig.assert_options_sound();
-    rig.pick_opt(t(TOpt::Move { from: Pool::Tactic, to: Pool::Strategic }));
-    let p = rig.state.players().by_seat(Seat(0)).unwrap();
-    assert_eq!((p.econ.tactic_tokens, p.econ.fleet_tokens, p.econ.strategic_tokens), (1, 1, 1));
-    assert!(!is_exhausted(&rig.state, T::PredictiveIntelligence), "exhausted only when the redistribution ends");
-    rig.pick_opt(Opt::Done);
+    rig.expect_illegal(Pick::Opt(t(TOpt::Split { tactic: 1, fleet: 1, strategic: 0 })));
+    rig.pick_opt(t(TOpt::Split { tactic: 0, fleet: 1, strategic: 2 }));
     assert!(rig.is_done());
+    let p = rig.state.players().by_seat(Seat(0)).unwrap();
+    assert_eq!((p.econ.tactic_tokens, p.econ.fleet_tokens, p.econ.strategic_tokens), (0, 1, 2), "two moves in one answer");
     assert!(is_exhausted(&rig.state, T::PredictiveIntelligence));
     let mut none = Rig::new(sc(), TurnEnd::new(Seat(0)));
-    none.run().pick_opt(Opt::Done);
-    assert!(none.is_done() && !is_exhausted(&none.state, T::PredictiveIntelligence), "nothing moved: the card stays ready");
+    none.run().pick_opt(t(TOpt::Split { tactic: 2, fleet: 1, strategic: 0 }));
+    assert!(none.is_done() && !is_exhausted(&none.state, T::PredictiveIntelligence), "the split as it stands: nothing moved, the card stays ready");
     smoke("technology_free/predictive", || Rig::new(sc(), TurnEnd::new(Seat(0))));
 }
 
+/// The multi-ask conversion: the one split question reaches exactly the final positions the string's move-per-question loop reaches
+/// (each move takes a token of a pool that holds one to another pool; at most as many moves as tokens; `done` at any time).
 #[test]
-fn predictive_intelligence_stops_by_itself_after_as_many_moves_as_there_are_tokens() {
+fn the_split_question_offers_exactly_what_the_move_loop_could_reach() {
+    use std::collections::BTreeSet;
     covers!("rules::technology_windows::TurnEnd");
-    let mut rig = Rig::new(three().tech(0, T::PredictiveIntelligence).tokens(0, 1, 0, 0), TurnEnd::new(Seat(0)));
-    rig.run();
-    rig.pick_opt(t(TOpt::Move { from: Pool::Tactic, to: Pool::Fleet }));
-    assert!(rig.is_done(), "one token held, one move: the window ends");
-    assert!(is_exhausted(&rig.state, T::PredictiveIntelligence));
-    assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.fleet_tokens, 1);
+    for (t0, f0, s0) in [(2, 1, 0), (0, 0, 1), (3, 0, 2), (1, 1, 1), (0, 4, 0)] {
+        let total = t0 + f0 + s0;
+        // Breadth-first over the move loop.
+        let mut reach: BTreeSet<[i16; 3]> = BTreeSet::from([[t0, f0, s0]]);
+        let mut front = reach.clone();
+        for _ in 0..total {
+            let mut next = BTreeSet::new();
+            for at in &front {
+                for from in 0..3 {
+                    for to in 0..3 {
+                        if from != to && at[from] > 0 {
+                            let mut b = *at;
+                            b[from] -= 1;
+                            b[to] += 1;
+                            next.insert(b);
+                        }
+                    }
+                }
+            }
+            reach.extend(next.iter().copied());
+            front = next;
+        }
+        let mut rig = Rig::new(three().tech(0, T::PredictiveIntelligence).tokens(0, t0, f0, s0), TurnEnd::new(Seat(0)));
+        rig.run();
+        let offered: BTreeSet<[i16; 3]> = rig
+            .opts()
+            .iter()
+            .filter_map(|o| if let Opt::Technology(TOpt::Split { tactic, fleet, strategic }) = o { Some([*tactic, *fleet, *strategic].map(i16::from)) } else { None })
+            .collect();
+        assert_eq!(offered, reach, "{t0}/{f0}/{s0}");
+    }
+}
+
+#[test]
+fn predictive_intelligence_asks_nothing_without_a_token() {
+    covers!("rules::technology_windows::TurnEnd");
     let mut empty = Rig::new(three().tech(0, T::PredictiveIntelligence).tokens(0, 0, 0, 0), TurnEnd::new(Seat(0)));
     empty.run();
     assert!(empty.is_done(), "no token to move");

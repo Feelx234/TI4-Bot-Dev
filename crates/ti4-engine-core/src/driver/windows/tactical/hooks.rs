@@ -266,8 +266,10 @@ fn starlancer(sx: &mut Sx<'_>, active: Seat, system: System) -> Result<Option<Se
         if halted(sx) {
             return Err(Flow::Halt);
         }
-        let Pick::Opt(Opt::Strategy(crate::choice::strategy::Opt::Pool(pool))) = pool else { return Err(Flow::Halt) };
-        fx::gain_token(sx.state, active, pool, 1);
+        let Some(split) = crate::choice::strategy::gain_answer(pool, 1) else { return Err(Flow::Halt) };
+        for pool in crate::choice::strategy::gain_pools(split) {
+            fx::gain_token(sx.state, active, pool, 1);
+        }
         return Ok(Some(holder));
     }
     Ok(None)

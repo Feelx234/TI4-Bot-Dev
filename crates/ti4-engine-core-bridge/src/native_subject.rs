@@ -204,6 +204,12 @@ fn open_observed_stack(windows: &[Window], core: &mut CoreState, kind: WindowKin
     true
 }
 
+/// Why a step with a payment or a purchase is lent behind a legacy game (see [`NativeSubject::compare`]).
+const MULTI_LENT: &str = "a payment or a discard the core asks as one set";
+
+/// Why the token arm is lent behind a legacy game (see [`NativeSubject::compare`]).
+const TOKENS_LENT: &str = "the string asks the token gain the core places unasked";
+
 /// Whether the arm's step ends where the legacy step does: its close is the core's too, so the end of the step is compared on everything
 /// (the questions, the events and the position), not on the prefix. `Phase` is the whole of `step_phase`, and `Ask` (the draft, the starting technology, the closing menu) is the whole of its step; the prelude and the
 /// announcement go on into the question of the same legacy step (the action menu, the draft), which the arm does not own.
@@ -346,9 +352,25 @@ impl NativeSubject {
             lend(shadow.arm, "the body of an action-menu option the core does not run yet");
             return;
         }
+        // The status phase's token gain asks nothing in the core (the multi-ask conversion: the redistribution after it decides where the
+        // tokens go), the string asks a pool per token, one per step: the core's arm places every token at once and runs on into the
+        // redistributions, so no step of the string is its step. Counted lent; the native-led shadow (`native_play::shadow_play`) compares the
+        // whole gain and its close.
+        if shadow.arm == Arm::Tokens {
+            lend(shadow.arm, TOKENS_LENT);
+            return;
+        }
         let kernel = live::kernel::kernel_for(shadow.sources);
         let env = live::env::env_with_plays(&shadow.render, &shadow.core, kernel, shadow.sources);
         let cx = live::Cx::new(&shadow.render, &env);
+        // The string's questions as the core asks them (the multi-asks, `docs/MULTIASK1_RESUME.md`).
+        let pools = |player: &str| {
+            let p = shadow.core.players().by_seat(shadow.render.seat(player)?)?;
+            let n = |v: i16| u8::try_from(v).ok();
+            Some([n(p.econ.tactic_tokens)?, n(p.econ.fleet_tokens)?, n(p.econ.strategic_tokens)?])
+        };
+        let collapsed = crate::multiask::collapse(records, answers, shadow.arm == Arm::Tokens, &pools);
+        let answers = collapsed.answers;
         let answers_taken = answers.clone();
         let mut asker = Scripted::new(answers);
         // The last card of the draft is not asked by the table either.
@@ -381,6 +403,13 @@ impl NativeSubject {
         }
         #[cfg(test)]
         tests::tamper(&mut shadow.core);
+        // A payment or Leadership's purchase is ONE question of the core (a set of atoms) where the string asks one atom at a time and pays
+        // a lone atom unasked, so the string's answers do not name the core's set: such a step is counted lent here (the native-led shadow,
+        // `native_play::shadow_play`, plays the core's set to the string atom by atom and compares it).
+        if asker.seen.iter().any(|c| c.prompt.starts_with("pay ") || c.prompt.starts_with("buy command tokens") || c.prompt.starts_with("over the hand limit") || c.prompt.starts_with("remove a unit: over")) {
+            lend(shadow.arm, MULTI_LENT);
+            return;
+        }
         let mut out = Vec::new();
         let step = match result {
             Ok(step) => step,
@@ -414,7 +443,8 @@ impl NativeSubject {
             count(&RAN, format!("{name} (window ended; the close is {})", if early { "the next legacy step's" } else { "the legacy's" }));
         }
         let native: Vec<Value> = asker.seen.iter().map(|c| json!({ "player": c.player.as_str(), "prompt": c.prompt, "options": c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>() })).collect();
-        let legacy: Vec<Value> = records.iter().map(|r| json!({ "player": r.player.as_str(), "prompt": r.prompt, "options": r.offered })).collect();
+        let mut legacy = collapsed.questions;
+        crate::multiask::settle_loose(&mut legacy, &native);
         out.extend(compare_questions(ended, early, &legacy, &native, asker.left()));
         let mut native_texts: Vec<String> = Vec::new();
         let pushed = ti4_engine_legacy::render::events::pushed_since(&shadow.render, &shadow.cx, &shadow.core, from);
@@ -733,20 +763,19 @@ mod tests {
         let _ = (lent_counts(), ran_counts());
     }
 
-    /// The token-gain arm of the live loop, run in shadow behind the legacy game through round one: every step of the status phase's token
-    /// gain is compared (questions, events, position, end of the window) and the two agree; the other arms are counted lent, not skipped.
+    /// The token-gain arm behind the legacy game through round one: the core asks no gain (the multi-ask conversion), the string asks a pool
+    /// per token, so every step of the string's token gain is counted lent with its reason (the native-led shadow compares it); the other arms are
+    /// counted lent, not skipped, and nothing differs.
     #[test]
-    fn the_tokens_arm_shadowed_behind_a_legacy_game_agrees_with_it_and_the_rest_is_counted_lent() {
+    fn the_tokens_arm_behind_a_legacy_game_is_counted_lent_and_the_rest_is_counted_lent() {
         let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         TAMPER.with(|t| t.set(0));
         arm_tokens();
         let played = play();
-        let ran = ran_counts();
         let lent = lent_counts();
         assert!(played.report.differences.is_empty(), "{:#?}", played.report.differences);
-        assert!(ran.get("tokens").copied().unwrap_or(0) >= 3, "the arm ran in shadow on every token, the last one with its close: {ran:?}");
+        assert!(lent.get(&format!("tokens: {TOKENS_LENT}")).copied().unwrap_or(0) >= 3, "every token step of the string is lent: {lent:?}");
         assert!(lent.contains_key("tactical: not native") && lent.contains_key("aftermath: not native"), "the other arms are lent and counted: {lent:?}");
-        assert!(!lent.keys().any(|k| k.starts_with("tokens:")), "no tokens step was lent: {lent:?}");
     }
 
     /// The status phase's arms (the opening, the scoring window, the token gain with its close, and the event window when a secret asks for
@@ -763,7 +792,7 @@ mod tests {
         let other: Vec<_> = played.report.differences.iter().filter(|d| !d.core_side.contains("CommanderUnlock")).collect();
         assert!(other.is_empty(), "{:#?}", other.iter().take(8).collect::<Vec<_>>());
         eprintln!("ran: {ran:?}");
-        for arm in ["status", "scoring", "tokens"] {
+        for arm in ["status", "scoring"] {
             assert!(ran.keys().any(|k| k.starts_with(arm)), "{arm} ran in shadow: {ran:?}");
         }
     }
@@ -939,7 +968,9 @@ mod tests {
     fn a_perturbed_native_position_is_reported_as_a_state_difference_at_its_path() {
         let _serial = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         for (knob, field) in [(1u8, "trade_goods"), (2u8, "fleet_tokens")] {
-            arm_tokens();
+            // (The status phase's opening: the token arm asks nothing since the multi-ask conversion and is lent behind a legacy game.)
+            set_native_arms(NativeArms::of(&[Arm::Status]));
+            let _ = (lent_counts(), ran_counts());
             TAMPER.with(|t| t.set(knob));
             let played = play();
             TAMPER.with(|t| t.set(0));

@@ -52,6 +52,27 @@ for root in sys.argv[1:]:
                     allowed += 1; continue
                 hits += 1
                 print(f'{p}:{n + 1}: {line.strip()}')
-print(f'lint_core: {files} files, {hits} hits, {allowed} allowed')
-sys.exit(1 if hits else 0)
+# The multi-ask guard (docs/MULTIASK1_RESUME.md): a payment is ONE question answered by a set of atoms. Building a payment question or
+# matching a single payment atom as an answer is the old step-wise path; only the shared payment machinery may do it (its lone-atom
+# shortcut and the atom list itself).
+GUARD = re.compile(r'(?:PAsk|production::Ask)::Pay\(|(?:POpt|production::Opt)::(?:Exhaust|TradeGood|Commodity)\b')
+GUARD_OK = ('choice/production.rs', 'choice/mod.rs', 'rules/production/mod.rs', 'rules/production/pay.rs', 'rules/production/window.rs',
+            'rules/production/one.rs', 'rules/production/triggered.rs', 'rules/production/strategy_cards.rs')
+guarded = 0
+for root in sys.argv[1:]:
+    for d, _, fs in os.walk(root):
+        for f in sorted(fs):
+            if not f.endswith('.rs'):
+                continue
+            p = os.path.join(d, f)
+            if p.replace(os.sep, '/').endswith(GUARD_OK):
+                continue
+            lines = strip_tests(open(p, encoding='utf-8').read()).split('\n')
+            for n, line in enumerate(lines):
+                code = re.sub(r'"(?:[^"\\]|\\.)*"', '""', line.split('//')[0])
+                if GUARD.search(code):
+                    guarded += 1
+                    print(f'{p}:{n + 1}: multi-ask guard: a payment question or a single payment atom outside the payment machinery: {line.strip()}')
+print(f'lint_core: {files} files, {hits} hits, {allowed} allowed, {guarded} multi-ask guard hits')
+sys.exit(1 if hits or guarded else 0)
 PY

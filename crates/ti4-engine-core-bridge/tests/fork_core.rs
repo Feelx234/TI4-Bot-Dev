@@ -271,7 +271,8 @@ impl Play {
         self.decided += 1;
         self.rolled_since_answer = false;
         self.chain = hash_of(self.chain, &(choice.actor.0, opts.len(), opts[at]));
-        Some(Pick::Opt(opts[at]))
+        // A multi-pick (a payment, a purchase, a discard, a removal): the option leads the set the question takes (`Choice::pick`).
+        choice.pick(at).or(Some(Pick::Opt(opts[at])))
     }
 
     fn ask(&mut self, ask: AskFn, env: &Env<'_>) -> Result<Option<Asking>, String> {
@@ -991,7 +992,7 @@ impl ti4_engine::wire::choice::Decider for BotDecider {
 }
 
 /// The census on the thin `Game` (the product's step: reconcile, arm, nested questions answered inside the step) with the rule bot: the quick
-/// game (`538dc68f23dddcc9`, 1,165 steps) and two more. Committed = the stream words (and `Game::rolls()` faces).
+/// game (`4f79d5630eaf630d` since the multi-ask conversion, 1,110 steps; `538dc68f23dddcc9`, 1,165 before) and two more. Committed = the stream words (and `Game::rolls()` faces).
 #[test]
 fn the_draw_census_of_the_quick_game_and_two_bot_games_on_the_thin_game() {
     use ti4_content::ContentStore;

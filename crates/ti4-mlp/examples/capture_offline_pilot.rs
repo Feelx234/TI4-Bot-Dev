@@ -682,6 +682,7 @@ impl BiasedBot {
             context: choice.context.clone(),
             details: choice.details.clone(),
             free_form: choice.free_form.clone(),
+            multi_pick: choice.multi_pick.clone(),
         })
     }
 }

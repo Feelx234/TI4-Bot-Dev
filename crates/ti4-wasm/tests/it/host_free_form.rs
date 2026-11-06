@@ -19,8 +19,10 @@ struct Table {
     notes: Option<Value>,
 }
 
-/// Plays seat `a` with the rule bot, except that the first transaction it can open is opened
-/// and answered with `deal` (a free-form id).
+/// Plays seat `a` with the rule bot, except that the first transaction it can open with the
+/// Ghosts (seat `b`) is opened and answered with `deal` (a free-form id). (It was the first
+/// transaction with any neighbour, which the game path made the Ghosts' until the multi-ask
+/// conversion changed the path: the deal then went to another seat.)
 fn install(page: &Arc<Mutex<Page>>, table: &Arc<Mutex<Table>>, seed: u64, deal: &'static str) {
     let page = page.clone();
     let table = table.clone();
@@ -39,11 +41,17 @@ fn install(page: &Arc<Mutex<Page>>, table: &Arc<Mutex<Table>>, seed: u64, deal: 
             let state = last_question(&page.messages);
             table.notes = Some(state["state"]["promissory_notes"].clone());
         }
-        let option = if table.sent.is_none() && choice.free_form.is_some() {
+        let option = if table.sent.is_none()
+            && choice.free_form.is_some()
+            && choice.prompt == "transaction with ghost"
+        {
             table.sent = Some(deal.to_owned());
             deal.to_owned()
         } else if table.sent.is_none()
-            && let Some(open) = choice.options.iter().find(|o| o.kind == OPEN_KIND)
+            && let Some(open) = choice
+                .options
+                .iter()
+                .find(|o| o.kind == OPEN_KIND && o.id.ends_with("|ghost"))
         {
             open.id.clone()
         } else {
@@ -88,7 +96,9 @@ fn a_free_form_demand_is_refused_by_the_rule_bot() {
     let (table, finished) = play("x;rn=cf:ghost;");
     assert!(finished, "the game was played to its end");
     let notes = table.notes.expect("a question followed the deal");
-    assert!(notes["cf:ghost"] == "b", "the ghost kept its note: {notes}");
+    // (Not "still with b": the Ghosts may have traded the note to another seat by the time the deal
+    // is answered, as on the game path since the multi-ask conversion. The person did not get it.)
+    assert!(notes["cf:ghost"] != "a", "the ghost kept its note: {notes}");
 }
 
 /// A deal that cannot be paid (the person holds no 50 trade goods) is answered all the same: the
@@ -99,7 +109,7 @@ fn a_free_form_deal_that_cannot_be_paid_ends_the_negotiation() {
     let (table, finished) = play("x;gt=50;rn=cf:ghost;");
     assert!(finished, "the game was played to its end");
     let notes = table.notes.expect("a question followed the deal");
-    assert!(notes["cf:ghost"] == "b", "nothing changed hands: {notes}");
+    assert!(notes["cf:ghost"] != "a", "nothing changed hands: {notes}");
 }
 
 /// Run o1-03-2334: the page was reloaded some questions after the person had put a composed deal

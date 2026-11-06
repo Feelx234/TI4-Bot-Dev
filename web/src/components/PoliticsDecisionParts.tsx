@@ -2,7 +2,7 @@ import React, { createContext, useContext } from "react";
 import type { ChoiceOption, PendingChoiceDto } from "../protocol/types.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import {
-  describeAgendaPlacement,
+  describeAgendaPlacements,
   describeDecisionAgenda,
   describePickCard,
   optionNote,
@@ -25,11 +25,11 @@ export const DecisionTableProvider: React.FC<{
 /** Above the options: the agenda's printed card, or the reason line of the Hacan Agent choice. */
 export const PoliticsContextPanel: React.FC<{ choice: PendingChoiceDto }> = ({ choice }) => {
   const table = useContext(TableContext);
-  const agenda = describeAgendaPlacement(choice);
+  const agendas = describeAgendaPlacements(choice);
   const reason = replenishReason(choice, table);
   const pickCard = describePickCard(choice);
   const about = describeDecisionAgenda(choice);
-  if (!agenda && !reason && !pickCard && !about) return null;
+  if (agendas.length === 0 && !reason && !pickCard && !about) return null;
   return (
     <div className="politics-panel" data-testid="politics-context-panel">
       {pickCard && (
@@ -60,8 +60,18 @@ export const PoliticsContextPanel: React.FC<{ choice: PendingChoiceDto }> = ({ c
           ))}
         </div>
       )}
-      {agenda && (
-        <div data-testid="agenda-card">
+      <div className={agendas.length > 1 ? "politics-panel__agendas" : undefined}>
+      {agendas.map((agenda, index) => (
+        <div
+          key={`${index}-${agenda.name}`}
+          data-testid="agenda-card"
+          className={agendas.length > 1 ? "politics-panel__agenda" : undefined}
+        >
+          {agendas.length > 1 && (
+            <div className="text-muted politics-panel__eyebrow" data-testid="agenda-card-position">
+              {index === 0 ? "Was the top card" : "Was the second card"}
+            </div>
+          )}
           <div className="politics-panel__title" data-testid="agenda-card-name">
             {agenda.name}
             {agenda.kind && <span className="politics-panel__tag">{agenda.kind}</span>}
@@ -72,8 +82,15 @@ export const PoliticsContextPanel: React.FC<{ choice: PendingChoiceDto }> = ({ c
               {line}
             </p>
           ))}
-          <p className="text-muted">Top: it is revealed next. Bottom: it will not come up soon.</p>
         </div>
+      ))}
+      </div>
+      {agendas.length === 1 && <p className="text-muted">Top: it is revealed next. Bottom: it will not come up soon.</p>}
+      {agendas.length > 1 && (
+        <p className="text-muted politics-panel__hint" data-testid="agenda-order-hint">
+          Place each card on the top or the bottom of the agenda deck, in any order. The top card is revealed
+          next; a card on the bottom will not come up soon.
+        </p>
       )}
       {reason && (
         <p className="politics-panel__reason" data-testid="hacan-reason">

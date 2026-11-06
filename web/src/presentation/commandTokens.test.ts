@@ -17,7 +17,6 @@ import {
   planPayment,
   poolPips,
   removeToken,
-  restackMoves,
   resultingCount,
   tokenOutcome,
   tokenPlan,
@@ -59,6 +58,23 @@ describe("describeCommandTokens", () => {
     expect(view.current).toEqual({ tactic: 3, fleet: 4, strategic: 2 });
     expect(view.reinforcements).toBe(7);
     expect(view.total).toBe(2);
+  });
+
+  it("reads the new engine's one question for all tokens (a split per option) as the same gain", () => {
+    const splits = ["2|0|0", "1|1|0", "1|0|1", "0|2|0", "0|1|1", "0|0|2"].map((id) => ({
+      id,
+      kind: "gain",
+      label: id,
+      payload: {},
+    }));
+    const view = describeCommandTokens({ ...gain(2), options: splits }, true)!;
+    expect(view.mode).toBe("gain");
+    expect(view.total).toBe(2);
+    // The plan is still a pool step per token: the server turns them into the one split answer.
+    expect(tokenPlan({ tactic: 1, fleet: 1, strategic: 0 })).toEqual([
+      { kind: "pool", pool: "tactic_tokens" },
+      { kind: "pool", pool: "fleet_tokens" },
+    ]);
   });
 
   it("offers a gain only with a batch submitter, so a plain list remains the fallback", () => {
@@ -216,6 +232,50 @@ describe("gain + buy model", () => {
     expect(describeCommandTokens(gain(), true)!.purchase).toBeNull();
   });
 
+  it("reads the new engine's purchase question (one multi-pick) and its range of tokens", () => {
+    const question = {
+      options: [
+        { id: "exhaust|jord", kind: "pay", label: "exhaust jord", payload: { worth: 2 } },
+        { id: "trade_good", kind: "pay", label: "spend a trade good", payload: { worth: 1 } },
+      ],
+      details: buyQuestion().details,
+      multi_pick: { kind: "purchase", owed: 3, repeat: { trade_good: 7 }, buy: [1, 2] as [number, number] },
+    };
+    const view = describeCommandTokens(question, true)!;
+    expect(view.mode).toBe("gain");
+    expect(view.total).toBe(0);
+    expect(view.purchaseWindow).toBe(false);
+    expect(view.purchase).toMatchObject({ min: 1, max: 2 });
+    // The secondary buys at least one: nothing bought is not an answer.
+    expect(paymentCheck(view, 0, null).problem).toMatch(/at least 1/);
+    expect(tokenOutcome(view, staged(0, 0, 0), 0, null)).toBeNull();
+    // One token: the purchase's steps (no window "yes" in front), then its pool.
+    expect(tokenOutcome(view, staged(0, 1, 0), 1, { planetIds: ["jord"], tradeGoods: 1 })).toEqual({
+      kind: "plan",
+      steps: [
+        { kind: "purchase", buy: true },
+        { kind: "trade_good" },
+        { kind: "exhaust", planet: "jord" },
+        { kind: "pool", pool: "fleet_tokens" },
+        { kind: "purchase", buy: false },
+      ],
+    });
+    // Without the multi-pick (or with a plain pay list) the purchase question is not the token panel's.
+    expect(describeCommandTokens({ ...question, multi_pick: undefined }, true)).toBeNull();
+  });
+
+  it("puts the secondary window's own 'yes' before the purchase question's steps", () => {
+    const view = describeCommandTokens(secondaryWindow(), true)!;
+    expect(view.purchaseWindow).toBe(true);
+    const outcome = tokenOutcome(view, staged(1, 0, 0), 1, { planetIds: ["jord"], tradeGoods: 1 });
+    expect(outcome?.kind === "plan" && outcome.steps.slice(0, 2)).toEqual([
+      { kind: "purchase", buy: true },
+      { kind: "purchase", buy: true },
+    ]);
+    // Not following: the window's "no".
+    expect(tokenOutcome(view, staged(0, 0, 0), 0, null)).toEqual({ kind: "plan", steps: [{ kind: "purchase", buy: false }] });
+  });
+
   it("falls back to the per-decision flow without a batch submitter or a usable purchase", () => {
     expect(describeCommandTokens(gainBuy(), false)).toBeNull();
     expect(describeCommandTokens(buyQuestion(), false)).toBeNull();
@@ -339,6 +399,7 @@ describe("payment override", () => {
     purchase: {
       cost: 3,
       influence: 14,
+      min: 0,
       max: 4,
       planets: [
         { id: "jord", worth: 2, resources: null },
@@ -373,9 +434,14 @@ describe("payment override", () => {
     const v = view();
     const short = paymentCheck(v, 1, { planetIds: ["jord"], tradeGoods: 0 });
     expect([short.remainder, short.problem]).toEqual([1, expect.stringContaining("Short by 1")]);
-    const extra = paymentCheck(v, 1, { planetIds: ["lodor", "jord"], tradeGoods: 0 });
-    expect(extra.problem).toContain("take out jord");
-    expect(canConfirmTokens(v, staged, 1, { planetIds: ["lodor", "jord"], tradeGoods: 0 })).toBe(false);
+    // The engine's rule: without the LARGEST item the rest must be short (paid largest last, each
+    // earlier item was spent while the bill was open). Lodor 3 + Arcturus 4 for 3: Lodor alone covers it.
+    const extra = paymentCheck(v, 1, { planetIds: ["lodor", "arcturus"], tradeGoods: 0 });
+    expect(extra.problem).toContain("without arcturus");
+    expect(canConfirmTokens(v, staged, 1, { planetIds: ["lodor", "arcturus"], tradeGoods: 0 })).toBe(false);
+    // Jord 2 then Lodor 3 is a set the engine takes (2 is short, the 3 completes it), waste 2.
+    const spare = paymentCheck(v, 1, { planetIds: ["lodor", "jord"], tradeGoods: 0 });
+    expect([spare.paid, spare.waste, spare.problem]).toEqual([5, 2, null]);
     expect(tokenOutcome(v, staged, 1, { planetIds: ["jord"], tradeGoods: 0 })).toBeNull();
   });
 
@@ -388,13 +454,13 @@ describe("payment override", () => {
     expect(overrideIsValid(v, 2, { planetIds: ["lodor", "arcturus"], tradeGoods: 0 })).toBe(true);
   });
 
-  it("sends the chosen exhaust and trade good steps, smallest last, in the order the engine asks", () => {
+  it("sends every chosen exhaust and trade good step, largest last", () => {
     const v = view();
     const steps = tokenPlanWithPurchase(v, staged, 1, { planetIds: ["jord"], tradeGoods: 1 });
     expect(steps).toEqual([
       { kind: "purchase", buy: true },
-      { kind: "exhaust", planet: "jord" },
       { kind: "trade_good" },
+      { kind: "exhaust", planet: "jord" },
       { kind: "pool", pool: "tactic_tokens" },
       { kind: "purchase", buy: false },
     ]);
@@ -402,10 +468,9 @@ describe("payment override", () => {
       planetIds: ["jord", "arcturus"],
       tradeGoods: 0,
     });
-    // 4 covers the first token (1 carried), 2 more covers the second.
     expect(two?.filter((s) => s.kind === "exhaust")).toEqual([
-      { kind: "exhaust", planet: "arcturus" },
       { kind: "exhaust", planet: "jord" },
+      { kind: "exhaust", planet: "arcturus" },
     ]);
     expect(two?.[0]).toEqual({ kind: "purchase", buy: true });
   });
@@ -417,64 +482,33 @@ describe("payment override", () => {
 });
 
 describe("restack (Predictive Intelligence)", () => {
-  const moveIds = ["tactic|fleet", "tactic|strategy", "fleet|tactic", "fleet|strategy", "strategy|tactic", "strategy|fleet", "done"];
+  // The engine's one question over every final split of the nine tokens (no fleet floor).
+  const splitIds = Array.from({ length: 10 }, (_, t) => t).flatMap((t) =>
+    Array.from({ length: 10 - t }, (_, f) => `${t}|${f}|${9 - t - f}`),
+  );
   const restack = () => ({
-    options: moveIds.map((id) => ({ id, kind: id === "done" ? "decline" : "redistribute", label: id, payload: {} })),
+    options: splitIds.map((id) => ({ id, kind: "redistribute", label: id, payload: {} })),
     details: {
       kind: "command_tokens",
-      mode: "restack",
+      mode: "redistribute",
       pools: { tactic: 3, fleet: 4, strategic: 2 },
       reinforcements: 7,
       total: 9,
     },
   });
 
-  it("reads the pools and the total, and needs no batch submitter", () => {
+  it("reads as a redistribution of every token, without a batch submitter", () => {
     const view = describeCommandTokens(restack(), false)!;
-    expect(view.mode).toBe("restack");
+    expect(view.mode).toBe("redistribute");
     expect(view.current).toEqual({ tactic: 3, fleet: 4, strategic: 2 });
     expect(view.total).toBe(9);
-    expect(view.arrangements.has("tactic|fleet")).toBe(true);
+    expect(view.arrangements.has("0|0|9")).toBe(true);
   });
 
-  it("is not offered without any move option", () => {
-    const none = { ...restack(), options: [{ id: "done", kind: "decline", label: "done", payload: {} }] };
-    expect(describeCommandTokens(none, true)).toBeNull();
-  });
-
-  it("plans the fewest single moves, naming the strategy pool as the engine does", () => {
+  it("sends the arrangement as one answer; keeping it sends the split as it stands", () => {
     const view = describeCommandTokens(restack(), false)!;
-    expect(restackMoves(view, { tactic: 3, fleet: 4, strategic: 2 })).toEqual([]);
-    expect(restackMoves(view, { tactic: 1, fleet: 4, strategic: 4 })).toEqual([
-      "tactic|strategy",
-      "tactic|strategy",
-    ]);
-    expect(restackMoves(view, { tactic: 0, fleet: 3, strategic: 6 })).toEqual([
-      "tactic|strategy",
-      "tactic|strategy",
-      "tactic|strategy",
-      "fleet|strategy",
-    ]);
-  });
-
-  it("finishes with done unless every token was moved (then the engine stops asking itself)", () => {
-    const view = describeCommandTokens(restack(), false)!;
-    expect(tokenOutcome(view, { tactic: 3, fleet: 4, strategic: 2 })).toEqual({
-      kind: "moves",
-      moveIds: [],
-      finish: true,
-    });
-    expect(tokenOutcome(view, { tactic: 1, fleet: 4, strategic: 4 })).toEqual({
-      kind: "moves",
-      moveIds: ["tactic|strategy", "tactic|strategy"],
-      finish: true,
-    });
-    const swap = { ...view, current: { tactic: 3, fleet: 0, strategic: 0 }, total: 3 };
-    expect(tokenOutcome(swap, { tactic: 0, fleet: 3, strategic: 0 })).toEqual({
-      kind: "moves",
-      moveIds: ["tactic|fleet", "tactic|fleet", "tactic|fleet"],
-      finish: false,
-    });
+    expect(tokenOutcome(view, { tactic: 1, fleet: 4, strategic: 4 })).toEqual({ kind: "option", optionId: "1|4|4" });
+    expect(tokenOutcome(view, { tactic: 3, fleet: 4, strategic: 2 })).toEqual({ kind: "option", optionId: "3|4|2" });
   });
 });
 
@@ -488,6 +522,11 @@ describe("gainTokensPrompt", () => {
     expect(gainTokensPrompt(gain(3))).toBe("Gain 3 command tokens — assign them to pools");
     expect(gainTokensPrompt(gain(2))).toBe("Gain 2 command tokens — assign them to pools");
     expect(gainTokensPrompt(gain(1))).toBe("Gain 1 command token — choose its pool");
+  });
+  it("reads the new engine's prompt for one question over several tokens", () => {
+    expect(gainTokensPrompt(gain(3, "gain 3 command tokens into which pools"))).toBe(
+      "Gain 3 command tokens — assign them to pools",
+    );
   });
   it("leaves other prompts, missing counts and redistributions alone", () => {
     expect(gainTokensPrompt(gain(3, "something else"))).toBe("something else");

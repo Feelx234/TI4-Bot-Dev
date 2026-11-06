@@ -253,10 +253,37 @@ pub struct Choice {
 }
 
 impl Choice {
-    /// The answer for the option at `index` (what the adapter turns into the option id).
+    /// The answer for the option at `index` (what the adapter turns into the option id). For a multi-pick (a payment) it is the set that
+    /// pays with that atom first and then the canonical order ([`production::set_from`]): an atom alone answers nothing.
     #[must_use]
     pub fn pick(&self, index: usize) -> Option<Pick> {
-        self.opts.as_slice().get(index).map(|o| Pick::Opt(*o))
+        let set = |set: production::PaySet| Pick::Opt(Opt::Production(production::Opt::Set(set)));
+        match self.ask {
+            Ask::Production(production::Ask::Pay(ask)) => production::set_from(&ask, self.atoms().as_slice(), index).map(set),
+            // Leadership's purchase: the primary's decline (listed first) buys nothing; an atom buys one token (at least the question's
+            // minimum), paid with that atom first (its place among the atoms: the decline is not one).
+            Ask::Production(production::Ask::Purchase(ask)) => match self.opts.as_slice().get(index)? {
+                Opt::Decline => production::purchase_set(&ask, self.atoms().as_slice(), 0, 0).map(set),
+                _ => {
+                    let atom = self.opts.as_slice()[..index].iter().filter(|o| matches!(o, Opt::Production(_))).count();
+                    production::purchase_set(&ask, self.atoms().as_slice(), ask.min.max(1), atom).map(set)
+                }
+            },
+            Ask::Cards(cards::Ask::HandLimit { discard, .. }) => {
+                cards::discard_from(self.cards().as_slice(), discard, index).map(|counts| Pick::Opt(Opt::Cards(cards::Opt::DiscardSet { counts: cards::Counts::of(counts) })))
+            }
+            _ => self.opts.as_slice().get(index).map(|o| Pick::Opt(*o)),
+        }
+    }
+
+    /// The card options of a hand limit question, in option order.
+    fn cards(&self) -> SmallList<cards::Opt, 16> {
+        self.opts.iter().filter_map(|o| if let Opt::Cards(c) = o { Some(*c) } else { None }).collect()
+    }
+
+    /// The payment atoms of a multi-pick, in option order.
+    fn atoms(&self) -> SmallList<production::Opt, 24> {
+        self.opts.iter().filter_map(|o| if let Opt::Production(p) = o { Some(*p) } else { None }).collect()
     }
 
     /// Whether the actor may decline (an option that is [`Opt::Decline`] exists).
@@ -269,6 +296,85 @@ impl Choice {
     #[must_use]
     pub fn decline_index(&self) -> Option<usize> {
         self.opts.iter().position(Opt::is_decline)
+    }
+
+    /// Whether this question is a MULTI-PICK (`docs/MULTIASK1_RESUME.md`): its options are the atoms of the answer, and the answer is a
+    /// set of them ([`Self::accepts`]), never one of the options itself. Today: the payment question.
+    #[must_use]
+    pub const fn is_multi_pick(&self) -> bool {
+        matches!(self.ask, Ask::Production(production::Ask::Pay(_) | production::Ask::Purchase(_)) | Ask::Cards(cards::Ask::HandLimit { .. }))
+    }
+
+    /// The canonical answer (an unattended seat, a test's "first option"): the first option, or for a multi-pick the canonical set
+    /// ([`production::first_set`]).
+    #[must_use]
+    pub fn default_pick(&self) -> Option<Pick> {
+        let set = |set: production::PaySet| Pick::Opt(Opt::Production(production::Opt::Set(set)));
+        match self.ask {
+            Ask::Production(production::Ask::Pay(ask)) => production::first_set(&ask, self.atoms().as_slice()).map(set),
+            // Leadership's purchase: as few tokens as the question allows (the old loop's first option was "no").
+            Ask::Production(production::Ask::Purchase(ask)) => production::purchase_set(&ask, self.atoms().as_slice(), ask.min, 0).map(set),
+            _ => self.pick(0),
+        }
+    }
+
+    /// The answer that takes the offered option `o`: `o` itself, or for a multi-pick (a payment) the set that pays with the atom `o`
+    /// first ([`Self::pick`] of its index). `None` when `o` is not offered.
+    #[must_use]
+    pub fn answer_with(&self, o: Opt) -> Option<Pick> {
+        self.opts.index_of(&o).and_then(|i| self.pick(i))
+    }
+
+    /// Up to `limit` legal answers: the options, or for a multi-pick its legal sets ([`production::legal_sets`]).
+    #[must_use]
+    pub fn answers(&self, limit: usize) -> Vec<Pick> {
+        let set = |set: production::PaySet| Pick::Opt(Opt::Production(production::Opt::Set(set)));
+        match self.ask {
+            Ask::Production(production::Ask::Pay(ask)) => production::legal_sets(&ask, self.atoms().as_slice(), limit).into_iter().map(set).collect(),
+            Ask::Production(production::Ask::Purchase(ask)) => {
+                let mut out = Vec::new();
+                for buy in ask.min..=ask.max {
+                    let bill = production::PayAsk { owed: i64::from(ask.each) * i64::from(buy), ..ask.pay };
+                    let sets = if buy == 0 { vec![production::PaySet::default()] } else { production::legal_sets(&bill, self.atoms().as_slice(), limit) };
+                    out.extend(sets.into_iter().map(|s| production::PaySet { buy, ..s }).filter(|s| production::purchase_worth(&ask, self.atoms().as_slice(), *s).is_some()).map(set));
+                }
+                out.truncate(limit);
+                out
+            }
+            Ask::Cards(cards::Ask::HandLimit { discard, .. }) => {
+                let n = self.opts.len();
+                (0..n).filter_map(|i| cards::discard_from(self.cards().as_slice(), discard, i)).take(limit).map(|counts| Pick::Opt(Opt::Cards(cards::Opt::DiscardSet { counts: cards::Counts::of(counts) }))).collect()
+            }
+            _ => self.opts.iter().take(limit).map(|o| Pick::Opt(*o)).collect(),
+        }
+    }
+
+    /// Whether `pick` answers this question: one of its options, a number of a count question, or a set of its atoms that the
+    /// multi-pick's validator accepts ([`production::set_worth`]).
+    #[must_use]
+    pub fn accepts(&self, pick: &Pick) -> bool {
+        match (self.ask, pick) {
+            (Ask::Production(production::Ask::Pay(ask)), Pick::Opt(Opt::Production(production::Opt::Set(set)))) => {
+                production::set_worth(&ask, self.atoms().as_slice(), *set).is_some()
+            }
+            (Ask::Production(production::Ask::Purchase(ask)), Pick::Opt(Opt::Production(production::Opt::Set(set)))) => {
+                production::purchase_worth(&ask, self.atoms().as_slice(), *set).is_some()
+            }
+            // The primary's decline: buy nothing.
+            (Ask::Production(production::Ask::Purchase(ask)), Pick::Opt(Opt::Decline)) => ask.min == 0 && self.can_decline(),
+            // A removal: an option (the window removes it first and fills up) or a set the window checks against the position.
+            (Ask::Tactical(tactical::Ask::Remove { .. }), Pick::Opt(Opt::Tactical(tactical::Opt::RemoveSet { counts }))) => {
+                let used = (1u64 << (4 * self.opts.len().min(12))) - 1;
+                counts.bits() != 0 && counts.bits() & !used == 0
+            }
+            (Ask::Cards(cards::Ask::HandLimit { discard, .. }), Pick::Opt(Opt::Cards(cards::Opt::DiscardSet { counts }))) => {
+                cards::discard_set_ok(self.cards().as_slice(), discard, counts.bits())
+            }
+            (_, Pick::Opt(o)) => !self.is_multi_pick() && self.opts.iter().any(|x| x == o),
+            (_, Pick::Number(_)) => matches!(self.ask, Ask::Generic(generic::Ask::Count { .. })),
+            // The faces of a chance question: as many as it asks, each in range (`Request::accepts`).
+            (_, Pick::Chance(faces)) => matches!(self.ask, Ask::Generic(generic::Ask::Chance(req)) if req.accepts(faces)),
+        }
     }
 }
 

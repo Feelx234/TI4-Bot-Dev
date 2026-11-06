@@ -241,6 +241,136 @@ pub fn answer_id(choice: &Choice, picked: usize, seen: &dyn SeatView) -> String 
         .map_or_else(|| option.id.clone(), |route| route.answer.clone())
 }
 
+/// The bot's answer to a multi-pick question (`Choice::multi_pick`, the new engine's one payment question and Leadership's one
+/// purchase question), as the id the engine reads: the atoms' ids joined by `+` (a purchase adds `buy:N`). `None` for any other question.
+///
+/// A payment repeats the one-atom rule ([`pick_pay`]: the atom that wastes least) on what is left, bill and atoms, until the bill is
+/// covered: the set the old one-question-per-atom loop ended with. A purchase decides each token as the old "spend 3 influence for a command
+/// token?" question did, on the pools and the spare influence that token leaves, and pays the whole bill the same way.
+#[must_use]
+pub fn multi_answer(choice: &Choice, seen: &dyn SeatView) -> Option<String> {
+    let multi = choice.multi_pick.as_ref()?;
+    let me = seen.bound_seat().clone();
+    let observed = seen.observed();
+    match multi.kind.as_str() {
+        "payment" => pay_set(choice, observed, &me, multi.owed).map(|ids| ids.join("+")),
+        "purchase" => {
+            let [min, max] = multi.buy.unwrap_or([0, 0]);
+            let mut buy = purchase_count(choice, observed, &me, multi.owed, min, max);
+            loop {
+                if buy == 0 {
+                    return Some("buy:0".to_owned());
+                }
+                if let Some(ids) = pay_set(choice, observed, &me, multi.owed * i64::from(buy)) {
+                    return Some(std::iter::once(format!("buy:{buy}")).chain(ids).collect::<Vec<_>>().join("+"));
+                }
+                if buy <= min {
+                    return None;
+                }
+                buy -= 1;
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The atoms that pay `owed`, one [`pick_pay`] at a time on what is left (a trade good or commodity once per one spent), each kept
+/// only while it can still complete the bill with the rest. `None` when they cannot cover it.
+fn pay_set(choice: &Choice, seen: &dyn View, me: &PlayerId, owed: i64) -> Option<Vec<String>> {
+    let repeat = choice.multi_pick.as_ref().map(|m| m.repeat.clone()).unwrap_or_default();
+    let worth = |o: &ChoiceOption| payload_f64(o, "worth").unwrap_or(0.0);
+    // The atoms, a repeatable one once per unit held.
+    let mut left: Vec<ChoiceOption> = Vec::new();
+    // (Not the primary purchase's decline: it is "buy nothing", not an atom.)
+    for o in choice.options.iter().filter(|o| !o.is_decline()) {
+        let n = repeat.get(&o.id).copied().unwrap_or(1);
+        left.extend(std::iter::repeat_n(o.clone(), n as usize));
+    }
+    let planet_of = |o: &ChoiceOption| o.id.strip_prefix("exhaust|").map(|rest| rest.split('|').next().unwrap_or(rest).to_owned());
+    #[expect(clippy::cast_precision_loss, reason = "small bills")]
+    let mut owed_left = owed as f64;
+    let mut picked = Vec::new();
+    while owed_left > 0.0 {
+        let total: f64 = left.iter().map(worth).sum();
+        // What could still complete the bill (the old loop's filter of the offered atoms).
+        let viable: Vec<ChoiceOption> = left.iter().filter(|o| total >= owed_left || worth(o) >= owed_left).cloned().map(|mut o| {
+            o.payload.insert("owed".to_owned(), serde_json::Value::from(owed_left));
+            o
+        }).collect();
+        if viable.is_empty() || total < owed_left {
+            return None;
+        }
+        let mut step = choice.clone();
+        step.options = viable.clone();
+        let at = pick_pay(&step, seen, me).unwrap_or(0);
+        let atom = viable.get(at)?.clone();
+        owed_left -= worth(&atom);
+        picked.push(atom.id.clone());
+        // The atom leaves (a planet with all of its faces).
+        let planet = planet_of(&atom);
+        let mut gone = false;
+        left.retain(|o| {
+            if planet.is_some() && planet_of(o) == planet {
+                return false;
+            }
+            if !gone && o.id == atom.id {
+                gone = true;
+                return false;
+            }
+            true
+        });
+    }
+    Some(picked)
+}
+
+/// How many Leadership tokens the bot buys: each one as the old purchase question decided it ([`pick_secondary`]'s rule: the pools
+/// below [`tuning::enough_tokens`], nothing saved for a build, six influence kept while Mecatol Rex is in reach), with the pools and the
+/// spare influence the tokens before it leave.
+fn purchase_count(choice: &Choice, seen: &dyn View, me: &PlayerId, each: i64, min: u8, max: u8) -> u8 {
+    let _ = choice;
+    let Some(seat) = seen.seat(me) else { return min };
+    let available = seen.available_spend(me, Spend::Influence);
+    let saving = reserved_resources(seen, me) > 0
+        || (transport_plan(seen, me).is_some() && home_builder_ahead(seen, me))
+        || (seen.round() <= 1 && secondary_to_come(seen, me, StrategyCardKind::Warfare) && seat.strategic_tokens > 0);
+    let wanted_fleet = fleet_wanted(seen, me);
+    let (mut tactic, mut fleet, mut strategic) = (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens);
+    let mut buy = 0u8;
+    while buy < max {
+        let spare = available - each * i64::from(buy + 1);
+        let pools = tactic + strategic;
+        let wants = pools < tuning::enough_tokens() && !saving && (!mecatol_in_reach(seen, me) || spare >= 6);
+        if !wants && buy >= min {
+            break;
+        }
+        buy += 1;
+        // Where the token will go (the gain question's rule).
+        if fleet < wanted_fleet {
+            fleet += 1;
+        } else if tactic <= strategic {
+            tactic += 1;
+        } else {
+            strategic += 1;
+        }
+    }
+    buy
+}
+
+/// The id the bot answers `choice` with: [`multi_answer`] for a multi-pick when it sees the position, else the picked option's
+/// ([`answer_id`]; a multi-pick's atom alone means "pay with this one first", which the engine fills up).
+#[must_use]
+pub fn answer_text(choice: &Choice, seen: Option<&dyn SeatView>, picked: usize) -> String {
+    if let Some(seen) = seen
+        && let Some(id) = multi_answer(choice, seen)
+    {
+        return id;
+    }
+    match seen {
+        Some(seen) => answer_id(choice, picked, seen),
+        None => choice.options[picked.min(choice.options.len().saturating_sub(1))].id.clone(),
+    }
+}
+
 /// The smart answer to `choice`, or `None` to keep the random pick.
 #[must_use]
 pub fn pick(choice: &Choice, seen: &dyn SeatView, rng: &mut ChaCha8Rng) -> Option<usize> {
@@ -335,9 +465,11 @@ pub fn pick(choice: &Choice, seen: &dyn SeatView, rng: &mut ChaCha8Rng) -> Optio
             return pick_research(choice, observed, &me)
                 .or_else(|| faction_plans::research_pick(choice, observed, &me));
         }
-        // Shuffling tokens between pools at random can empty the fleet pool: keep them.
+        // Shuffling tokens between pools at random can empty the fleet pool: keep them (the core's one split question: the
+        // split as it stands; the string's move per question: `done`).
         Some("predictive_intelligence_redistribute") => {
-            return choice.options.iter().position(|o| o.id == "done");
+            let keep = observed.seat(&me).map(|s| format!("{}|{}|{}", s.tactic_tokens, s.fleet_tokens, s.strategic_tokens));
+            return choice.options.iter().position(|o| Some(&o.id) == keep.as_ref()).or_else(|| choice.options.iter().position(|o| o.id == "done"));
         }
         Some("warfare_free_tactical") => return pick_free_tactical(choice, observed, &me),
         Some("construction_choose_ability") => return pick_construction(choice, observed, &me),
@@ -3184,24 +3316,47 @@ fn opening_card_score(seen: &dyn View, me: &PlayerId, card: &str) -> f64 {
 
 /// A new command token: the fleet pool until it holds a few, then whichever of the tactic and
 /// strategy pools is smaller (tactic on a tie, as tactical actions are what the bot mostly takes).
+/// A gain of several tokens at once (the core's `{tactic}|{fleet}|{strategic}` splits) applies
+/// the same rule token by token on the running sheet; the string engine's one-pool question
+/// (`tactic_tokens`, ...) is one token.
 fn pick_token_pool(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
     let seat = seen.seat(me)?;
-    let pool = if let Some((fleet, strategy)) = opening_pools(seen, me) {
-        // In the opening a tactic token is one more system.
-        if seat.fleet_tokens < fleet {
-            "fleet_tokens"
-        } else if seat.strategic_tokens < strategy {
-            "strategic_tokens"
+    let mut sheet = [seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens];
+    let opening = opening_pools(seen, me);
+    let wanted = fleet_wanted(seen, me);
+    let next = |[tactic, fleet, strategic]: [i32; 3]| -> usize {
+        if let Some((want_fleet, want_strategy)) = opening {
+            // In the opening a tactic token is one more system.
+            if fleet < want_fleet {
+                1
+            } else if strategic < want_strategy {
+                2
+            } else {
+                0
+            }
+        } else if fleet < wanted {
+            1
+        } else if tactic <= strategic {
+            0
         } else {
-            "tactic_tokens"
+            2
         }
-    } else if seat.fleet_tokens < fleet_wanted(seen, me) {
-        "fleet_tokens"
-    } else if seat.tactic_tokens <= seat.strategic_tokens {
-        "tactic_tokens"
-    } else {
-        "strategic_tokens"
     };
+    let split = |id: &str| -> Option<[u32; 3]> {
+        let mut parts = id.split('|').map(|p| p.parse::<u32>().ok());
+        let counts = [parts.next()??, parts.next()??, parts.next()??];
+        parts.next().is_none().then_some(counts)
+    };
+    if let Some(left) = choice.options.first().and_then(|o| split(&o.id)).map(|c| c.iter().sum::<u32>()) {
+        let mut counts = [0u32; 3];
+        for _ in 0..left {
+            let pool = next(sheet);
+            counts[pool] += 1;
+            sheet[pool] += 1;
+        }
+        return choice.options.iter().position(|o| split(&o.id) == Some(counts));
+    }
+    let pool = ["tactic_tokens", "fleet_tokens", "strategic_tokens"][next(sheet)];
     choice.options.iter().position(|o| o.id == pool)
 }
 
@@ -4286,6 +4441,27 @@ mod tests {
     }
 
     #[test]
+    fn a_gain_of_several_tokens_applies_the_pool_rule_token_by_token() {
+        let (mut state, hub, _, _) = board();
+        // The core's one question for three tokens: every split, the most tactic tokens first.
+        let mut ids = Vec::new();
+        for t in (0..=3u8).rev() {
+            for f in (0..=3 - t).rev() {
+                ids.push(format!("{t}|{f}|{}", 3 - t - f));
+            }
+        }
+        let choice = contextual(
+            Choice::new(me(), "gain 3 command tokens into which pools", ids.iter().map(|id| ChoiceOption::labelled(id.clone(), "gain", id.clone())).collect()),
+            "gain_command_token",
+        );
+        let seat = state.player_mut(&me()).expect("seat");
+        (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens) = (2, 2, 2);
+        // Fleet to three, then tactic (tie), then strategy (tactic now larger).
+        let at = picked(&state, &hub, &choice).expect("a split");
+        assert_eq!(ids[at], "1|1|1");
+    }
+
+    #[test]
     fn with_nothing_worth_a_token_it_plays_the_card_or_passes() {
         let (state, hub, _, _) = board();
         let seen = observe(&state, &hub);
@@ -5021,6 +5197,15 @@ mod tests {
             "predictive_intelligence_redistribute",
         );
         assert_eq!(picked(&state, &hub, &choice), Some(2));
+        // The core's one question over every final split: the split as it stands.
+        let seat = state.player(&me()).expect("seat");
+        let keep = format!("{}|{}|{}", seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens);
+        let ids = ["0|0|0".to_owned(), keep.clone(), "9|9|9".to_owned()];
+        let splits = contextual(
+            Choice::new(me(), "Predictive Intelligence: redistribute command tokens", ids.iter().map(|id| ChoiceOption::labelled(id.clone(), "redistribute", id.clone())).collect()),
+            "predictive_intelligence_redistribute",
+        );
+        assert_eq!(picked(&state, &hub, &splits), Some(1), "{keep}");
     }
 
     #[test]
@@ -5617,5 +5802,34 @@ mod tests {
         )
         .expect("legal");
         assert_eq!(probe.0, None, "no opinion on research");
+    }
+
+    /// Leadership's PRIMARY purchase lists "buy nothing" (a decline) first: the bot buys nothing (`buy:0`) when its pools are full, and
+    /// never names the decline as a payment atom when it buys.
+    #[test]
+    fn the_primary_purchase_buys_nothing_when_the_pools_are_full_and_never_pays_with_the_decline() {
+        let (mut state, hub, _, _) = board();
+        let seat = state.player_mut(&me()).expect("seat");
+        seat.trade_goods = 3;
+        seat.tactic_tokens = 8;
+        seat.strategic_tokens = 2;
+        let seen = observe(&state, &hub);
+        let mut choice = Choice::new(
+            me(),
+            "buy command tokens for 3 influence each (up to 1)",
+            vec![
+                ChoiceOption::decline(),
+                ChoiceOption::labelled("trade_good", "pay", "spend a trade good").with("worth", 1).with("kind", "influence"),
+            ],
+        );
+        choice.multi_pick = Some(ti4_engine::wire::choice::MultiPick {
+            kind: "purchase".into(),
+            owed: 3,
+            repeat: [("trade_good".to_owned(), 3)].into_iter().collect(),
+            buy: Some([0, 1]),
+        });
+        assert_eq!(purchase_count(&choice, &seen, &me(), 3, 0, 1), 0, "ten tokens: enough");
+        let ids = pay_set(&choice, &seen, &me(), 3).expect("three trade goods pay one token");
+        assert_eq!(ids, vec!["trade_good", "trade_good", "trade_good"], "the decline is not an atom");
     }
 }

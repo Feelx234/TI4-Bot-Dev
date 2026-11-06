@@ -1,0 +1,102 @@
+{
+  "title": "Multi-pick questions",
+  "description": "The multi-ask conversion (branch core-multiask-1) turns several engine loops into ONE question each, and the web now answers each in one go. Payments, Leadership's purchase, the hand-limit discard and the fleet supply / capacity removal are multi-picks (Choice.multi_pick: the answer is the listed atoms' ids joined by '+', a trade good or a duplicate card once per unit); the picker counts atoms, shows the running total against what is owed and checks the engine's rule as you type (payment and purchase: the set covers the bill and without its largest item the rest is short; discard: exactly the number owed; removal: the engine judges and fills up a short set). A gain of several command tokens, Predictive Intelligence and Politics' two agendas are one question each over every split or order. Synthetic fixtures through the mocked server (openMockedGame), not captured engine states; each capture also asserts the answer the page sends. Regenerate with npm run screenshots -- HP.",
+  "tag": "web/e2e/screenshots/HP-multi-pick-questions",
+  "shots": [
+    {
+      "heading": "Payment: one set for the whole bill",
+      "caption": "pay_resources as a multi-pick: 5 owed, Jord 2, Lodor 3, Quann 2 and three trade goods. Open, then too short (Quann + 1 good = 3: 'Short by 2').",
+      "images": [
+        { "label": "Open", "file": "out/1-payment-open-desktop.png" },
+        { "label": "Too short", "file": "out/1-payment-short-desktop.png" }
+      ]
+    },
+    {
+      "heading": "Payment: more than needed, and a legal set",
+      "caption": "Jord + Lodor + Quann + 1 good = 8: even without Lodor (the largest) the rest covers 5, so the engine would refuse it and Pay stays disabled with the reason. Jord + Quann + 1 good = 5 is legal; Pay sends exhaust|jord+exhaust|quann+trade_good as one answer (asserted).",
+      "images": [
+        { "label": "More than needed", "file": "out/1-payment-more-than-needed-desktop.png" },
+        { "label": "Legal", "file": "out/1-payment-legal-desktop.png" }
+      ]
+    },
+    {
+      "heading": "Payment on a phone (390x844)",
+      "caption": "The same two states at phone width, no horizontal scroll.",
+      "images": [
+        { "label": "More than needed", "file": "out/1-payment-more-than-needed-390x844.png" },
+        { "label": "Legal", "file": "out/1-payment-legal-390x844.png" }
+      ]
+    },
+    {
+      "heading": "Leadership primary: gain and purchase on one screen",
+      "caption": "The one gain question for the three free tokens (headline from the new prompt 'gain 3 command tokens into which pools') with the purchase planned below. Jord 2 + Centauri 3 = 5 buys one token: the engine takes it (Jord is spent while the bill is still open, Centauri completes it), so no 'take something out' any more. The host maps the plan onto the gain, the purchase multi-pick and the gain of the bought token.",
+      "images": [
+        { "label": "Desktop", "file": "out/2-leadership-primary-desktop.png" },
+        { "label": "390x844", "file": "out/2-leadership-primary-390x844.png" }
+      ]
+    },
+    {
+      "heading": "Leadership: the purchase question alone (secondary)",
+      "caption": "multi_pick kind purchase, buy [1, 3]: the token panel (not the payment drawer) plans it. As opened Confirm is disabled (at least one token); with Centauri, Dal Bootha and Rarron (7 influence) it buys 2 tokens wasting 1.",
+      "images": [
+        { "label": "As opened", "file": "out/2-leadership-purchase-open-desktop.png" },
+        { "label": "Two tokens staged", "file": "out/2-leadership-purchase-staged-desktop.png" },
+        { "label": "390x844", "file": "out/2-leadership-purchase-staged-390x844.png" }
+      ]
+    },
+    {
+      "heading": "Gains of 2 and 3 tokens",
+      "caption": "A gain outside Leadership (exploration, Summit, ...) is one question over every tactic|fleet|strategic split; the panel stages each token and the host answers with the split.",
+      "images": [
+        { "label": "2 tokens", "file": "out/3-gain-2-desktop.png" },
+        { "label": "3 tokens", "file": "out/3-gain-3-desktop.png" },
+        { "label": "3 tokens, 390x844", "file": "out/3-gain-3-390x844.png" }
+      ]
+    },
+    {
+      "heading": "Predictive Intelligence: one redistribution",
+      "caption": "One question over every split of the nine tokens (no fleet floor); the arrangement is the one answer (1|4|4 here).",
+      "images": [
+        { "label": "Desktop", "file": "out/3-predictive-desktop.png" },
+        { "label": "390x844", "file": "out/3-predictive-390x844.png" }
+      ]
+    },
+    {
+      "heading": "Politics: both agendas in one question",
+      "caption": "Both looked-at agendas as cards (side by side on desktop, stacked on a phone), the headline and the six orders with printed names instead of the engine's ids, a line per order on what it does; no search box over six options.",
+      "images": [
+        { "label": "Desktop", "file": "out/4-politics-desktop.png" },
+        { "label": "390x844, as opened", "file": "out/4-politics-390x844.png" },
+        { "label": "390x844, the orders", "file": "out/4-politics-390x844-options.png" }
+      ]
+    },
+    {
+      "heading": "Hand-limit discard (generic multi-pick picker)",
+      "caption": "Discard 2 of 9, one option per printed name (Sabotage held twice, so it steps up to 2). One card picked: 'Pick 1 more'. Two picked: Discard 2 sends 0+2 (asserted).",
+      "images": [
+        { "label": "One picked", "file": "out/5-discard-too-few-desktop.png" },
+        { "label": "Two picked", "file": "out/5-discard-legal-desktop.png" },
+        { "label": "390x844", "file": "out/5-discard-legal-390x844.png" }
+      ]
+    },
+    {
+      "heading": "Removal over the fleet supply (generic multi-pick picker)",
+      "caption": "8 ships against a fleet supply of 5: one question, a stepper per unit kind up to the excess. With one destroyer picked the note says the game removes more in the listed order; two destroyers and a cruiser send remove|0+remove|0+remove|3 (asserted), which the engine checks.",
+      "images": [
+        { "label": "One picked", "file": "out/6-remove-short-desktop.png" },
+        { "label": "Three picked", "file": "out/6-remove-picked-desktop.png" },
+        { "label": "390x844", "file": "out/6-remove-picked-390x844.png" }
+      ]
+    }
+  ],
+  "notes": [
+    {
+      "title": "The rule as you type",
+      "text": "presentation/multiPick.ts mirrors the engine's set_worth / purchase_worth (sum >= owed and sum - largest < owed) and the discard count; a kind it does not know is built freely and judged by the engine. The token panel's Leadership payment check uses the same largest-item rule now, so a few sets it refused before (a small planet that the bill still needed before the large one) are accepted, as the engine accepts them."
+    },
+    {
+      "title": "Status phase",
+      "text": "The engine no longer asks a status-phase gain (the tokens go to the tactic pool), so the status token plan is the redistribution alone; the gain part of the planner is gone."
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 //! D4-2a: `rules::production::strategy_cards::Leadership` (three tokens for the primary, then tokens bought at three influence each).
 
+use ti4_engine_core::choice::production::{Ask as PAsk, Opt as POpt, PaySet};
 use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt, Pool};
 use ti4_engine_core::rules::production::strategy_cards::{INFLUENCE_PER_TOKEN, LEADERSHIP_TOKENS, Leadership};
 use ti4_engine_core_tests::prelude::*;
@@ -24,22 +25,47 @@ fn sheet(s: &CoreState) -> i16 {
 }
 
 #[test]
-fn the_primary_gives_three_tokens_one_pool_at_a_time_and_then_offers_to_buy_more() {
+fn the_primary_gives_three_tokens_in_one_question_and_then_offers_to_buy_more() {
     covers!("rules::production::strategy_cards::Leadership");
     assert_eq!((INFLUENCE_PER_TOKEN, LEADERSHIP_TOKENS), (3, 3));
     let mut rig = Rig::new(table(&[2, 3], 0), Leadership::new(Seat(0), true));
     rig.run();
-    for left in [3u8, 2, 1] {
-        assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left }));
-        assert_eq!(rig.opts(), vec![strat(SOpt::Pool(Pool::Tactic)), strat(SOpt::Pool(Pool::Fleet)), strat(SOpt::Pool(Pool::Strategic))]);
-        rig.pick(left as usize % 3);
-    }
+    // One question for the three tokens: every split of three (10), the most tactic tokens first.
+    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 3 }));
+    assert_eq!(rig.opts().len(), 10);
+    assert_eq!(rig.opts()[0], strat(SOpt::gain_of(&[Pool::Tactic; 3])));
+    rig.expect_illegal(Pick::Opt(strat(SOpt::gain_of(&[Pool::Tactic; 2]))));
+    rig.pick_opt(strat(SOpt::gain_of(&[Pool::Fleet, Pool::Strategic, Pool::Tactic])));
     assert_eq!(sheet(&rig.state), 3 + 3, "three tokens joined the three on the sheet");
-    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::LeadershipBuy { owed: 3, more: false }));
-    assert_eq!(rig.opts(), vec![strat(SOpt::Buy(false)), strat(SOpt::Buy(true))]);
-    rig.expect_illegal(Pick::Opt(strat(SOpt::Pool(Pool::Tactic))));
-    rig.pick_opt(strat(SOpt::Buy(false)));
+    // The purchase: one question, the payment atoms as options, none or one token (five influence).
+    let Ask::Production(PAsk::Purchase(p)) = rig.asked().ask else { panic!("the purchase: {:?}", rig.asked().ask) };
+    assert_eq!((p.min, p.max, p.each), (0, 1, 3));
+    // The primary may buy nothing: the decline is listed first (the old loop's first option was "no"), then the atoms.
+    assert_eq!(rig.opts()[0], Opt::Decline);
+    assert!(rig.opts()[1..].iter().all(|o| matches!(o, Opt::Production(POpt::Exhaust { .. }))));
+    rig.expect_illegal(Pick::Opt(strat(SOpt::gain_of(&[Pool::Tactic]))));
+    rig.answer_pick(Pick::Opt(Opt::Production(POpt::Set(PaySet::default()))));
     assert!(rig.is_done());
+    assert_eq!(sheet(&rig.state), 3 + 3, "nothing bought");
+}
+
+#[test]
+fn the_primary_buys_nothing_with_the_first_option_or_the_decline() {
+    covers!("rules::production::strategy_cards::Leadership");
+    for decline in [false, true] {
+        let mut rig = Rig::new(table(&[2, 3], 1), Leadership::new(Seat(0), true));
+        rig.run();
+        rig.pick(0);
+        assert_eq!(sheet(&rig.state), 3 + 3, "the three free tokens first");
+        if decline {
+            rig.answer_pick(Pick::Opt(Opt::Decline));
+        } else {
+            rig.pick(0);
+        }
+        assert!(rig.is_done(), "no gain question after buying nothing");
+        assert_eq!(sheet(&rig.state), 3 + 3);
+        assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 1, "nothing spent");
+    }
 }
 
 #[test]
@@ -47,7 +73,7 @@ fn without_three_influence_to_spare_the_offer_is_never_made() {
     covers!("rules::production::strategy_cards::Leadership");
     let mut rig = Rig::new(table(&[2], 0), Leadership::new(Seat(0), true));
     rig.run();
-    rig.pick(0).pick(0).pick(0);
+    rig.pick(0);
     assert!(rig.is_done(), "two influence cannot buy a token");
     assert_eq!(sheet(&rig.state), 6);
 }
@@ -58,9 +84,10 @@ fn buying_a_token_spends_three_influence_in_planets_or_goods_and_gives_one_token
     let planets = planets_with_influence(&[2, 3]);
     let mut rig = Rig::new(table(&[2, 3], 1), Leadership::new(Seat(0), true));
     rig.run();
-    rig.pick(0).pick(0).pick(0);
-    rig.pick_opt(strat(SOpt::Buy(true)));
+    rig.pick(0);
     rig.assert_options_sound();
+    // One token, paid with the first atom first (option 0 is the decline).
+    rig.pick(1);
     rig.auto(ti4_engine_core_tests::rig::Policy::First);
     assert!(rig.is_done());
     assert_eq!(sheet(&rig.state), 3 + 3 + 1, "one bought token");

@@ -594,6 +594,51 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Politics: place both agendas",
+    fallback: "Both looked-at agendas as cards, the six orders as options",
+    note: "The Politics primary looks at the top two agendas and places each on the top or the bottom in any order: one engine question over the six orders, each option named in plain words.",
+    choice: {
+      actor,
+      nonce: "gallery-politics-agendas",
+      prompt: "place minister_commerce and mutiny on the top or the bottom of the agenda deck",
+      details: {
+        agendas: [
+          {
+            id: "minister_commerce",
+            name: "Minister of Commerce",
+            type: "Law",
+            target: "Player",
+            text1: "At the start of the status phase, the elected player gains 1 trade good for each planet they control.",
+            text2: "",
+          },
+          {
+            id: "mutiny",
+            name: "Mutiny",
+            type: "Directive",
+            target: "For/Against",
+            text1: "For: each player who voted For gains 1 victory point.",
+            text2: "Against: each player who voted For loses 1 victory point.",
+          },
+        ],
+      },
+      context: partialContext({
+        subtype: "politics_place_agenda",
+        source: { StrategyCard: { card: "pok3politics", secondary: false } },
+        phase: "action",
+        round: 2,
+      }),
+      options: [
+        ["minister_commerce/mutiny", ["minister_commerce"], ["mutiny"], "minister_commerce on top, mutiny on the bottom"],
+        ["mutiny/minister_commerce", ["mutiny"], ["minister_commerce"], "mutiny on top, minister_commerce on the bottom"],
+        ["minister_commerce,mutiny/", ["minister_commerce", "mutiny"], [], "both on top: minister_commerce first, then mutiny"],
+        ["mutiny,minister_commerce/", ["mutiny", "minister_commerce"], [], "both on top: mutiny first, then minister_commerce"],
+        ["/minister_commerce,mutiny", [], ["minister_commerce", "mutiny"], "both on the bottom: minister_commerce, then mutiny as the bottom card"],
+        ["/mutiny,minister_commerce", [], ["mutiny", "minister_commerce"], "both on the bottom: mutiny, then minister_commerce as the bottom card"],
+      ].map(([id, top, bottom, label]) => ({ ...option(id as string, label as string, "agenda_order"), payload: { top, bottom } })),
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Politics: choose the speaker",
     fallback: "Each candidate with faction, VP, speaker order and the role",
     note: "Candidates show faction and colour, current VP and what the speaker role gives.",
@@ -1126,8 +1171,8 @@ export const fallbackCases: GalleryCase[] = [
   {
     workflow: "generic_selection",
     title: "Predictive Intelligence: restack tokens",
-    fallback: "One move per question -> per-pool +/- panel; the fewest moves are answered in turn",
-    note: "Predictive Intelligence redistributes at the end of the turn, one token per question. The panel plans the whole arrangement and sends the moves one after another, then finishes.",
+    fallback: "One split of every token -> per-pool +/- panel; the arrangement is the one answer",
+    note: "Predictive Intelligence redistributes at the end of the turn: one engine question over every final split (no fleet floor). The panel plans the arrangement and sends it as one answer; the split as it stands keeps the card ready.",
     choice: {
       actor,
       nonce: "gallery-pi-restack",
@@ -1136,15 +1181,15 @@ export const fallbackCases: GalleryCase[] = [
         subtype: "predictive_intelligence_redistribute",
         source: { Content: "pi" },
       }),
-      options: [
-        ...["tactic|fleet", "tactic|strategy", "fleet|tactic", "fleet|strategy", "strategy|tactic", "strategy|fleet"].map(
-          (id) => option(id, `move 1 token from ${id.replace("|", " to ")}`, "redistribute"),
-        ),
-        option("done", "finish redistribution", "decline"),
-      ],
+      options: Array.from({ length: 10 }, (_, tactic) => tactic).flatMap((tactic) =>
+        Array.from({ length: 10 - tactic }, (_, fleet) => fleet).map((fleet) => {
+          const id = `${tactic}|${fleet}|${9 - tactic - fleet}`;
+          return option(id, `tactic ${tactic} / fleet ${fleet} / strategy ${9 - tactic - fleet}`, "redistribute");
+        }),
+      ),
       details: {
         kind: "command_tokens",
-        mode: "restack",
+        mode: "redistribute",
         pools: { tactic: 3, fleet: 4, strategic: 2 },
         reinforcements: 7,
         total: 9,

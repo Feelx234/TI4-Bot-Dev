@@ -421,7 +421,7 @@ fn a_free_tactical_action_leaves_the_marks_of_the_activation_the_string_leaves()
     while let Live::Asks(q) = live {
         let answer = match q.choice.ask {
             Ask::Strategy(ti4_engine_core::choice::strategy::Ask::TeWarfareTactical) => pick(&q.choice, |o| *o == Opt::Strategy(SOpt::System(tiles[3]))),
-            _ => Pick::Opt(q.choice.opts.as_slice()[0]),
+            _ => q.choice.pick(0).expect("an answer"),
         };
         live = ti4_engine_chance::resolved(ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>)(&mut core, &env, Some(answer)).unwrap().0;
     }
@@ -681,7 +681,7 @@ fn thunders_edge_warfares_free_action_begins_inside_its_job_in_the_strings_order
         asked += 1;
         let answer = match q.choice.ask {
             Ask::Strategy(ti4_engine_core::choice::strategy::Ask::TeWarfareTactical) => pick(&q.choice, |o| *o == Opt::Strategy(SOpt::System(tiles[3]))),
-            _ => Pick::Opt(q.choice.opts.as_slice()[0]),
+            _ => q.choice.pick(0).expect("an answer"),
         };
         live = ti4_engine_chance::resolved(ti4_engine_core::driver::live::advance::<ti4_engine_core::driver::turn::TurnFlowWin>)(&mut core, &env, Some(answer)).unwrap().0;
     }
@@ -759,7 +759,7 @@ fn shval_to_the_close(core: &mut CoreState, env: &Env<'_>, target: System) -> Li
     for _ in 0..12 {
         let Live::Asks(q) = live else { break };
         let finish = q.choice.opts.as_slice().contains(&t(TOpt::DoneMoving));
-        live = ti4_engine_chance::resolved(advance_tactical)(core, env, Some(if finish { pick(&q.choice, |o| *o == t(TOpt::DoneMoving)) } else { Pick::Opt(q.choice.opts.as_slice()[0]) })).unwrap().0;
+        live = ti4_engine_chance::resolved(advance_tactical)(core, env, Some(if finish { pick(&q.choice, |o| *o == t(TOpt::DoneMoving)) } else { q.choice.pick(0).expect("an answer") })).unwrap().0;
         if finish {
             return live;
         }

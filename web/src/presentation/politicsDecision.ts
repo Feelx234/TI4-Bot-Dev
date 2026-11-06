@@ -48,6 +48,102 @@ export function describeDecisionAgenda(
   };
 }
 
+const agendaView = (raw: unknown, fallback: string | null): AgendaView | null => {
+  const record = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
+  const text = (key: string) =>
+    typeof record?.[key] === "string" && (record[key] as string).trim() ? (record[key] as string).trim() : null;
+  const name = text("name") ?? (text("id") ? humanizeId(text("id") as string) : fallback ? humanizeId(fallback) : null);
+  if (!name) return null;
+  return {
+    name,
+    kind: text("type"),
+    target: text("target"),
+    text: [text("text1"), text("text2")].filter((line): line is string => line !== null),
+  };
+};
+
+/**
+ * The agendas Politics places: both looked-at agendas at once (`details.agendas`, the first was the
+ * top card; the engine asks one question over the six orders), or the lone one (`details.agenda`).
+ * Empty for any other decision.
+ */
+export function describeAgendaPlacements(
+  choice: Pick<PendingChoiceDto, "prompt" | "context" | "details">,
+): AgendaView[] {
+  if (subtypeOf(choice) !== "politics_place_agenda") return [];
+  const many = choice.details?.agendas;
+  if (Array.isArray(many)) {
+    return many.map((raw) => agendaView(raw, null)).filter((view): view is AgendaView => view !== null);
+  }
+  const one = describeAgendaPlacement(choice);
+  return one ? [one] : [];
+}
+
+/**
+ * The headline of Politics' one question for both looked-at agendas, with their printed names (the
+ * engine's prompt names them by id). `null` for any other decision.
+ */
+export function agendaPlacementPrompt(
+  choice: Pick<PendingChoiceDto, "prompt" | "context" | "details">,
+): string | null {
+  if (!Array.isArray(choice.details?.agendas)) return null;
+  const agendas = describeAgendaPlacements(choice);
+  if (agendas.length !== 2) return null;
+  return `Place ${agendas[0].name} and ${agendas[1].name} on the top or the bottom of the agenda deck`;
+}
+
+/**
+ * The two piles of one of the six orders by printed name (`option.payload.top` / `.bottom` hold
+ * agenda ids, top pile first-revealed first, bottom pile ending with the very last card).
+ */
+function agendaOrderPiles(
+  choice: Pick<PendingChoiceDto, "context" | "details">,
+  option: ChoiceOption,
+): { top: string[]; bottom: string[] } | null {
+  if (subtypeOf(choice) !== "politics_place_agenda" || option.kind !== "agenda_order") return null;
+  const names = new Map<string, string>();
+  const many = choice.details?.agendas;
+  for (const raw of Array.isArray(many) ? many : []) {
+    const record = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+    if (typeof record?.id === "string") {
+      names.set(record.id, typeof record.name === "string" && record.name ? record.name : humanizeId(record.id));
+    }
+  }
+  const pile = (key: string) => {
+    const ids = option.payload?.[key];
+    return Array.isArray(ids) ? ids.map((id) => names.get(String(id)) ?? humanizeId(String(id))) : [];
+  };
+  return { top: pile("top"), bottom: pile("bottom") };
+}
+
+/** The option's title for one of the six orders, with the printed names (the engine's label has ids). */
+export function agendaOrderTitle(
+  choice: Pick<PendingChoiceDto, "context" | "details">,
+  option: ChoiceOption,
+): string | null {
+  const piles = agendaOrderPiles(choice, option);
+  if (!piles) return null;
+  const { top, bottom } = piles;
+  if (top.length === 1 && bottom.length === 1) return `${top[0]} on top · ${bottom[0]} to the bottom`;
+  if (top.length === 2) return `Both on top: ${top[0]} first, then ${top[1]}`;
+  if (bottom.length === 2) return `Both to the bottom: ${bottom[1]} as the last card`;
+  return null;
+}
+
+/** What one of the six orders does, in a line under its title. */
+export function agendaOrderNote(
+  choice: Pick<PendingChoiceDto, "context" | "details">,
+  option: ChoiceOption,
+): string | null {
+  const piles = agendaOrderPiles(choice, option);
+  if (!piles) return null;
+  const { top, bottom } = piles;
+  if (top.length === 1 && bottom.length === 1) return `${top[0]} is revealed next; ${bottom[0]} will not come up soon.`;
+  if (top.length === 2) return `${top[0]} is revealed next, ${top[1]} after it.`;
+  if (bottom.length === 2) return `Neither comes up soon: ${bottom[0]}, then ${bottom[1]} under it.`;
+  return null;
+}
+
 /** The agenda being placed on top of or below the deck; `null` for any other decision. */
 export function describeAgendaPlacement(
   choice: Pick<PendingChoiceDto, "prompt" | "context" | "details">,
@@ -233,6 +329,8 @@ export function optionNote(
 ): OptionNote | null {
   const subtype = subtypeOf(choice);
   if (isPlayerPick(choice)) return playerPickNote(choice, option, table);
+  const order = agendaOrderNote(choice, option);
+  if (order) return { text: order };
   const decline = option.kind === "decline" || option.id === "decline" || option.id === "done";
   if (subtype === "trade_choose_replenish" && decline) {
     return { text: "Nobody else replenishes; the Trade primary ends here." };

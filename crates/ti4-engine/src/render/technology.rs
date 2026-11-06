@@ -4,29 +4,15 @@
 //! The texts are those of `technology::start_turn` (Psychoarchaeology) and `technology::end_turn` (Predictive Intelligence,
 //! Bio-Stims), byte for byte. The pool counts of the restack question (`Choice.details`) are the adapter's to add.
 
-use ti4_engine_core::choice::strategy::Pool;
 use ti4_engine_core::choice::technology::{Ask, Opt, Subtype};
 use ti4_engine_core::generated::{Planet, System, Technology};
 
 use super::{Family, Render, Wording};
-use crate::choice::{ChoiceOption, DECLINE_KIND};
+use crate::choice::ChoiceOption;
 use crate::generated::IdStr;
 
 /// The renderer of the free technology questions.
 pub struct Fam;
-
-/// The pool's name in the restack ids (`tactic|fleet`; the strategy pool is `strategy` here).
-const fn pool(p: Pool) -> &'static str {
-    match p {
-        Pool::Tactic => "tactic",
-        Pool::Fleet => "fleet",
-        Pool::Strategic => "strategy",
-    }
-}
-
-fn pool_of(text: &str) -> Option<Pool> {
-    [Pool::Tactic, Pool::Fleet, Pool::Strategic].into_iter().find(|p| pool(*p) == text)
-}
 
 impl Family for Fam {
     type Ask = Ask;
@@ -136,10 +122,11 @@ impl Family for Fam {
                     .with("technology", "bs")
                     .with_planet(id, shown.system.map(|s| s.as_str()))
             }
-            (_, Opt::Move { from, to }) => {
-                let (source, destination) = (pool(*from), pool(*to));
-                ChoiceOption::labelled(format!("{source}|{destination}"), "redistribute", format!("move 1 token from {source} to {destination}"))
-            }
+            (_, Opt::Split { tactic, fleet, strategic }) => ChoiceOption::labelled(
+                format!("{tactic}|{fleet}|{strategic}"),
+                "redistribute",
+                format!("tactic {tactic} / fleet {fleet} / strategy {strategic}"),
+            ),
             (_, Opt::ReadyTechnology(tech)) => {
                 let id = tech.as_str();
                 let name = crate::technology::name(ti4_content::ContentStore::embedded(), &ti4_model::id::TechnologyId::new(id));
@@ -171,8 +158,10 @@ impl Family for Fam {
             }
             Ask::Psychoarchaeology | Ask::SelfAssembly => Planet::from_id(id).map(|p| Opt::Planet(p, ti4_engine_core::choice::agenda::Shown::default())),
             Ask::Restack => {
-                let (from, to) = id.split_once('|')?;
-                Some(Opt::Move { from: pool_of(from)?, to: pool_of(to)? })
+                let mut parts = id.split('|');
+                let mut next = || parts.next()?.parse::<u8>().ok();
+                let (tactic, fleet, strategic) = (next()?, next()?, next()?);
+                parts.next().is_none().then_some(Opt::Split { tactic, fleet, strategic })
             }
             Ask::Aida { .. } => (id == "exhaust").then_some(Opt::Exhaust),
             Ask::TransitDiodes { .. } => {
@@ -195,13 +184,10 @@ impl Family for Fam {
         }
     }
 
-    /// "finish redistribution": the restack question ends with a `done` option of the decline kind.
+    /// "finish redeployment": the Transit Diodes question ends with a decline.
     fn wording(_: &Render, a: &Ask, o: &super::Opt) -> Wording {
         if matches!((a, o), (Ask::TransitDiodes { .. }, super::Opt::Decline)) {
             return Wording { label: Some("finish redeployment".to_owned()), ..Wording::default() };
-        }
-        if matches!((a, o), (Ask::Restack, super::Opt::Done)) {
-            return Wording { kind: Some(DECLINE_KIND.to_owned()), label: Some("finish redistribution".to_owned()), ..Wording::default() };
         }
         Wording::default()
     }

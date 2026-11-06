@@ -274,7 +274,7 @@ impl Window for ProduceOne {
                 Ok(())
             }
             (OStage::Paying { unit, cost, paid }, Pick::Opt(Opt::Production(pay))) => {
-                let Some(worth) = self.pay_step(cost, paid).apply(sx.state, sx.kernel, pay) else {
+                let Some(worth) = self.pay_step(cost, paid).answer_set(sx.state, sx.kernel, pay) else {
                     self.finish(sx.state);
                     return Ok(());
                 };

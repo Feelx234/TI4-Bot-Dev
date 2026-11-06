@@ -62,8 +62,6 @@ const PoolSteppers: React.FC<{ id: string; pools: Pools; onChange: (pools: Pools
   </div>
 );
 
-/** The default gain of the status phase (81.5): two tokens. */
-const DEFAULT_GAIN: Pools = { tactic: 2, fleet: 0, strategic: 0 };
 
 export interface StatusTokenPlanDialogProps {
   viewer: PlayerView | undefined;
@@ -74,9 +72,9 @@ export interface StatusTokenPlanDialogProps {
 }
 
 /**
- * Plans the status phase's two token decisions ahead of time: where the gained tokens go, and the
- * arrangement after redistributing. Nothing is sent; the real questions are answered from it only
- * when they open and still fit exactly.
+ * Plans the status phase's token decision ahead of time: the arrangement after redistributing (the
+ * two gained tokens join the tactic pool unasked first). Nothing is sent; the real question is
+ * answered from it only when it opens and still fits exactly.
  */
 export const StatusTokenPlanDialog: React.FC<StatusTokenPlanDialogProps> = ({
   viewer,
@@ -86,21 +84,13 @@ export const StatusTokenPlanDialog: React.FC<StatusTokenPlanDialogProps> = ({
   onClose,
 }) => {
   const held = poolsOf(viewer);
-  const [gainOn, setGainOn] = useState(Boolean(initial.gain));
-  const [gain, setGain] = useState<Pools>(initial.gain ?? DEFAULT_GAIN);
-  const [redisOn, setRedisOn] = useState(Boolean(initial.redistribute));
-  const [target, setTarget] = useState<Pools>(
-    initial.redistribute ?? poolsAfterGain(held, initial.gain ?? DEFAULT_GAIN),
-  );
-  // The redistribution starts from what is held after the gain: planned, else the usual two.
-  const expected = planTotal(poolsAfterGain(held, gainOn ? gain : DEFAULT_GAIN));
-  const problem = redisOn ? redistributionProblem(target, expected, viewer?.faction) : null;
-  const gainEmpty = gainOn && planTotal(gain) === 0;
-  const blocked = problem !== null || gainEmpty || (!gainOn && !redisOn);
-  const draft: StatusTokenPlan = {
-    ...(gainOn ? { gain } : {}),
-    ...(redisOn ? { redistribute: target } : {}),
-  };
+  // The redistribution starts from what is held after the gain (two tokens, into the tactic pool).
+  const after = poolsAfterGain(held);
+  const [target, setTarget] = useState<Pools>(initial.redistribute ?? after);
+  const expected = planTotal(after);
+  const problem = redistributionProblem(target, expected, viewer?.faction);
+  const blocked = problem !== null;
+  const draft: StatusTokenPlan = { redistribute: target };
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
       <Dialog.Content data-testid="status-plan-dialog" className="choice-workflow-dialog">
@@ -115,52 +105,19 @@ export const StatusTokenPlanDialog: React.FC<StatusTokenPlanDialogProps> = ({
           <p className="status-plan__held" data-testid="status-plan-held">
             You hold {held.tactic} tactic / {held.fleet} fleet / {held.strategic} strategy now.
           </p>
-          <section className="status-plan__section" data-testid="status-plan-gain">
-            <label className="status-plan__toggle">
-              <input
-                type="checkbox"
-                data-testid="status-plan-gain-toggle"
-                checked={gainOn}
-                onChange={(event) => setGainOn(event.target.checked)}
-              />
-              Gain command tokens (81.5)
-            </label>
-            {gainOn && (
-              <>
-                <PoolSteppers id="status-plan-gain" pools={gain} onChange={setGain} />
-                <p className="secondary-prep__note" data-testid="status-plan-gain-note">
-                  {planTotal(gain)} token{planTotal(gain) === 1 ? "" : "s"}. Normally you gain 2; if the game
-                  gives you a different number, the plan is not applied.
-                </p>
-              </>
-            )}
-          </section>
+          <p className="secondary-prep__note" data-testid="status-plan-gain-note">
+            The two tokens you gain (81.5) join your tactic pool first: {after.tactic} tactic / {after.fleet} fleet /{" "}
+            {after.strategic} strategy. Plan where all {expected} end up.
+          </p>
           <section className="status-plan__section" data-testid="status-plan-redistribute">
-            <label className="status-plan__toggle">
-              <input
-                type="checkbox"
-                data-testid="status-plan-redistribute-toggle"
-                checked={redisOn}
-                onChange={(event) => {
-                  setRedisOn(event.target.checked);
-                  if (event.target.checked && !initial.redistribute) {
-                    setTarget(poolsAfterGain(held, gainOn ? gain : DEFAULT_GAIN));
-                  }
-                }}
-              />
-              Redistribute command tokens (81.5)
-            </label>
-            {redisOn && (
-              <>
-                <PoolSteppers id="status-plan-redis" pools={target} onChange={setTarget} />
-                <p
-                  className={`secondary-prep__note${problem ? " secondary-prep__note--attention" : ""}`}
-                  data-testid="status-plan-problem"
-                >
-                  {problem ?? `Arranges all ${expected} tokens you expect to hold after the gain.`}
-                </p>
-              </>
-            )}
+            <h3 className="status-plan__toggle">Redistribute command tokens (81.5)</h3>
+            <PoolSteppers id="status-plan-redis" pools={target} onChange={setTarget} />
+            <p
+              className={`secondary-prep__note${problem ? " secondary-prep__note--attention" : ""}`}
+              data-testid="status-plan-problem"
+            >
+              {problem ?? `Arranges all ${expected} tokens you expect to hold after the gain.`}
+            </p>
           </section>
           <div className="status-plan__actions">
             <button
@@ -237,7 +194,7 @@ export const StatusTokenPlanHost: React.FC<StatusTokenPlanHostProps> = ({ api, v
       <button type="button" className="secondary-prep__chip" data-testid="status-plan-chip" onClick={() => setPlanning(true)}>
         {hasPlan ? "Status plan" : "Plan status tokens"}
         <span className="secondary-prep__note" style={{ margin: 0 }}>
-          {hasPlan ? describeStatusPlan(plan) : "gain and redistribute"}
+          {hasPlan ? describeStatusPlan(plan) : "redistribute"}
         </span>
       </button>
       {hasPlan && (

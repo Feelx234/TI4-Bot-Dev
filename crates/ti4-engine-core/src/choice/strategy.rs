@@ -28,13 +28,52 @@ pub enum Pool {
     Strategic,
 }
 
+/// Where Politics puts the two agendas it looked at (`first` the one that was on top; [`Ask::PoliticsAgendas`]): the six orders 66.2
+/// allows, in the order [`Stack::ALL`] offers them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Stack {
+    /// One on top, the other on the bottom (`top_first`: the first one goes on top).
+    Split { top_first: bool },
+    /// Both on top (`first_up`: the first one is the new top card, the second below it).
+    Top { first_up: bool },
+    /// Both on the bottom (`first_up`: the first one lies above the second, which is the new bottom card).
+    Bottom { first_up: bool },
+}
+
+impl Stack {
+    /// The six orders, as the question offers them.
+    pub const ALL: [Self; 6] = [
+        Self::Split { top_first: true },
+        Self::Split { top_first: false },
+        Self::Top { first_up: true },
+        Self::Top { first_up: false },
+        Self::Bottom { first_up: true },
+        Self::Bottom { first_up: false },
+    ];
+
+    /// The agendas that go on top (the first of the list is the new top card) and on the bottom (the last of the list is the new bottom
+    /// card), for the two agendas `first` and `second`.
+    #[must_use]
+    pub fn piles(self, first: Agenda, second: Agenda) -> (SmallList<Agenda, 2>, SmallList<Agenda, 2>) {
+        let list = |v: &[Agenda]| v.iter().copied().collect::<SmallList<Agenda, 2>>();
+        match self {
+            Self::Split { top_first: true } => (list(&[first]), list(&[second])),
+            Self::Split { top_first: false } => (list(&[second]), list(&[first])),
+            Self::Top { first_up: true } => (list(&[first, second]), list(&[])),
+            Self::Top { first_up: false } => (list(&[second, first]), list(&[])),
+            Self::Bottom { first_up: true } => (list(&[]), list(&[first, second])),
+            Self::Bottom { first_up: false } => (list(&[]), list(&[second, first])),
+        }
+    }
+}
+
 /// What the area asks. Parameters only; the option list is derived by the window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Ask {
     /// Trade primary: "let another player replenish commodities" (one seat per question, until none is
     /// left that can or the holder is done).
     TradeReplenish,
-    /// 52.4: "gain a command token into which pool" (`left` tokens still to place, this one included).
+    /// 52.4: "gain `left` command tokens into which pools": one question for the whole gain, an [`Opt::Gain`] per split.
     GainPool { left: u8 },
     /// Warfare primary: "recall a command token" from one of the systems that holds one.
     WarfareRecall,
@@ -50,11 +89,11 @@ pub enum Ask {
     ReadyPlanet,
     /// Politics primary: "who becomes speaker".
     PoliticsSpeaker,
-    /// Politics primary: "place {agenda} where".
+    /// Politics primary: "place {agenda} where" (only one agenda was left to look at).
     PoliticsAgenda { agenda: Agenda },
-    /// 52.3: "spend {owed} influence for a command token" (`more`: a carried credit pays part of it, so the
-    /// text says "more").
-    LeadershipBuy { owed: u8, more: bool },
+    /// Politics primary (66.2): "place each of the two agendas looked at on the top or the bottom of the deck, in any order": ONE question
+    /// over the six final orders ([`Stack`]). `first` was the top card of the deck, `second` the one below it.
+    PoliticsAgendas { first: Agenda, second: Agenda },
     /// Construction: "place a structure" (`step` of 2 for the primary's two placements, 0 for the secondary's
     /// one; `only_pds`: the placement may only be a PDS).
     PlaceStructure { step: u8, only_pds: bool },
@@ -105,8 +144,9 @@ pub enum Ask {
 pub enum Opt {
     /// Trade primary: this seat replenishes (the end of the list is the generic `Done`).
     Replenish(Seat),
-    /// Gain the token into this pool.
-    Pool(Pool),
+    /// A token gain (52.4) answered at once: how many of the `left` tokens go into each pool (the three sum to `left`). The gained
+    /// tokens are placed in the canonical order tactic, fleet, strategic ([`gain_pools`]).
+    Gain { tactic: u8, fleet: u8, strategic: u8 },
     /// A system (Warfare's recall, Diplomacy's choice).
     System(System),
     /// Ready this planet; `Shown.system` is the tile the map shows it on.
@@ -119,8 +159,8 @@ pub enum Opt {
     Top,
     /// An agenda goes on the bottom of the deck.
     Bottom,
-    /// Leadership: spend the influence (`true`) or nothing further (`false`).
-    Buy(bool),
+    /// Where the two agendas of a [`Ask::PoliticsAgendas`] go.
+    Stack(Stack),
     /// Construction: this structure on this planet of this system.
     Structure { pds: bool, system: System, planet: Planet },
     /// Construction: the PDS as planned (the answer `pds`).
@@ -164,6 +204,15 @@ pub enum Opt {
     ResearchWaiver(u8),
     /// The payment of a research waiver, the module's own code (the Cabal's captured model, Yin's infantry; the answer is the module's id).
     ResearchPayment(Waiver),
+}
+
+impl Opt {
+    /// The [`Opt::Gain`] that puts one token into each of `pools` (repeats count).
+    #[must_use]
+    pub fn gain_of(pools: &[Pool]) -> Self {
+        let n = |p: Pool| u8::try_from(pools.iter().filter(|q| **q == p).count()).unwrap_or(u8::MAX);
+        Self::Gain { tactic: n(Pool::Tactic), fleet: n(Pool::Fleet), strategic: n(Pool::Strategic) }
+    }
 }
 
 /// The machine identifier of the question (`DecisionContext.subtype`).
@@ -250,13 +299,36 @@ fn ctx_from(origin: Origin, subtype: Subtype) -> Ctx {
     }
 }
 
-/// The pool question of a token gain (`strategy_cards::gain_tokens`), `left` tokens still to place.
+/// Every way to put `left` gained tokens into the three pools, the most tactic tokens first (for one token: tactic, fleet, strategic).
+pub fn gains(left: u8) -> impl Iterator<Item = Opt> {
+    (0..=left).rev().flat_map(move |tactic| (0..=(left - tactic)).rev().map(move |fleet| Opt::Gain { tactic, fleet, strategic: left - tactic - fleet }))
+}
+
+/// The pool question of a token gain (`strategy_cards::gain_tokens`): ONE question for all `left` tokens, an option per split ([`gains`]).
 #[must_use]
 pub fn gain_pool_choice(who: Seat, left: u8) -> Choice {
     Choice {
         actor: who,
         ask: AnyAsk::Strategy(Ask::GainPool { left }),
         ctx: rule_ctx(Rule::R52_4, Subtype::GainCommandToken),
-        opts: [Pool::Tactic, Pool::Fleet, Pool::Strategic].into_iter().map(|p| AnyOpt::Strategy(Opt::Pool(p))).collect::<Opts>(),
+        opts: gains(left).map(AnyOpt::Strategy).collect::<Opts>(),
     }
+}
+
+/// The answer to a [`gain_pool_choice`] of `left` tokens: the split, when `pick` is one that sums to `left`.
+#[must_use]
+pub fn gain_answer(pick: super::Pick, left: u8) -> Option<[u8; 3]> {
+    match pick {
+        super::Pick::Opt(AnyOpt::Strategy(Opt::Gain { tactic, fleet, strategic }))
+            if u16::from(tactic) + u16::from(fleet) + u16::from(strategic) == u16::from(left) =>
+        {
+            Some([tactic, fleet, strategic])
+        }
+        _ => None,
+    }
+}
+
+/// The pools of a gain split, one per token, in the canonical order (tactic, fleet, strategic).
+pub fn gain_pools(split: [u8; 3]) -> impl Iterator<Item = Pool> {
+    [Pool::Tactic, Pool::Fleet, Pool::Strategic].into_iter().zip(split).flat_map(|(pool, n)| std::iter::repeat_n(pool, usize::from(n)))
 }

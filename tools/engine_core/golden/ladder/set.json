@@ -298,10 +298,10 @@
     {
       "file": "g036.tsv.zst",
       "steps": 400,
-      "decisions": 400,
-      "decisions_hash": "42e1f7567c9ec20e",
-      "bytes": 7086,
-      "sha256": "d15610d6667e5fd441e7736181db65085c3c2ce7c21ec6471141f58c899b4ece"
+      "decisions": 384,
+      "decisions_hash": "44dc6e8f89935f9f",
+      "bytes": 7003,
+      "sha256": "2a75cce52f15c2ce99198f7402aa00e9f36be4ad42c74e061c0f47a0e63d7f5e"
     }
   ],
   "smoke": [

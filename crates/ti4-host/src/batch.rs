@@ -396,6 +396,90 @@ pub enum MovementStep {
     },
 }
 
+/// The answer of a gain question of the new engine (one question for several tokens, options `{tactic}|{fleet}|{strategic}` of kind
+/// `gain`) from the pool steps that open `steps`, and how many steps it takes. `None` for another question, or when the plan has
+/// fewer pool steps than tokens are gained.
+fn gain_split_answer(choice: &Choice, steps: &[MovementStep]) -> Option<(ChoiceOption, usize)> {
+    if choice.context.as_ref().is_none_or(|c| c.subtype != "gain_command_token") {
+        return None;
+    }
+    let counts = |id: &str| -> Option<[usize; 3]> {
+        let mut parts = id.split('|').map(|p| p.parse::<usize>().ok());
+        let c = [parts.next()??, parts.next()??, parts.next()??];
+        parts.next().is_none().then_some(c)
+    };
+    let left: usize = choice.options.iter().find(|o| o.kind == "gain").and_then(|o| counts(&o.id))?.iter().sum();
+    let mut want = [0usize; 3];
+    for step in steps.get(..left)? {
+        let MovementStep::Pool { pool } = step else { return None };
+        let at = ["tactic_tokens", "fleet_tokens", "strategic_tokens"].iter().position(|p| p == pool)?;
+        want[at] += 1;
+    }
+    let option = choice.options.iter().find(|o| o.kind == "gain" && counts(&o.id) == Some(want))?;
+    Some((option.clone(), left))
+}
+
+/// The answer of a multi-pick question (`Choice::multi_pick`) from the steps that open `steps`, and the places of the steps it takes
+/// (relative to `steps`). A payment takes the payment steps in a row up to the first that covers the bill; a purchase takes its
+/// `purchase` steps (the number bought is the count of yes) and every payment step up to the closing no, leaving the pool steps.
+fn multi_pick_answer(choice: &Choice, steps: &[MovementStep]) -> Option<(ChoiceOption, Vec<usize>)> {
+    let multi = choice.multi_pick.as_ref()?;
+    let worth = |id: &str| choice.option(id).and_then(|o| o.payload.get("worth")).and_then(serde_json::Value::as_i64).unwrap_or(0);
+    let atom_id = |step: &MovementStep| match step {
+        MovementStep::Exhaust { planet } => Some(format!("exhaust|{planet}")),
+        MovementStep::TradeGood => Some("trade_good".to_owned()),
+        _ => None,
+    };
+    let mut parts: Vec<String> = Vec::new();
+    let mut taken = Vec::new();
+    if multi.kind == "purchase" {
+        let mut buys = 0u32;
+        for (i, step) in steps.iter().enumerate() {
+            match step {
+                MovementStep::Purchase { buy: true } => {
+                    buys += 1;
+                    taken.push(i);
+                }
+                MovementStep::Purchase { buy: false } => {
+                    taken.push(i);
+                    break;
+                }
+                MovementStep::Pool { .. } => {}
+                other => match atom_id(other) {
+                    Some(id) => {
+                        parts.push(id);
+                        taken.push(i);
+                    }
+                    None => break,
+                },
+            }
+        }
+        if taken.is_empty() {
+            return None;
+        }
+        // The secondary's window question took the plan's first yes (the window's "yes" is the first purchase): the purchase
+        // question's minimum counts it.
+        buys += multi.buy.map_or(0, |[min, _]| u32::from(min));
+        parts.insert(0, format!("{}{buys}", ti4_engine::wire::choice::MULTI_PICK_BUY));
+    } else {
+        let mut paid = 0;
+        for (i, step) in steps.iter().enumerate() {
+            let Some(id) = atom_id(step) else { break };
+            paid += worth(&id);
+            parts.push(id);
+            taken.push(i);
+            if paid >= multi.owed {
+                break;
+            }
+        }
+        if parts.is_empty() {
+            return None;
+        }
+    }
+    let id = parts.join(&ti4_engine::wire::choice::MULTI_PICK_SEPARATOR.to_string());
+    choice.answer_for(&id).map(|option| (option, taken))
+}
+
 /// The decisions a casualty plan answers.
 const CASUALTY_SUBTYPES: [&str; 3] = [
     "sustain_damage",
@@ -772,13 +856,16 @@ impl PrivateDecider {
         // A token plan names every payment of a purchase, but the engine takes a lone payment
         // option without asking. Payment steps that were settled that way are skipped once the
         // engine moves on to a decision that is not a payment.
+        // (Not at a multi-pick of the actor: Leadership's purchase question takes those payment
+        // steps itself, `multi_pick_answer`; after the secondary's window they come first.)
         if script.kind == BatchKind::Tokens
             && !is_reaction_window(choice)
             && !(choice.player == script.actor
-                && choice
-                    .context
-                    .as_ref()
-                    .is_some_and(|c| c.subtype == "pay_influence"))
+                && (choice.multi_pick.is_some()
+                    || choice
+                        .context
+                        .as_ref()
+                        .is_some_and(|c| c.subtype == "pay_influence")))
         {
             while matches!(
                 script.steps.get(script.next),
@@ -825,6 +912,29 @@ impl PrivateDecider {
             });
         }
         let index = script.next;
+        // The new engine asks a gain of several tokens as ONE question (`{tactic}|{fleet}|{strategic}`): it takes as many pool steps
+        // of the plan as tokens are gained.
+        if choice.player == script.actor
+            && let Some((option, used)) = gain_split_answer(choice, &script.steps[index..])
+        {
+            script.selected.push(option.clone());
+            script.next += used;
+            return Ok(option);
+        }
+        // A payment, or Leadership's purchase, is ONE question of the new engine (a set of the atoms, `Choice::multi_pick`): it takes the
+        // plan's payment steps (and a purchase its yes/no steps) at once; the pools of the tokens bought stay for the gain question after it.
+        if choice.player == script.actor
+            && let Some((option, taken)) = multi_pick_answer(choice, &script.steps[index..])
+        {
+            let mut at = 0;
+            script.steps.retain(|_| {
+                let keep = at < index || !taken.contains(&(at - index));
+                at += 1;
+                keep
+            });
+            script.selected.push(option.clone());
+            return Ok(option);
+        }
         let step = &script.steps[index];
         let expected = format!("{step:?}");
         let subtype = step.subtype();
@@ -2766,6 +2876,31 @@ mod tests {
         MovementStep::Pool { pool: id.into() }
     }
 
+    /// The new engine's gain question: one question for `left` tokens, an option per split.
+    fn gain_split_ask(left: u8) -> Choice {
+        let mut options = Vec::new();
+        for t in (0..=left).rev() {
+            for f in (0..=left - t).rev() {
+                options.push(ChoiceOption::labelled(format!("{t}|{f}|{}", left - t - f), "gain", "split"));
+            }
+        }
+        offered("gain_command_token", options)
+    }
+
+    #[test]
+    fn a_gain_of_several_tokens_takes_one_pool_step_per_token_in_one_answer() {
+        let mut decider = decider(
+            BatchKind::Tokens,
+            vec![pool("fleet_tokens"), pool("strategic_tokens"), pool("fleet_tokens"), pool("tactic_tokens")],
+        );
+        assert_eq!(decider.choose(&gain_split_ask(3)).unwrap().id, "0|2|1");
+        assert_eq!(decider.choose(&gain_split_ask(1)).unwrap().id, "1|0|0");
+        assert!(decider.choose(&gain_split_ask(1)).is_err(), "the plan is spent");
+        let script = decider.0.lock().unwrap();
+        assert!(script.failure.is_none() && script.finished);
+        assert_eq!(script.selected.len(), 2, "two questions answered");
+    }
+
     #[test]
     fn token_plan_places_each_token_into_the_planned_pool_in_order() {
         let mut decider = decider(
@@ -2913,6 +3048,26 @@ mod tests {
         let script = decider.0.lock().unwrap();
         assert!(script.failure.is_none());
         assert_eq!(script.selected.len(), 5);
+    }
+
+    /// Leadership's PRIMARY purchase after its three free tokens: a plan that buys nothing (only "no") answers the one purchase
+    /// question with the empty set `buy:0`, which the question takes (its decline comes first and is never named as an atom).
+    #[test]
+    fn a_purchase_plan_of_only_no_buys_nothing() {
+        let mut choice = offered(
+            "buy_token_with_influence",
+            vec![
+                ChoiceOption::decline(),
+                ChoiceOption::labelled("exhaust|arcturus", "pay", "exhaust arcturus for 4 influence"),
+                ChoiceOption::labelled("trade_good", "pay", "spend a trade good"),
+            ],
+        );
+        choice.multi_pick = Some(ti4_engine::wire::choice::MultiPick { kind: "purchase".into(), owed: 3, repeat: std::collections::BTreeMap::new(), buy: Some([0, 1]) });
+        let (option, taken) = multi_pick_answer(&choice, &[buy(false)]).expect("the plan answers the purchase");
+        assert_eq!(option.id, "buy:0");
+        assert_eq!(taken, vec![0]);
+        let (option, _) = multi_pick_answer(&choice, &[buy(true), exhaust("arcturus"), buy(false)]).expect("one token");
+        assert_eq!(option.id, "buy:1+exhaust|arcturus");
     }
 
     #[test]

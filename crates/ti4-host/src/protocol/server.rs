@@ -518,6 +518,21 @@ fn public_choice_detail(
             };
             format!("{actor} gained a {pool} command token")
         }
+        // The new engine's gain of several tokens in one answer (`{tactic}|{fleet}|{strategic}`).
+        "gain_command_token" if option.kind == "gain" => {
+            let mut counts = id.split('|').map(str::parse::<u32>);
+            let (Some(Ok(tactic)), Some(Ok(fleet)), Some(Ok(strategic)), None) =
+                (counts.next(), counts.next(), counts.next(), counts.next())
+            else {
+                return None;
+            };
+            let parts: Vec<String> = [(tactic, "tactic"), (fleet, "fleet"), (strategic, "strategy")]
+                .into_iter()
+                .filter(|(n, _)| *n > 0)
+                .map(|(n, pool)| format!("{n} {pool}"))
+                .collect();
+            format!("{actor} gained command tokens: {}", parts.join(", "))
+        }
         "buy_token_with_influence" => match id {
             "yes" => format!("{actor} bought a command token with influence"),
             "no" => format!("{actor} stopped buying command tokens"),
@@ -592,6 +607,10 @@ fn public_choice_detail(
         }
         "politics_place_agenda" if matches!(id, "top" | "bottom") => {
             format!("{actor} arranged a looked-at agenda")
+        }
+        // Both agendas at once: which went where is hidden (the ids name the agendas).
+        "politics_place_agenda" if option.kind == "agenda_order" => {
+            format!("{actor} arranged the looked-at agendas")
         }
         "discard_over_hand_limit" | "expedition_discard_action_card" => {
             format!("{actor} discarded an action card")
@@ -1295,6 +1314,10 @@ mod fact_tests {
                 assert!(!description.contains("top"));
             }
         }
+        // The one question for both agendas: the ids name the agendas, the description names none.
+        let both = ChoiceOption::new("hidden_a,hidden_b/", "agenda_order");
+        let description = public_decision_facts(&record("politics_place_agenda", &both), Some(&both), None).0.unwrap();
+        assert!(!description.contains("hidden_a") && !description.contains("hidden_b"), "{description}");
     }
 
     #[test]

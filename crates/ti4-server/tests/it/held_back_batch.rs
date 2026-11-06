@@ -10,7 +10,7 @@
 //!
 //! The game: a human seat holds Summit and Manipulate Investments at the start of the strategy
 //! phase and plays both into the window; the bots decline. The seat then answers with its first
-//! option until Summit asks into which pool the tokens go.
+//! option until Summit asks into which pools the tokens go (one question for both tokens).
 
 use crate::support;
 
@@ -121,7 +121,10 @@ fn a_batch_replays_the_answers_the_log_has_not_published_yet() {
         };
         let full = simulate(&restart, &prior, &a, &plan, snapshot.as_deref())
             .unwrap_or_else(|failure| panic!("seed {seed}: the full log replays: {failure:?}"));
-        assert_eq!(full.selected.len(), 2);
+        // Summit's two tokens are ONE gain question (`{tactic}|{fleet}|{strategic}`): both pool
+        // steps answer it.
+        assert_eq!(full.selected.len(), 1);
+        assert_eq!(full.selected[0].id, "0|1|1");
         if !held.is_empty() {
             assert!(
                 held.iter().all(Option::is_some),

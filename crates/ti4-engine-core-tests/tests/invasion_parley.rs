@@ -114,7 +114,7 @@ fn play(core: &mut CoreState, env: &Env<'_>, pick: &mut dyn FnMut(&Choice) -> us
             Err(e) => return (asked, Err(e)),
             Ok((Live::Asks(a), _)) => {
                 let i = pick(&a.choice).min(a.choice.opts.len() - 1);
-                answer = Some(Pick::Opt(a.choice.opts.as_slice()[i]));
+                answer = Some(a.choice.pick(i).expect("an answer"));
                 asked.push(a.choice);
             }
             Ok((Live::Done, _)) => {

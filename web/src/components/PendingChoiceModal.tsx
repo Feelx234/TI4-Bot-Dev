@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { BoardView, ChoiceOption, PendingChoiceDto } from "../protocol/types.ts";
+import { BoardView, PendingChoiceDto } from "../protocol/types.ts";
 import { Dialog } from "../primitives/index.ts";
 import { usePipelineRunner, SemanticIntent } from "../hooks/usePipelineRunner.ts";
-import { ChoiceRendererModel, isDeclineOption } from "../presentation/choiceModel.ts";
+import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { useParticipantText, useIsSeat, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { findStrategyCardMeta } from "../protocol/contentCatalog.ts";
 import {
@@ -25,6 +25,7 @@ import { UnitAbilityOptionNote } from "./UnitAbilityParts.tsx";
 import { describeUnitAbilityOption } from "../presentation/unitAbilityOptions.ts";
 import { describeRemoveUnit } from "../presentation/removeUnit.ts";
 import { PoliticsContextPanel, PoliticsOptionNote } from "./PoliticsDecisionParts.tsx";
+import { agendaOrderTitle, agendaPlacementPrompt } from "../presentation/politicsDecision.ts";
 import { LegendaryContextPanel, LegendaryOptionNote } from "./LegendaryParts.tsx";
 import { NotOfferedNote } from "./NotOfferedNote.tsx";
 import { InvestmentsContextPanel, StrategyGoodsBadge, StrategyGoodsNote } from "./StrategyGoodsParts.tsx";
@@ -53,6 +54,17 @@ import { GroundMoverPanel } from "./GroundMoverPanel.tsx";
 import { NumberStepperPanel } from "./NumberStepperPanel.tsx";
 import { LawPickOptionNote, LawPickPanel } from "./LawPickParts.tsx";
 import { StrategyCardHolderTag, StrategyCardPickPanel } from "./StrategyCardPickParts.tsx";
+import {
+  describeMultiPick,
+  multiPickAnswer,
+  multiPickBill,
+  multiPickProblem,
+  pickedCount,
+  pickedWorth,
+  setAtom,
+  type MultiPickCounts,
+  type MultiPickView,
+} from "../presentation/multiPick.ts";
 
 export interface PendingChoiceModalProps {
   choice: PendingChoiceDto | null;
@@ -104,11 +116,16 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [uncontrolledIsMinimized, setUncontrolledIsMinimized] = useState(false);
+  // A multi-pick question: how many of each atom are picked, and (a purchase) the tokens bought.
+  const [multiCounts, setMultiCounts] = useState<MultiPickCounts>({});
+  const [multiBought, setMultiBought] = useState(0);
   const dialogRef = useRef<HTMLDivElement>(null);
   const priorFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setSubmissionError(null);
+    setMultiCounts({});
+    setMultiBought(choice?.multi_pick?.buy?.[0] ?? 0);
   }, [choice?.nonce]);
 
   const {
@@ -124,8 +141,10 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     onMinimizedChange?.(next);
   };
 
-  const minSelection = model?.selectionMode.mode === "multi" ? model.selectionMode.min : 1;
-  const maxSelection = model?.selectionMode.mode === "multi" ? model.selectionMode.max : 1;
+  // A multi-pick is answered with one '+'-joined id: it never runs the one-at-a-time pipeline.
+  const multiPick = choice ? describeMultiPick(choice) : null;
+  const minSelection = !multiPick && model?.selectionMode.mode === "multi" ? model.selectionMode.min : 1;
+  const maxSelection = !multiPick && model?.selectionMode.mode === "multi" ? model.selectionMode.max : 1;
   const isMultiSelect = maxSelection > 1;
 
   const selectedOptionId = controlledSelectedOptionId ?? uncontrolledSelectedOptionId;
@@ -198,14 +217,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
 
   const confirmTokens = async (outcome: TokenOutcome) => {
     if (outcome.kind === "option") await onSubmit(outcome.optionId);
-    else if (outcome.kind === "moves") {
-      // One engine question per move; the pipeline answers them in turn.
-      const intents: SemanticIntent[] = outcome.moveIds.map((id) => ({
-        predicate: (o: ChoiceOption) => o.id === id,
-      }));
-      if (outcome.finish) intents.push({ predicate: isDeclineOption });
-      executePipeline(intents);
-    } else await onSubmitBatch?.({ kind: "tokens", steps: outcome.steps });
+    else await onSubmitBatch?.({ kind: "tokens", steps: outcome.steps });
   };
   // Minimized floating banner allowing inspection of map, players, and tables
   if (isMinimized) {
@@ -241,9 +253,15 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     );
   }
 
-  const isSelectionValid = isMultiSelect
-    ? selectedOptionIds.length >= minSelection && selectedOptionIds.length <= maxSelection
-    : choice.options.some((opt) => opt.id === selectedOptionId);
+  const multiUnit = multiPick
+    ? String(multiPick.atoms[0]?.option.payload?.kind ?? "").toLowerCase()
+    : "";
+  const multiProblem = multiPick ? multiPickProblem(multiPick, multiCounts, multiBought, multiUnit) : null;
+  const isSelectionValid = multiPick
+    ? multiProblem === null
+    : isMultiSelect
+      ? selectedOptionIds.length >= minSelection && selectedOptionIds.length <= maxSelection
+      : choice.options.some((opt) => opt.id === selectedOptionId);
 
   // Leadership's secondary window plans its purchase on the token panel instead.
   const tokens = describeCommandTokens(choice, Boolean(onSubmitBatch), planetResources);
@@ -283,6 +301,10 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     if (!isSelectionValid || isSubmitting || isPipelineRunning) return;
     setSubmissionError(null);
 
+    if (multiPick) {
+      await submitOption(multiPickAnswer(multiPick, multiCounts, multiBought));
+      return;
+    }
     if (isMultiSelect) {
       const intents: SemanticIntent[] = selectedOptionIds
         .filter((id) => choice.options.some((opt) => opt.id === id))
@@ -334,11 +356,11 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           }}
         >
           <Dialog.Title as="h2" className="visually-hidden">
-            {reroll ? rerollTitle : gainTokensPrompt(choice)}
+            {reroll ? rerollTitle : (agendaPlacementPrompt(choice) ?? gainTokensPrompt(choice))}
           </Dialog.Title>
           <DecisionHeader
             actor={choice.actor}
-            title={reroll ? rerollTitle : gainTokensPrompt(choice)}
+            title={reroll ? rerollTitle : (agendaPlacementPrompt(choice) ?? gainTokensPrompt(choice))}
             progress={present(handDecisionNote(choice) ?? "") || undefined}
             choice={choice}
             onMinimize={() => setIsMinimized(true)}
@@ -366,7 +388,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           )}
 
           {/* Search Bar for long option lists */}
-          {choice.options.length >= 6 && !tokens && (
+          {choice.options.length >= 6 && !tokens && !choice.options.every((o) => o.kind === "agenda_order") && (
             <input
               type="search"
               data-testid="choice-search-input"
@@ -491,6 +513,17 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
             onSubmit={handleSubmit}
             style={{ display: "flex", flexDirection: "column", gap: 12 }}
           >
+            {multiPick && (
+              <MultiPickTally
+                view={multiPick}
+                counts={multiCounts}
+                bought={multiBought}
+                unit={multiUnit}
+                problem={multiProblem}
+                onBuy={setMultiBought}
+                onReset={() => setMultiCounts({})}
+              />
+            )}
             {isMultiSelect && selectedOptionIds.length > 0 && (
               <>
                 <button
@@ -522,9 +555,15 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                 </div>
               ) : (
                 filteredOptions.map((opt) => {
-                  const isChecked = isMultiSelect
-                    ? selectedOptionIds.includes(opt.id)
-                    : selectedOptionId === opt.id;
+                  // A multi-pick's decline (the primary purchase's "buy nothing") is a button below, not an atom.
+                  if (multiPick && opt.kind === "decline") return null;
+                  const multiAtom = multiPick?.atoms.find((atom) => atom.id === opt.id) ?? null;
+                  const multiCount = multiCounts[opt.id] ?? 0;
+                  const isChecked = multiPick
+                    ? multiCount > 0
+                    : isMultiSelect
+                      ? selectedOptionIds.includes(opt.id)
+                      : selectedOptionId === opt.id;
                   const isMaxReached =
                     isMultiSelect && selectedOptionIds.length >= maxSelection && !isChecked;
                   const card = strategyDraft ? findStrategyCardMeta(opt.id) : null;
@@ -536,6 +575,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                       data-testid="choice-option"
                       data-option-id={opt.id}
                       data-actionable={!isMaxReached}
+                      data-picked={multiPick ? multiCount : undefined}
                       className={`${strategyDraft ? "strategy-draft-card " : ""}card${isChecked ? " card--selected" : ""}`}
                       style={{
                         display: "flex",
@@ -549,11 +589,15 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                       }}
                     >
                       <input
-                        type={isMultiSelect ? "checkbox" : "radio"}
+                        type={isMultiSelect || multiPick ? "checkbox" : "radio"}
                         name="choice-option"
                         value={opt.id}
                         checked={isChecked}
-                        onChange={() => handleToggleOption(opt.id)}
+                        onChange={() =>
+                          multiPick
+                            ? setMultiCounts(setAtom(multiPick, multiCounts, opt.id, isChecked ? 0 : 1))
+                            : handleToggleOption(opt.id)
+                        }
                         disabled={isSubmitting || isPipelineRunning || isMaxReached}
                         style={{ marginTop: 3 }}
                         aria-checked={isChecked}
@@ -564,7 +608,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                           style={{ fontWeight: 600, color: isChecked ? "#38bdf8" : "#e2e8f0" }}
                         >
                           <span>
-                            {card ? `${card.initiative}. ${card.name}` : (handCard?.title ?? systemPickOptionTitle(choice, opt, boardView) ?? pickOptionTitle(choice, opt, boardView) ?? describeRemoveUnit(choice, boardView)?.option(opt).title ?? describeUnitAbilityOption(choice, opt, boardView)?.title ?? presentOption(opt))}
+                            {card ? `${card.initiative}. ${card.name}` : (handCard?.title ?? systemPickOptionTitle(choice, opt, boardView) ?? pickOptionTitle(choice, opt, boardView) ?? agendaOrderTitle(choice, opt) ?? describeRemoveUnit(choice, boardView)?.option(opt).title ?? describeUnitAbilityOption(choice, opt, boardView)?.title ?? presentOption(opt))}
                           </span>
                           {card && showGoods && <StrategyGoodsBadge option={opt} />}
                         </div>
@@ -610,6 +654,16 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                         {card && showGoods && <StrategyGoodsNote choice={choice} option={opt} />}
                         <SystemPickOptionFacts choice={choice} optionId={opt.id} board={boardView} />
                       </div>
+                      {multiPick && multiAtom && (
+                        <MultiPickAtomControls
+                          view={multiPick}
+                          atomId={opt.id}
+                          label={opt.label}
+                          count={multiCount}
+                          disabled={isSubmitting}
+                          onCount={(n) => setMultiCounts(setAtom(multiPick, multiCounts, opt.id, n))}
+                        />
+                      )}
                     </label>
                   );
                 })
@@ -622,6 +676,18 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                 board={boardView}
                 onMinimize={() => setIsMinimized(true)}
               />
+              {multiPick?.decline && (
+                <button
+                  type="button"
+                  data-testid="multi-pick-decline"
+                  disabled={isSubmitting || isPipelineRunning}
+                  className="button button--secondary"
+                  style={{ padding: "10px 20px" }}
+                  onClick={() => void submitOption(multiPick.decline?.id ?? "")}
+                >
+                  {multiPick.rule === "purchase" ? "Buy nothing" : multiPick.decline.label || "Decline"}
+                </button>
+              )}
               <button
                 type="submit"
                 data-testid="submit-choice-button"
@@ -636,6 +702,8 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               >
                 {isSubmitting || isPipelineRunning
                   ? "Submitting..."
+                  : multiPick
+                    ? multiPickConfirmLabel(multiPick.rule, pickedCount(multiPick, multiCounts), multiBought)
                   : investments
                     ? "Place trade good"
                     : strategyDraft
@@ -656,5 +724,175 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
         </div>
       </Dialog.Content>
     </Dialog.Root>
+  );
+};
+
+const multiPickConfirmLabel = (rule: string, picked: number, bought: number): string =>
+  rule === "payment"
+    ? "Pay with these"
+    : rule === "purchase"
+      ? bought === 0
+        ? "Buy nothing"
+        : `Buy ${bought} token${bought === 1 ? "" : "s"}`
+      : rule === "discard"
+        ? `Discard ${picked}`
+        : rule === "remove"
+          ? `Remove ${picked}`
+          : `Confirm ${picked} picked`;
+
+/** Beside an atom: its worth, and a count stepper for an atom that may be named more than once. */
+const MultiPickAtomControls: React.FC<{
+  view: MultiPickView;
+  atomId: string;
+  label: string;
+  count: number;
+  disabled: boolean;
+  onCount: (count: number) => void;
+}> = ({ view, atomId, label, count, disabled, onCount }) => {
+  const atom = view.atoms.find((candidate) => candidate.id === atomId);
+  if (!atom) return null;
+  const showWorth = atom.worth > 0 && view.rule !== "discard";
+  if (atom.max <= 1 && !showWorth) return null;
+  return (
+    <div className="multi-pick__atom" data-testid="multi-pick-atom">
+      {atom.max > 1 && (
+        <>
+          <button
+            type="button"
+            className="button button--secondary button--icon"
+            data-testid={`multi-pick-minus-${atomId}`}
+            aria-label={`one ${label} less`}
+            disabled={count === 0 || disabled}
+            onClick={(e) => {
+              e.preventDefault();
+              onCount(count - 1);
+            }}
+          >
+            -
+          </button>
+          <span className="multi-pick__count" data-testid={`multi-pick-count-${atomId}`}>
+            {count} / {atom.max}
+          </span>
+          <button
+            type="button"
+            className="button button--secondary button--icon"
+            data-testid={`multi-pick-plus-${atomId}`}
+            aria-label={`one ${label} more`}
+            disabled={count >= atom.max || disabled}
+            onClick={(e) => {
+              e.preventDefault();
+              onCount(count + 1);
+            }}
+          >
+            +
+          </button>
+        </>
+      )}
+      {showWorth && (
+        <span className="multi-pick__worth">
+          +{atom.worth}
+          {atom.max > 1 ? " each" : ""}
+        </span>
+      )}
+    </div>
+  );
+};
+
+/** The running total of a multi-pick against what it owes, why it would be refused, and (a purchase) the tokens to buy. */
+const MultiPickTally: React.FC<{
+  view: MultiPickView;
+  counts: MultiPickCounts;
+  bought: number;
+  unit: string;
+  problem: string | null;
+  onBuy: (count: number) => void;
+  onReset: () => void;
+}> = ({ view, counts, bought, unit, problem, onBuy, onReset }) => {
+  const picked = pickedCount(view, counts);
+  const worth = pickedWorth(view, counts);
+  const bill = multiPickBill(view, bought);
+  const u = unit ? ` ${unit}` : "";
+  const pays = view.rule === "payment" || view.rule === "purchase";
+  return (
+    <div
+      className="multi-pick workflow-card"
+      data-testid="multi-pick-tally"
+      data-rule={view.rule}
+      data-ok={problem === null}
+    >
+      {view.rule === "purchase" && view.buy && (
+        <div className="workflow-card--row">
+          <span>
+            Tokens to buy ({view.owed}
+            {u} each)
+          </span>
+          <span className="workflow-row">
+            <button
+              type="button"
+              className="button button--secondary button--icon"
+              data-testid="multi-pick-buy-minus"
+              disabled={bought <= view.buy[0]}
+              onClick={() => onBuy(bought - 1)}
+            >
+              -
+            </button>
+            <span className="workflow-count" data-testid="multi-pick-buy-count">
+              {bought}
+            </span>
+            <button
+              type="button"
+              className="button button--secondary button--icon"
+              data-testid="multi-pick-buy-plus"
+              disabled={bought >= view.buy[1]}
+              onClick={() => onBuy(bought + 1)}
+            >
+              +
+            </button>
+          </span>
+        </div>
+      )}
+      <div className="workflow-card--row">
+        <span className="text-muted">{pays ? "Paying" : "Picked"}</span>
+        <strong data-testid="multi-pick-total" className={problem === null ? "text-success" : "text-accent"}>
+          {view.rule === "discard"
+            ? `${picked} of ${view.owed}`
+            : pays
+              ? `${worth} of ${bill}${u}`
+              : view.rule === "remove"
+                ? `${picked} · over by ${view.owed}`
+                : `${picked}`}
+        </strong>
+      </div>
+      {pays && (
+        <progress
+          className="payment-drawer__progress"
+          data-settled={problem === null}
+          max={Math.max(bill, 1)}
+          value={Math.min(worth, bill)}
+        />
+      )}
+      {problem && (
+        <p role="status" className="text-warning" data-testid="multi-pick-problem">
+          {problem}
+        </p>
+      )}
+      {view.rule === "remove" && (
+        <p className="text-muted" data-testid="multi-pick-engine-note">
+          {picked < view.owed
+            ? `You are over by ${view.owed}. Pick the units to remove; if they are not enough, the game removes more in the listed order.`
+            : "The game checks that the excess is gone and that every unit picked was needed."}
+        </p>
+      )}
+      {view.rule === "free" && problem === null && (
+        <p className="text-muted" data-testid="multi-pick-engine-note">
+          The game checks this selection when you confirm.
+        </p>
+      )}
+      {picked > 0 && (
+        <button type="button" className="button button--secondary" data-testid="multi-pick-reset" onClick={onReset}>
+          Clear selection
+        </button>
+      )}
+    </div>
   );
 };

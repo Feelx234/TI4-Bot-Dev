@@ -613,7 +613,7 @@ mod tests {
             asked.push((choice.actor, choice.ask));
             status = d.resume_r(&mut s, &k, choice.pick(0).unwrap()).unwrap();
         }
-        let ask = Ask::Cards(crate::choice::cards::Ask::HandLimit { held: 8 });
+        let ask = Ask::Cards(crate::choice::cards::Ask::HandLimit { held: 8, discard: 1 });
         assert_eq!(asked, vec![(a, ask), (c, ask)], "each voter is asked in the ballot's order");
         assert_eq!((held(&s, a), held(&s, c)), (7, 7));
         assert!(!d.window.unsupported());

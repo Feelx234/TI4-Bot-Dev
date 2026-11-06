@@ -216,10 +216,24 @@ mod ts {
         assert_eq!(L::export_to_string(&cfg).ok(), T::export_to_string(&cfg).ok(), "the export text of {}", L::name(&cfg));
     }
 
+    /// The thin `Choice` is the legacy one plus the multi-pick field (`Choice::multi_pick`, the multi-ask conversion; the string
+    /// engine never asks a multi-pick): with that field taken out, the declarations agree.
+    fn same_choice_but_the_multi_pick() {
+        let cfg = config();
+        assert_eq!(old::choice::Choice::name(&cfg), thin::choice::Choice::name(&cfg));
+        assert_eq!(old::choice::Choice::output_path(), thin::choice::Choice::output_path());
+        let thin_decl = thin::choice::Choice::decl(&cfg);
+        let field = "multi_pick?: MultiPick | null, ";
+        let end = thin_decl.find(field).expect("the thin Choice has the multi-pick field") + field.len();
+        let start = thin_decl[..end].rfind("\n/**").expect("the field's doc comment");
+        let without = format!("{}{}", &thin_decl[..start], &thin_decl[end..]);
+        assert_eq!(old::choice::Choice::decl(&cfg), without, "the declaration of Choice without multi_pick");
+    }
+
     #[test]
     fn every_ts_type_of_the_wire_set_agrees() {
         same::<old::choice::ChoiceOption, thin::choice::ChoiceOption>();
-        same::<old::choice::Choice, thin::choice::Choice>();
+        same_choice_but_the_multi_pick();
         same::<old::decision_context::DecisionSource, thin::decision_context::DecisionSource>();
         same::<old::decision_context::DecisionTarget, thin::decision_context::DecisionTarget>();
         same::<old::decision_context::OutstandingConstraint, thin::decision_context::OutstandingConstraint>();

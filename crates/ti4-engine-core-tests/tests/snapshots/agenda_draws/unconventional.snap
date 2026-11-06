@@ -1,11 +1,11 @@
-Q0 seat 1 Cards(HandLimit { held: 8 })
-  >0: Cards(Discard { index: 2, card: CoupDEtat })
-   1: Cards(Discard { index: 1, card: NavSuite })
-   2: Cards(Discard { index: 0, card: Rally })
-   3: Cards(Discard { index: 4, card: Sabotage1 })
-   4: Cards(Discard { index: 3, card: Spy })
-   5: Cards(Discard { index: 6, card: Upgrade })
-   6: Cards(Discard { index: 5, card: Veto })
+Q0 seat 1 Cards(HandLimit { held: 8, discard: 1 })
+   0: Cards(Discard { index: 2, card: CoupDEtat, copies: 1 })
+   1: Cards(Discard { index: 1, card: NavSuite, copies: 1 })
+   2: Cards(Discard { index: 0, card: Rally, copies: 1 })
+   3: Cards(Discard { index: 4, card: Sabotage1, copies: 1 })
+   4: Cards(Discard { index: 3, card: Spy, copies: 2 })
+   5: Cards(Discard { index: 6, card: Upgrade, copies: 1 })
+   6: Cards(Discard { index: 5, card: Veto, copies: 1 })
 done
 --- delta ---
 player0.cards.hand: [] -> -

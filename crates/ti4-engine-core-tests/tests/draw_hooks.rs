@@ -104,7 +104,7 @@ fn crafty_has_no_hand_limit_and_other_factions_keep_theirs() {
     // Another faction over the limit is asked.
     let mut rig = draw(Faction::TheArborec, &eight[..7], &[eight[7]], 1);
     rig.run();
-    assert!(matches!(rig.asked().ask, Ask::Cards(CAsk::HandLimit { held: 8 })), "{}", rig.transcript());
+    assert!(matches!(rig.asked().ask, Ask::Cards(CAsk::HandLimit { held: 8, discard: 1 })), "{}", rig.transcript());
 }
 
 #[test]
@@ -116,7 +116,7 @@ fn sanctions_cap_the_hand_at_three_and_a_faction_that_changes_nothing_is_asked()
     let mut rig = draw(Faction::TheArborec, &five, &[], 0);
     rig.state.agenda_mut().laws.insert(Agenda::ExecutiveSanctions, Outcome::Empty);
     rig.run();
-    assert!(matches!(rig.asked().ask, Ask::Cards(CAsk::HandLimit { held: 5 })), "Sanctions caps the hand at three: {}", rig.transcript());
+    assert!(matches!(rig.asked().ask, Ask::Cards(CAsk::HandLimit { held: 5, discard: 2 })), "Sanctions caps the hand at three: {}", rig.transcript());
     // Crafty beats the law: Yssaril keeps all five.
     let mut rig = draw(Faction::TheYssarilTribes, &five, &[], 0);
     rig.state.agenda_mut().laws.insert(Agenda::ExecutiveSanctions, Outcome::Empty);

@@ -105,6 +105,7 @@ export type { MapTemplateSummary } from "./MapTemplateSummary.ts";
 export type { MoveFact } from "./MoveFact.ts";
 export type { MovementFact } from "./MovementFact.ts";
 export type { MovementFacts } from "./MovementFacts.ts";
+export type { MultiPick } from "./MultiPick.ts";
 export type { NeighbourProgressView } from "./NeighbourProgressView.ts";
 export type { ObjectiveId } from "./ObjectiveId.ts";
 export type { ObjectiveProgressView } from "./ObjectiveProgressView.ts";

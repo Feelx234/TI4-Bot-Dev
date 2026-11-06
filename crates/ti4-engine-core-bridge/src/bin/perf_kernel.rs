@@ -311,11 +311,15 @@ impl Game {
             roll -= w;
         }
         self.decided += 1;
+        if std::env::var_os("PERF_KERNEL_KINDS").is_some() {
+            *KINDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(format!("{:?}", choice.ctx.subtype)).or_insert(0) += 1;
+        }
         let mut h = DefaultHasher::new();
         (self.chain, choice.actor.0, opts.len(), opts[at]).hash(&mut h);
         self.chain = h.finish();
         self.ph.pick.add(t, a0);
-        Some(Pick::Opt(opts[at]))
+        // A multi-pick (a payment, a purchase, a discard): the option leads the set the question takes (`Choice::pick`).
+        choice.pick(at).or(Some(Pick::Opt(opts[at])))
     }
 
     /// `live::run_live` without rendering, the table and the rollback clone: the arm's pending question (or the window run to its first), the picks,
@@ -660,6 +664,9 @@ fn print_park_detail() {
     }
 }
 
+/// The decisions per question subtype (`PERF_KERNEL_KINDS=1`).
+static KINDS: std::sync::Mutex<std::collections::BTreeMap<String, u64>> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     // stepmachine-1: `PERF_KERNEL_PARK=0` answers every nested question by the replay (the parked continuation switched off),
@@ -730,6 +737,11 @@ fn main() {
             eprintln!("{{\"parks\":{parks},\"parked_answers\":{resumed}}}");
             eprintln!("{}", chance::summary());
             print_park_detail();
+            if std::env::var_os("PERF_KERNEL_KINDS").is_some() {
+                for (kind, n) in KINDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter() {
+                    println!("kind\t{n}\t{kind}");
+                }
+            }
             println!("{{\"summary\":true,\"games\":{},\"unfinished\":{bad},\"steps\":{steps},\"decisions\":{dec},\"ms\":{ms:.1},\"steps_per_s\":{:.0},\"allocs\":{allocs},\"mb\":{:.1},\"suite_hash\":\"{all:016x}\"}}", SUITE.len() * reps, steps as f64 / (ms / 1e3), bytes as f64 / 1e6);
         }
         Some("loop") => {

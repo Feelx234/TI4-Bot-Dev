@@ -2,9 +2,9 @@ Q0 seat 0 Production(SlingShip(SlingShipAsk { who: Seat(0), system: Tempesta }))
   >0: Production(SlingShip { unit: DestroyerI, shown: Shown { worth: 1, pool_after: 0 } })
    1: Production(SlingShip { unit: CruiserI, shown: Shown { worth: 2, pool_after: 0 } })
    2: Production(SlingShip { unit: CarrierI, shown: Shown { worth: 3, pool_after: 0 } })
-Q1 seat 0 Production(Pay(PayAsk { kind: Resources, owed: 1, pool: 6, goods: 5 }))
+Q1 seat 0 Production(Pay(PayAsk { kind: Resources, owed: 1, pool: 6, goods: 5, commodities: 0 }))
    0: Production(Exhaust { planet: Tempesta, source: Resources, shown: Shown { worth: 1, pool_after: 5 } })
-  >1: Production(TradeGood { shown: Shown { worth: 1, pool_after: 5 } })
+   1: Production(TradeGood { shown: Shown { worth: 1, pool_after: 5 } })
 done
 --- delta ---
 player0.econ.trade_goods: 5 -> 4

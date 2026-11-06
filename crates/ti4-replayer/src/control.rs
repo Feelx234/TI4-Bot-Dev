@@ -871,6 +871,7 @@ mod tests {
             context: None,
             details: serde_json::Map::new(),
             free_form: None,
+        multi_pick: None,
         }
     }
 

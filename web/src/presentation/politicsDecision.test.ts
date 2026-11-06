@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  agendaOrderNote,
+  agendaOrderTitle,
   describeAgendaPlacement,
+  describeAgendaPlacements,
   describePickCard,
   isPlayerPick,
   optionNote,
@@ -40,6 +43,49 @@ describe("politicsDecision", () => {
     });
     expect(bare?.name).toBe("Minister Of Commerce");
     expect(describeAgendaPlacement({ prompt: "p", context: { subtype: "other" } as never })).toBeNull();
+  });
+
+  it("describes both looked-at agendas and names each of the six orders", () => {
+    const choice = {
+      prompt: "place a and b on the top or the bottom of the agenda deck",
+      context: { subtype: "politics_place_agenda" } as never,
+      details: {
+        agendas: [
+          { id: "minister_commerce", name: "Minister of Commerce", type: "Law", text1: "x" },
+          { id: "mutiny", name: "Mutiny", type: "Directive", text1: "y" },
+        ],
+      },
+    };
+    expect(describeAgendaPlacements(choice).map((a) => a.name)).toEqual(["Minister of Commerce", "Mutiny"]);
+    const order = (top: string[], bottom: string[]) => ({
+      id: `${top.join(",")}/${bottom.join(",")}`,
+      kind: "agenda_order",
+      label: "",
+      payload: { top, bottom },
+    });
+    expect(agendaOrderNote(choice, order(["mutiny"], ["minister_commerce"]))).toBe(
+      "Mutiny is revealed next; Minister of Commerce will not come up soon.",
+    );
+    expect(agendaOrderNote(choice, order(["minister_commerce", "mutiny"], []))).toBe(
+      "Minister of Commerce is revealed next, Mutiny after it.",
+    );
+    expect(agendaOrderNote(choice, order([], ["mutiny", "minister_commerce"]))).toBe(
+      "Neither comes up soon: Mutiny, then Minister of Commerce under it.",
+    );
+    expect(agendaOrderTitle(choice, order(["mutiny"], ["minister_commerce"]))).toBe(
+      "Mutiny on top · Minister of Commerce to the bottom",
+    );
+    expect(agendaOrderTitle(choice, order(["minister_commerce", "mutiny"], []))).toBe(
+      "Both on top: Minister of Commerce first, then Mutiny",
+    );
+    expect(agendaOrderTitle(choice, order([], ["mutiny", "minister_commerce"]))).toBe(
+      "Both to the bottom: Minister of Commerce as the last card",
+    );
+    expect(agendaOrderTitle({ context: { subtype: "other" } as never }, order(["mutiny"], []))).toBeNull();
+    // The lone agenda keeps its single card.
+    expect(
+      describeAgendaPlacements({ prompt: "place mutiny where", context: { subtype: "politics_place_agenda" } as never }),
+    ).toHaveLength(1);
   });
 
   it("computes standing and speaker order from the current speaker", () => {

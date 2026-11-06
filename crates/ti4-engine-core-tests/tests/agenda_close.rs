@@ -122,12 +122,11 @@ fn the_leadership_rider_asks_the_pool_of_each_of_three_tokens() {
     let mut rig = close(directive(), Some(Outcome::For), &[(1, Prediction::Tagged(Outcome::For, PredictionTag::LeadRider))], LATEST_RULES);
     let before = tokens_of(&rig, 1);
     rig.run();
-    for left in [3u8, 2, 1] {
-        assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: l }) if l == left), "{:?}", rig.asked().ask);
-        assert_eq!(rig.asked().actor, Seat(1));
-        rig.assert_options_sound();
-        rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Fleet)));
-    }
+    // One question for the three tokens.
+    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 3 })), "{:?}", rig.asked().ask);
+    assert_eq!(rig.asked().actor, Seat(1));
+    rig.assert_options_sound();
+    rig.pick_opt(Opt::Strategy(SOpt::gain_of(&[Pool::Fleet; 3])));
     assert!(rig.is_done());
     assert_eq!(tokens_of(&rig, 1), before + 3);
     let again = rig.replay();

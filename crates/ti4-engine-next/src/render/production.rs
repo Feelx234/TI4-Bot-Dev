@@ -4,7 +4,8 @@
 //! Owner: package B3. Ported: the payment question (`pay` options: exhaust a planet face, spend a trade good,
 //! spend a commodity), byte for byte as `production::payment_options` lists them.
 
-use ti4_engine_core::choice::production::{Ask, ChooseAsk, Currency, Opt, PayAsk, PlaceAsk, Shown, Subtype};
+use ti4_engine_core::choice::production::{Ask, ChooseAsk, Currency, Opt, PayAsk, PaySet, PlaceAsk, Shown, Subtype};
+use crate::wire::choice::{MultiPick, MULTI_PICK_BUY, MULTI_PICK_SEPARATOR};
 use ti4_engine_core::generated::{System, Unit};
 use ti4_engine_core::rules::production::Spot;
 use ti4_engine_core::query::fleet::Standing;
@@ -36,6 +37,98 @@ fn planet_id(p: Planet) -> &'static str {
     <Planet as IdStr>::as_str(p)
 }
 
+/// The raw id of a payment set (`set:{faces}:{goods}:{commodities}:{buy}`).
+#[must_use]
+pub fn set_id(set: PaySet) -> String {
+    format!("set:{}:{}:{}:{}", set.faces, set.goods, set.commodities, set.buy)
+}
+
+/// A payment set back from [`set_id`].
+#[must_use]
+pub fn parse_set_id(id: &str) -> Option<PaySet> {
+    let mut parts = id.strip_prefix("set:")?.split(':');
+    let set = PaySet { faces: parts.next()?.parse().ok()?, goods: parts.next()?.parse().ok()?, commodities: parts.next()?.parse().ok()?, buy: parts.next()?.parse().ok()? };
+    parts.next().is_none().then_some(set)
+}
+
+/// The wire's description of a multi-pick question ([`Ask::Pay`], [`Ask::Purchase`]), from its rendered atoms.
+#[must_use]
+pub fn multi_pick(a: &Ask, options: &[ChoiceOption]) -> Option<MultiPick> {
+    let (kind, owed, pay, buy) = match *a {
+        Ask::Pay(p) => ("payment", p.owed, p, None),
+        Ask::Purchase(p) => ("purchase", i64::from(p.each), p.pay, Some([p.min, p.max])),
+        _ => return None,
+    };
+    let mut repeat = std::collections::BTreeMap::new();
+    for (id, held) in [("trade_good", pay.goods), ("commodity", pay.commodities)] {
+        if held > 0 && options.iter().any(|o| o.id == id) {
+            repeat.insert(id.to_owned(), u32::try_from(held).unwrap_or(0));
+        }
+    }
+    Some(MultiPick { kind: kind.to_owned(), owed, repeat, buy })
+}
+
+/// The set a client's multi-pick answer names: the ids of `rendered` (the question's atoms, in the order of `opts`) joined by `+`, a
+/// purchase's `buy:N` among them, or the raw [`set_id`]. `None` for an id that names something else.
+#[must_use]
+pub fn set_of(opts: &[ti4_engine_core::choice::Opt], rendered: &[ChoiceOption], id: &str) -> Option<PaySet> {
+    if let Some(set) = parse_set_id(id) {
+        return Some(set);
+    }
+    let mut set = PaySet::default();
+    if id.is_empty() {
+        return None;
+    }
+    for part in id.split(MULTI_PICK_SEPARATOR) {
+        if let Some(n) = part.strip_prefix(MULTI_PICK_BUY) {
+            set.buy = n.parse().ok()?;
+            continue;
+        }
+        let at = rendered.iter().position(|o| o.id == part)?;
+        match opts.get(at)? {
+            ti4_engine_core::choice::Opt::Production(Opt::TradeGood { .. }) => set.goods = set.goods.checked_add(1)?,
+            ti4_engine_core::choice::Opt::Production(Opt::Commodity { .. }) => set.commodities = set.commodities.checked_add(1)?,
+            ti4_engine_core::choice::Opt::Production(Opt::Exhaust { .. }) => {
+                let face = opts[..at].iter().filter(|o| matches!(o, ti4_engine_core::choice::Opt::Production(Opt::Exhaust { .. }))).count();
+                if face >= 32 || set.faces & (1 << face) != 0 {
+                    return None;
+                }
+                set.faces |= 1 << face;
+            }
+            _ => return None,
+        }
+    }
+    Some(set)
+}
+
+/// The id a client gives for `set` ([`set_of`] reads it back): the purchase count, each atom's id (a trade good or commodity once per
+/// one spent), joined by `+`.
+#[must_use]
+pub fn set_text(opts: &[ti4_engine_core::choice::Opt], rendered: &[ChoiceOption], set: PaySet) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if set.buy > 0 {
+        parts.push(format!("{MULTI_PICK_BUY}{}", set.buy));
+    }
+    let mut face = 0u32;
+    for (o, r) in opts.iter().zip(rendered) {
+        match o {
+            ti4_engine_core::choice::Opt::Production(Opt::Exhaust { .. }) => {
+                if face < 32 && set.faces & (1 << face) != 0 {
+                    parts.push(r.id.clone());
+                }
+                face += 1;
+            }
+            ti4_engine_core::choice::Opt::Production(Opt::TradeGood { .. }) => parts.extend(std::iter::repeat_n(r.id.clone(), usize::from(set.goods))),
+            ti4_engine_core::choice::Opt::Production(Opt::Commodity { .. }) => parts.extend(std::iter::repeat_n(r.id.clone(), usize::from(set.commodities))),
+            _ => {}
+        }
+    }
+    if parts.is_empty() {
+        return format!("{MULTI_PICK_BUY}0");
+    }
+    parts.join(&MULTI_PICK_SEPARATOR.to_string())
+}
+
 impl Family for Fam {
     type Ask = Ask;
     type Opt = Opt;
@@ -45,6 +138,7 @@ impl Family for Fam {
         match a {
             Ask::AgentOffer { payer } => format!("Xander Alexin Victori III: let {} spend commodities as trade goods", r.seat_text(*payer)),
             Ask::Pay(p) => format!("pay {} more {}", p.owed, name(p.kind)),
+            Ask::Purchase(p) => format!("buy command tokens for {} influence each (up to {})", p.each, p.max),
             Ask::Choose(c) => format!("produce in {} ({} left)", <System as IdStr>::as_str(c.system), c.remaining),
             Ask::Place(p) => format!("place the {}", unit_id(p.unit)),
             Ask::SlingSystem(_) => "Sling Relay: produce in which dock system".to_owned(),
@@ -74,11 +168,17 @@ impl Family for Fam {
     }
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
-        let PayAsk { kind, owed, pool, goods } = match *a {
+        // The answer to a payment question: a set of its atoms, named raw (the bits of its faces, the goods, the commodities, the tokens
+        // bought) because the atoms are the question's (a client names the atoms' ids joined by `+`, `live::pick_of`).
+        if let Opt::Set(set) = *o {
+            return ChoiceOption::labelled(set_id(set), "multi_pick", "pay with these");
+        }
+        let PayAsk { kind, owed, pool, goods, .. } = match *a {
             Ask::AgentOffer { payer } => {
                 return ChoiceOption::labelled("use", "leader_ability", format!("exhaust the agent: {}'s commodities count as trade goods", r.seat_text(payer)));
             }
             Ask::Pay(p) => p,
+            Ask::Purchase(p) => p.pay,
             Ask::Choose(c) => return build_option(r, &c, o),
             Ask::Place(p) => return place_option(r, &p, o),
             Ask::SlingSystem(_) | Ask::SlingShip(_) | Ask::Economy(_) | Ask::Hero(_) => return triggered_option(a, o),
@@ -129,6 +229,7 @@ impl Family for Fam {
             | Opt::HeroUse
             | Opt::Use
             | Opt::One { .. }
+            | Opt::Set(_)
             | Opt::Decline => unreachable!("builds are asked by Ask::Choose"),
             Opt::Commodity { shown } => {
                 let worth = i64::from(shown.worth);
@@ -139,6 +240,14 @@ impl Family for Fam {
                     .previewed(Preview::certain(vec![Delta::new(quantity(kind), pool, pool - worth)]))
             }
         }
+    }
+
+    /// Leadership's purchase (the primary): the decline buys nothing.
+    fn wording(_: &Render, a: &Ask, o: &ti4_engine_core::choice::Opt) -> super::Wording {
+        if matches!((a, o), (Ask::Purchase(_), ti4_engine_core::choice::Opt::Decline)) {
+            return super::Wording { label: Some("buy no command tokens".to_owned()), ..super::Wording::default() };
+        }
+        super::Wording::default()
     }
 
     fn details(r: &Render, a: &Ask) -> serde_json::Map<String, serde_json::Value> {
@@ -153,6 +262,7 @@ impl Family for Fam {
         let kind = match *a {
             Ask::AgentOffer { .. } => return (id == "use").then_some(Opt::Use),
             Ask::Pay(p) => p.kind,
+            Ask::Purchase(p) => p.pay.kind,
             Ask::Choose(_) => return parse_build(id),
             Ask::Place(p) => return parse_place(&p, id),
             Ask::SlingSystem(_) => return Some(Opt::SlingSystem { system: <System as IdStr>::from_id(id)? }),
@@ -172,6 +282,9 @@ impl Family for Fam {
                 };
             }
         };
+        if let Some(set) = parse_set_id(id) {
+            return Some(Opt::Set(set));
+        }
         match id {
             "trade_good" => Some(Opt::TradeGood { shown: Shown::default() }),
             "commodity" => Some(Opt::Commodity { shown: Shown::default() }),
@@ -198,7 +311,7 @@ mod tests {
     #[test]
     fn every_payment_option_parses_back_from_its_id() {
         let r = Render::default();
-        let ask = CoreAsk::Production(Ask::Pay(PayAsk { kind: Currency::Resources, owed: 3, pool: 5, goods: 1 }));
+        let ask = CoreAsk::Production(Ask::Pay(PayAsk { kind: Currency::Resources, owed: 3, pool: 5, goods: 1, commodities: 1 }));
         let planet = <Planet as IdStr>::from_id("abyz").expect("abyz is a planet");
         let opts = [
             Opt::Exhaust { planet, source: Currency::Resources, shown: Shown { worth: 3, pool_after: 2 } },

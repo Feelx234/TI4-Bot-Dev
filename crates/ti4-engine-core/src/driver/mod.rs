@@ -285,13 +285,9 @@ impl<W: Window> Driver<W> {
         match std::mem::replace(&mut self.awaiting, Awaiting::Nothing) {
             Awaiting::Nothing => Err(DriverError::NotAsking),
             Awaiting::Stage(choice) => {
-                let counts = matches!(choice.ask, crate::choice::Ask::Generic(crate::choice::generic::Ask::Count { .. }));
-                let legal = match pick {
-                    Pick::Opt(o) => choice.opts.iter().any(|x| *x == o) || self.window.accepts_unlisted(&pick),
-                    Pick::Number(_) => counts,
-                    // A chance question is never a stage of a window (it is put on the tape).
-                    Pick::Chance(_) => false,
-                };
+                // An option, a count, a legal set of a multi-pick's atoms (`Choice::accepts`), or a free-form answer the window takes. A chance
+                // question is never a stage of a window (it is put on the tape): its faces are no answer here.
+                let legal = !matches!(pick, Pick::Chance(_)) && (choice.accepts(&pick) || (matches!(pick, Pick::Opt(_)) && self.window.accepts_unlisted(&pick)));
                 if !legal {
                     self.awaiting = Awaiting::Stage(choice);
                     return Err(DriverError::Illegal);

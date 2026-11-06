@@ -1,5 +1,5 @@
 //! The strategy card abilities that pay or place through the production rules (package B8; string
-//! `strategy_cards`): Leadership (the free tokens and the purchase loop over [`pay::PayStep`]) and
+//! `strategy_cards`): Leadership (the free tokens and the one purchase question over the payment atoms) and
 //! Construction (PDS and space dock placement). They live in the production area's subtree because the layer
 //! rule keeps one L4 area from importing another; the rest of the strategy card windows are in
 //! [`super::strategy_primaries`].
@@ -22,7 +22,8 @@ use crate::tables::Scope;
 use crate::rules::production as prod;
 use super::home::HomeProduction;
 use super::pay::{PayBill, PayStep, Stage as PayStage};
-use super::{Cx as ProdCx, Extras};
+use super::{Cx as ProdCx, Extras, Held};
+use crate::choice::production::{purchase_worth, Ask as PAsk, Opt as POpt, PayAsk, PurchaseAsk};
 
 /// `ti4_model::state::RULES_MINISTER_INDUSTRY_WINDOW`: from this version Minister of Industry opens the ordinary production window after a space dock.
 const RULES_MINISTER_INDUSTRY_WINDOW: u32 = 25;
@@ -48,111 +49,70 @@ pub const LEADERSHIP_TOKENS: u8 = 3;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LStage {
     Start,
-    /// The free tokens of the primary.
+    /// The free tokens of the primary (one gain question for all three).
     Gain,
-    /// Waiting on "spend 3 influence for a command token".
-    Offer,
-    /// Paying the three influence, one face at a time ([`PayStep`]).
-    Pay,
-    /// The pool of the token just paid for.
-    GainOne,
+    /// Waiting on the purchase: how many tokens to buy at three influence each and how to pay (ONE question, [`PurchaseAsk`]).
+    Buy,
+    /// The pools of the tokens bought (one gain question).
+    GainBought,
     Done,
 }
 
-/// Leadership: the primary (three command tokens, then as many bought for three influence each as the holder
-/// wants and can pay) and the secondary (the same purchase loop, the first purchase already accepted by the
-/// follower window). The Keleres agent's offer and a payment the production rules do not follow stay with the
-/// string caller (the adapter bails).
+/// Leadership: the primary (three command tokens, then as many bought for three influence each as the holder wants and can pay) and the
+/// secondary (the same purchase, the first token already accepted by the follower window: at least one is bought).
+///
+/// The multi-ask conversion (`docs/MULTIASK1_RESUME.md`): the string's loop ("spend 3 influence for a command token?", the payment one
+/// atom per question with the overpayment carried, the pool of the token, again) is ONE purchase question ([`purchase_worth`] accepts
+/// exactly what the loop could end with) and ONE gain question for the tokens bought. The Keleres agent's offer and a payment the
+/// production rules do not follow stay with the string caller (the adapter bails).
 #[derive(Debug, Clone)]
 pub struct Leadership {
     pub who: Seat,
     primary: bool,
     stage: LStage,
-    /// Free tokens still to place.
+    /// Tokens to place in the current gain question.
     left: u8,
-    /// Influence carried over from an overpayment (`pay_seeing_with_credit`'s credit).
-    credit: i64,
-    pay: Option<PayStep>,
 }
 
 impl Leadership {
     #[must_use]
     pub const fn new(who: Seat, primary: bool) -> Self {
-        Self { who, primary, stage: LStage::Start, left: 0, credit: 0, pay: None }
+        Self { who, primary, stage: LStage::Start, left: 0 }
     }
 
     fn cx<'a>(s: &'a CoreState, k: &'a Kernel) -> ProdCx<'a> {
         ProdCx::new(s, k, Scope(u32::from(k.sources.0)), reach::blanked(s))
     }
 
-    /// `leadership_influence_eligible_with_credit`.
-    fn eligible(&self, s: &CoreState, k: &Kernel) -> bool {
-        prod::available(&Self::cx(s, k), self.who, Spend::Influence, &Extras::default()) + self.credit >= INFLUENCE_PER_TOKEN
-    }
-
-    /// The opening of `pay_influence_and_gain_one`: the first payment step, or the end of the loop when the
-    /// bill cannot be met.
-    fn begin_pay(&mut self, s: &CoreState, k: &Kernel) {
-        let used = self.credit.min(INFLUENCE_PER_TOKEN.max(0));
-        let owed = INFLUENCE_PER_TOKEN - used;
-        if owed <= 0 {
-            self.credit -= used;
-            self.free_one();
-        } else if prod::available(&Self::cx(s, k), self.who, Spend::Influence, &Extras::default()) < owed {
-            self.stage = LStage::Done;
-        } else {
-            self.pay = Some(self.pay_step(used, owed, 0));
-            self.stage = LStage::Pay;
+    /// The purchase question, `None` when not even the minimum can be bought (the primary buys at least none, the secondary one).
+    fn purchase(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
+        let cx = Self::cx(s, k);
+        let ex = Held::of(&cx, self.who);
+        let available = prod::available(&cx, self.who, Spend::Influence, &ex.extras());
+        let max = u8::try_from((available / INFLUENCE_PER_TOKEN).max(0)).unwrap_or(u8::MAX);
+        let min = u8::from(!self.primary);
+        if max == 0 || max < min {
+            return None;
         }
-    }
-
-    fn pay_step(&self, used_credit: i64, owed: i64, paid: i64) -> PayStep {
-        PayStep {
-            who: self.who,
-            kind: Spend::Influence,
-            cost: INFLUENCE_PER_TOKEN,
-            used_credit,
-            owed,
-            paid,
-            took: None,
-            stage: PayStage::Paying,
-        }
-    }
-
-    /// The token is paid for: its pool is asked.
-    fn free_one(&mut self) {
-        self.left = 1;
-        self.stage = LStage::GainOne;
-    }
-
-    /// One payment step ended: collect its worth, pay on or finish the purchase.
-    fn after_step(&mut self) {
-        let Some(step) = self.pay.take() else {
-            self.stage = LStage::Done;
-            return;
-        };
-        let Some(worth) = step.took else {
-            // A payment that collected nothing ends the whole purchase loop.
-            self.stage = LStage::Done;
-            return;
-        };
-        let paid = step.paid + worth;
-        if paid < step.owed {
-            self.pay = Some(self.pay_step(step.used_credit, step.owed, paid));
-        } else {
-            self.credit = self.credit - step.used_credit + paid - step.owed;
-            self.free_one();
-        }
-    }
-
-    fn buy_choice(&self) -> Choice {
-        let owed = (INFLUENCE_PER_TOKEN - self.credit).max(0);
-        Choice {
+        // Every atom (no bill filters them: a set the closed form accepts never needs an atom that could not complete a purchase).
+        let (pay, atoms) = prod::pay_opts(&cx, self.who, Spend::Influence, 0, 0, &ex.extras());
+        let each = u8::try_from(INFLUENCE_PER_TOKEN).unwrap_or(3);
+        let ask = PurchaseAsk { pay: PayAsk { owed: INFLUENCE_PER_TOKEN, ..pay }, each, min, max };
+        // The primary may buy nothing: the decline comes FIRST (the old loop's first option was "no"; `Choice::pick(0)` buys nothing). The
+        // secondary has none: its decline is the follower window's.
+        let decline = self.primary.then_some(Opt::Decline);
+        Some(Choice {
             actor: self.who,
-            ask: ask(SAsk::LeadershipBuy { owed: u8::try_from(owed).unwrap_or(0), more: self.credit > 0 }),
+            ask: Ask::Production(PAsk::Purchase(ask)),
             ctx: rule_ctx(Rule::R52_3, SSub::BuyTokenWithInfluence),
-            opts: opts([SOpt::Buy(false), SOpt::Buy(true)]),
-        }
+            opts: decline.into_iter().chain(atoms.as_slice().iter().map(|o| Opt::Production(*o))).collect(),
+        })
+    }
+
+    /// The gain question of the tokens bought, or the end.
+    fn after_purchase(&mut self, bought: u8) {
+        self.left = bought;
+        self.stage = if bought > 0 { LStage::GainBought } else { LStage::Done };
     }
 }
 
@@ -171,27 +131,14 @@ impl Window for Leadership {
                         self.left = LEADERSHIP_TOKENS;
                         self.stage = LStage::Gain;
                     } else {
-                        self.begin_pay(sx.state, sx.kernel);
+                        self.stage = LStage::Buy;
                     }
                 }
-                LStage::Gain | LStage::GainOne => return Next::Continue(ask(SAsk::GainPool { left: self.left })),
-                LStage::Offer => {
-                    if !self.eligible(sx.state, sx.kernel) {
-                        self.stage = LStage::Done;
-                    } else {
-                        return Next::Continue(self.buy_choice().ask);
-                    }
-                }
-                LStage::Pay => {
-                    let Some(step) = self.pay.as_mut() else {
-                        self.stage = LStage::Done;
-                        continue;
-                    };
-                    match step.step(sx) {
-                        Next::Done => self.after_step(),
-                        other => return other,
-                    }
-                }
+                LStage::Gain | LStage::GainBought => return Next::Continue(ask(SAsk::GainPool { left: self.left })),
+                LStage::Buy => match self.purchase(sx.state, sx.kernel) {
+                    Some(c) => return Next::Continue(c.ask),
+                    None => self.stage = LStage::Done,
+                },
                 LStage::Done => return Next::Done,
             }
         }
@@ -199,28 +146,32 @@ impl Window for Leadership {
 
     fn ask_of(&self, s: &CoreState, k: &Kernel) -> Option<Choice> {
         match self.stage {
-            LStage::Gain | LStage::GainOne => Some(gain_pool_choice(self.who, self.left)),
-            LStage::Offer => Some(self.buy_choice()),
-            LStage::Pay => self.pay.as_ref()?.ask_of(s, k),
+            LStage::Gain | LStage::GainBought => Some(gain_pool_choice(self.who, self.left)),
+            LStage::Buy => self.purchase(s, k),
             LStage::Start | LStage::Done => None,
         }
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
-        if self.stage == LStage::Pay {
-            return self.pay.as_mut().ok_or(Illegal)?.answer(sx, pick);
-        }
-        let Pick::Opt(Opt::Strategy(chosen)) = pick else { return Err(Illegal) };
-        match (self.stage, chosen) {
-            (LStage::Gain | LStage::GainOne, SOpt::Pool(pool)) => {
-                fx::gain_token(sx.state, self.who, pool, 1);
-                self.left -= 1;
-                if self.left == 0 {
-                    self.stage = LStage::Offer;
+        match (self.stage, pick) {
+            (LStage::Gain | LStage::GainBought, _) => {
+                let split = crate::choice::strategy::gain_answer(pick, self.left).ok_or(Illegal)?;
+                for pool in crate::choice::strategy::gain_pools(split) {
+                    fx::gain_token(sx.state, self.who, pool, 1);
                 }
+                self.left = 0;
+                self.stage = if self.stage == LStage::Gain { LStage::Buy } else { LStage::Done };
             }
-            (LStage::Offer, SOpt::Buy(true)) => self.begin_pay(sx.state, sx.kernel),
-            (LStage::Offer, SOpt::Buy(false)) => self.stage = LStage::Done,
+            (LStage::Buy, Pick::Opt(Opt::Production(POpt::Set(set)))) => {
+                let c = self.purchase(sx.state, sx.kernel).ok_or(Illegal)?;
+                let Ask::Production(PAsk::Purchase(ask)) = c.ask else { return Err(Illegal) };
+                let atoms: SmallList<POpt, 24> = c.opts.iter().filter_map(|o| if let Opt::Production(p) = o { Some(*p) } else { None }).collect();
+                purchase_worth(&ask, atoms.as_slice(), set).ok_or(Illegal)?;
+                super::pay::apply_set(sx.state, self.who, atoms.as_slice(), set).ok_or(Illegal)?;
+                self.after_purchase(set.buy);
+            }
+            // The primary's "buy nothing" (the same as the set `buy: 0`).
+            (LStage::Buy, Pick::Opt(Opt::Decline)) if self.primary => self.after_purchase(0),
             _ => return Err(Illegal),
         }
         Ok(())
@@ -1522,5 +1473,231 @@ mod tests {
         assert!(!d.window.failed, "the window stays on its path");
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().tech.owned, before, "nothing was gained");
         assert!(d.window.researched.is_empty());
+    }
+}
+
+/// Leadership's purchase as ONE question (`docs/MULTIASK1_RESUME.md`): [`purchase_worth`] accepts exactly the endings of the string's
+/// loop ("spend 3 influence for a command token?" yes or no; each token paid one atom per question, lone atoms unasked, the overpayment
+/// carried to the next token), brute-forced over small positions for the primary and the secondary.
+#[cfg(test)]
+mod purchase_tests {
+    use std::collections::BTreeSet;
+
+    use super::*;
+    use crate::driver::{Driver, Status};
+    use crate::generated::Faction;
+    use crate::kernel::stage::AbilityTable;
+    use crate::kernel::Resolver;
+    use crate::rules::production::pay::{PayStep, Stage as PayStage};
+    use crate::state::{Player, Players};
+
+    /// Planets spent (sorted), trade goods spent, tokens bought.
+    type End = (Vec<Planet>, i16, u8);
+
+    fn planets(values: &[u8]) -> Vec<Planet> {
+        let mut used: Vec<Planet> = Vec::new();
+        for v in values {
+            let p = Planet::ALL.iter().copied().find(|p| p.data().system.is_some() && p.data().influence == *v && !used.contains(p)).expect("a planet of that influence");
+            used.push(p);
+        }
+        used
+    }
+
+    fn position(planets: &[Planet], goods: i16) -> CoreState {
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheArborec)]);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = goods;
+        for p in planets {
+            s.board_mut().planet_mut(*p).control = Some(Seat(0));
+        }
+        s
+    }
+
+    fn end(s: &CoreState, planets: &[Planet], goods: i16, bought: u8) -> End {
+        let mut ex: Vec<Planet> = planets.iter().copied().filter(|p| board::exhausted(s, *p)).collect();
+        ex.sort();
+        (ex, goods - s.players().by_seat(Seat(0)).unwrap().econ.trade_goods, bought)
+    }
+
+    struct Old<'a> {
+        k: &'a Kernel,
+        planets: &'a [Planet],
+        goods: i16,
+    }
+
+    fn available(s: &CoreState, k: &Kernel) -> i64 {
+        let cx = Leadership::cx(s, k);
+        prod::available(&cx, Seat(0), Spend::Influence, &Extras::default())
+    }
+
+    /// The old loop's offer: stop, or buy one more (credit first, then atoms until the token is covered).
+    fn offer(o: &Old<'_>, s: &CoreState, credit: i64, bought: u8, out: &mut BTreeSet<End>) {
+        out.insert(end(s, o.planets, o.goods, bought));
+        if available(s, o.k) + credit >= INFLUENCE_PER_TOKEN {
+            buy(o, s, credit, bought, out);
+        }
+    }
+
+    fn buy(o: &Old<'_>, s: &CoreState, credit: i64, bought: u8, out: &mut BTreeSet<End>) {
+        let used = credit.min(INFLUENCE_PER_TOKEN);
+        let owed = INFLUENCE_PER_TOKEN - used;
+        if owed <= 0 {
+            offer(o, s, credit - used, bought + 1, out);
+        } else if available(s, o.k) >= owed {
+            pay(o, s, credit, used, owed, 0, bought, out);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn pay(o: &Old<'_>, s: &CoreState, credit: i64, used: i64, owed: i64, paid: i64, bought: u8, out: &mut BTreeSet<End>) {
+        let cx = Leadership::cx(s, o.k);
+        let (_, opts) = prod::pay_opts(&cx, Seat(0), Spend::Influence, paid, owed, &Extras::default());
+        for a in opts.as_slice() {
+            let mut next = s.clone();
+            let step = PayStep { who: Seat(0), kind: Spend::Influence, cost: INFLUENCE_PER_TOKEN, used_credit: used, owed, paid, took: None, stage: PayStage::Paying };
+            let Some(worth) = step.apply(&mut next, o.k, *a) else { continue };
+            let paid = paid + worth;
+            if paid < owed {
+                pay(o, &next, credit, used, owed, paid, bought, out);
+            } else {
+                offer(o, &next, credit - used + paid - owed, bought + 1, out);
+            }
+        }
+    }
+
+    /// The new question: every set of its atoms and every count it accepts, spent.
+    fn new_question(s: &CoreState, k: &Kernel, primary: bool, planets: &[Planet], goods: i16, out: &mut BTreeSet<End>) {
+        let w = Leadership::new(Seat(0), primary);
+        let Some(c) = w.purchase(s, k) else {
+            out.insert(end(s, planets, goods, 0));
+            return;
+        };
+        let Ask::Production(PAsk::Purchase(ask)) = c.ask else { panic!("a purchase") };
+        let atoms: Vec<POpt> = c.opts.iter().filter_map(|o| if let Opt::Production(p) = o { Some(*p) } else { None }).collect();
+        let faces = atoms.iter().filter(|o| matches!(o, POpt::Exhaust { .. })).count();
+        for buy in 0..=ask.max + 1 {
+            for mask in 0..(1u32 << faces) {
+                for g in 0..=u8::try_from(goods).unwrap() + 1 {
+                    let set = crate::choice::production::PaySet { faces: mask, goods: g, commodities: 0, buy };
+                    let pick = Pick::Opt(Opt::Production(POpt::Set(set)));
+                    if purchase_worth(&ask, &atoms, set).is_some() {
+                        assert!(c.accepts(&pick));
+                        let mut next = s.clone();
+                        super::super::pay::apply_set(&mut next, Seat(0), &atoms, set).expect("a legal set is spent");
+                        out.insert(end(&next, planets, goods, buy));
+                    } else {
+                        assert!(!c.accepts(&pick));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_one_purchase_question_reaches_exactly_what_the_buy_loop_reached() {
+        let k = Kernel::plain();
+        let mut cases = 0;
+        for values in [&[][..], &[3], &[2], &[1, 2], &[2, 2], &[4, 1], &[3, 3], &[1, 1, 1], &[2, 2, 2], &[5, 1], &[6], &[2, 3, 1]] {
+            let planets = planets(values);
+            for goods in 0..=4i16 {
+                let s = position(&planets, goods);
+                for primary in [true, false] {
+                    let o = Old { k: &k, planets: &planets, goods };
+                    let mut old = BTreeSet::new();
+                    if primary {
+                        offer(&o, &s, 0, 0, &mut old);
+                    } else if available(&s, &k) >= INFLUENCE_PER_TOKEN {
+                        // The follower's yes is the first purchase.
+                        buy(&o, &s, 0, 0, &mut old);
+                    } else {
+                        old.insert(end(&s, &planets, goods, 0));
+                    }
+                    let mut new = BTreeSet::new();
+                    new_question(&s, &k, primary, &planets, goods, &mut new);
+                    assert_eq!(new, old, "planets {values:?} goods {goods} primary {primary}");
+                    cases += 1;
+                }
+            }
+        }
+        assert!(cases > 100, "{cases}");
+    }
+
+    /// The primary: three tokens in one gain question, the purchase in one question, the bought tokens' pools in one more.
+    #[test]
+    fn the_primary_asks_three_questions_and_buys_what_the_answer_says() {
+        let k = Kernel::plain();
+        let ps = planets(&[2, 2, 2]);
+        let mut s = position(&ps, 0);
+        let mut d = Driver::new(Leadership::new(Seat(0), true), Resolver::new(&[Seat(0)], Some(Seat(0))), AbilityTable::default(), 1);
+        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("the gain") };
+        assert_eq!(c.ask, Ask::Strategy(SAsk::GainPool { left: 3 }));
+        let Status::Asking(c) = d.resume(&mut s, &k, c.pick(0).unwrap()).unwrap() else { panic!("the purchase") };
+        let Ask::Production(PAsk::Purchase(ask)) = c.ask else { panic!("a purchase, not {:?}", c.ask) };
+        assert_eq!((ask.min, ask.max, ask.each), (0, 2, 3), "six influence: up to two tokens");
+        // Two tokens with all three planets (two would be short of six).
+        let set = crate::choice::production::PaySet { faces: 0b111, goods: 0, commodities: 0, buy: 2 };
+        assert!(d.resume(&mut s, &k, Pick::Opt(Opt::Production(POpt::Set(crate::choice::production::PaySet { faces: 0b011, ..set })))).is_err(), "four influence for two tokens");
+        let Status::Asking(c) = d.resume(&mut s, &k, Pick::Opt(Opt::Production(POpt::Set(set)))).unwrap() else { panic!("the pools") };
+        assert_eq!(c.ask, Ask::Strategy(SAsk::GainPool { left: 2 }));
+        assert_eq!(d.resume(&mut s, &k, c.pick(0).unwrap()).unwrap(), Status::Done);
+        assert!(ps.iter().all(|p| board::exhausted(&s, *p)));
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.tactic_tokens, 5);
+    }
+
+    /// The primary may buy NOTHING after its three free tokens (user, 2026-11-06): the purchase question lists the decline first, and
+    /// the decline, the empty set (`buy: 0`), `pick(0)` and `default_pick` all end the window with the three free tokens gained,
+    /// nothing spent and no second gain question.
+    #[test]
+    fn the_primary_gains_three_and_may_then_buy_nothing() {
+        let k = Kernel::plain();
+        let ps = planets(&[2, 2, 2]);
+        let nothing = Pick::Opt(Opt::Production(POpt::Set(crate::choice::production::PaySet::default())));
+        for (name, answer) in [("decline", Some(Pick::Opt(Opt::Decline))), ("empty set", Some(nothing)), ("pick(0)", None), ("default", None)] {
+            let mut s = position(&ps, 1);
+            let mut d = Driver::new(Leadership::new(Seat(0), true), Resolver::new(&[Seat(0)], Some(Seat(0))), AbilityTable::default(), 1);
+            let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("the gain") };
+            assert_eq!(c.ask, Ask::Strategy(SAsk::GainPool { left: 3 }), "the free gain always comes first");
+            let Status::Asking(c) = d.resume(&mut s, &k, c.pick(0).unwrap()).unwrap() else { panic!("the purchase") };
+            let Ask::Production(PAsk::Purchase(ask)) = c.ask else { panic!("a purchase, not {:?}", c.ask) };
+            assert_eq!(ask.min, 0);
+            assert_eq!(c.opts.as_slice().first(), Some(&Opt::Decline), "the decline is the first option");
+            assert!(c.accepts(&Pick::Opt(Opt::Decline)) && c.accepts(&nothing));
+            assert_eq!(c.pick(0), Some(nothing), "the first option buys nothing");
+            assert_eq!(c.default_pick(), Some(nothing), "the default buys nothing");
+            // An atom (option 1 = the first atom) still buys one token, paid with that atom first.
+            let Some(Pick::Opt(Opt::Production(POpt::Set(one)))) = c.pick(1) else { panic!("an atom's pick") };
+            assert_eq!(one.buy, 1);
+            assert!(c.accepts(&Pick::Opt(Opt::Production(POpt::Set(one)))));
+            let answer = match name {
+                "pick(0)" => c.pick(0).unwrap(),
+                "default" => c.default_pick().unwrap(),
+                _ => answer.unwrap(),
+            };
+            assert_eq!(d.resume(&mut s, &k, answer).unwrap(), Status::Done, "{name}: no gain question for bought tokens");
+            assert!(ps.iter().all(|p| !board::exhausted(&s, *p)), "{name}: nothing spent");
+            let p = s.players().by_seat(Seat(0)).unwrap();
+            assert_eq!((p.econ.trade_goods, p.econ.tactic_tokens), (1, 3), "{name}: the three free tokens, no trade good spent");
+        }
+    }
+
+    /// The secondary is unchanged: no decline (the follower window's "no" is the decline), at least one token, `pick(0)` buys one.
+    #[test]
+    fn the_secondary_purchase_has_no_decline_and_buys_at_least_one() {
+        let k = Kernel::plain();
+        let ps = planets(&[2, 2, 2]);
+        let s = position(&ps, 0);
+        let c = Leadership::new(Seat(0), false).purchase(&s, &k).expect("the secondary's purchase");
+        let Ask::Production(PAsk::Purchase(ask)) = c.ask else { panic!("a purchase") };
+        assert_eq!((ask.min, ask.max), (1, 2));
+        assert!(!c.can_decline());
+        assert!(!c.accepts(&Pick::Opt(Opt::Decline)));
+        assert!(!c.accepts(&Pick::Opt(Opt::Production(POpt::Set(crate::choice::production::PaySet::default())))));
+        let Some(Pick::Opt(Opt::Production(POpt::Set(first)))) = c.pick(0) else { panic!("an atom's pick") };
+        assert_eq!(first.buy, 1);
+        let mut s = s;
+        let mut d = Driver::new(Leadership::new(Seat(0), false), Resolver::new(&[Seat(0)], Some(Seat(0))), AbilityTable::default(), 1);
+        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("the purchase") };
+        assert!(matches!(c.ask, Ask::Production(PAsk::Purchase(_))), "the secondary starts at the purchase");
+        assert!(d.resume(&mut s, &k, Pick::Opt(Opt::Decline)).is_err(), "no decline at the secondary's purchase");
     }
 }

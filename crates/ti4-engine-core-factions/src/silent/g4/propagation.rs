@@ -1,10 +1,9 @@
 //! nekro: Propagation (`factions::nekro::propagation`): "When you would research a technology: gain 3 command tokens instead." The research window notes each replaced research
 //! (`fx_strategy::note_propagation`); the turn flow announces one `PROPAGATION_RESEARCH` per pending research, and each announcement settles one: the owner places three tokens,
-//! each asked as the gain-pool question of the strategy area. Mandatory; registered for every seat as the string does (`ability:*:propagation:PROPAGATION_RESEARCH:after`), the condition names the Nekro.
+//! all three asked at once as the gain-pool question of the strategy area. Mandatory; registered for every seat as the string does (`ability:*:propagation:PROPAGATION_RESEARCH:after`), the condition names the Nekro.
 
-use ti4_engine_core::choice::strategy::{gain_pool_choice, Opt as SOpt};
+use ti4_engine_core::choice::strategy::{gain_answer, gain_pool_choice, gain_pools};
 use ti4_engine_core::choice::reaction::{AbilityKind, Relation};
-use ti4_engine_core::choice::{Opt, Pick};
 use ti4_engine_core::generated::Faction;
 use ti4_engine_core::ids::Seat;
 use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
@@ -44,8 +43,8 @@ fn propagate(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
     } else {
         tail.insert(key, MarkVal::Atom(Atom::Num(owed - 1)));
     }
-    for placed in 0..TOKENS {
-        if let Pick::Opt(Opt::Strategy(SOpt::Pool(pool))) = eff.ask(&gain_pool_choice(me, TOKENS - placed)) {
+    if let Some(split) = gain_answer(eff.ask(&gain_pool_choice(me, TOKENS)), TOKENS) {
+        for pool in gain_pools(split) {
             fx::gain_token(eff.state(), me, pool, 1);
         }
     }

@@ -168,6 +168,7 @@ pub fn create_sample_pending_choice() -> Choice {
         context: Some(context),
         details: serde_json::Map::new(),
         free_form: None,
+        multi_pick: None,
     }
 }
 

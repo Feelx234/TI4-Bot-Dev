@@ -8,35 +8,35 @@
   "games": [
     {
       "file": "g000.tsv.zst",
-      "steps": 839,
-      "decisions": 933,
-      "decisions_hash": "0cea10a576aa59ea",
-      "bytes": 14935,
-      "sha256": "b626b42697ccaee89fe91c2e8ae012591407f9f36bccc5683711ed83d86e4353"
+      "steps": 871,
+      "decisions": 930,
+      "decisions_hash": "3f1adeea29903f95",
+      "bytes": 15325,
+      "sha256": "3dde952009655fec1adb5620bbc4c7f8e14571a02c097c20ca63f99142fe053a"
     },
     {
       "file": "g012.tsv.zst",
-      "steps": 1875,
-      "decisions": 2265,
-      "decisions_hash": "44ce31650dbee8ad",
-      "bytes": 31999,
-      "sha256": "9acb0841cb1ea9a741cbd2984f5205a6ccc7fe31eb7140678f777573569c3b95"
+      "steps": 1715,
+      "decisions": 1840,
+      "decisions_hash": "8837dce9192f2cd1",
+      "bytes": 28360,
+      "sha256": "46caf51fe54961a19f85b77b35e2e421ccd6a01d93ee966e8c2300ad0da5bd16"
     },
     {
       "file": "g040.tsv.zst",
-      "steps": 2015,
-      "decisions": 2242,
-      "decisions_hash": "f7938f4a06ec9d95",
-      "bytes": 33946,
-      "sha256": "5124ffd6a174e9875e9710a0eba541929484113d34a616db8389c8caaa37c8e7"
+      "steps": 2025,
+      "decisions": 2157,
+      "decisions_hash": "18944aae5a49f985",
+      "bytes": 33441,
+      "sha256": "fa84dbe564c9b85867f1f8c52463538704dbdc672792f6ec47db0858d4e57755"
     },
     {
       "file": "g055.tsv.zst",
-      "steps": 2145,
-      "decisions": 2456,
-      "decisions_hash": "b74295194cd4e353",
-      "bytes": 35803,
-      "sha256": "6f87189eced400c15a045dd58625d9741ad9194ccbb328fac018a68dd3d68266"
+      "steps": 1539,
+      "decisions": 1634,
+      "decisions_hash": "096e7970288426fd",
+      "bytes": 25560,
+      "sha256": "8687211e59bafade01c7224bb405fb54c6c1fa6ea1c7285b5647e1c3167f056b"
     }
   ],
   "smoke": [

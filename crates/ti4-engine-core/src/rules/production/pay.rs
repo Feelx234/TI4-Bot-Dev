@@ -1,11 +1,17 @@
 //! One iteration of a free payment loop (the string `pay_with_observation_credit`) as a [`Window`]: the
 //! options of the step, a lone option taken without a question, a question otherwise, and the application of
 //! the answer. The caller (the string loop) repeats it until the bill is paid.
+//!
+//! The multi-ask conversion (`docs/MULTIASK1_RESUME.md`): the question pays the REST of the bill at once. Its options are the atoms
+//! (planet faces, trade goods, commodities) and its answer a [`PaySet`] the closed form [`set_worth`] checks; a lone atom is still taken
+//! without a question first (as the loop did, so the questions line up with the string's: the string asks wherever the loop had a
+//! choice and pays a lone option unasked). [`apply_set`] spends a checked set. Every payment of the core goes through here or through
+//! the production window, which shares [`apply_set`].
 
 use crate::rules::production as rules;
 use crate::rules::production::{Cx, Held};
 use crate::choice::generic::Rule;
-use crate::choice::production::{Ask as PAsk, Currency, Opt as POpt, Subtype as PSub};
+use crate::choice::production::{set_worth, Ask as PAsk, Currency, Opt as POpt, PayAsk, PaySet, Subtype as PSub};
 use crate::choice::{Ask, Choice, Ctx, Opt, Origin, Owed, OwedKind, Pick, Subtype};
 use crate::containers::SmallList;
 use crate::ids::Seat;
@@ -81,10 +87,20 @@ impl PayStep {
         })
     }
 
-    /// Take `picked`; the worth of the face, `None` for one that cannot be paid.
+    /// The answer to this step's question: only a [`PaySet`] answers it (the question pays the rest of the bill); the worth taken,
+    /// `None` (nothing spent) for anything else or an illegal set.
+    pub(crate) fn answer_set(&self, s: &mut CoreState, k: &Kernel, picked: POpt) -> Option<i64> {
+        matches!(picked, POpt::Set(_)).then(|| self.apply(s, k, picked)).flatten()
+    }
+
+    /// Take `picked` (a lone atom, or the [`PaySet`] that answered the question); the worth taken, `None` for an answer that cannot
+    /// be paid.
     pub(crate) fn apply(&self, s: &mut CoreState, k: &Kernel, picked: POpt) -> Option<i64> {
         let cx = Self::cx(s, k);
-        let (_, offered) = rules::pay_opts(&cx, self.who, self.kind, self.paid, self.owed, &Held::of(&cx, self.who).extras());
+        let (ask, offered) = rules::pay_opts(&cx, self.who, self.kind, self.paid, self.owed, &Held::of(&cx, self.who).extras());
+        if let POpt::Set(set) = picked {
+            return pay_set(s, self.who, &ask, offered.as_slice(), set);
+        }
         let chosen = *offered.as_slice().iter().find(|o| **o == picked)?;
         match chosen {
             POpt::Exhaust { planet, shown, .. } => {
@@ -107,6 +123,31 @@ impl PayStep {
             _ => None,
         }
     }
+}
+
+/// Check `set` against the payment question (`ask`, `opts`) and spend it: the worth paid, `None` (nothing spent) when the set is no
+/// legal answer ([`set_worth`]).
+pub(crate) fn pay_set(s: &mut CoreState, who: Seat, ask: &PayAsk, opts: &[POpt], set: PaySet) -> Option<i64> {
+    let worth = set_worth(ask, opts, set)?;
+    apply_set(s, who, opts, set)?;
+    Some(worth)
+}
+
+/// Spend the atoms of `set` (a set already checked against `opts`): exhaust its planets, spend its trade goods and commodities.
+/// `None` (nothing spent) when the seat does not hold what the set spends.
+pub(crate) fn apply_set(s: &mut CoreState, who: Seat, opts: &[POpt], set: PaySet) -> Option<()> {
+    let p = s.players().by_seat(who)?;
+    if i64::from(p.econ.trade_goods) < i64::from(set.goods) || i64::from(p.econ.commodities) < i64::from(set.commodities) {
+        return None;
+    }
+    let planets: SmallList<crate::generated::Planet, 24> = set.exhausted(opts).filter_map(|o| if let POpt::Exhaust { planet, .. } = o { Some(*planet) } else { None }).collect();
+    for planet in planets.as_slice() {
+        fx::exhaust_planet(s, *planet);
+    }
+    let p = s.players_mut().by_seat_mut(who)?;
+    p.econ.trade_goods -= i16::from(set.goods);
+    p.econ.commodities -= i16::from(set.commodities);
+    Some(())
 }
 
 /// A free payment loop run inside an ability's effect (the string `pay_seeing` of Dynamo, Salvage Operations): the steps of
@@ -150,7 +191,7 @@ pub fn pay_in(eff: &mut Eff<'_, '_>, who: Seat, cost: i64, kind: Spend) -> Resul
                 only
             }
             (None, Some(q)) => match eff.ask(&q) {
-                Pick::Opt(Opt::Production(o)) => o,
+                Pick::Opt(Opt::Production(o @ POpt::Set(_))) => o,
                 _ => return Ok(false),
             },
             (None, None) => return Ok(false),
@@ -199,8 +240,10 @@ impl Window for PayStep {
     }
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
-        let Pick::Opt(Opt::Production(opt)) = pick else { return Err(Illegal) };
-        self.took = self.apply(sx.state, sx.kernel, opt);
+        // The question pays the rest of the bill: only a set answers it.
+        let Pick::Opt(Opt::Production(opt @ POpt::Set(_))) = pick else { return Err(Illegal) };
+        let took = self.apply(sx.state, sx.kernel, opt).ok_or(Illegal)?;
+        self.took = Some(took);
         self.stage = Stage::Done;
         Ok(())
     }
@@ -336,7 +379,7 @@ mod bill_tests {
         let mut d = Driver::new(PayBill::new(Seat(0), Spend::Influence, cost), Resolver::new(&[Seat(0)], Some(Seat(0))), AbilityTable::default(), 1);
         let mut status = d.run(s, &k).unwrap();
         while let Status::Asking(c) = status {
-            let pick = c.pick(0).unwrap();
+            let pick = c.default_pick().unwrap();
             status = d.resume(s, &k, pick).unwrap();
         }
         d
@@ -370,7 +413,7 @@ mod bill_tests {
         let mut status = d.run(s, &k).unwrap();
         while let Status::Asking(c) = status {
             asked += 1;
-            let pick = c.pick(0).unwrap();
+            let pick = c.default_pick().unwrap();
             status = d.resume(s, &k, pick).unwrap();
         }
         let entries = log.lock().unwrap().clone();
@@ -410,5 +453,205 @@ mod bill_tests {
     fn a_bill_of_nothing_is_paid() {
         let mut s = game(0);
         assert_eq!(pay(&mut s, 0).window.outcome, Some(true));
+    }
+}
+
+/// The multi-ask conversion's proof obligation (`docs/MULTIASK1_RESUME.md`): the ONE payment question with its closed-form check
+/// ([`set_worth`]) reaches exactly the final spends the old loop reached (one atom per question, lone atoms taken unasked, the bill
+/// stopping as soon as it is covered, the feasibility filter of `pay_opts`), brute-forced over small positions.
+#[cfg(test)]
+mod set_tests {
+    use std::collections::BTreeSet;
+
+    use super::*;
+    use crate::choice::production::Shown;
+    use crate::generated::{Faction, Planet};
+    use crate::state::{Player, Players};
+
+    /// What a payment spent: the planets exhausted (sorted) and the trade goods spent.
+    type Spent = (Vec<Planet>, i16);
+
+    fn planets_worth(values: &[u8], kind: Spend) -> Vec<Planet> {
+        let mut used: Vec<Planet> = Vec::new();
+        for v in values {
+            let p = Planet::ALL
+                .iter()
+                .copied()
+                .find(|p| {
+                    let d = p.data();
+                    let worth = if kind == Spend::Resources { d.resources } else { d.influence };
+                    d.system.is_some() && i64::from(worth) == i64::from(*v) && !used.contains(p)
+                })
+                .expect("a plain planet of that worth");
+            used.push(p);
+        }
+        used
+    }
+
+    fn position(planets: &[Planet], goods: i16) -> CoreState {
+        let mut s = CoreState::all_loaded();
+        s.players = Players::from_vec(vec![Player::new(Seat(0), Faction::TheArborec)]);
+        s.players_mut().by_seat_mut(Seat(0)).unwrap().econ.trade_goods = goods;
+        for p in planets {
+            s.board_mut().planet_mut(*p).control = Some(Seat(0));
+        }
+        s
+    }
+
+    fn spent(s: &CoreState, planets: &[Planet], goods: i16) -> Spent {
+        let mut ex: Vec<Planet> = planets.iter().copied().filter(|p| crate::query::board::exhausted(s, *p)).collect();
+        ex.sort();
+        (ex, goods - s.players().by_seat(Seat(0)).unwrap().econ.trade_goods)
+    }
+
+    fn step(kind: Spend, cost: i64, paid: i64) -> PayStep {
+        PayStep { who: Seat(0), kind, cost, used_credit: 0, owed: cost, paid, took: None, stage: Stage::Paying }
+    }
+
+    struct Case<'a> {
+        k: &'a Kernel,
+        kind: Spend,
+        cost: i64,
+        planets: &'a [Planet],
+        goods: i16,
+    }
+
+    /// The old loop: every path of one-atom answers from `paid`, each final spend once the bill is covered.
+    fn old_loop(c: &Case<'_>, s: &CoreState, paid: i64, out: &mut BTreeSet<Spent>) {
+        if paid >= c.cost {
+            out.insert(spent(s, c.planets, c.goods));
+            return;
+        }
+        let cx = PayStep::cx(s, c.k);
+        let (_, opts) = rules::pay_opts(&cx, Seat(0), c.kind, paid, c.cost, &Held::of(&cx, Seat(0)).extras());
+        for o in opts.as_slice() {
+            let mut next = s.clone();
+            let worth = step(c.kind, c.cost, paid).apply(&mut next, c.k, *o).expect("an offered atom is paid");
+            old_loop(c, &next, paid + worth, out);
+        }
+    }
+
+    /// The new question: the lone atoms first (as the loop takes them), then every set of the atoms the question offers that the
+    /// closed form accepts, spent.
+    fn new_question(c: &Case<'_>, s: &CoreState, mut paid: i64, out: &mut BTreeSet<Spent>) {
+        let mut s = s.clone();
+        loop {
+            if paid >= c.cost {
+                out.insert(spent(&s, c.planets, c.goods));
+                return;
+            }
+            let cx = PayStep::cx(&s, c.k);
+            let (ask, opts) = rules::pay_opts(&cx, Seat(0), c.kind, paid, c.cost, &Held::of(&cx, Seat(0)).extras());
+            match opts.as_slice() {
+                [] => return,
+                [only] => {
+                    let only = *only;
+                    paid += step(c.kind, c.cost, paid).apply(&mut s, c.k, only).expect("a lone atom is paid");
+                }
+                _ => {
+                    let faces = opts.as_slice().iter().filter(|o| matches!(o, POpt::Exhaust { .. })).count();
+                    // The question's own check agrees with the window's.
+                    let question = step(c.kind, c.cost, paid).question(&s, c.k).expect("a question");
+                    for mask in 0..(1u32 << faces) {
+                        for g in 0..=u8::try_from(ask.goods).unwrap() + 1 {
+                            let set = PaySet { faces: mask, goods: g, commodities: 0, buy: 0 };
+                            let pick = Pick::Opt(Opt::Production(POpt::Set(set)));
+                            let mut next = s.clone();
+                            match step(c.kind, c.cost, paid).answer_set(&mut next, c.k, POpt::Set(set)) {
+                                Some(worth) => {
+                                    assert!(paid + worth >= c.cost, "a legal set covers the bill");
+                                    assert!(question.accepts(&pick));
+                                    out.insert(spent(&next, c.planets, c.goods));
+                                }
+                                None => {
+                                    assert_eq!(next, s, "an illegal set spends nothing");
+                                    assert!(!question.accepts(&pick));
+                                }
+                            }
+                        }
+                    }
+                    // An atom alone never answers the question.
+                    for o in opts.as_slice() {
+                        assert!(!question.accepts(&Pick::Opt(Opt::Production(*o))));
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_one_payment_question_reaches_exactly_what_the_loop_reached() {
+        let k = Kernel::plain();
+        let mut cases = 0;
+        for kind in [Spend::Resources, Spend::Influence] {
+            for values in [&[1u8][..], &[2], &[1, 2], &[2, 2], &[1, 3], &[3, 1, 2], &[2, 2, 1], &[4, 1, 1], &[1, 1, 1, 2], &[3, 2, 2, 1]] {
+                let planets = planets_worth(values, kind);
+                for goods in 0..=3i16 {
+                    let s = position(&planets, goods);
+                    let total: i64 = values.iter().map(|v| i64::from(*v)).sum::<i64>() + i64::from(goods);
+                    for cost in 1..=total + 1 {
+                        for paid in 0..cost.min(3) {
+                            let c = Case { k: &k, kind, cost, planets: &planets, goods };
+                            let (mut old, mut new) = (BTreeSet::new(), BTreeSet::new());
+                            old_loop(&c, &s, paid, &mut old);
+                            new_question(&c, &s, paid, &mut new);
+                            assert_eq!(new, old, "{kind:?} planets {values:?} goods {goods} cost {cost} paid {paid}");
+                            cases += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(cases > 500, "{cases}");
+    }
+
+    /// The closed form on the numbers alone (owed 3; faces a 3, b 1, c 2; one trade good): the set covers the bill, and without its
+    /// largest atom it would not.
+    #[test]
+    fn the_closed_form_wants_the_bill_covered_and_the_largest_atom_needed() {
+        let face = |planet: Planet, worth: i32| POpt::Exhaust { planet, source: Currency::Resources, shown: Shown { worth, pool_after: 0 } };
+        let (a, b, c) = (Planet::ALL[1], Planet::ALL[2], Planet::ALL[3]);
+        let opts = [face(a, 3), face(b, 1), face(c, 2), POpt::TradeGood { shown: Shown { worth: 1, pool_after: 0 } }];
+        let ask = PayAsk { kind: Currency::Resources, owed: 3, pool: 7, goods: 1, commodities: 0 };
+        let set = |faces: u32, goods: u8| PaySet { faces, goods, commodities: 0, buy: 0 };
+        assert_eq!(set_worth(&ask, &opts, set(0b001, 0)), Some(3), "a alone");
+        assert_eq!(set_worth(&ask, &opts, set(0b110, 0)), Some(3), "b and c");
+        assert_eq!(set_worth(&ask, &opts, set(0b101, 0)), Some(5), "c, then a: legal");
+        assert_eq!(set_worth(&ask, &opts, set(0b011, 0)), Some(4), "b, then a: legal");
+        assert_eq!(set_worth(&ask, &opts, set(0b111, 0)), None, "b and c already cover it: a is never asked for");
+        assert_eq!(set_worth(&ask, &opts, set(0b010, 1)), None, "b and a trade good: short");
+        assert_eq!(set_worth(&ask, &opts, set(0b110, 1)), Some(4), "b, the good, then c");
+        assert_eq!(set_worth(&ask, &opts, set(0b000, 2)), None, "more goods than held");
+        assert_eq!(set_worth(&ask, &opts, set(0b1000, 0)), None, "a bit past the faces");
+        assert_eq!(set_worth(&ask, &opts, PaySet { buy: 1, ..set(0b001, 0) }), None, "a purchase count belongs to Leadership's question");
+    }
+
+    /// A whole bill through the window: one question, answered by a set; an atom or an illegal set is refused and changes nothing.
+    #[test]
+    fn a_bill_with_a_choice_is_one_question_answered_by_a_set() {
+        use crate::driver::{Driver, Status};
+        use crate::kernel::stage::AbilityTable;
+        use crate::kernel::Resolver;
+        let k = Kernel::plain();
+        let planets = planets_worth(&[2, 2, 1], Spend::Resources);
+        let mut s = position(&planets, 1);
+        let mut d = Driver::new(PayBill::new(Seat(0), Spend::Resources, 3), Resolver::new(&[Seat(0)], Some(Seat(0))), AbilityTable::default(), 1);
+        let Status::Asking(c) = d.run(&mut s, &k).unwrap() else { panic!("a question") };
+        assert!(c.is_multi_pick());
+        let before = s.clone();
+        let atom = Pick::Opt(c.opts.as_slice()[0]);
+        assert!(!c.accepts(&atom));
+        assert!(d.resume(&mut s, &k, atom).is_err(), "an atom alone is no answer");
+        let illegal = Pick::Opt(Opt::Production(POpt::Set(PaySet { faces: 0b111, goods: 0, commodities: 0, buy: 0 })));
+        assert!(d.resume(&mut s, &k, illegal).is_err(), "all three planets: more than the bill needs");
+        assert_eq!(s, before);
+        let legal = Pick::Opt(Opt::Production(POpt::Set(PaySet { faces: 0b100, goods: 0, commodities: 0, buy: 0 })));
+        assert!(!c.accepts(&legal), "the one-worth planet alone is short");
+        let legal = Pick::Opt(Opt::Production(POpt::Set(PaySet { faces: 0b101, goods: 0, commodities: 0, buy: 0 })));
+        assert!(c.accepts(&legal));
+        assert_eq!(d.resume(&mut s, &k, legal).unwrap(), Status::Done);
+        assert_eq!(d.window.outcome, Some(true));
+        assert_eq!(spent(&s, &planets, 1).0.len(), 2);
     }
 }

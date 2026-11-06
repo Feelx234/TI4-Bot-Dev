@@ -55,20 +55,28 @@ impl DrawCards {
     }
 
     /// The options of the question: one per printed name, the first copy in hand order, in the order of the names
-    /// (`first_of_each` is a `BTreeMap` keyed by the printed name).
-    fn options(&self, core: &CoreState) -> Option<SmallList<(u8, ActionCard), 12>> {
+    /// (`first_of_each` is a `BTreeMap` keyed by the printed name), with the copies of that name held.
+    fn options(&self, core: &CoreState) -> Option<SmallList<(u8, ActionCard, u8), 12>> {
         let hand = core.players().by_seat(self.who)?.cards.hand.as_slice();
-        let mut firsts: SmallList<(u8, ActionCard), 12> = SmallList::new();
+        let mut firsts: SmallList<(u8, ActionCard, u8), 12> = SmallList::new();
         let mut seen: SmallList<u8, 12> = SmallList::new();
         for (index, card) in hand.iter().enumerate() {
             let group = *self.groups.get(*card as usize)?;
             if !seen.as_slice().contains(&group) {
                 seen.push(group);
-                firsts.push((u8::try_from(index).ok()?, *card));
+                let copies = hand.iter().filter(|c| self.groups.get(**c as usize) == Some(&group)).count();
+                firsts.push((u8::try_from(index).ok()?, *card, u8::try_from(copies).unwrap_or(u8::MAX)));
             }
         }
-        firsts.as_mut_slice().sort_by_key(|(_, card)| card.name_rank());
+        firsts.as_mut_slice().sort_by_key(|(_, card, _)| card.name_rank());
         Some(firsts)
+    }
+
+    /// How many cards over the limit the hand holds.
+    fn excess(&self, core: &CoreState, k: &Kernel) -> Option<u8> {
+        let held = core.players().by_seat(self.who)?.cards.hand.len();
+        let limit = super::hand_limit(core, false, |l| k.hooks.economy.action_card_limit(core, k, self.who, l));
+        u8::try_from(held.checked_sub(limit)?).ok().filter(|n| *n > 0)
     }
 
     /// Whether the drawer's Scheming follows a draw with a discard: its faction ability. (The permission a Deepgloom Executable gives another
@@ -141,7 +149,7 @@ impl Window for DrawCards {
         match self.over(sx.state, sx.kernel) {
             Some(held) if self.options(sx.state).is_some() => {
                 self.stage = DStage::Asking;
-                Next::Continue(Ask::Cards(CAsk::HandLimit { held }))
+                Next::Continue(Ask::Cards(CAsk::HandLimit { held, discard: self.excess(sx.state, sx.kernel).unwrap_or(1) }))
             }
             Some(_) => {
                 self.unsupported = true;
@@ -176,10 +184,11 @@ impl Window for DrawCards {
             return None;
         }
         let held = self.over(core, k)?;
-        let opts = self.options(core)?.as_slice().iter().map(|(index, card)| Opt::Cards(COpt::Discard { index: *index, card: *card })).collect();
+        let discard = self.excess(core, k)?;
+        let opts = self.options(core)?.as_slice().iter().map(|(index, card, copies)| Opt::Cards(COpt::Discard { index: *index, card: *card, copies: *copies })).collect();
         Some(Choice {
             actor: self.who,
-            ask: Ask::Cards(CAsk::HandLimit { held }),
+            ask: Ask::Cards(CAsk::HandLimit { held, discard }),
             ctx: Ctx {
                 origin: Origin::Rule(Rule::R2_4),
                 subtype: Subtype::Cards(CSub::DiscardOverHandLimit),
@@ -202,15 +211,29 @@ impl Window for DrawCards {
             self.stage = DStage::Done;
             return Ok(());
         }
-        let Pick::Opt(Opt::Cards(COpt::Discard { index, card })) = pick else { return Err(Illegal) };
+        // ONE answer for every card over the limit (the multi-ask conversion): how many of each printed name go.
+        let Pick::Opt(Opt::Cards(COpt::DiscardSet { counts })) = pick else { return Err(Illegal) };
+        let counts = counts.bits();
         if self.stage != DStage::Asking {
             return Err(Illegal);
         }
-        if !self.options(sx.state).ok_or(Illegal)?.as_slice().contains(&(index, card)) {
+        let options = self.options(sx.state).ok_or(Illegal)?;
+        let opts: SmallList<COpt, 12> = options.as_slice().iter().map(|(index, card, copies)| COpt::Discard { index: *index, card: *card, copies: *copies }).collect();
+        let discard = self.excess(sx.state, sx.kernel).ok_or(Illegal)?;
+        if !crate::choice::cards::discard_set_ok(opts.as_slice(), discard, counts) {
             return Err(Illegal);
         }
+        // The first copies of each printed name go (the string's answer named the first copy each time).
+        let groups = &self.groups;
         if let Some(p) = sx.state.players_mut().by_seat_mut(self.who) {
-            p.cards.hand.remove(usize::from(index));
+            for (i, (_, card, _)) in options.as_slice().iter().enumerate() {
+                let group = groups.get(*card as usize).copied();
+                for _ in 0..crate::choice::cards::discard_count(counts, i) {
+                    if let Some(at) = p.cards.hand.as_slice().iter().position(|c| groups.get(*c as usize).copied() == group) {
+                        p.cards.hand.remove(at);
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -273,7 +296,7 @@ mod tests {
         let mut s = position(&SEVEN, &[ActionCard::FlankSpeed3]);
         let (status, mut d) = drive(&mut s, 1, true);
         let Status::Asking(choice) = status else { panic!("eight cards, the limit is seven: a question") };
-        assert_eq!(choice.ask, Ask::Cards(CAsk::HandLimit { held: 8 }));
+        assert_eq!(choice.ask, Ask::Cards(CAsk::HandLimit { held: 8, discard: 1 }));
         assert_eq!((choice.actor, choice.ctx.origin, choice.ctx.subtype), (Seat(0), Origin::Rule(Rule::R2_4), Subtype::Cards(CSub::DiscardOverHandLimit)));
         assert!(!choice.ctx.optional && !choice.ctx.space_battle && choice.ctx.target.is_none() && choice.ctx.invasion_seq.is_none());
         let mut expected: Vec<(u8, ActionCard)> = vec![(0, SEVEN[0]), (1, SEVEN[1]), (2, SEVEN[2]), (4, SEVEN[4]), (5, SEVEN[5]), (6, SEVEN[6])];
@@ -281,7 +304,7 @@ mod tests {
         expected.push((7, ActionCard::FlankSpeed3));
         expected.sort_by_key(|(_, card)| card.name_rank());
         let offered: Vec<(u8, ActionCard)> = choice.opts.iter().map(|o| match o {
-            Opt::Cards(COpt::Discard { index, card }) => (*index, *card),
+            Opt::Cards(COpt::Discard { index, card, .. }) => (*index, *card),
             other => panic!("{other:?}"),
         }).collect();
         assert_eq!(offered, expected, "the second Flank Speed (index 3) is the same name as the first: not offered");
@@ -293,19 +316,89 @@ mod tests {
         assert!(!hand.contains(&ActionCard::NavSuite), "the chosen card is gone");
     }
 
-    /// Sanctions caps the hand at three: a hand of five is asked twice, one card at a time, until it is three.
+    /// Sanctions caps the hand at three: a hand of five discards two in ONE question (the multi-ask conversion).
     #[test]
-    fn a_draw_asks_again_until_the_hand_is_within_the_limit() {
+    fn a_draw_over_the_limit_by_two_discards_both_in_one_answer() {
         let mut s = position(&SEVEN[..5], &[]);
         s.agenda_mut().laws.insert(crate::query::laws::SANCTIONS, crate::keys::Outcome::For);
         let (status, mut d) = drive(&mut s, 0, true);
         let Status::Asking(first) = status else { panic!("five cards under Sanctions: a question") };
+        assert_eq!(first.ask, Ask::Cards(CAsk::HandLimit { held: 5, discard: 2 }));
+        assert!(first.is_multi_pick());
+        // One card is not enough, three are too many; a single option is no answer.
+        let one = Pick::Opt(Opt::Cards(COpt::DiscardSet { counts: crate::choice::cards::Counts::of(0x1) }));
+        let three = Pick::Opt(Opt::Cards(COpt::DiscardSet { counts: crate::choice::cards::Counts::of(0x111) }));
+        for wrong in [one, three, Pick::Opt(first.opts.as_slice()[0])] {
+            assert!(!first.accepts(&wrong));
+            assert!(d.resume(&mut s, &Kernel::plain(), wrong).is_err());
+        }
         let status = d.resume(&mut s, &Kernel::plain(), first.pick(0).unwrap()).unwrap();
-        let Status::Asking(second) = status else { panic!("four cards: asked again") };
-        assert_eq!(second.ask, Ask::Cards(CAsk::HandLimit { held: 4 }));
-        let status = d.resume(&mut s, &Kernel::plain(), second.pick(0).unwrap()).unwrap();
         assert!(matches!(status, Status::Done), "three cards: within the cap");
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 3);
+    }
+
+    /// The multi-ask conversion's proof: the one discard answer (`discard_set_ok`) reaches exactly the hands the string's one-card-per-question
+    /// loop reached (each question offers the first copy of each printed name; the loop stops at the limit), brute-forced over small hands.
+    #[test]
+    fn the_one_discard_answer_reaches_exactly_what_the_card_by_card_loop_reached() {
+        use std::collections::BTreeSet;
+        // Groups: each card its own name except the Flank Speed copies (one name).
+        let flank = [ActionCard::FlankSpeed1, ActionCard::FlankSpeed2];
+        let group = |c: ActionCard| if flank.contains(&c) { ActionCard::FlankSpeed1 } else { c };
+        fn old(hand: &[ActionCard], limit: usize, group: &dyn Fn(ActionCard) -> ActionCard, out: &mut BTreeSet<Vec<ActionCard>>) {
+            if hand.len() <= limit {
+                let mut h = hand.to_vec();
+                h.sort();
+                out.insert(h);
+                return;
+            }
+            let mut seen = Vec::new();
+            for (i, c) in hand.iter().enumerate() {
+                if seen.contains(&group(*c)) {
+                    continue;
+                }
+                seen.push(group(*c));
+                let mut next = hand.to_vec();
+                next.remove(i);
+                old(&next, limit, group, out);
+            }
+        }
+        for hand in [&SEVEN[..5], &[ActionCard::FlankSpeed1, ActionCard::FlankSpeed2, SEVEN[0], SEVEN[1], SEVEN[2]][..], &SEVEN[..]] {
+            {
+                // Sanctions caps the hand at three.
+                let limit = 3usize;
+                let mut want = BTreeSet::new();
+                old(hand, limit, &group, &mut want);
+                let mut s = position(hand, &[]);
+                s.agenda_mut().laws.insert(crate::query::laws::SANCTIONS, crate::keys::Outcome::For);
+                let (status, _) = drive(&mut s, 0, true);
+                let Status::Asking(c) = status else { assert_eq!(want.len(), 1); continue };
+                let mut got = BTreeSet::new();
+                // Every count vector with each option at most twice (Flank Speed has two copies here), the accepted ones answered.
+                let n = c.opts.len();
+                let all: Vec<u64> = (0..3u64.pow(u32::try_from(n).unwrap())).map(|mut x| {
+                    let mut bits = 0u64;
+                    for i in 0..n {
+                        bits = crate::choice::cards::with_discard_count(bits, i, u8::try_from(x % 3).unwrap());
+                        x /= 3;
+                    }
+                    bits
+                }).collect();
+                for counts in all {
+                    let pick = Pick::Opt(Opt::Cards(COpt::DiscardSet { counts: crate::choice::cards::Counts::of(counts) }));
+                    if !c.accepts(&pick) {
+                        continue;
+                    }
+                    let mut t = s.clone();
+                    let (_, mut d2) = drive(&mut t, 0, true);
+                    assert!(matches!(d2.resume(&mut t, &Kernel::plain(), pick).unwrap(), Status::Done));
+                    let mut h = t.players().by_seat(Seat(0)).unwrap().cards.hand.as_slice().to_vec();
+                    h.sort();
+                    got.insert(h);
+                }
+                assert_eq!(got, want, "{hand:?} limit {limit}");
+            }
+        }
     }
 
     /// Within the limit, with an empty deck, or drawing nothing: no question.

@@ -7,6 +7,7 @@ import type {
   ChoiceOption,
   DecisionContext,
   MapChoiceView,
+  MultiPick,
   ReactionMode,
   ViewerRole as WireViewerRole,
 } from "@ti4/shared/wire/index.ts";
@@ -37,6 +38,8 @@ export interface PendingChoiceDto {
   context?: DecisionContext;
   /** Display-only facts the server adds for some decisions (pools, who played a card, ...). */
   details?: Record<string, unknown>;
+  /** A multi-pick: the answer is a set of the listed options, their ids joined by `+` (the engine checks it). */
+  multi_pick?: MultiPick;
 }
 
 // ---- The lobby of a game on the server -------------------------------------------------------

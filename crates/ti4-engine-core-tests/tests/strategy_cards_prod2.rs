@@ -8,6 +8,7 @@ use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt, Pool};
 use ti4_engine_core::generated::{Agenda, Attachment};
 use ti4_engine_core::kernel::children::StructureFacts;
 use ti4_engine_core::rules::production::strategy_cards::{CStage, Construction, LStage, Leadership};
+use ti4_engine_core::generated::System;
 use ti4_engine_core::state::{Code, Outcome};
 use ti4_engine_core_tests::prelude::*;
 use ti4_engine_core_tests::scenario::{planets_with_influence, system_of, systems_of};
@@ -46,70 +47,75 @@ fn each_free_token_goes_to_the_pool_chosen_for_it() {
     let mut rig = Rig::new(sc, Leadership::new(Seat(0), true));
     rig.run();
     assert_eq!(rig.driver.window.stage(), LStage::Gain);
-    rig.pick_opt(strat(SOpt::Pool(Pool::Fleet)));
-    rig.pick_opt(strat(SOpt::Pool(Pool::Fleet)));
-    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 }));
-    rig.pick_opt(strat(SOpt::Pool(Pool::Strategic)));
+    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 3 }));
+    rig.pick_opt(strat(SOpt::gain_of(&[Pool::Fleet, Pool::Fleet, Pool::Strategic])));
     assert_eq!(tokens(&rig.state), (1, 3, 2), "two to the fleet, one to the strategy pool");
     assert_eq!(rig.driver.window.stage(), LStage::Done, "one influence cannot buy a token: no offer");
 }
 
-#[test]
-fn a_token_is_paid_with_several_planets_and_the_overpayment_is_carried_to_the_next() {
-    // Three planets of 2 influence: 3 for the first token (2 + 2 = 4, one carried), 3 for the second (1 carried + 2).
-    let (sc, ps) = table(&[2, 2, 2], 0);
-    let mut rig = Rig::new(sc, Leadership::new(Seat(0), false));
-    rig.run();
-    assert_eq!(rig.driver.window.stage(), LStage::Pay, "the secondary pays at once");
-    let AskPay { owed, kind } = pay_ask(&rig);
-    assert_eq!((owed, kind), (3, Currency::Influence));
-    rig.assert_options_sound();
-    rig.pick_where(pay_planet(ps[0]));
-    assert_eq!(pay_ask(&rig).owed, 1, "one still owed");
-    rig.pick_where(pay_planet(ps[1]));
-    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 }));
-    rig.pick_opt(strat(SOpt::Pool(Pool::Tactic)));
-    assert_eq!(tokens(&rig.state).0, 2);
-    // The window is the secondary: one purchase only.
-    assert!(rig.is_done() || matches!(rig.asked().ask, Ask::Strategy(SAsk::LeadershipBuy { .. })));
-}
-
-use ti4_engine_core::choice::production::{Ask as PAsk, Currency};
-
-struct AskPay {
-    owed: i64,
-    kind: Currency,
-}
-
-fn pay_ask<W: ti4_engine_core::kernel::stage::Window>(rig: &Rig<W>) -> AskPay {
+/// Leadership's purchase question (the multi-ask conversion): how many tokens, and the atoms that pay for them.
+fn purchase<W: ti4_engine_core::kernel::stage::Window>(rig: &Rig<W>) -> PurchaseAsk {
     match &rig.asked().ask {
-        Ask::Production(PAsk::Pay(p)) => AskPay { owed: p.owed, kind: p.kind },
-        other => panic!("not a payment: {other:?}"),
+        Ask::Production(PAsk::Purchase(p)) => *p,
+        other => panic!("not the purchase: {other:?}"),
     }
 }
 
+/// Buy `buy` tokens with the offered atoms for which `want` holds (a trade good: `goods` of them).
+fn buy(rig: &mut Rig<Leadership>, buy: u8, goods: u8, want: impl Fn(&Opt) -> bool) -> Pick {
+    let opts: Vec<POpt> = rig.opts().into_iter().filter_map(|o| if let Opt::Production(p) = o { Some(p) } else { None }).collect();
+    let picks: Vec<POpt> = rig.opts().into_iter().filter(|o| want(o)).filter_map(|o| if let Opt::Production(p) = o { Some(p) } else { None }).collect();
+    let set = PaySet { buy, goods, ..PaySet::of(&opts, &picks).expect("atoms of the question") };
+    Pick::Opt(Opt::Production(POpt::Set(set)))
+}
+
 #[test]
-fn the_primary_offers_again_with_the_carried_influence_and_the_credit_pays_part_of_the_next_token() {
+fn a_token_bought_with_several_planets_is_one_answer_and_an_overpayment_buys_the_next() {
+    // Three planets of 2 influence: two of them (4) buy one token, all three (6) buy two (the carried influence of the old loop).
+    let (sc, ps) = table(&[2, 2, 2], 0);
+    let mut rig = Rig::new(sc, Leadership::new(Seat(0), false));
+    rig.run();
+    assert_eq!(rig.driver.window.stage(), LStage::Buy, "the secondary buys at once");
+    let p = purchase(&rig);
+    assert_eq!((p.min, p.max, p.each), (1, 2, 3), "the follower's yes is the first token; six influence buy two");
+    rig.assert_options_sound();
+    // One planet is short of a token; three planets for one token spend one that was never needed.
+    let short = buy(&mut rig, 1, 0, pay_planet(ps[0]));
+    rig.expect_illegal(short);
+    let waste = buy(&mut rig, 1, 0, |o| matches!(o, Opt::Production(POpt::Exhaust { .. })));
+    rig.expect_illegal(waste);
+    let two = buy(&mut rig, 2, 0, |o| matches!(o, Opt::Production(POpt::Exhaust { .. })));
+    rig.answer_pick(two);
+    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 2 }), "the pools of both tokens in one question");
+    rig.pick_opt(strat(SOpt::gain_of(&[Pool::Tactic, Pool::Fleet])));
+    assert!(rig.is_done());
+    assert_eq!(tokens(&rig.state), (2, 2, 1));
+    assert!(ps.iter().all(|p| exhausted(&rig.state, *p)));
+}
+
+use ti4_engine_core::choice::production::{Ask as PAsk, PaySet, PurchaseAsk};
+
+#[test]
+fn the_primary_buys_as_many_tokens_as_its_answer_says_after_the_three_free_ones() {
     let (sc, ps) = table(&[2, 2, 2], 0);
     let mut rig = Rig::new(sc, Leadership::new(Seat(0), true));
-    rig.run().pick(0).pick(0).pick(0);
-    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::LeadershipBuy { owed: 3, more: false }));
-    rig.pick_opt(strat(SOpt::Buy(true)));
-    rig.pick_where(pay_planet(ps[0]));
-    rig.pick_where(pay_planet(ps[1]));
-    rig.pick(0); // the pool of the token bought
-    let (a, b, c) = tokens(&rig.state);
-    assert_eq!(a + b + c, 3 + 3 + 1, "three free tokens and one bought");
-    // The carried influence shortens the next bill: 3 - 1 = 2 are owed.
-    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::LeadershipBuy { owed: 2, more: true }));
-    rig.pick_opt(strat(SOpt::Buy(true)));
-    // The last planet is the only way to pay: it is taken without a question, and the token's pool is asked.
-    assert!(exhausted(&rig.state, ps[2]));
+    rig.run().pick(0);
+    let p = purchase(&rig);
+    assert_eq!((p.min, p.max), (0, 2), "the primary may buy none");
+    // None: nothing is spent and no further question.
+    let mut none = rig.replay();
+    none.answer_pick(Pick::Opt(Opt::Production(POpt::Set(PaySet::default()))));
+    assert!(none.is_done());
+    assert!(ps.iter().all(|p| !exhausted(&none.state, *p)));
+    // Two planets for one token.
+    let one = buy(&mut rig, 1, 0, |o| pay_planet(ps[0])(o) || pay_planet(ps[1])(o));
+    rig.answer_pick(one);
     assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 }));
     rig.pick(1);
-    assert_eq!(tokens(&rig.state).0 + tokens(&rig.state).1 + tokens(&rig.state).2, 3 + 3 + 2, "two tokens bought in all");
-    assert!(rig.is_done(), "nothing left to pay with, no offer");
-    assert!(ps.iter().all(|p| exhausted(&rig.state, *p)));
+    let (a, b, c) = tokens(&rig.state);
+    assert_eq!(a + b + c, 3 + 3 + 1, "three free tokens and one bought");
+    assert!(rig.is_done(), "the purchase is one question: no second offer");
+    assert!(!exhausted(&rig.state, ps[2]));
 }
 
 #[test]
@@ -117,16 +123,19 @@ fn trade_goods_pay_for_a_token_and_a_bill_met_with_goods_alone_needs_three_of_th
     let (sc, ps) = table(&[2], 1);
     let mut rig = Rig::new(sc, Leadership::new(Seat(0), false));
     rig.run();
-    assert_eq!(pay_ask(&rig).owed, 3);
+    assert_eq!((purchase(&rig).min, purchase(&rig).max), (1, 1));
     assert!(rig.opts().iter().any(|o| matches!(o, Opt::Production(POpt::TradeGood { .. }))));
-    rig.pick_where(pay_planet(ps[0]));
-    // One influence short: the single trade good is the only option and it is taken without a question.
+    let pick = buy(&mut rig, 1, 1, pay_planet(ps[0]));
+    rig.answer_pick(pick);
     assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 }));
     assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 0);
-    // Three trade goods and no planet also buy a token.
+    // Three trade goods and no planet also buy a token (the one answer the question has).
     let none = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).goods(0, 3).tokens(0, 1, 1, 1);
     let mut goods = Rig::new(none, Leadership::new(Seat(0), false));
-    goods.run(); // each lone trade good is taken without a question
+    goods.run();
+    assert_eq!(goods.asked().answers(8).len(), 1);
+    let pick = goods.asked().default_pick().unwrap();
+    goods.answer_pick(pick);
     assert_eq!(goods.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 }));
     assert_eq!(goods.state.players().by_seat(Seat(0)).unwrap().econ.trade_goods, 0);
     // Two trade goods: not enough, the window ends.
@@ -141,10 +150,13 @@ fn a_wrong_answer_to_leadership_is_refused_and_leaves_the_stage() {
     let (sc, _) = table(&[3], 0);
     let mut rig = Rig::new(sc, Leadership::new(Seat(0), true));
     rig.run();
-    rig.expect_illegal(Pick::Opt(strat(SOpt::Buy(true))));
+    rig.expect_illegal(Pick::Opt(Opt::Production(POpt::Set(PaySet { buy: 1, ..PaySet::default() }))));
     rig.expect_illegal(Pick::Number(1));
     assert_eq!(rig.driver.window.stage(), LStage::Gain);
     assert_eq!(rig.driver.window.who, Seat(0));
+    rig.pick(0);
+    // More tokens than the influence pays for.
+    rig.expect_illegal(Pick::Opt(Opt::Production(POpt::Set(PaySet { faces: 0b1, buy: 2, ..PaySet::default() }))));
 }
 
 // ---- Construction -----------------------------------------------------------------------------------------
@@ -298,37 +310,37 @@ fn the_thunders_edge_primary_asks_for_a_structure_or_a_production_first_and_neit
 // ---- survivor-driven (mutation round 1) ------------------------------------------------------------------------------
 
 #[test]
-fn a_big_overpayment_carries_enough_for_the_next_tokens_without_paying_again() {
-    // Mecatol Rex is worth six influence: exhausting it pays two tokens at once, the second needs no payment.
+fn a_big_overpayment_buys_the_next_tokens_without_paying_again() {
+    // Mecatol Rex is worth six influence: exhausting it pays one token, or two.
     let sc = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).map_from(&[System::MecatolRex18]).control(Planet::MecatolRex, 0).tokens(0, 1, 1, 1);
     let mut rig = Rig::new(sc, Leadership::new(Seat(0), true));
-    rig.run().pick(0).pick(0).pick(0);
-    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::LeadershipBuy { owed: 3, more: false }));
-    rig.pick_opt(strat(SOpt::Buy(true)));
-    // Mecatol is the only way to pay: taken without a question; its six cover this token and carry three.
+    rig.run().pick(0);
+    assert_eq!(purchase(&rig).max, 2);
+    let mut one = rig.replay();
+    let pick = buy(&mut one, 1, 0, pay_planet(Planet::MecatolRex));
+    one.answer_pick(pick);
+    assert_eq!(one.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 }), "one token: the other three influence are wasted");
+    let pick = buy(&mut rig, 2, 0, pay_planet(Planet::MecatolRex));
+    rig.answer_pick(pick);
     assert!(exhausted(&rig.state, Planet::MecatolRex));
-    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 }));
-    rig.pick(0);
-    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::LeadershipBuy { owed: 0, more: true }), "three carried: nothing owed for the next token");
-    rig.pick_opt(strat(SOpt::Buy(true)));
-    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 }), "the carried influence pays it, no payment question");
+    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 2 }));
     rig.pick(1);
     let (a, b, c) = tokens(&rig.state);
     assert_eq!(a + b + c, 3 + 3 + 2, "two tokens bought");
-    assert_eq!(rig.driver.window.stage(), LStage::Done, "nothing carried, nothing to pay with: no more offers");
+    assert_eq!(rig.driver.window.stage(), LStage::Done);
 }
 
 #[test]
-fn a_secondary_that_carries_credit_from_a_part_payment_asks_for_the_rest() {
-    // 5 influence of planets: first token paid 3 + 2 (credit 0 here), a leftover of one influence carries to the next purchase in a primary.
+fn an_exact_payment_buys_the_token_and_ends_the_purchase() {
     let (sc, ps) = table(&[3, 3, 2], 0);
     let mut rig = Rig::new(sc, Leadership::new(Seat(0), true));
-    rig.run().pick(0).pick(0).pick(0);
-    rig.pick_opt(strat(SOpt::Buy(true)));
-    // Paying with a three-influence planet covers the token exactly: no credit is carried.
-    rig.pick_where(pay_planet(ps[0]));
+    rig.run().pick(0);
+    // A three-influence planet covers one token exactly.
+    let pick = buy(&mut rig, 1, 0, pay_planet(ps[0]));
+    rig.answer_pick(pick);
     rig.pick(0);
-    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::LeadershipBuy { owed: 3, more: false }), "an exact payment carries nothing");
+    assert!(rig.is_done());
+    assert!(!exhausted(&rig.state, ps[1]) && !exhausted(&rig.state, ps[2]));
 }
 
 #[test]
@@ -375,7 +387,7 @@ fn the_structure_questions_are_plain_strategy_questions_and_a_new_te_window_has_
 #[test]
 fn the_secondary_research_is_paid_with_as_many_planets_as_it_takes() {
     use ti4_engine_core::rules::production::strategy_cards::Research;
-    // Cost 4, planets of 3 and 3 resources: two planets pay it, the second after the first came short.
+    // Cost 4, planets of 3 and 3 resources: two planets pay it, in ONE answer (the multi-ask conversion).
     let sc = Scenario::new(&[Faction::TheArborec, Faction::TheEmbersOfMuaat]).control(Planet::Starpoint, 0).control(Planet::Zohbat, 0).control(Planet::Capha, 0);
     let mut rig = Rig::new(sc, Research::new(Seat(0), false, 4, ti4_engine_core_tests::inv::ALL_SOURCES));
     rig.run();
@@ -383,9 +395,16 @@ fn the_secondary_research_is_paid_with_as_many_planets_as_it_takes() {
     assert!(rig.opts().contains(&Opt::Decline));
     rig.pick_opt(Opt::Strategy(SOpt::Research(Technology::AntimassDeflectors)));
     assert!(matches!(rig.asked().ask, Ask::Production(_)));
-    rig.pick_where(pay_planet(Planet::Starpoint));
-    assert!(matches!(rig.asked().ask, Ask::Production(_)), "three of four resources: one more is owed");
-    rig.pick_where(pay_planet(Planet::Zohbat));
+    // One planet alone is short, all three are more than the bill needs: refused.
+    let one = rig.opts().into_iter().filter(pay_planet(Planet::Starpoint)).collect::<Vec<_>>();
+    let all = rig.opts().into_iter().filter(|o| matches!(o, Opt::Production(POpt::Exhaust { .. }))).collect::<Vec<_>>();
+    for atoms in [one, all] {
+        let opts: Vec<POpt> = rig.opts().into_iter().filter_map(|o| if let Opt::Production(p) = o { Some(p) } else { None }).collect();
+        let picks: Vec<POpt> = atoms.into_iter().filter_map(|o| if let Opt::Production(p) = o { Some(p) } else { None }).collect();
+        let set = ti4_engine_core::choice::production::PaySet::of(&opts, &picks).unwrap();
+        rig.expect_illegal(Pick::Opt(Opt::Production(POpt::Set(set))));
+    }
+    rig.pay_where(|o| pay_planet(Planet::Starpoint)(o) || pay_planet(Planet::Zohbat)(o));
     assert!(rig.is_done());
     assert!(rig.state.players().by_seat(Seat(0)).unwrap().tech.owned.contains(Technology::AntimassDeflectors));
     assert!(exhausted(&rig.state, Planet::Starpoint) && exhausted(&rig.state, Planet::Zohbat));

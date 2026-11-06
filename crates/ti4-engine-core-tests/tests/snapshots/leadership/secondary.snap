@@ -1,14 +1,11 @@
-Q0 seat 0 Production(Pay(PayAsk { kind: Influence, owed: 3, pool: 4, goods: 1 }))
-  >0: Production(Exhaust { planet: Wellon, source: Influence, shown: Shown { worth: 2, pool_after: 2 } })
+Q0 seat 0 Production(Purchase(PurchaseAsk { pay: PayAsk { kind: Influence, owed: 3, pool: 4, goods: 1, commodities: 0 }, each: 3, min: 1, max: 1 }))
+   0: Production(Exhaust { planet: Wellon, source: Influence, shown: Shown { worth: 2, pool_after: 2 } })
    1: Production(Exhaust { planet: Thibah, source: Influence, shown: Shown { worth: 1, pool_after: 3 } })
    2: Production(TradeGood { shown: Shown { worth: 1, pool_after: 3 } })
-Q1 seat 0 Production(Pay(PayAsk { kind: Influence, owed: 1, pool: 2, goods: 1 }))
-  >0: Production(Exhaust { planet: Thibah, source: Influence, shown: Shown { worth: 1, pool_after: 1 } })
-   1: Production(TradeGood { shown: Shown { worth: 1, pool_after: 1 } })
-Q2 seat 0 Strategy(GainPool { left: 1 })
-  >0: Strategy(Pool(Tactic))
-   1: Strategy(Pool(Fleet))
-   2: Strategy(Pool(Strategic))
+Q1 seat 0 Strategy(GainPool { left: 1 })
+  >0: Strategy(Gain { tactic: 1, fleet: 0, strategic: 0 })
+   1: Strategy(Gain { tactic: 0, fleet: 1, strategic: 0 })
+   2: Strategy(Gain { tactic: 0, fleet: 0, strategic: 1 })
 done
 --- delta ---
 player0.econ.tactic_tokens: 1 -> 2
