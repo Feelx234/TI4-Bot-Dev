@@ -345,7 +345,13 @@ impl<W: Window> Driver<W> {
                 self.unknown.get_or_insert(why);
             }
             let dry = self.tape.needed().cloned();
-            self.take_park(dry.is_some() && outcome.is_ok(), &op);
+            if W::PARKS {
+                self.take_park(dry.is_some() && outcome.is_ok(), &op);
+            } else {
+                // No converted path parks in this window (`Resume::fits` refuses it): drop what a run inside it may have parked.
+                self.tape.parked = crate::state::Memo::default();
+                self.park = None;
+            }
             if dry.is_some() || outcome.is_err() {
                 // Undo the run: a nested question found the tape dry (ask it), or the run failed (the
                 // question stays where it was).

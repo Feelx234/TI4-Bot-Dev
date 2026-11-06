@@ -306,7 +306,7 @@ pub(crate) fn answer_nested<M: Held>(d: &mut Driver<M>, core: &mut CoreState, en
     d.restore_nested(n);
     #[cfg(feature = "probe-counters")]
     memo_census::note(asked.is_some(), false);
-    let park = asked.and_then(|a| a.park.as_ref()).filter(|_| crate::driver::parking());
+    let park = if M::PARKS { asked.and_then(|a| a.park.as_ref()).filter(|_| crate::driver::parking()) } else { None };
     let legal = match asked {
         Some(asked) => {
             verify::<M>(core, env, n, &asked.asking, false);
@@ -358,8 +358,13 @@ pub fn verify_parked(on: bool) {
 }
 
 fn verifying_park() -> bool {
-    VERIFY_PARK.with(std::cell::Cell::get)
+    PARK_CHECK_BUILT && VERIFY_PARK.with(std::cell::Cell::get)
 }
+
+/// Whether this build carries the check of the parked answers at all: debug builds and every native build (`PERF_KERNEL_VERIFY_PARK`) do;
+/// the browser build (wasm release) does not, so the replay, the comparison and the printouts are not in the wasm file (integration 28: the
+/// size budget). `verify_parked(true)` is then a no-op there.
+const PARK_CHECK_BUILT: bool = cfg!(any(debug_assertions, not(target_family = "wasm")));
 
 /// What an answer left: compared field by field between the parked resume and the replay.
 #[derive(Debug, PartialEq)]

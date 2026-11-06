@@ -196,6 +196,27 @@ fn a_park_is_shared_by_a_clone_and_each_copy_resumes_on_its_own() {
     assert!(park_stats().1 > before, "the copies resumed the shared park");
 }
 
+/// Integration 28 (wasm size trim): the park code is compiled only for the windows a converted path parks in (`Window::PARKS`). The two
+/// callers of the strategy-card perform must carry it (else the tests above would replay instead of resuming the park); another window,
+/// whose park `Resume::fits` refuses, must not (the code size of the browser build).
+#[test]
+fn only_the_windows_a_park_fits_compile_the_park_code() {
+    use ti4_engine_core::driver::windows::strategic::SecondaryWin;
+    use ti4_engine_core::driver::windows::tactical::TacticalAction;
+    use ti4_engine_core::kernel::stage::Window;
+    const { assert!(<SecondaryWin as Window>::PARKS && <TurnFlowWin as Window>::PARKS) };
+    const { assert!(!<TacticalAction as Window>::PARKS) };
+    // And the park is still taken and resumed on both paths (the counter moves): a follower's secondary.
+    let (mut s, k) = leadership_followers();
+    let e = env(&k);
+    let (kept, resumed) = park_stats();
+    let (live, _) = advance_secondary(&mut s, &e, Some(Pick::Opt(Opt::Strategy(SOpt::Follow)))).unwrap();
+    let Live::Asks(asking) = live else { panic!("the ability asks") };
+    assert!(park_stats().0 > kept, "the follower's ability parked");
+    advance_secondary(&mut s, &e, Some(asking.choice.pick(0).unwrap())).unwrap();
+    assert!(park_stats().1 > resumed, "the answer resumed the park");
+}
+
 /// The inline sizes of a park and its parts (printed with `--nocapture`; the heap a park holds is measured by `perf_kernel` with `perf-count`).
 #[test]
 fn the_size_of_a_park() {

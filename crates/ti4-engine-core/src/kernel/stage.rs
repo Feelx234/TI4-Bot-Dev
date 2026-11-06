@@ -59,6 +59,12 @@ pub trait Window: Clone + Send + Sync + 'static {
     fn accepts_unlisted(&self, _pick: &Pick) -> bool {
         false
     }
+
+    /// Whether a converted path (stepmachine-1, `driver::Park`) may park its continuation in a driver of this window: only then are the
+    /// park code paths (`Driver::take_park` keeping one, `Driver::resume_parked`) compiled for it. Only the strategy-card perform's two callers
+    /// (`SecondaryWin`, `TurnFlowWin`) park; for every other window `Resume::fits` refuses any park, so the constant changes nothing but
+    /// the code size (integration 28: the wasm size budget).
+    const PARKS: bool = false;
 }
 
 /// What a window adds to [`Window`] to be HELD on the `Pending` stack between steps (package M0, `driver::live`): the machine is

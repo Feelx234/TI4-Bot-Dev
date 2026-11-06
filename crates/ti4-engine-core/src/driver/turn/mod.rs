@@ -47,6 +47,8 @@ pub struct TurnFlowWin {
 }
 
 impl Window for TurnFlowWin {
+    const PARKS: bool = true;
+
     type Stage = TurnJob;
 
     fn stage(&self) -> TurnJob {
