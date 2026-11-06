@@ -60,8 +60,13 @@ export const PoliticsContextPanel: React.FC<{ choice: PendingChoiceDto }> = ({ c
           ))}
         </div>
       )}
+      <div className={agendas.length > 1 ? "politics-panel__agendas" : undefined}>
       {agendas.map((agenda, index) => (
-        <div key={`${index}-${agenda.name}`} data-testid="agenda-card">
+        <div
+          key={`${index}-${agenda.name}`}
+          data-testid="agenda-card"
+          className={agendas.length > 1 ? "politics-panel__agenda" : undefined}
+        >
           {agendas.length > 1 && (
             <div className="text-muted politics-panel__eyebrow" data-testid="agenda-card-position">
               {index === 0 ? "Was the top card" : "Was the second card"}
@@ -79,9 +84,10 @@ export const PoliticsContextPanel: React.FC<{ choice: PendingChoiceDto }> = ({ c
           ))}
         </div>
       ))}
+      </div>
       {agendas.length === 1 && <p className="text-muted">Top: it is revealed next. Bottom: it will not come up soon.</p>}
       {agendas.length > 1 && (
-        <p className="text-muted" data-testid="agenda-order-hint">
+        <p className="text-muted politics-panel__hint" data-testid="agenda-order-hint">
           Place each card on the top or the bottom of the agenda deck, in any order. The top card is revealed
           next; a card on the bottom will not come up soon.
         </p>

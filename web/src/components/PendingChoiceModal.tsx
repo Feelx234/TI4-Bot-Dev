@@ -25,7 +25,7 @@ import { UnitAbilityOptionNote } from "./UnitAbilityParts.tsx";
 import { describeUnitAbilityOption } from "../presentation/unitAbilityOptions.ts";
 import { describeRemoveUnit } from "../presentation/removeUnit.ts";
 import { PoliticsContextPanel, PoliticsOptionNote } from "./PoliticsDecisionParts.tsx";
-import { agendaOrderTitle } from "../presentation/politicsDecision.ts";
+import { agendaOrderTitle, agendaPlacementPrompt } from "../presentation/politicsDecision.ts";
 import { LegendaryContextPanel, LegendaryOptionNote } from "./LegendaryParts.tsx";
 import { NotOfferedNote } from "./NotOfferedNote.tsx";
 import { InvestmentsContextPanel, StrategyGoodsBadge, StrategyGoodsNote } from "./StrategyGoodsParts.tsx";
@@ -356,11 +356,11 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           }}
         >
           <Dialog.Title as="h2" className="visually-hidden">
-            {reroll ? rerollTitle : gainTokensPrompt(choice)}
+            {reroll ? rerollTitle : (agendaPlacementPrompt(choice) ?? gainTokensPrompt(choice))}
           </Dialog.Title>
           <DecisionHeader
             actor={choice.actor}
-            title={reroll ? rerollTitle : gainTokensPrompt(choice)}
+            title={reroll ? rerollTitle : (agendaPlacementPrompt(choice) ?? gainTokensPrompt(choice))}
             progress={present(handDecisionNote(choice) ?? "") || undefined}
             choice={choice}
             onMinimize={() => setIsMinimized(true)}
@@ -388,7 +388,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           )}
 
           {/* Search Bar for long option lists */}
-          {choice.options.length >= 6 && !tokens && (
+          {choice.options.length >= 6 && !tokens && !choice.options.every((o) => o.kind === "agenda_order") && (
             <input
               type="search"
               data-testid="choice-search-input"

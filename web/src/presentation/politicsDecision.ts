@@ -80,6 +80,19 @@ export function describeAgendaPlacements(
 }
 
 /**
+ * The headline of Politics' one question for both looked-at agendas, with their printed names (the
+ * engine's prompt names them by id). `null` for any other decision.
+ */
+export function agendaPlacementPrompt(
+  choice: Pick<PendingChoiceDto, "prompt" | "context" | "details">,
+): string | null {
+  if (!Array.isArray(choice.details?.agendas)) return null;
+  const agendas = describeAgendaPlacements(choice);
+  if (agendas.length !== 2) return null;
+  return `Place ${agendas[0].name} and ${agendas[1].name} on the top or the bottom of the agenda deck`;
+}
+
+/**
  * The two piles of one of the six orders by printed name (`option.payload.top` / `.bottom` hold
  * agenda ids, top pile first-revealed first, bottom pile ending with the very last card).
  */
