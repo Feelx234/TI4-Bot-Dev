@@ -136,7 +136,7 @@ impl Rng {
 #[cfg(feature = "probe-counters")]
 pub mod census {
     use std::cell::RefCell;
-    use std::collections::BTreeSet;
+    use std::collections::BTreeSet; // lint-allow(core): the probe-counters census (bridge test builds only), never in a product build
 
     use super::RngDomain;
 
@@ -157,7 +157,7 @@ pub mod census {
         pub err_rollbacks: u64,
         pub err_draws: u64,
         /// `(domain, word position before the draw)` of every draw.
-        pub starts: BTreeSet<(RngDomain, u128)>,
+        pub starts: BTreeSet<(RngDomain, u128)>, // lint-allow(core): test-build census, see the `use` above
     }
 
     thread_local! {
