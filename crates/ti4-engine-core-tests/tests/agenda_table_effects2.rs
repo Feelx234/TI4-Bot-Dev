@@ -134,7 +134,7 @@ fn rearmament_for_places_no_mech_for_a_naaz_seat_with_its_maximum_on_the_board_w
         let mut sc = Scenario::new(&[Faction::TheNaazRokhaAlliance, Faction::TheFederationOfSol]).control(naaz_planet, 0).control(sol_planet, 1);
         sc = sc.unit(naaz_system, Some(naaz_planet), if maximum { Unit::EidolonMaximum } else { Unit::Eidolon }, 0, 1);
         let (state, _) = sc.build();
-        let window = Resolve::of_facts(Agenda::RearmamentAgreement, Outcome::For, &facts(&[])).unwrap();
+        let window = Resolve::of_facts(Agenda::RearmamentAgreement, Outcome::For, &EffectFacts { roster: Some(mech_roster()), ..facts(&[]) }).unwrap();
         for kernel in [kernel_plain(), kernel_all()] {
             let mut rig = Rig::from_parts(state.clone(), kernel, window.clone());
             rig.run();
@@ -144,6 +144,56 @@ fn rearmament_for_places_no_mech_for_a_naaz_seat_with_its_maximum_on_the_board_w
             assert_eq!(mechs(1, sol_planet), 1, "the Sol seat gets its mech");
         }
     }
+}
+
+/// The faction mechs of the factions the Rearmament tests seat (the corpus's `faction_unit`: Jol-Nar's J.N.S. Hylarim, the Naaz's Eidolon;
+/// Sol has none of its own here, so it places the plain mech).
+fn mech_roster() -> &'static ti4_engine_core::query::tech::UnitRoster {
+    let mut roster = ti4_engine_core::query::tech::UnitRoster::default();
+    roster.set(Faction::TheUniversitiesOfJolNar, UnitBaseType::Mech, Some(Unit::JNSHylarim));
+    roster.set(Faction::TheNaazRokhaAlliance, UnitBaseType::Mech, Some(Unit::Eidolon));
+    Box::leak(Box::new(roster))
+}
+
+/// Rearmament Agreement, For: "each player places 1 mech FROM THEIR REINFORCEMENTS on a planet they control in their home system". A Jol-Nar
+/// seat's reinforcements hold its own mech (J.N.S. Hylarim), so that is what is placed, not the plain `mech` the string places (known string
+/// bug S9, `docs/STRING_ENGINE_BUGS.md`; bench-v2 seed 69 round 5: the plain mech on Jol-Nar that only Rin re-formed). A seat whose
+/// reinforcements hold no mech places none (31.4). Without the seat's roster the effect is not carried (the string's).
+#[test]
+fn rearmament_for_places_each_seats_own_mech_from_its_reinforcements() {
+    covers!("rules::agenda::effects::Resolve");
+    let seats = [Faction::TheUniversitiesOfJolNar, Faction::TheFederationOfSol];
+    let base = Scenario::new(&seats).state();
+    let home = |seat: u8| {
+        let p = base.players().by_seat(Seat(seat)).unwrap();
+        let system = p.home_system.or(p.faction.data().home_system).unwrap();
+        (system, system.data().planets[0])
+    };
+    let ((jol_system, jol_planet), (_, sol_planet)) = (home(0), home(1));
+    let sc = || Scenario::new(&seats).control(jol_planet, 0).control(sol_planet, 1);
+    let with_roster = EffectFacts { roster: Some(mech_roster()), ..facts(&[]) };
+    let window = Resolve::of_facts(Agenda::RearmamentAgreement, Outcome::For, &with_roster).unwrap();
+    let mut rig = Rig::from_parts(sc().state(), kernel_all(), window.clone());
+    rig.run();
+    assert!(!rig.driver.window.unsupported());
+    assert_eq!(units_on(&rig, jol_planet, 0), vec![Unit::JNSHylarim], "the Jol-Nar seat's own mech, not the plain one");
+    assert_eq!(units_on(&rig, sol_planet, 1), vec![Unit::FactionlessMech], "a faction with no mech of its own places the plain one");
+    // Every Jol-Nar mech already on the board: nothing left in the reinforcements, nothing placed.
+    let (mut full, k) = sc().build();
+    let left = ti4_engine_core::query::fleet::remaining_all(&full, ALL_SOURCES, Seat(0), Unit::JNSHylarim);
+    assert!(left > 0);
+    for _ in 0..left {
+        ti4_engine_core::kernel::fx::place_unit(&mut full, Seat(0), jol_system, Some(jol_planet), Unit::JNSHylarim);
+    }
+    let mut rig = Rig::from_parts(full, k, window);
+    rig.run();
+    assert_eq!(units_on(&rig, jol_planet, 0).len(), usize::try_from(left).unwrap(), "no mech beyond the reinforcements");
+    // No roster: the window does not guess a form.
+    let window = Resolve::of_facts(Agenda::RearmamentAgreement, Outcome::For, &facts(&[])).unwrap();
+    let mut rig = Rig::from_parts(sc().state(), kernel_all(), window);
+    rig.run();
+    assert!(rig.driver.window.unsupported());
+    assert!(units_on(&rig, jol_planet, 0).is_empty());
 }
 
 #[test]

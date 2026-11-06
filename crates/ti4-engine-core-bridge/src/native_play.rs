@@ -834,7 +834,10 @@ pub const KNOWN_S6: &str = "known string bug S6";
 /// The label of a difference that is the string's S7 (Parley returns the last committed unit only; the invader lands again).
 pub const KNOWN_S7: &str = "known string bug S7";
 
-/// S6 and S7 (`docs/STRING_ENGINE_BUGS.md`, rules version 36): the step the shadow compares ran an effect the core plays as printed and the string does not.
+/// The label of a difference that is the string's S9 (Rearmament Agreement, For: the string places the plain mech, the core the seat's own from its reinforcements).
+pub const KNOWN_S9: &str = "known string bug S9";
+
+/// S6, S7 and S9 (`docs/STRING_ENGINE_BUGS.md`, rules version 36): the step the shadow compares ran an effect the core plays as printed and the string does not.
 /// S6: the string's events of the step announce the Ixthian Artifact's effect (`AGENDA_EFFECT_RESOLVED:artifact` / `AGENDA_EFFECT_DEFERRED:artifact`), after which the two
 /// sides differ in questions (the core asks the researches or the units to destroy), events and state (the board). S7: the group answered a Parley, after which the string
 /// asks the invader to commit again and the core has ended the commit step.
@@ -843,6 +846,9 @@ fn effect_bug(answered: &[&Asked], legacy_events: &[String]) -> Option<&'static 
         Some(KNOWN_S6)
     } else if answered.iter().any(|a| a.chosen == "parley") {
         Some(KNOWN_S7)
+    } else if legacy_events.iter().any(|e| e == "AGENDA_EFFECT_RESOLVED:rearmament") {
+        // S9: only the For half differs (the Against half is the same on both sides), so a difference in this step is the For's mech.
+        Some(KNOWN_S9)
     } else {
         None
     }
@@ -2278,6 +2284,7 @@ mod tests {
             assert_eq!(effect_bug(&[&decline], &[event.to_owned()]), Some(KNOWN_S6), "{event}");
         }
         assert_eq!(effect_bug(&[&decline], &["AGENDA_EFFECT_RESOLVED:checks".to_owned()]), None);
+        assert_eq!(effect_bug(&[&decline], &["AGENDA_EFFECT_RESOLVED:rearmament".to_owned()]), Some(KNOWN_S9), "S9: Rearmament Agreement's mech");
         assert_eq!(effect_bug(&[&decline], &[]), None);
     }
 

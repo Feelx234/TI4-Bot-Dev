@@ -359,6 +359,25 @@ pub fn roster_for(content: &ContentStore, sources: SourceSet) -> Option<&'static
     .as_ref()
 }
 
+/// [`roster_for`] with every faction's mech the PLAIN one, but the Naaz's: the form the string's Rearmament Agreement (For) places
+/// (`agenda_effects::effect_rearmament`, known string bug S9 of `docs/STRING_ENGINE_BUGS.md`). The dual adapter hands it to the core
+/// window so the comparison sees the string's form; the product's core places the seat's own mech.
+pub fn string_rearmament_roster_for(content: &ContentStore, sources: SourceSet) -> Option<&'static q::UnitRoster> {
+    static ROSTERS: [std::sync::OnceLock<Option<q::UnitRoster>>; 128] = [const { std::sync::OnceLock::new() }; 128];
+    let base = roster_for(content, sources)?;
+    let slot = ROSTERS.get(usize::try_from(sources.as_u32()).ok()?)?;
+    slot.get_or_init(|| {
+        let mut roster = *base;
+        for faction in Faction::ALL {
+            if faction != Faction::TheNaazRokhaAlliance {
+                roster.set(faction, UnitBaseType::Mech, Some(ti4_engine_core::generated::Unit::FactionlessMech));
+            }
+        }
+        Some(roster)
+    })
+    .as_ref()
+}
+
 /// The unit type id a seat's units of `base` must have, before any faction override.
 #[must_use]
 pub fn unit_form(state: &GameState, content: &ContentStore, sources: SourceSet, player: &PlayerId, base: &str) -> Option<&'static str> {

@@ -190,6 +190,11 @@ fn sweep(prefer: Policy) -> Vec<String> {
         if alias == "artifact" && prefer.is_empty() {
             continue;
         }
+        // Rearmament Agreement, For: the core places each seat's own mech from its reinforcements, the string the plain `mech` (known bug S9);
+        // `ti4-engine-core-tests/tests/agenda_table_effects2.rs` pins the core's, `rearmament_for_is_live_the_seats_own_mech` below the live one. Against is compared.
+        if alias == "rearmament" && prefer.is_empty() {
+            continue;
+        }
         let state = rich_table(alias);
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let (string, native) = both_preferring(&state, &[], prefer);
@@ -201,6 +206,36 @@ fn sweep(prefer: Policy) -> Vec<String> {
         }
     }
     failures
+}
+
+/// Known string bug S9: Rearmament Agreement (For) on the live path places each seat's own mech (Sol, Arborec, Letnev and Hacan seated: each a
+/// mech of its faction where the faction has one), where the string places the plain `mech`. Same questions and events; the board differs only in
+/// the form of the new mechs.
+#[test]
+fn rearmament_for_is_live_the_seats_own_mech() {
+    fn kinds(v: &serde_json::Value, out: &mut Vec<String>) {
+        match v {
+            serde_json::Value::Object(m) => {
+                if let Some(serde_json::Value::String(t)) = m.get("type_id") {
+                    out.push(t.clone());
+                }
+                m.values().for_each(|x| kinds(x, out));
+            }
+            serde_json::Value::Array(a) => a.iter().for_each(|x| kinds(x, out)),
+            _ => {}
+        }
+    }
+    let (string, native) = both(&rich_table("rearmament"), &[]);
+    assert_eq!(string.events, native.events, "the events");
+    let count = |run: &Run, f: &dyn Fn(&str) -> bool| {
+        let mut all = Vec::new();
+        kinds(&run.state, &mut all);
+        all.iter().filter(|t| f(t)).count()
+    };
+    let (plain, any_mech) = (|t: &str| t == "mech", |t: &str| t.ends_with("mech"));
+    assert!(count(&string, &plain) > 0, "the string placed plain mechs");
+    assert_eq!(count(&native, &plain), 0, "the core placed no plain mech");
+    assert_eq!(count(&string, &any_mech), count(&native, &any_mech), "as many mechs on both sides");
 }
 
 #[test]
