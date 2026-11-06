@@ -41,7 +41,7 @@ fn started(game_id: &str, seed: u64) -> Arc<GameSession> {
     registry.get_game(game_id).expect("the game")
 }
 
-/// Answers the pending question with its first option on a thread (a client never blocks on the
+/// Answers the pending question with its first option (a Rider's when one is offered) on a thread (a client never blocks on the
 /// reply: with the Sabotage timing it comes when the window closes) and returns the thread and
 /// the prompt once the question is gone.
 fn answer_first(
@@ -57,7 +57,14 @@ fn answer_first(
                 continue;
             };
             let prompt = envelope.choice.prompt.clone();
-            let option = envelope.choice.options[0].id.clone();
+            // A Rider when one can be played, else the first option.
+            let options = &envelope.choice.options;
+            let option = options
+                .iter()
+                .find(|o| o.id.ends_with("_rider"))
+                .unwrap_or(&options[0])
+                .id
+                .clone();
             let (worker, who, asked) = (session.clone(), seat.clone(), nonce.clone());
             let handle = std::thread::spawn(move || {
                 worker.submit_choice(&who, &asked, version, &option).is_ok()
@@ -87,7 +94,21 @@ fn answer_first(
 
 #[test]
 fn a_declared_rider_is_acknowledged_before_its_owner_is_asked_the_prediction() {
-    let session = started("declared_card_reply", 18_432_220_952_314_264_515);
+    // The table of seed 18432220952314264515 had the person play a Rider until the multi-ask
+    // conversion changed the game path; on the new path the person holds none at an agenda (seed
+    // 1's does). The first of a few seeds whose game has the person play one is checked.
+    let checked: usize = [1_u64, 18_432_220_952_314_264_515, 2, 3, 4, 5]
+        .into_iter()
+        .map(|seed| declared_riders_checked(&format!("declared_card_reply_{seed}"), seed))
+        .find(|&checked| checked > 0)
+        .unwrap_or(0);
+    assert!(checked > 0, "no Rider was declared and predicted in the games");
+}
+
+/// Plays the table of `seed` with first options (a Rider when one can be played) and returns how
+/// many Rider predictions were checked to come after their declaration's acknowledgement.
+fn declared_riders_checked(game_id: &str, seed: u64) -> usize {
+    let session = started(game_id, seed);
     let mut open: Vec<(PlayerId, String, std::thread::JoinHandle<bool>)> = Vec::new();
     let mut checked = 0;
     for _ in 0..400 {
@@ -115,6 +136,7 @@ fn a_declared_rider_is_acknowledged_before_its_owner_is_asked_the_prediction() {
         }
         open.push((seat, prompt, handle));
     }
-    assert!(checked > 0, "no Rider was declared and predicted in the game");
+    eprintln!("seed {seed}: {checked} Rider predictions checked");
     session.stop();
+    checked
 }

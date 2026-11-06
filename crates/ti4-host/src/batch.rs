@@ -457,6 +457,9 @@ fn multi_pick_answer(choice: &Choice, steps: &[MovementStep]) -> Option<(ChoiceO
         if taken.is_empty() {
             return None;
         }
+        // The secondary's window question took the plan's first yes (the window's "yes" is the first purchase): the purchase
+        // question's minimum counts it.
+        buys += multi.buy.map_or(0, |[min, _]| u32::from(min));
         parts.insert(0, format!("{}{buys}", ti4_engine::wire::choice::MULTI_PICK_BUY));
     } else {
         let mut paid = 0;
@@ -853,13 +856,16 @@ impl PrivateDecider {
         // A token plan names every payment of a purchase, but the engine takes a lone payment
         // option without asking. Payment steps that were settled that way are skipped once the
         // engine moves on to a decision that is not a payment.
+        // (Not at a multi-pick of the actor: Leadership's purchase question takes those payment
+        // steps itself, `multi_pick_answer`; after the secondary's window they come first.)
         if script.kind == BatchKind::Tokens
             && !is_reaction_window(choice)
             && !(choice.player == script.actor
-                && choice
-                    .context
-                    .as_ref()
-                    .is_some_and(|c| c.subtype == "pay_influence"))
+                && (choice.multi_pick.is_some()
+                    || choice
+                        .context
+                        .as_ref()
+                        .is_some_and(|c| c.subtype == "pay_influence")))
         {
             while matches!(
                 script.steps.get(script.next),

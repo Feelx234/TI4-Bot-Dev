@@ -184,7 +184,8 @@ impl Decider for Previewer {
         if self.own.contains(&subtype) {
             // The engine takes a lone payment option without asking (the real batch skips those steps the same way): payment answers are
             // dropped once the flow moves past payments.
-            if !subtype.starts_with("pay_") {
+            // (Not at a multi-pick: Leadership's purchase question is answered with its atoms.)
+            if !subtype.starts_with("pay_") && choice.multi_pick.is_none() {
                 while self.scripted.front().is_some_and(|id| is_payment_answer(id)) {
                     self.scripted.pop_front();
                     out.consumed += 1;
@@ -193,8 +194,11 @@ impl Decider for Previewer {
             if let Some(wanted) = self.scripted.pop_front() {
                 let at = 1 + out.consumed;
                 out.consumed += 1;
-                return match choice.options.iter().find(|option| option.id == wanted) {
-                    Some(option) => Ok(option.clone()),
+                // A multi-pick (a payment, Leadership's purchase: `Choice::multi_pick`) is answered with a set of its listed atoms (ids
+                // joined by `+`), which is not one listed option; the engine checks the set.
+                let answer = choice.options.iter().find(|option| option.id == wanted).cloned().or_else(|| choice.multi_pick.as_ref().and_then(|_| choice.answer_for(&wanted)));
+                return match answer {
+                    Some(option) => Ok(option),
                     None => {
                         out.rejected = Some((at, wanted, choice.clone()));
                         Err(stop(choice, "scripted answer not offered"))

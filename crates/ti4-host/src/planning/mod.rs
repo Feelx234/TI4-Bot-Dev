@@ -241,7 +241,9 @@ impl RecordingDecider {
         // Validate the selected ID, then record and return the actual offered
         // option. A wrapped decider's copy might contain a modified payload;
         // the engine's option is the authoritative instruction.
-        let offered = choice.option(&answer.id).expect("validated answer").clone();
+        // A multi-pick answer (`Choice::multi_pick`: a payment set, Leadership's purchase) is not one
+        // listed option: the validated answer is the one the question builds for that id.
+        let offered = choice.option(&answer.id).cloned().unwrap_or(answer);
         self.recording
             .lock()
             .expect("decision recording lock")
@@ -400,6 +402,12 @@ impl Decider for ReplayDecider {
                 match (matching.next(), matching.next()) {
                     // Clone the fresh offered option, not the saved instruction.
                     (Some(option), None) => Ok(option.clone()),
+                    // A multi-pick answer (a set of the listed atoms, `Choice::multi_pick`) is
+                    // not one listed option: the question builds it from its id again.
+                    (None, _) if choice.multi_pick.is_some() => choice
+                        .answer_for(&expected.option_id)
+                        .filter(|option| option.kind == expected.kind)
+                        .ok_or(ReplayStopReason::SelectionMissing),
                     (None, _) => Err(ReplayStopReason::SelectionMissing),
                     _ => Err(ReplayStopReason::SelectionAmbiguous),
                 }

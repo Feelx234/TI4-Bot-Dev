@@ -121,9 +121,9 @@ fn slow_the_same_input_twice_gives_an_identical_report() {
     let (state, galaxy, h) = base_history();
     for edit in [
         SpliceEdit::Remove { cursor: 44 },
-        // (Re-chosen on the version-35 history of seed 7: decision 40 is a transaction offer, 54 the action phase menu.)
-        replace(40, "ss"),
-        replace(54, "pass"),
+        // (Re-chosen on the multi-ask history of seed 7: decision 41 is a transaction offer, 60 the action phase menu.)
+        replace(41, "ss"),
+        replace(60, "pass"),
     ] {
         let a = splice_preview(&state, Some(&galaxy), &h, &edit).unwrap();
         let b = splice_preview(&state, Some(&galaxy), &h, &edit).unwrap();
@@ -165,8 +165,9 @@ fn slow_a_no_op_edit_survives_to_the_end_and_is_rng_neutral() {
 fn a_replacement_that_changes_nothing_downstream_keeps_every_later_decision() {
     // Which command-token pool a token went to does not change any later question.
     let (state, galaxy, h) = base_history();
-    assert_eq!(h[28].chosen, "tactic_tokens");
-    let p = splice_preview(&state, Some(&galaxy), &h, &replace(28, "fleet_tokens")).unwrap();
+    // (Leadership's three free tokens are one question since the multi-ask conversion: `{tactic}|{fleet}|{strategic}`.)
+    assert_eq!(h[28].chosen, "2|1|0");
+    let p = splice_preview(&state, Some(&galaxy), &h, &replace(28, "1|2|0")).unwrap();
     assert!(p.survives_to_end);
     assert_eq!(p.kept_later, 371);
     assert_eq!(p.rng.status, RngStatus::Neutral);
@@ -272,24 +273,21 @@ fn bad_edits_are_refused_before_any_replay() {
 fn a_single_option_question_that_appears_is_reported() {
     let (state, galaxy, h) = base_history();
     // Deploying the mech adds a one-option payment question that was never asked before.
-    assert_eq!(h[63].prompt, "Orbital Drop: deploy a mech on jord");
-    let p = splice_preview(&state, Some(&galaxy), &h, &replace(63, "deploy|sol_mech|1")).unwrap();
+    assert_eq!(h[79].prompt, "Orbital Drop: deploy a mech on jord");
+    let p = splice_preview(&state, Some(&galaxy), &h, &replace(79, "deploy|sol_mech|1")).unwrap();
     let a = p
         .alignment
         .iter()
         .find(|a| a.change == AlignmentChange::Appeared)
         .expect("an auto-resolved question appears");
-    assert_eq!(a.cursor, 64);
+    assert_eq!(a.cursor, 80);
     assert_eq!(a.prompt, "pay 3 more resources");
     assert_eq!(a.option_id, "exhaust|jord");
     // The log never held it, so the later decisions all still fit.
-    // (Paying for the mech spends resources that the same player's later Orbital Drop at decision 79 needs, so at version 35 the history no longer
-    // survives to its end: the game really differs there. What this test is about holds: the unlogged payment shifts no cursor, so every
-    // decision between the edit and that real difference still fits.)
-    let conflict = p.first_conflict.as_ref().expect("the spent resources change a later offer");
-    assert_eq!(conflict.cursor, 79);
-    assert_eq!(conflict.found_prompt.as_deref(), Some("end your turn"));
-    assert_eq!(p.kept_later, 79 - 64, "decisions 64..79 all still fit");
+    // (At version 35 the spent resources changed a later offer, so the history ended in a real difference; on the multi-ask history of
+    // this game the first Orbital Drop is the one at decision 79 and nothing later needs those resources: the whole history survives.)
+    assert!(p.survives_to_end, "{:?}", p.first_conflict);
+    assert_eq!(p.kept_later, p.later_decisions, "every later decision still fits");
 }
 
 #[test]
@@ -298,10 +296,10 @@ fn a_single_option_question_that_vanishes_is_reported() {
     // question is in the original run and not in the edited one.
     let (state, galaxy, h) = base_history();
     let mut script: Vec<String> = h.iter().map(|r| r.chosen.clone()).collect();
-    script[63] = "deploy|sol_mech|1".to_owned();
+    script[79] = "deploy|sol_mech|1".to_owned();
     let (with_mech, _) = play_with(&state, &galaxy, Box::new(Replaying { script, at: 0 }), 400);
-    assert_eq!(with_mech[63].chosen, "deploy|sol_mech|1");
-    let p = splice_preview(&state, Some(&galaxy), &with_mech, &replace(63, "decline")).unwrap();
+    assert_eq!(with_mech[79].chosen, "deploy|sol_mech|1");
+    let p = splice_preview(&state, Some(&galaxy), &with_mech, &replace(79, "decline")).unwrap();
     let v = p
         .alignment
         .iter()
@@ -316,11 +314,11 @@ fn a_single_option_question_that_vanishes_is_reported() {
 fn a_single_way_payment_is_told_once_with_the_reason() {
     let (state, galaxy, h) = base_history();
     let mut script: Vec<String> = h.iter().map(|r| r.chosen.clone()).collect();
-    script[63] = "deploy|sol_mech|1".to_owned();
+    script[79] = "deploy|sol_mech|1".to_owned();
     let table = Table::with_default(Box::new(Replaying { script, at: 0 }));
     let mut game = Game::with_table(state.clone(), ContentStore::embedded(), table).with_galaxy(galaxy.clone());
     let mut notes = Vec::new();
-    while game.table.log.records.len() < 70 {
+    while game.table.log.records.len() < 86 {
         let result = game.step();
         notes.extend(game.table.take_auto_resolved());
         assert!(result.error.is_none() && !result.finished, "{:?}", result.error);
@@ -335,20 +333,20 @@ fn a_single_way_payment_is_told_once_with_the_reason() {
 #[test]
 fn removing_a_decision_that_drew_cards_is_flagged_not_neutral() {
     let (state, galaxy, h) = base_history();
-    // The first action-card draw of this game is declined (decision 51): play the same game with the draw taken, and remove that decision.
-    assert_eq!(h[51].prompt, "spend a strategy token to draw two action cards");
+    // The first action-card draw of this game is declined (decision 49): play the same game with the draw taken, and remove that decision.
+    assert_eq!(h[49].prompt, "spend a strategy token to draw two action cards");
     let mut script: Vec<String> = h.iter().map(|r| r.chosen.clone()).collect();
-    script[51] = "yes".to_owned();
+    script[49] = "yes".to_owned();
     let (drew, _) = play_with(&state, &galaxy, Box::new(Replaying { script, at: 0 }), 400);
-    assert_eq!(drew[51].chosen, "yes");
-    let p = splice_preview(&state, Some(&galaxy), &drew, &SpliceEdit::Remove { cursor: 51 }).unwrap();
+    assert_eq!(drew[49].chosen, "yes");
+    let p = splice_preview(&state, Some(&galaxy), &drew, &SpliceEdit::Remove { cursor: 49 }).unwrap();
     assert_eq!(p.rng.status, RngStatus::NotNeutral);
     let consumed = p.rng.removed_consumed.unwrap();
     assert_eq!(consumed.decks.get("action_card"), Some(&-2), "{consumed:?}");
     // A secret-objective draw too.
-    assert_eq!(h[44].prompt, "spend a strategy token to draw a secret objective");
-    assert_eq!(h[44].chosen, "yes");
-    let p = splice_preview(&state, Some(&galaxy), &h, &SpliceEdit::Remove { cursor: 44 }).unwrap();
+    assert_eq!(h[330].prompt, "spend a strategy token to draw a secret objective");
+    assert_eq!(h[330].chosen, "yes");
+    let p = splice_preview(&state, Some(&galaxy), &h, &SpliceEdit::Remove { cursor: 330 }).unwrap();
     assert_eq!(p.rng.status, RngStatus::NotNeutral);
     assert_eq!(p.rng.removed_consumed.unwrap().decks.get("secret"), Some(&-1));
 }
@@ -356,10 +354,10 @@ fn removing_a_decision_that_drew_cards_is_flagged_not_neutral() {
 #[test]
 fn replacing_a_decline_with_a_draw_is_caught_without_a_removal() {
     let (state, galaxy, h) = base_history();
-    assert_eq!(h[51].chosen, "no");
-    let p = splice_preview(&state, Some(&galaxy), &h, &replace(51, "yes")).unwrap();
+    assert_eq!(h[49].chosen, "no");
+    let p = splice_preview(&state, Some(&galaxy), &h, &replace(49, "yes")).unwrap();
     assert_eq!(p.rng.status, RngStatus::NotNeutral);
-    assert_eq!(p.rng.first_divergence_cursor, Some(51));
+    assert_eq!(p.rng.first_divergence_cursor, Some(49));
     assert_eq!(
         p.rng.first_divergence.unwrap().decks.get("action_card"),
         Some(&-2)
