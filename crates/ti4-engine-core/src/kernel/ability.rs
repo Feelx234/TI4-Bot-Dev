@@ -1169,6 +1169,10 @@ pub struct Tape {
     /// The events a hook of the table emitted at the top level of the window that called it (`AbilityTable::after_play`: the
     /// `SHIP_DESTROYED` of what a played card staged): the window records them as its own, like the events of its steps.
     pub emitted: Vec<EventRec>,
+    /// A converted path's continuation at the question that found the tape dry (stepmachine-1, `docs/STEPMACHINE1_RESUME.md`): what the
+    /// run had done up to that question, as plain data of the driver's own type (layer L5; this layer only carries it). Cleared by every
+    /// rewind; the driver takes it when it rolls the dry run back.
+    pub parked: crate::state::Memo,
 }
 
 impl Tape {
@@ -1190,6 +1194,7 @@ impl Tape {
     /// Start reading from the first answer again (a re-run of the step).
     pub fn rewind(&mut self) {
         self.used = 0;
+        self.parked = crate::state::Memo::default();
         self.needed = None;
         self.unknown_at_dry = None;
         self.facts = None;
@@ -1210,6 +1215,19 @@ impl Tape {
     pub fn set_answers(&mut self, answers: &[Pick]) {
         self.answers = answers.to_vec();
         self.rewind();
+    }
+
+    /// Replace the answers and mark them all read (a run resumed at the question the last answer answers: the answers before it were read
+    /// by the run that stopped there).
+    pub fn set_consumed(&mut self, answers: &[Pick]) {
+        self.set_answers(answers);
+        self.used = self.answers.len();
+    }
+
+    /// Whether every answer was read (the next question finds the tape dry).
+    #[must_use]
+    pub fn exhausted(&self) -> bool {
+        self.used >= self.answers.len()
     }
 
     /// The question that found the tape dry in the run just made.

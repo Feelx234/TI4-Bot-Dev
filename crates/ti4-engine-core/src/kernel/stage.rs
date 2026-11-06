@@ -35,7 +35,7 @@ use crate::state::{CoreState, EventRec, PlainRec};
 pub struct Illegal;
 
 /// The window contract. See the module docs.
-pub trait Window: Clone {
+pub trait Window: Clone + Send + Sync + 'static {
     /// One variant per suspension point (and per program point worth naming).
     type Stage: Copy + std::fmt::Debug + PartialEq;
 
