@@ -946,8 +946,11 @@ fn owed_events_difference(step: usize, arms: Vec<String>, at: usize, native: Str
 
 /// S3 (`docs/STRING_ENGINE_BUGS.md`): the core records the feat `won_against_a_note_holder` where the string does not -- the note holder's Support for the Throne was
 /// returned by the activation of the free tactical action, which the string's snapshot of "the notes at the start of the tactical action" already leaves out.
+///
+/// The list of feats is sorted by name, so the missing entry also shows as the NEXT feat of the string at the index (`legacy` holds another feat of the same seat
+/// where the core holds the note feat: jolnar 4 players seed 1, the last step, `last_to_pass`). A string that has the note feat itself is no S3.
 fn s3_feat_differs(d: &Difference) -> bool {
-    d.what == "state" && d.path.contains(".event_feats[") && d.native.contains("won_against_a_note_holder") && d.legacy == "<absent>"
+    d.what == "state" && d.path.contains(".event_feats[") && d.native.contains("won_against_a_note_holder") && (d.legacy == "<absent>" || (d.legacy.contains('"') && !d.legacy.contains("won_against_a_note_holder")))
 }
 
 /// S4: the string's list of planets for the Yin hero (Dannel of the Tenth: "any non-home planets") walks the hex grid, and the Wormhole Nexus sits beside it; the
@@ -2383,6 +2386,7 @@ mod tests {
         assert!(s3_feat_differs(&d("state", "players[4].event_feats[1]", "[\"won_against_a_note_holder\",26]", "<absent>")));
         assert!(!s3_feat_differs(&d("state", "players[4].event_feats[1]", "[\"won_in_an_anomaly\",26]", "<absent>")), "another feat is a difference of the core");
         assert!(!s3_feat_differs(&d("state", "players[4].event_feats[1]", "[\"won_against_a_note_holder\",26]", "[\"won_against_a_note_holder\",25]")), "a feat the string has too is not S3");
+        assert!(s3_feat_differs(&d("state", "players[2].event_feats[1][0]", "\"won_against_a_note_holder\"", "\"last_to_pass\"")), "the string's next feat at the index of the missing one");
         assert!(s4_nexus_in_error("script wanted \"82a|mallice\" but a was offered [\"19|wellon\", \"decline\"]"));
         assert!(!s4_nexus_in_error("script wanted \"82a|mallice\" but a was offered [\"82a|mallice\", \"decline\"]"), "offered: no difference");
         assert!(!s4_nexus_in_error("script wanted \"19|wellon\" but a was offered [\"59|archonvail\", \"decline\"]"), "another planet is a difference of the core");
