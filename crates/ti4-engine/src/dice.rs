@@ -200,6 +200,24 @@ impl Dice {
         record
     }
 
+    /// The entry [`Dice::roll`] / [`Dice::roll_by`] leaves for faces drawn by the caller (a die of another number of sides: Spy's and
+    /// Sanctions' card, lane C3b), noted for the dual as a roll is.
+    pub fn record_rolled(&mut self, reason: &str, faces: Vec<u32>, by: Option<&ti4_model::id::PlayerId>) -> Roll {
+        let record = Roll {
+            reason: reason.to_owned(),
+            faces,
+            hits_on: None,
+            rerolled: BTreeSet::new(),
+            by: by.map(ToString::to_string),
+            system: self.scene.clone(),
+            outcome: None,
+            source: None,
+        };
+        self.history.push(record.clone());
+        crate::dual_window::note_dice(&record, self.history.len() - 1);
+        record
+    }
+
     /// Whether test faces are preloaded (the dual cannot predict those draws).
     #[must_use]
     pub fn is_preloaded(&self) -> bool {

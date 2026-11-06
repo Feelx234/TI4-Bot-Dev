@@ -1705,14 +1705,9 @@ impl Play {
                 if held == 0 {
                     return false;
                 }
-                // "Random" comes from the seeded dice too: a d10 modulo the hand (kept bit-identical in lane C3, made uniform in C3b).
-                let req = crate::chance::Request::new(
-                    RngDomain::Dice,
-                    crate::chance::Kind::DieMod { sides: 10, n: u8::try_from(held).unwrap_or(u8::MAX), form: crate::chance::ModForm::FaceMinusOne },
-                );
-                let face = tape.chance(core, &req).as_slice().first().map_or(1, |f| u32::from(*f));
-                self.faces.push(face);
-                let index = (face as usize - 1) % held;
+                // "Random": one card of the hand, uniformly (lane C3b, decision D4: no more d10 modulo the hand, which was biased).
+                let index = tape.index(core, RngDomain::Dice, held);
+                self.faces.push(u32::try_from(index + 1).unwrap_or(u32::MAX));
                 if let Some(taken) = super::discard_from_hand(core, victim, index)
                     && let Some(p) = core.players_mut().by_seat_mut(who)
                 {

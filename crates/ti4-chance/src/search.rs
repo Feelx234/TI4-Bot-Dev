@@ -24,19 +24,12 @@ pub fn sample<R: Rng + ?Sized>(req: &Request, rng: &mut R) -> Faces {
     faces
 }
 
-/// The probability of each element a one-face request picks: `Index { n }` is uniform over `0..n`; `DieMod` carries
-/// its modulo bias (element `k` has `#faces mapping to k / sides`); `Dice` is not an element pick (`None`).
+/// The probability of each element a one-face request picks: `Index { n }` is uniform over `0..n`; `Dice` is not an element
+/// pick (`None`).
 #[must_use]
 pub fn element_weights(req: &Request) -> Option<Vec<f64>> {
     match req.kind {
         Kind::Index { n } => Some(vec![1.0 / f64::from(n); usize::from(n)]),
-        Kind::DieMod { sides, n, form } => {
-            let mut count = vec![0u8; usize::from(n)];
-            for face in 1..=sides {
-                count[usize::from(form.index(face, n))] += 1;
-            }
-            Some(count.into_iter().map(|c| f64::from(c) / f64::from(sides)).collect())
-        }
         Kind::Dice { .. } => None,
     }
 }
@@ -110,7 +103,7 @@ pub fn outcomes(req: &Request, limit: usize) -> Option<Vec<(Faces, f64)>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Domain, ModForm, Streams, answer_mut, derive_seed};
+    use crate::{Domain, Streams, answer_mut, derive_seed};
     use rand_chacha::ChaCha8Rng;
     use rand_core::SeedableRng;
 
@@ -130,8 +123,8 @@ mod tests {
         let w = hit_weights(&d).unwrap();
         assert!((w.iter().sum::<f64>() - 1.0).abs() < 1e-12);
         assert!((w[0] - 0.7f64.powi(7)).abs() < 1e-12);
-        let spy = Request::new(Domain::Dice, Kind::DieMod { sides: 10, n: 3, form: ModForm::FaceMinusOne });
-        assert_eq!(element_weights(&spy).unwrap(), [0.4, 0.3, 0.3], "faces 1,4,7,10 pick the first card");
+        let spy = Request::new(Domain::Dice, Kind::Index { n: 4 });
+        assert_eq!(element_weights(&spy).unwrap(), [0.25; 4], "Spy picks uniformly (lane C3b)");
         let o = outcomes(&Request::new(Domain::Dice, Kind::Dice { n: 2, sides: 6, hits_on: None }), 100).unwrap();
         assert_eq!(o.len(), 36);
         assert_eq!(o[1].0.as_slice(), [1, 2]);

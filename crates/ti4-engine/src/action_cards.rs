@@ -7269,15 +7269,18 @@ fn spy(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     if held == 0 {
         return;
     }
-    // "Random" comes from the seeded roller too, or replay diverges.
-    let face = context
-        .dice
-        .roll_by(context.rng, 1, "spy", None, player)
-        .faces
-        .first()
-        .copied()
-        .unwrap_or(1) as usize;
-    let index = (face - 1) % held;
+    // "Random": one card of the hand, uniformly: one die with as many sides as cards (lane C3b, decision D4: the core's `Index { n: held }`;
+    // no more d10 modulo the hand, which was biased). Recorded as a roll, as before.
+    // The frozen string engine replays the games of older rules versions (golden sets): those keep the d10 modulo the hand.
+    let index = if context.state.rules_version >= UNBIASED_PICKS {
+        context.rng.observe_randomness();
+        let face = context.rng.die(crate::rng::domain::DICE, u32::try_from(held).unwrap_or(u32::MAX));
+        context.dice.record_rolled("spy", vec![face], Some(player));
+        face as usize - 1
+    } else {
+        let face = context.dice.roll_by(context.rng, 1, "spy", None, player).faces.first().copied().unwrap_or(1) as usize;
+        (face - 1) % held
+    };
     let Some(taken) = discard(context.state, &victim, index) else {
         return;
     };
@@ -7285,6 +7288,10 @@ fn spy(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
         seat.action_cards.push(taken);
     }
 }
+
+/// The rules version from which Spy and Executive Sanctions pick a card uniformly (lane C3b, decision D4; the typed core plays only this
+/// version and later). Older versions keep the d10 modulo the hand of their recordings.
+pub(crate) const UNBIASED_PICKS: u32 = 36;
 
 /// Ghost Ship: one destroyer into a non-home wormhole system free of anyone else's ships.
 fn ghost_ship(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {

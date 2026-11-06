@@ -7,7 +7,8 @@
 
 /// A random stream: the 22 literal domains of the engine. There are no dynamically named streams (decision D3 of
 /// docs/FORK_RNG_THEORY.md: old saves that carried one are not supported).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(not(target_family = "wasm"), derive(Debug))]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Domain {
     /// Every die of the game (combat, bombardment, space cannon, abilities, Spy, Sanctions, ...).
     Dice,
@@ -109,4 +110,13 @@ pub fn derive_seed(seed: u64, text: &str) -> [u8; 32] {
     hasher.update(seed.to_le_bytes());
     hasher.update(text.as_bytes());
     hasher.finalize().into()
+}
+
+/// The browser build prints a domain as its stream name (the text is linked anyway, for the seeds): no table of variant names in the wasm
+/// file (lane C3, the size budget). Native builds derive `Debug` (perf_kernel's state hash reads it).
+#[cfg(target_family = "wasm")]
+impl core::fmt::Debug for Domain {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.text())
+    }
 }

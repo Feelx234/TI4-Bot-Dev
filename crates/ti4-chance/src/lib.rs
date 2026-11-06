@@ -23,5 +23,5 @@ mod streams;
 pub mod search;
 
 pub use domain::{Domain, derive_seed};
-pub use request::{Faces, Kind, MAX_FACES, ModForm, Request};
+pub use request::{Faces, Kind, MAX_FACES, Request};
 pub use streams::{Refused, Streams, answer, answer_mut, try_answer_mut};

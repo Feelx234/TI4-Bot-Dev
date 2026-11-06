@@ -1286,12 +1286,12 @@ impl Tape {
             self.used += 1;
             #[cfg(feature = "probe-counters")]
             crate::state::census::met(req.len(), true, false);
+            // (A live answer was checked against its question, `Request::accepts`; a tape whose answer is no answer to this request belongs
+            // to another run of the operation: a defect of the caller.)
             if let Pick::Chance(faces) = p {
-                if req.accepts(faces) {
-                    return *faces;
-                }
+                debug_assert!(req.accepts(faces), "the tape answers the chance request {req:?} with {faces:?}");
+                return *faces;
             }
-            // A tape whose answer is no answer to this request belongs to another run of the operation: a defect of the caller.
             debug_assert!(false, "the tape answers the chance request {req:?} with {p:?}");
             return placeholder(req);
         }
@@ -1311,8 +1311,16 @@ impl Tape {
     pub fn dice(&mut self, state: &CoreState, domain: crate::state::RngDomain, n: usize, sides: u32) -> Vec<u32> {
         let sides = die_sides(sides);
         let mut out = Vec::with_capacity(n);
-        for req in crate::chance::Request::dice_groups(domain, n, sides, None) {
-            out.extend(self.chance(state, &req).as_slice().iter().map(|f| u32::from(*f)));
+        let mut left = n;
+        while left > 0 {
+            // At most `MAX_FACES`, so the cast is exact.
+            #[allow(clippy::cast_possible_truncation)]
+            let k = left.min(crate::chance::MAX_FACES) as u8;
+            left -= usize::from(k);
+            let req = crate::chance::Request::new(domain, crate::chance::Kind::Dice { n: k, sides, hits_on: None });
+            for f in self.chance(state, &req).as_slice() {
+                out.push(u32::from(*f));
+            }
         }
         out
     }

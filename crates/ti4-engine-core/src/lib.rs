@@ -42,5 +42,5 @@ pub use state::{CoreState, Slice, SliceSet};
 /// and is answered with [`chance::Faces`]; the position holds the [`chance::Streams`] as data. The core never draws from them (lane C3:
 /// tools/engine_core/check_layers.py `core` forbids it): every random event is a question.
 pub mod chance {
-    pub use ti4_chance::{Domain, Faces, Kind, MAX_FACES, ModForm, Request, Streams};
+    pub use ti4_chance::{Domain, Faces, Kind, MAX_FACES, Request, Streams};
 }

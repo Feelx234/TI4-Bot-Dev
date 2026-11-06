@@ -5,7 +5,7 @@
 //! the dual runs pin against it). Since lane C2 the core's streams are this crate's, so the old code is kept as a frozen
 //! copy in `tests/reference` (see there).
 
-use ti4_chance::{Domain, Kind, ModForm, Request, Streams, answer, answer_mut, derive_seed};
+use ti4_chance::{Domain, Kind, Request, Streams, answer, answer_mut, derive_seed};
 mod reference;
 
 use reference::{Literals, Rng as OldRng, RngDomain, domain_text, seeded_speaker_index};
@@ -133,10 +133,9 @@ fn answers_of_every_kind_match_one_core_die_per_face() {
             let d = OLD[usize::try_from(mix.below(22)).unwrap()];
             let sides = u8::try_from(mix.below(255) + 1).unwrap();
             let n = u8::try_from(mix.below(13)).unwrap();
-            let kind = match mix.below(3) {
+            let kind = match mix.below(2) {
                 0 => Kind::Dice { n, sides, hits_on: Some(sides) },
-                1 => Kind::Index { n: sides },
-                _ => Kind::DieMod { sides, n: n.max(1), form: ModForm::Face },
+                _ => Kind::Index { n: sides },
             };
             let req = Request::new(new_of(d), kind);
             let (pure, next) = answer(&req, &new);
@@ -151,23 +150,15 @@ fn answers_of_every_kind_match_one_core_die_per_face() {
 }
 
 #[test]
-fn spy_and_sanctions_die_mod_is_todays_biased_pick() {
-    // Spy: `(face - 1) % held` of `die(Dice, 10)`; Sanctions: `face % held`. Bit-identical, bias included (lane C9 fixes it).
+fn spy_and_sanctions_pick_a_card_with_one_die_of_the_hand_size() {
+    // Lane C3b (decision D4): Spy and Sanctions pick uniformly, `Index { n: held }`, one `die(Dice, held)` (no more d10 modulo).
     for seed in 0..300u64 {
         let mut old = OldRng::new(seed);
         let mut new = Streams::new(seed);
         for held in 1..=12u8 {
-            for form in [ModForm::FaceMinusOne, ModForm::Face] {
-                let face = old.die(RngDomain::Dice, &Literals, 10);
-                let held_us = usize::from(held);
-                let today = match form {
-                    ModForm::FaceMinusOne => (usize::try_from(face).unwrap() - 1) % held_us,
-                    ModForm::Face => usize::try_from(face).unwrap() % held_us,
-                };
-                let f = answer_mut(&Request::new(Domain::Dice, Kind::DieMod { sides: 10, n: held, form }), &mut new);
-                assert_eq!(u32::from(f.as_slice()[0]), face, "the raw face is what the ledger records");
-                assert_eq!(usize::from(form.index(f.as_slice()[0], held)), today);
-            }
+            let face = old.die(RngDomain::Dice, &Literals, u32::from(held));
+            let f = answer_mut(&Request::new(Domain::Dice, Kind::Index { n: held }), &mut new);
+            assert_eq!(u32::from(f.as_slice()[0]), face);
         }
     }
 }

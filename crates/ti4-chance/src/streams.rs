@@ -17,7 +17,8 @@ use crate::request::{Faces, Kind, MAX_FACES, Request};
 use crate::{Domain, derive_seed};
 
 /// One stream and where it stands.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(target_family = "wasm"), derive(Debug))]
+#[derive(Clone, PartialEq, Eq)]
 struct Stream {
     domain: Domain,
     rng: ChaCha8Rng,
@@ -35,6 +36,7 @@ pub struct Streams {
 
 /// The text of the core's old `state::Rng` (`Rng { seed: .., streams: Cow([..]) }`), which these streams replaced in lane C2: a hash
 /// over a position's `Debug` text (perf_kernel's state hash, the `775f4136e60a99d5` pin) does not move with the type.
+#[cfg(not(target_family = "wasm"))]
 impl core::fmt::Debug for Streams {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         struct Cowed<'a>(&'a [Stream]);
@@ -44,6 +46,14 @@ impl core::fmt::Debug for Streams {
             }
         }
         f.debug_struct("Rng").field("seed", &self.seed).field("streams", &Cowed(&self.streams)).finish()
+    }
+}
+
+/// The browser build prints the streams as their seed only (no generator state in the wasm file; lane C3, the size budget).
+#[cfg(target_family = "wasm")]
+impl core::fmt::Debug for Streams {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Rng").field("seed", &self.seed).finish_non_exhaustive()
     }
 }
 
@@ -165,7 +175,6 @@ pub fn try_answer_mut(req: &Request, streams: &mut Streams) -> Result<Faces, Ref
     let (n, sides) = match req.kind {
         Kind::Dice { n, sides, .. } => (n, sides),
         Kind::Index { n } => (1, n),
-        Kind::DieMod { sides, .. } => (1, sides),
     };
     if usize::from(n) > MAX_FACES {
         return Err(Refused::TooMany(n));

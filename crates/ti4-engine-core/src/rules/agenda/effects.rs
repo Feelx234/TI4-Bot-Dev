@@ -406,22 +406,17 @@ impl Window for Resolve {
                     sx.state.explore_mut().wormhole_tokens.insert(Wormhole::Gamma, mecatol);
                 }
                 Kind::Sanctions => {
-                    // Each seat with a hand discards the card at `face % held`: random through the seeded dice. The card
-                    // is gone (`discarded` with no pile).
+                    // Each seat with a hand discards a card of it chosen uniformly (lane C3b, decision D4: no more d10 modulo the
+                    // hand). The card is gone (`discarded` with no pile).
                     for seat in SmallList::<Seat, 8>::from_slice(sx.state.seats().seating_order()).as_slice() {
                         let held = sx.state.players().by_seat(*seat).map_or(0, |p| p.cards.hand.len());
                         if held == 0 {
                             continue;
                         }
-                        // (A d10 modulo the hand: kept bit-identical in lane C3, made uniform in C3b.)
-                        let req = crate::chance::Request::new(
-                            crate::state::RngDomain::Dice,
-                            crate::chance::Kind::DieMod { sides: 10, n: u8::try_from(held).unwrap_or(u8::MAX), form: crate::chance::ModForm::Face },
-                        );
-                        let face = sx.chance(&req).as_slice().first().map_or(1, |f| u32::from(*f));
-                        self.faces.push(face);
+                        let index = sx.index(crate::state::RngDomain::Dice, held);
+                        self.faces.push(u32::try_from(index + 1).unwrap_or(u32::MAX));
                         if let Some(p) = sx.state.players_mut().by_seat_mut(*seat) {
-                            p.cards.hand.remove(usize::try_from(face).unwrap_or(0) % held);
+                            p.cards.hand.remove(index);
                         }
                     }
                 }
@@ -666,15 +661,15 @@ mod tests {
             let d = run(w, &mut s, seed);
             assert_eq!((held(&s, Seat(0)), held(&s, Seat(1)), held(&s, Seat(2))), (2, 0, 4));
             assert_eq!(d.window.faces().len(), 2, "one die for each hand, none for the empty one");
-            assert!(d.window.faces().iter().all(|f| (1..=10).contains(f)));
+            assert!(d.window.faces()[0] >= 1 && d.window.faces()[0] <= 3 && d.window.faces()[1] >= 1 && d.window.faces()[1] <= 5, "one face per card of the hand (lane C3b: uniform)");
             distinct.insert(d.window.faces().to_vec());
         }
         assert!(distinct.len() > 1, "the dice follow the stream");
-        // The card picked is the one at `face % held`.
+        // The card picked is the one at `face - 1` (lane C3b: a die with one side per card).
         let mut s = table(1);
         s.players_mut().by_seat_mut(Seat(0)).unwrap().cards.hand = ActionCard::ALL[..4].iter().copied().collect();
         let d = run(Resolve::of_facts(Agenda::ExecutiveSanctions, Outcome::Against, &f).unwrap(), &mut s, 3);
-        let gone = usize::try_from(d.window.faces()[0]).unwrap() % 4;
+        let gone = usize::try_from(d.window.faces()[0]).unwrap() - 1;
         let mut left: Vec<ActionCard> = ActionCard::ALL[..4].to_vec();
         left.remove(gone);
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.as_slice(), left.as_slice());

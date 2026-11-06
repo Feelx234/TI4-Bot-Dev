@@ -58,7 +58,24 @@ pub fn chance_asked(asking: &Asking) -> Option<Request> {
 /// # Errors
 /// What `f` refuses with; the position is then what `f` left it (its own rollback) with the streams put back.
 pub fn advance_resolved(core: &mut CoreState, env: &Env<'_>, f: LiveFn, answer: Option<Pick>) -> Result<(Live, Out), LiveError> {
-    advance_observed(core, env, f, answer, &mut |_, _| {})
+    // (`advance_observed` without the observer: the product's copy, and the only one in the browser build.)
+    let (mut live, mut out) = f(core, env, answer)?;
+    loop {
+        let Live::Asks(asking) = &live else { return Ok((live, out)) };
+        let Some(req) = chance_asked(asking) else { return Ok((live, out)) };
+        let saved = core.rng.clone();
+        let faces = answer_mut(&req, &mut core.rng);
+        match f(core, env, Some(Pick::Chance(faces))) {
+            Ok((next, more)) => {
+                merge(&mut out, more);
+                live = next;
+            }
+            Err(e) => {
+                core.rng = saved;
+                return Err(e);
+            }
+        }
+    }
 }
 
 /// `f` as a function that answers its chance questions ([`advance_resolved`]): `resolved(advance::<W>)(core, env, answer)`.

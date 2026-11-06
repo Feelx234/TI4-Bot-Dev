@@ -1728,7 +1728,7 @@ mod tests {
         assert_eq!((played.rounds, played.steps), (9, 1165), "nine rounds of the table");
         assert!(native.get("tokens").copied().unwrap_or(0) >= 8 && native.get("status").copied().unwrap_or(0) >= 8, "the status phases ran natively, their close included: {native:?}");
         // (Rules version 36 moved the pin from `74d5675ac754ac81`: the hashed position carries `rules_version` 36; the game is the same, see `tests/wrapper_native.rs`.)
-        assert_eq!(played.fingerprint, "538dc68f23dddcc9");
+        assert_eq!(played.fingerprint, "43c985a35397f2c9");
         assert_eq!(g.step(), Step::Finished, "a finished game stops the loop");
     }
 
