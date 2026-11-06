@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use ti4_engine_core::choice::objectives::Opt as OOpt;
-use ti4_engine_core::choice::strategy::{Ask as SAsk, Opt as SOpt, Pool};
+use ti4_engine_core::choice::strategy::Ask as SAsk;
 use ti4_engine_core::containers::Cow;
 use ti4_engine_core::driver::live::{advance, ask, is_open, Env, Live, LiveError, Out};
 use ti4_engine_core::driver::turn::TurnFlowWin;
@@ -48,10 +48,6 @@ fn status(factions: usize) -> (CoreState, Kernel) {
     s.decks_mut().objective.set(vec![PublicObjective::ALL[0], PublicObjective::ALL[1], PublicObjective::ALL[2]]);
     s.decks_mut().action.set(ActionCard::ALL.iter().copied().take(30).collect());
     (s, k)
-}
-
-fn pool(p: Pool) -> Pick {
-    Pick::Opt(Opt::Strategy(SOpt::Pool(p)))
 }
 
 // -- KS2: the opening ---------------------------------------------------------------------------------------------
@@ -220,13 +216,10 @@ fn the_last_token_closes_into_the_redistribution_and_the_end_of_the_phase() {
     let (mut s, k) = at_tokens();
     let e = env(&k);
     let (pa, pb) = (s.players().by_seat(Seat(0)).unwrap().econ.clone(), s.players().by_seat(Seat(1)).unwrap().econ.clone());
-    // Four tokens: asked one at a time, the seat that holds them first.
-    for i in 0..3 {
-        let (live, _) = advance_tokens(&mut s, &e, Some(pool(Pool::Strategic))).map(|(l, o)| (l, o)).unwrap_or_else(|_| panic!("token {i}"));
-        let Live::Asks(_) = live else { panic!("another token is owed") };
-    }
-    // The last token ends the window and asks the first redistribution in the same call.
-    let (live, _) = advance_tokens(&mut s, &e, Some(pool(Pool::Strategic))).unwrap();
+    // Four tokens, none asked (the multi-ask conversion: where a gained token goes is dead before the redistribution): the window places them
+    // in the canonical pool, ends and asks the first redistribution in the same call. A pick is refused.
+    assert!(ask_tokens(&s, &e).unwrap().is_none_or(|q| !matches!(q.choice.ask, Ask::Strategy(SAsk::GainPool { .. }))), "no gain question");
+    let (live, _) = advance_tokens(&mut s, &e, None).unwrap();
     let Live::Asks(q) = live else { panic!("the redistribution of the first seat") };
     assert!(matches!(q.choice.ask, Ask::Strategy(SAsk::StatusRedistribute { .. })), "{:?}", q.choice.ask);
     assert_eq!(q.choice.actor, Seat(0));

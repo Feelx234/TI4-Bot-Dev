@@ -2,17 +2,25 @@
 //! arm run natively end to end (package M0 vertical slice, `docs/D2_LF_RESUME.md`; lane C extends it as KS4).
 //!
 //! The payload on the stack is `state::Tokens` (who still owes a token, what was placed, the status report it travels with);
-//! the machine is that payload and nothing else, so `from_pending(to_pending(m)) == m`. One question per token
-//! ([`gain_pool_choice`], `left` = the tokens the same seat still places, this one included); an answer places the token (at most
-//! what is in reinforcements, 20.4a: the offer happens either way) and queues the plain `COMMAND_TOKEN_GAINED:<pool>`.
+//! the machine is that payload and nothing else, so `from_pending(to_pending(m)) == m`.
+//!
+//! NO QUESTION (multi-ask conversion, `docs/MULTIASK1_RESUME.md`): where a token goes is dead information here, because every seat
+//! that holds a token is asked the redistribute question right after (81.5, second sentence: [`Redistribute`] builds its options from
+//! the sheet total and the floor only). The window places every owed token into the canonical pool [`STATUS_GAIN_POOL`] (at most what
+//! is in reinforcements, 20.4a) and queues the plain `COMMAND_TOKEN_GAINED:<pool>` per token, then ends.
 //!
 //! What stays the string's (KS5): the close, steps 81.6-81.8 (`finish_status_phase`), which runs after the last token.
+//!
+//! [`Redistribute`]: crate::driver::windows::status_finish::Redistribute
 
-use crate::choice::strategy::{gain_pool_choice, Ask as SAsk, Opt as SOpt};
-use crate::choice::{Ask, Choice, Opt, Pick};
+use crate::choice::strategy::Pool;
+use crate::choice::{Choice, Pick};
 use crate::kernel::stage::{Held, Illegal, Sx, Window};
 use crate::kernel::{fx, Kernel, Next};
 use crate::state::{CoreState, PlainArg, PlainKind, PlainRec, Tokens, Window as OpenWindow, WindowKind};
+
+/// The pool the status phase gain puts its tokens in (the redistribute question that follows decides where they end up).
+pub const STATUS_GAIN_POOL: Pool = Pool::Tactic;
 
 /// The token gain window.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,13 +46,6 @@ impl TokenGain {
     pub fn is_complete(&self) -> bool {
         self.tokens.pending.is_empty()
     }
-
-    /// How many tokens the next seat still has to place in this window, this one included.
-    fn left(&self) -> u8 {
-        let p = self.tokens.pending.as_slice();
-        let Some(first) = p.first() else { return 0 };
-        u8::try_from(p.iter().take_while(|s| *s == first).count()).unwrap_or(u8::MAX)
-    }
 }
 
 /// The suspension points: a token is owed, or none is.
@@ -61,29 +62,24 @@ impl Window for TokenGain {
         if self.is_complete() { Stage::Complete } else { Stage::Owed }
     }
 
-    fn step(&mut self, _: &mut Sx<'_>) -> Next {
-        match self.tokens.pending.as_slice().first() {
-            Some(_) => Next::Continue(Ask::Strategy(SAsk::GainPool { left: self.left() })),
-            None => Next::Done,
+    fn step(&mut self, sx: &mut Sx<'_>) -> Next {
+        for who in std::mem::take(&mut self.tokens.pending).as_slice() {
+            if sx.state.players().by_seat(*who).is_none() {
+                continue;
+            }
+            fx::gain_token(sx.state, *who, STATUS_GAIN_POOL, 1);
+            self.tokens.placed.push((*who, STATUS_GAIN_POOL));
+            sx.plain(PlainRec::one(PlainKind::CommandTokenGained, PlainArg::Pool(STATUS_GAIN_POOL)));
         }
+        Next::Done
     }
 
     fn ask_of(&self, _: &CoreState, _: &Kernel) -> Option<Choice> {
-        let who = *self.tokens.pending.as_slice().first()?;
-        Some(gain_pool_choice(who, self.left()))
+        None
     }
 
-    fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
-        let Pick::Opt(Opt::Strategy(SOpt::Pool(pool))) = pick else { return Err(Illegal) };
-        let Some(&who) = self.tokens.pending.as_slice().first() else { return Err(Illegal) };
-        if sx.state.players().by_seat(who).is_none() {
-            return Err(Illegal);
-        }
-        fx::gain_token(sx.state, who, pool, 1);
-        self.tokens.pending.remove(0);
-        self.tokens.placed.push((who, pool));
-        sx.plain(PlainRec::one(PlainKind::CommandTokenGained, PlainArg::Pool(pool)));
-        Ok(())
+    fn answer(&mut self, _: &mut Sx<'_>, _: Pick) -> Result<(), Illegal> {
+        Err(Illegal)
     }
 }
 
@@ -105,7 +101,6 @@ impl Held for TokenGain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::choice::strategy::Pool;
     use crate::containers::{Cow, SmallList};
     use crate::driver::live::{advance, ask, open, Env, Live};
     use crate::driver::NoSeeds;
@@ -133,32 +128,20 @@ mod tests {
         Env { kernel: k, registry: Cow::new(Registry::default()), table: AbilityTable::default(), seeds: std::rc::Rc::new(NoSeeds) }
     }
 
-    fn pool(p: Pool) -> Pick {
-        Pick::Opt(Opt::Strategy(SOpt::Pool(p)))
-    }
-
+    /// The multi-ask conversion: the status phase gain asks nothing; every token lands in the canonical pool and the window leaves the stack.
     #[test]
-    fn two_seats_place_three_tokens_one_question_each_and_the_window_leaves_the_stack() {
+    fn the_status_gain_asks_nothing_and_places_every_token_in_the_canonical_pool() {
         let (k, mut s) = (Kernel::plain(), position());
         let env = env(&k);
         open(&mut s, &owed(&[0, 0, 1]));
-        let Live::Asks(q) = advance::<TokenGain>(&mut s, &env, None).unwrap().0 else { panic!("a token is owed") };
-        assert_eq!((q.choice.actor, q.choice.ask), (Seat(0), Ask::Strategy(SAsk::GainPool { left: 2 })), "seat 0 places two, this one included");
-        let Live::Asks(q) = advance::<TokenGain>(&mut s, &env, Some(pool(Pool::Fleet))).unwrap().0 else { panic!("the second token of seat 0") };
-        assert_eq!((q.choice.actor, q.choice.ask), (Seat(0), Ask::Strategy(SAsk::GainPool { left: 1 })));
-        let Live::Asks(q) = advance::<TokenGain>(&mut s, &env, Some(pool(Pool::Tactic))).unwrap().0 else { panic!("seat 1") };
-        assert_eq!((q.choice.actor, q.choice.ask), (Seat(1), Ask::Strategy(SAsk::GainPool { left: 1 })));
-        let (live, _) = advance::<TokenGain>(&mut s, &env, Some(pool(Pool::Strategic))).unwrap();
+        assert_eq!(ask::<TokenGain>(&s, &env).unwrap(), None, "no question");
+        let (live, _) = advance::<TokenGain>(&mut s, &env, None).unwrap();
         assert_eq!(live, Live::Done);
         let econ = |n: u8| s.players().by_seat(Seat(n)).unwrap().econ.clone();
-        assert_eq!((econ(0).fleet_tokens, econ(0).tactic_tokens, econ(1).strategic_tokens), (1, 1, 1));
+        assert_eq!((econ(0).tactic_tokens, econ(0).fleet_tokens, econ(1).tactic_tokens), (2, 0, 1));
         assert!(!crate::driver::live::is_open::<TokenGain>(&s));
-        // The plain events, in order, as the string pushes them: `COMMAND_TOKEN_GAINED:<pool>`.
         let events: Vec<_> = s.ledger.events.iter().filter_map(|e| e.plain().copied()).collect();
-        assert_eq!(
-            events,
-            [Pool::Fleet, Pool::Tactic, Pool::Strategic].map(|p| PlainRec::one(PlainKind::CommandTokenGained, PlainArg::Pool(p)))
-        );
+        assert_eq!(events, [PlainRec::one(PlainKind::CommandTokenGained, PlainArg::Pool(STATUS_GAIN_POOL)); 3]);
     }
 
     #[test]
@@ -169,34 +152,17 @@ mod tests {
     }
 
     #[test]
-    fn the_question_is_a_pure_read_of_the_stack_and_a_clone_continues_identically() {
-        let (k, mut s) = (Kernel::plain(), position());
-        let env = env(&k);
-        open(&mut s, &owed(&[1, 0]));
-        let asked = ask::<TokenGain>(&s, &env).unwrap().expect("a fresh window already knows its question");
-        assert_eq!(asked.choice.actor, Seat(1));
-        advance::<TokenGain>(&mut s, &env, None).unwrap();
-        let mut fork = s.clone();
-        for state in [&mut s, &mut fork] {
-            advance::<TokenGain>(state, &env, Some(pool(Pool::Tactic))).unwrap();
-            advance::<TokenGain>(state, &env, Some(pool(Pool::Fleet))).unwrap();
-        }
-        assert_eq!(s, fork);
-    }
-
-    #[test]
-    fn a_pick_that_is_no_pool_changes_nothing_and_an_empty_reinforcement_still_consumes_the_offer() {
+    fn a_pick_is_refused_and_an_empty_reinforcement_still_consumes_the_gain() {
         let (k, mut s) = (Kernel::plain(), position());
         let env = env(&k);
         open(&mut s, &owed(&[0]));
-        advance::<TokenGain>(&mut s, &env, None).unwrap();
         let held = s.clone();
-        assert_eq!(advance::<TokenGain>(&mut s, &env, Some(Pick::Number(1))), Err(crate::driver::live::LiveError::Illegal));
+        assert_eq!(advance::<TokenGain>(&mut s, &env, Some(Pick::Number(1))), Err(crate::driver::live::LiveError::NotAsking));
         assert_eq!(s, held);
-        // 20.4a: nothing in reinforcements, the token is not gained but the offer is answered.
-        s.players.edit(0).econ.tactic_tokens = 16;
-        let (live, _) = advance::<TokenGain>(&mut s, &env, Some(pool(Pool::Fleet))).unwrap();
+        // 20.4a: nothing in reinforcements, the token is not gained but the gain is consumed.
+        s.players.edit(0).econ.fleet_tokens = 16;
+        let (live, _) = advance::<TokenGain>(&mut s, &env, None).unwrap();
         assert_eq!(live, Live::Done);
-        assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.fleet_tokens, 0);
+        assert_eq!(s.players().by_seat(Seat(0)).unwrap().econ.tactic_tokens, 0);
     }
 }

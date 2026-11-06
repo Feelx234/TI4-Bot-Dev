@@ -345,7 +345,7 @@ mod real {
                     }
                     gained.set(gained.get() + 1);
                 }
-                Ask::Strategy(SAsk::LeadershipBuy { more: false, .. }) => {
+                Ask::Production(ti4_engine_core::choice::production::Ask::Purchase(_)) => {
                     if let Some(purchase) = purchase_of(core) {
                         rendered.details.extend(pool_details(core, c.actor, letnev, "buy", Some(0)));
                         rendered.details.insert("purchase".to_owned(), purchase);
@@ -927,7 +927,7 @@ mod real {
                         }
                     }
                 }
-                Ask::Strategy(SAsk::LeadershipBuy { more: false, .. }) => {
+                Ask::Production(ti4_engine_core::choice::production::Ask::Purchase(_)) => {
                     if let Some(purchase) = purchase_of() {
                         rendered.details.extend(pool_details(core, c.actor, letnev, "buy", Some(0)));
                         rendered.details.insert("purchase".to_owned(), purchase);

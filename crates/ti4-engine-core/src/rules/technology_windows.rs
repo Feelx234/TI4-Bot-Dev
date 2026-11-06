@@ -421,21 +421,23 @@ impl Window for WormholeGenerator {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EStage {
     Start,
-    /// Waiting on a token to move (Predictive Intelligence).
+    /// Waiting on the final split of the tokens (Predictive Intelligence).
     Restack,
     /// Waiting on what to ready (Bio-Stims).
     Ready,
     Done,
 }
 
-/// The free windows at the end of an action-phase turn: Predictive Intelligence (move tokens between pools, once the card is
-/// ready; exhausted when anything moved), then Bio-Stims (ready a specialty planet or a technology; exhausts itself).
+/// The free windows at the end of an action-phase turn: Predictive Intelligence (redistribute the tokens between the pools, once the
+/// card is ready; exhausted when anything moved), then Bio-Stims (ready a specialty planet or a technology; exhausts itself).
+///
+/// Predictive Intelligence is ONE question over every final split of the tokens held (multi-ask conversion, `docs/MULTIASK1_RESUME.md`):
+/// the string moved one token per question until `done` or as many moves as tokens, which reaches every split; the split that equals
+/// the pools as they stand keeps them (the card stays ready).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TurnEnd {
     pub who: Seat,
     stage: EStage,
-    /// Tokens the owner may still move (the total held when the window began, less those moved).
-    left: i32,
     changed: bool,
 }
 
@@ -449,18 +451,10 @@ fn held(s: &CoreState, who: Seat, pool: Pool) -> i16 {
     })
 }
 
-fn pool_mut(s: &mut CoreState, who: Seat, pool: Pool) -> Option<&mut i16> {
-    s.players_mut().by_seat_mut(who).map(|p| match pool {
-        Pool::Tactic => &mut p.econ.tactic_tokens,
-        Pool::Fleet => &mut p.econ.fleet_tokens,
-        Pool::Strategic => &mut p.econ.strategic_tokens,
-    })
-}
-
 impl TurnEnd {
     #[must_use]
     pub const fn new(who: Seat) -> Self {
-        Self { who, stage: EStage::Start, left: 0, changed: false }
+        Self { who, stage: EStage::Start, changed: false }
     }
 
     /// Whether either card applies (a ready Predictive Intelligence or Bio-Stims).
@@ -469,19 +463,17 @@ impl TurnEnd {
         ready_card(s, who, Technology::PredictiveIntelligence) || ready_card(s, who, Technology::BioStims)
     }
 
-    fn moves(&self, s: &CoreState) -> Vec<(Pool, Pool)> {
-        let mut out = Vec::new();
-        for from in POOLS {
-            if held(s, self.who, from) <= 0 {
-                continue;
-            }
-            for to in POOLS {
-                if from != to {
-                    out.push((from, to));
-                }
-            }
-        }
-        out
+    /// The tokens on the sheet.
+    fn total(&self, s: &CoreState) -> u8 {
+        u8::try_from(POOLS.iter().map(|p| i32::from(held(s, self.who, *p))).sum::<i32>().max(0)).unwrap_or(u8::MAX)
+    }
+
+    /// Every final split of the tokens held (`tokens::distribution_options` with no floor), as the window's options.
+    fn splits(&self, s: &CoreState) -> impl Iterator<Item = TOpt> {
+        crate::rules::strategy_primaries::splits(self.total(s), 0).filter_map(|o| match o {
+            crate::choice::strategy::Opt::Split { tactic, fleet, strategic } => Some(TOpt::Split { tactic, fleet, strategic }),
+            _ => None,
+        })
     }
 
     /// The Bio-Stims options: exhausted specialty planets of the owner, then exhausted technologies other than Bio-Stims.
@@ -523,8 +515,7 @@ impl Window for TurnEnd {
     fn step(&mut self, sx: &mut Sx<'_>) -> Next {
         if self.stage == EStage::Start {
             if ready_card(sx.state, self.who, Technology::PredictiveIntelligence) {
-                self.left = POOLS.iter().map(|p| i32::from(held(sx.state, self.who, *p))).sum();
-                if self.left > 0 && !self.moves(sx.state).is_empty() {
+                if self.total(sx.state) > 0 {
                     self.stage = EStage::Restack;
                 } else {
                     self.to_bio_stims(sx.state);
@@ -546,7 +537,7 @@ impl Window for TurnEnd {
                 actor: self.who,
                 ask: Ask::Technology(TAsk::Restack),
                 ctx: ctx(Technology::PredictiveIntelligence, TSub::PredictiveIntelligenceRedistribute),
-                opts: self.moves(s).into_iter().map(|(from, to)| Opt::Technology(TOpt::Move { from, to })).chain(std::iter::once(Opt::Done)).collect::<Opts>(),
+                opts: self.splits(s).map(Opt::Technology).collect::<Opts>(),
             }),
             EStage::Ready => Some(Choice {
                 actor: self.who,
@@ -560,19 +551,13 @@ impl Window for TurnEnd {
 
     fn answer(&mut self, sx: &mut Sx<'_>, pick: Pick) -> Result<(), Illegal> {
         match (self.stage, pick) {
-            (EStage::Restack, Pick::Opt(Opt::Done)) => self.to_bio_stims(sx.state),
-            (EStage::Restack, Pick::Opt(Opt::Technology(TOpt::Move { from, to }))) if self.moves(sx.state).contains(&(from, to)) => {
-                if let Some(n) = pool_mut(sx.state, self.who, from) {
-                    *n -= 1;
+            (EStage::Restack, Pick::Opt(Opt::Technology(split @ TOpt::Split { tactic, fleet, strategic }))) if self.splits(sx.state).any(|o| o == split) => {
+                let now = [Pool::Tactic, Pool::Fleet, Pool::Strategic].map(|p| held(sx.state, self.who, p));
+                self.changed = now != [tactic, fleet, strategic].map(i16::from);
+                if self.changed {
+                    crate::rules::strategy_primaries::apply_split(sx.state, self.who, tactic, fleet, strategic);
                 }
-                if let Some(n) = pool_mut(sx.state, self.who, to) {
-                    *n += 1;
-                }
-                self.changed = true;
-                self.left -= 1;
-                if self.left <= 0 || self.moves(sx.state).is_empty() {
-                    self.to_bio_stims(sx.state);
-                }
+                self.to_bio_stims(sx.state);
             }
             (EStage::Ready, Pick::Opt(Opt::Decline)) => self.stage = EStage::Done,
             (EStage::Ready, Pick::Opt(Opt::Technology(done))) if self.readyable(sx.state).contains(&done) => {
@@ -585,7 +570,7 @@ impl Window for TurnEnd {
                             p.tech.exhausted.remove(tech);
                         }
                     }
-                    TOpt::Move { .. } | TOpt::Exhaust | TOpt::Transit { .. } | TOpt::Player(_) | TOpt::Capture(..) | TOpt::Token(..) | TOpt::System(_) | TOpt::Tech(_) | TOpt::Transact | TOpt::Swap { .. } => return Err(Illegal),
+                    TOpt::Split { .. } | TOpt::Exhaust | TOpt::Transit { .. } | TOpt::Player(_) | TOpt::Capture(..) | TOpt::Token(..) | TOpt::System(_) | TOpt::Tech(_) | TOpt::Transact | TOpt::Swap { .. } => return Err(Illegal),
                 }
                 fx_exhaust(sx.state, self.who, Technology::BioStims);
                 self.stage = EStage::Done;

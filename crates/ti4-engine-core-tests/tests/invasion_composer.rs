@@ -77,7 +77,7 @@ fn play(core: &mut CoreState, env: &Env<'_>, pol: &mut Pol) -> (Vec<Choice>, Res
             Err(e) => return (asked, Err(e)),
             Ok((Live::Asks(a), _)) => {
                 let i = pol(&a.choice).min(a.choice.opts.len() - 1);
-                answer = Some(Pick::Opt(a.choice.opts.as_slice()[i]));
+                answer = Some(a.choice.pick(i).expect("an answer"));
                 asked.push(a.choice);
             }
             Ok((Live::Done, _)) => {
@@ -148,7 +148,7 @@ fn a_clone_in_the_middle_of_the_window_continues_identically() {
                 let mut copy = core.clone();
                 let again = ask_invasion(&copy, &env).expect("asks").expect("a question");
                 assert_eq!(again.choice, a.choice, "the copy asks the same question");
-                let pick = Pick::Opt(a.choice.opts.as_slice()[0]);
+                let pick = a.choice.pick(0).expect("an answer");
                 let mut rest_a = core.clone();
                 let (qa, ea) = play_from(&mut rest_a, &env, pick);
                 let (qb, eb) = play_from(&mut copy, &env, pick);
@@ -174,7 +174,7 @@ fn play_from(core: &mut CoreState, env: &Env<'_>, pick: Pick) -> (Vec<Choice>, R
         match advance_invasion(core, env, answer.take()) {
             Err(e) => return (asked, Err(e)),
             Ok((Live::Asks(a), _)) => {
-                answer = Some(Pick::Opt(a.choice.opts.as_slice()[0]));
+                answer = Some(a.choice.pick(0).expect("an answer"));
                 asked.push(a.choice);
             }
             Ok((Live::Done, _)) => {
@@ -203,7 +203,7 @@ fn the_payload_on_the_stack_is_the_machine_after_every_question() {
                 machine.to_pending(&mut again);
                 assert_eq!(again.pending(), core.pending(), "to_pending(from_pending(c)) is the payload");
                 assert_eq!(ask::<InvasionMachine>(&core, &env).expect("asks").map(|x| x.choice), Some(a.choice.clone()), "the payload alone says what is asked");
-                answer = Some(Pick::Opt(a.choice.opts.as_slice()[0]));
+                answer = Some(a.choice.pick(0).expect("an answer"));
             }
             (Live::Done, _) => {
                 core.pending_mut().close(WindowKind::EventScoring);
@@ -354,7 +354,7 @@ fn the_public_boundary_follows_the_stage_the_question_is_asked_in() {
                     }
                     _ => {}
                 }
-                answer = Some(Pick::Opt(a.choice.opts.as_slice()[0]));
+                answer = Some(a.choice.pick(0).expect("an answer"));
             }
             (Live::Done, _) => {
                 core.pending_mut().close(WindowKind::EventScoring);
@@ -391,7 +391,7 @@ fn the_commander_of_the_invader_is_asked_about_each_die_of_the_bombardment_and_t
                 (Live::Asks(a), _) => {
                     let is_walk = matches!(a.choice.ask, Ask::Combat(CAsk::RerollDie { source: RerollSource::Commander, .. }));
                     // Reroll every other die, keep the rest; the other questions take their first option.
-                    let pick = Pick::Opt(a.choice.opts.as_slice()[if is_walk { usize::from(asks.len() % 2 == 1) } else { 0 }]);
+                    let pick = a.choice.pick(if is_walk { usize::from(asks.len() % 2 == 1) } else { 0 }).expect("an answer");
                     let mut copy = core.clone();
                     let again = ask_invasion(&copy, &env).expect("asks").expect("a question");
                     assert_eq!(again.choice, a.choice, "seed {seed}: the copy asks the same question");

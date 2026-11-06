@@ -60,7 +60,7 @@ fn freelancers_asks_which_unit_and_the_card_closes_when_the_unit_stands_or_is_de
         let mut status = driver.resume(&mut state, &kernel, pick).unwrap();
         for _ in 0..8 {
             let Status::Asking(c) = status else { break };
-            let pick = Pick::Opt(c.opts.as_slice()[0]);
+            let pick = c.pick(0).expect("an answer");
             status = driver.resume(&mut state, &kernel, pick).unwrap();
         }
         assert!(matches!(status, Status::Done), "decline {decline}");
@@ -116,7 +116,7 @@ fn a_system_over_the_fleet_supply_is_followed_by_the_enforcement_of_the_system()
     for _ in 0..16 {
         let Status::Asking(c) = status else { break };
         asks.push(c.ask);
-        let pick = Pick::Opt(c.opts.as_slice()[0]);
+        let pick = c.pick(0).expect("an answer");
         status = driver.resume(&mut state, &kernel, pick).unwrap();
     }
     assert!(matches!(status, Status::Done), "the card ends: {status:?}");

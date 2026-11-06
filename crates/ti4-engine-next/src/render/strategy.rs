@@ -10,9 +10,9 @@
 //! of the window (`strategy_core`, `strategy_cards_core`).
 
 use ti4_engine_core::choice::agenda::Shown;
-use ti4_engine_core::choice::strategy::{Ask, Opt, Pool, Subtype, Waiver};
+use ti4_engine_core::choice::strategy::{Ask, Opt, Stack, Subtype, Waiver};
 use ti4_engine_core::choice::Opt as AnyOpt;
-use ti4_engine_core::generated::{Faction, Planet, PublicObjective, StrategyCard, StrategyCardKind, System, Technology, Unit, UnitBaseType};
+use ti4_engine_core::generated::{Agenda, Faction, Planet, PublicObjective, StrategyCard, StrategyCardKind, System, Technology, Unit, UnitBaseType};
 use ti4_engine_core::ids::Seat;
 
 use super::{Family, Render, Wording};
@@ -79,12 +79,25 @@ fn seat_named(r: &Render, id: &str) -> Option<Seat> {
     r.factions.iter().position(|f| !f.is_empty() && f == id).and_then(|i| u8::try_from(i).ok()).map(Seat)
 }
 
-fn pool_id(p: Pool) -> &'static str {
-    match p {
-        Pool::Tactic => "tactic_tokens",
-        Pool::Fleet => "fleet_tokens",
-        Pool::Strategic => "strategic_tokens",
-    }
+/// The option kind of a token gain split (`{tactic}|{fleet}|{strategic}`, the tokens each pool gains).
+pub const GAIN_KIND: &str = "gain";
+
+/// The three counts of a `{tactic}|{fleet}|{strategic}` id (a gain or a redistribution).
+fn split_id(id: &str) -> Option<[u8; 3]> {
+    let mut parts = id.split('|');
+    let mut next = || parts.next()?.parse::<u8>().ok();
+    let counts = [next()?, next()?, next()?];
+    parts.next().is_none().then_some(counts)
+}
+
+/// "1 tactic + 2 fleet": the pools a gain split puts tokens in.
+fn gain_label(tactic: u8, fleet: u8, strategic: u8) -> String {
+    let parts: Vec<String> = [(tactic, "tactic"), (fleet, "fleet"), (strategic, "strategy")]
+        .into_iter()
+        .filter(|(n, _)| *n > 0)
+        .map(|(n, pool)| format!("{n} {pool}"))
+        .collect();
+    if parts.is_empty() { "no token".to_owned() } else { parts.join(" + ") }
 }
 
 /// The id of Hecatoncheires' alternative at a "place a PDS" site (`factions::titans`).
@@ -98,7 +111,8 @@ impl Family for Fam {
     fn prompt(r: &Render, a: &Ask) -> String {
         match a {
             Ask::TradeReplenish => "let another player replenish commodities".to_owned(),
-            Ask::GainPool { .. } => "gain a command token into which pool".to_owned(),
+            Ask::GainPool { left: 1 } => "gain a command token into which pool".to_owned(),
+            Ask::GainPool { left } => format!("gain {left} command tokens into which pools"),
             Ask::WarfareRecall => "recall a command token".to_owned(),
             Ask::WarfareRedistribute { .. } => "Warfare: redistribute your command tokens".to_owned(),
             Ask::StatusRedistribute { .. } => "redistribute your command tokens".to_owned(),
@@ -106,9 +120,7 @@ impl Family for Fam {
             Ask::ReadyPlanet => "ready which planet".to_owned(),
             Ask::PoliticsSpeaker => "who becomes speaker".to_owned(),
             Ask::PoliticsAgenda { agenda } => format!("place {} where", agenda.as_str()),
-            Ask::LeadershipBuy { owed, more } => {
-                format!("spend {owed}{} influence for a command token", if *more { " more" } else { "" })
-            }
+            Ask::PoliticsAgendas { first, second } => format!("place {} and {} on the top or the bottom of the agenda deck", first.as_str(), second.as_str()),
             Ask::PlaceStructure { .. } => "place a structure".to_owned(),
             Ask::PdsAlternative { .. } => "place a PDS or an alternative".to_owned(),
             Ask::ImperialScore => "score a public objective with Imperial".to_owned(),
@@ -179,15 +191,14 @@ impl Family for Fam {
                 let name = r.faction_text(*seat);
                 ChoiceOption::labelled(name, "replenish", format!("{name} replenishes commodities"))
             }
-            Opt::Pool(p) => ChoiceOption::labelled(
-                pool_id(*p),
-                "pool",
-                match p {
-                    Pool::Tactic => "tactic pool",
-                    Pool::Fleet => "fleet pool",
-                    Pool::Strategic => "strategy pool",
-                },
-            ),
+            Opt::Gain { tactic, fleet, strategic } => ChoiceOption::labelled(
+                format!("{tactic}|{fleet}|{strategic}"),
+                GAIN_KIND,
+                gain_label(*tactic, *fleet, *strategic),
+            )
+            .with("tactic", i64::from(*tactic))
+            .with("fleet", i64::from(*fleet))
+            .with("strategic", i64::from(*strategic)),
             Opt::System(system) => {
                 let id = system.as_str();
                 match a {
@@ -210,6 +221,24 @@ impl Family for Fam {
             ),
             Opt::Top => ChoiceOption::labelled("top", "agenda", "on top of the deck"),
             Opt::Bottom => ChoiceOption::labelled("bottom", "agenda", "on the bottom"),
+            Opt::Stack(stack) => {
+                let (first, second) = match a {
+                    Ask::PoliticsAgendas { first, second } => (*first, *second),
+                    _ => (Agenda::ALL[0], Agenda::ALL[0]),
+                };
+                let (top, bottom) = stack.piles(first, second);
+                let names = |pile: &[Agenda]| pile.iter().map(|x| x.as_str()).collect::<Vec<_>>();
+                let (top, bottom) = (names(top.as_slice()), names(bottom.as_slice()));
+                let label = match (top.as_slice(), bottom.as_slice()) {
+                    ([t], [b]) => format!("{t} on top, {b} on the bottom"),
+                    ([t1, t2], []) => format!("both on top: {t1} first, then {t2}"),
+                    ([], [b1, b2]) => format!("both on the bottom: {b1}, then {b2} as the bottom card"),
+                    _ => String::new(),
+                };
+                ChoiceOption::labelled(format!("{}/{}", top.join(","), bottom.join(",")), "agenda_order", label)
+                    .with("top", serde_json::Value::from(top))
+                    .with("bottom", serde_json::Value::from(bottom))
+            }
             Opt::Structure { pds, system, planet } => {
                 let (kind, planet, system) = (if *pds { "pds" } else { "spacedock" }, planet.as_str(), system.as_str());
                 ChoiceOption::labelled(format!("{kind}|{system}|{planet}"), "build", format!("place {kind} on {planet}"))
@@ -289,21 +318,16 @@ impl Family for Fam {
                 crate::ties::strategy::STRATEGY_KIND,
                 "perform the primary ability instead (Enervate)",
             ),
-            Opt::Buy(false) => ChoiceOption::labelled("no", crate::ties::strategy::STRATEGY_KIND, "spend nothing further"),
-            Opt::Buy(true) => {
-                let (owed, more) = match a {
-                    Ask::LeadershipBuy { owed, more } => (*owed, *more),
-                    _ => (0, false),
-                };
-                ChoiceOption::labelled("yes", crate::ties::strategy::STRATEGY_KIND, format!("spend {owed}{} influence", if more { " more" } else { "" }))
-            }
         }
     }
 
     fn parse(r: &Render, a: &Ask, id: &str) -> Option<Opt> {
         match a {
             Ask::TradeReplenish => seat_named(r, id).map(Opt::Replenish),
-            Ask::GainPool { .. } => [Pool::Tactic, Pool::Fleet, Pool::Strategic].into_iter().find(|p| pool_id(*p) == id).map(Opt::Pool),
+            Ask::GainPool { left } => {
+                let [tactic, fleet, strategic] = split_id(id)?;
+                (u16::from(tactic) + u16::from(fleet) + u16::from(strategic) == u16::from(*left)).then_some(Opt::Gain { tactic, fleet, strategic })
+            }
             Ask::WarfareRecall | Ask::DiplomacySystem | Ask::TeWarfareTactical => System::from_id(id).map(Opt::System),
             Ask::ConstructionAbility => match id.strip_prefix("produce|") {
                 Some(system) => System::from_id(system).map(Opt::Produce),
@@ -312,10 +336,15 @@ impl Family for Fam {
             Ask::ReadyPlanet => Planet::from_id(id).map(|p| Opt::Ready(p, Shown::default())),
             Ask::PoliticsSpeaker => seat_named(r, id).map(Opt::Speaker),
             Ask::WarfareRedistribute { .. } | Ask::TeWarfareRedistribute { .. } | Ask::TeWarfareRedistributeAfter { .. } | Ask::StatusRedistribute { .. } => {
-                let mut parts = id.split('|');
-                let mut next = || parts.next()?.parse::<u8>().ok();
-                let (tactic, fleet, strategic) = (next()?, next()?, next()?);
-                (parts.next().is_none()).then_some(Opt::Split { tactic, fleet, strategic })
+                let [tactic, fleet, strategic] = split_id(id)?;
+                Some(Opt::Split { tactic, fleet, strategic })
+            }
+            Ask::PoliticsAgendas { first, second } => {
+                Stack::ALL.into_iter().find(|stack| {
+                    let (top, bottom) = stack.piles(*first, *second);
+                    let names = |pile: &[Agenda]| pile.iter().map(|x| x.as_str()).collect::<Vec<_>>().join(",");
+                    format!("{}/{}", names(top.as_slice()), names(bottom.as_slice())) == id
+                }).map(Opt::Stack)
             }
             Ask::PoliticsAgenda { .. } => match id {
                 "top" => Some(Opt::Top),
@@ -373,11 +402,6 @@ impl Family for Fam {
                         (r.shape_option(code).id == id).then_some(Opt::Waive(code))
                     })
                 }
-                _ => None,
-            },
-            Ask::LeadershipBuy { .. } => match id {
-                "no" => Some(Opt::Buy(false)),
-                "yes" => Some(Opt::Buy(true)),
                 _ => None,
             },
         }

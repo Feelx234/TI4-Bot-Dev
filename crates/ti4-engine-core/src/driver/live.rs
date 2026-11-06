@@ -141,10 +141,7 @@ fn driver_of<M: Held>(window: M, core: &CoreState, env: &Env<'_>) -> Driver<M> {
 
 /// Whether `pick` answers `choice`: one of its options, or a number to a count question.
 fn is_option(choice: &Choice, pick: &Pick) -> bool {
-    match pick {
-        Pick::Opt(o) => choice.opts.iter().any(|x| x == o),
-        Pick::Number(_) => matches!(choice.ask, crate::choice::Ask::Generic(crate::choice::generic::Ask::Count { .. })),
-    }
+    choice.accepts(pick)
 }
 
 /// The question the open window of kind `M::KIND` waits on, if any: a pure read for a stage question, a replay of the suspended

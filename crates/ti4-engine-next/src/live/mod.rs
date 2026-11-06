@@ -198,6 +198,17 @@ pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
 #[must_use]
 pub fn pick_of(r: &Render, choice: &CoreChoice, id: &str) -> Option<ti4_engine_core::choice::Pick> {
     use ti4_engine_core::choice::{tactical::Opt as TOpt, Opt};
+    // A multi-pick (a payment, Leadership's purchase): the set the id names; the core checks it.
+    // One atom's id alone means "pay with this one first, then the canonical order" (`Choice::pick`), so a client or bot that answers
+    // with an option of the list still answers.
+    if choice.is_multi_pick() {
+        let rendered: Vec<_> = choice.opts.iter().map(|o| render::option(r, &choice.ask, o)).collect();
+        if let Some(at) = rendered.iter().position(|o| o.id == id) {
+            return choice.pick(at);
+        }
+        let set = render::production::set_of(choice.opts.as_slice(), &rendered, id)?;
+        return Some(ti4_engine_core::choice::Pick::Opt(Opt::Production(ti4_engine_core::choice::production::Opt::Set(set))));
+    }
     let own = |id: &str| render::parse_pick(r, &choice.ask, id).or_else(|| choice.opts.iter().find(|o| render::option(r, &choice.ask, o).id == id).map(|o| ti4_engine_core::choice::Pick::Opt(*o)));
     own(id).or_else(|| {
         // `move|origin|i|rN`: route N of the option `move|origin|i` (not an option of the question; the machine checks it against its list).

@@ -230,7 +230,7 @@ fn an_entropic_field_asks_the_pool_then_pays_its_goods_and_announces_them() {
     let (mut rig, _, _) = build(s, ExploreType::Hazardous, &[Explore::EntropicField], true, EDeck::Fixed(ExploreType::Hazardous));
     rig.run();
     assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 })), "{}", rig.transcript());
-    rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Fleet)));
+    rig.pick_opt(Opt::Strategy(SOpt::gain_of(&[Pool::Fleet])));
     assert!(rig.is_done(), "{}", rig.transcript());
     assert_eq!(goods(&rig), 2);
     assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().econ.fleet_tokens, 3);
@@ -245,7 +245,7 @@ fn an_entropic_field_asks_the_pool_then_pays_its_goods_and_announces_them() {
     let s = setup(planet_with(&[PlanetTrait::Hazardous]), &[Faction::TheArborec, Faction::TheEmbersOfMuaat]);
     let (mut quiet, _, _) = build(s, ExploreType::Hazardous, &[Explore::EntropicField], false, EDeck::Fixed(ExploreType::Hazardous));
     quiet.run();
-    quiet.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Fleet)));
+    quiet.pick_opt(Opt::Strategy(SOpt::gain_of(&[Pool::Fleet])));
     assert!(quiet.driver.emitted.is_empty());
     assert_eq!(goods(&quiet), 2);
 }
@@ -385,7 +385,7 @@ fn a_merchant_station_a_mercenary_outfit_and_a_mech_or_infantry_that_pays() {
         if check == 2 {
             // The command token of a Volatile Fuel Source goes into a pool of the seat's choice.
             assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 })), "{}", rig.transcript());
-            rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Tactic)));
+            rig.pick_opt(Opt::Strategy(SOpt::gain_of(&[Pool::Tactic])));
         }
         assert!(rig.is_done(), "{}", rig.transcript());
         let p = rig.state.players().by_seat(Seat(0)).unwrap();
@@ -519,8 +519,8 @@ fn a_run_stored_after_every_question_resumes_to_the_same_end() {
     let mut state2 = rig.state.clone();
     let mut driver2 = Driver::new(resumed, ti4_engine_core::kernel::Resolver::new(&[Seat(0), Seat(1)], Some(Seat(0))), explore_table(), 1);
     assert!(driver2.restore_stage(&state2, &rig.kernel), "the stored run is at its question");
-    let status = driver2.resume(&mut state2, &rig.kernel, Pick::Opt(Opt::Strategy(SOpt::Pool(Pool::Strategic)))).expect("the stored run takes the answer");
-    rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Strategic)));
+    let status = driver2.resume(&mut state2, &rig.kernel, Pick::Opt(Opt::Strategy(SOpt::gain_of(&[Pool::Strategic])))).expect("the stored run takes the answer");
+    rig.pick_opt(Opt::Strategy(SOpt::gain_of(&[Pool::Strategic])));
     assert!(rig.is_done() && matches!(status, Status::Done));
     assert_eq!(delta(&rig.state, &state2), "", "the resumed run ends where the kept one does");
 }
@@ -566,7 +566,7 @@ fn a_hosted_exploration_runs_a_child_that_does_not_ask_at_once_and_puts_one_that
             again.restore_nested(&held);
             let Status::Asking(same) = again.reask(&mut state, &kernel).unwrap() else { panic!("asks again") };
             assert_eq!(same, discard, "a rebuilt window asks the same question");
-            let pick = Pick::Opt(discard.opts.as_slice()[0]);
+            let pick = discard.pick(0).expect("an answer");
             assert!(matches!(again.resume(&mut state, &kernel, pick).unwrap(), Status::Done), "the discard ends the exploration");
             assert!(again.window.explored() && again.window.unsupported().is_none());
         } else {
@@ -665,9 +665,7 @@ fn every_entropic_field_and_ship_gives_its_tokens_and_goods() {
     let (mut rig, _, _) = build(holdings_setup(LATEST_RULES, 0, 0, Faction::TheArborec), ExploreType::Hazardous, &[Explore::KeleresShip1], false, EDeck::Fixed(ExploreType::Hazardous));
     rig.run();
     assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 2 })));
-    rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Tactic)));
-    assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 })));
-    rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Fleet)));
+    rig.pick_opt(Opt::Strategy(SOpt::gain_of(&[Pool::Tactic, Pool::Fleet])));
     assert!(rig.is_done());
 }
 
@@ -777,7 +775,7 @@ fn a_zero_conversion_announces_nothing_and_a_fuel_source_pays_no_goods() {
     let mut fuel = Rig::from_parts(state, kernel, Exploring::planet(Seat(0), spot.1, EDeck::Fixed(ExploreType::Industrial), true)).with_table(explore_table());
     fuel.run();
     fuel.pick_opt(ex(EOpt::RemoveInfantry));
-    fuel.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Tactic)));
+    fuel.pick_opt(Opt::Strategy(SOpt::gain_of(&[Pool::Tactic])));
     assert!(fuel.is_done());
     assert_eq!(goods_of_seat(&fuel), 0);
     assert!(fuel.driver.emitted.iter().all(|e| e.kind != EventKind::TradeGoodsGained));

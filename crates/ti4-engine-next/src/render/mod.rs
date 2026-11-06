@@ -562,13 +562,19 @@ impl Typed {
 #[must_use]
 pub fn render_choice(r: &Render, c: &core::Choice, phase_now: CorePhase, round: u32) -> Choice {
     let (details, free_form) = extras(r, &c.ask);
+    let options: Vec<_> = c.opts.iter().map(|o| option(r, &c.ask, o)).collect();
+    let multi_pick = match &c.ask {
+        Ask::Production(a) => production::multi_pick(a, &options),
+        _ => None,
+    };
     Choice {
         player: r.player(c.actor),
         prompt: prompt(r, &c.ask),
-        options: c.opts.iter().map(|o| option(r, &c.ask, o)).collect(),
+        options,
         context: Some(generic::encode_context(r, &c.ctx, c.actor, phase(phase_now), round, subtype_text(r, &c.ctx.subtype))),
         details,
         free_form,
+        multi_pick,
     }
 }
 

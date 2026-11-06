@@ -53,7 +53,7 @@ mod tests {
     }
 
     fn blank() -> Choice {
-        Choice { player: ti4_model::id::PlayerId::new("a"), prompt: String::new(), options: Vec::new(), context: None, details: serde_json::Map::new(), free_form: None }
+        Choice { player: ti4_model::id::PlayerId::new("a"), prompt: String::new(), options: Vec::new(), context: None, details: serde_json::Map::new(), free_form: None, multi_pick: None }
     }
 
     #[test]

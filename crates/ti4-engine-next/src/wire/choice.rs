@@ -181,6 +181,32 @@ pub struct Choice {
     /// whoever resolves the answer parses the rest and rejects what it cannot read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub free_form: Option<String>,
+    /// A MULTI-PICK (`docs/MULTIASK1_RESUME.md`): the answer is a set of the listed options, their ids joined by
+    /// [`MULTI_PICK_SEPARATOR`] (an option named in [`MultiPick::repeat`] once per unit spent; a purchase adds `buy:N`), which the
+    /// engine checks. `None`: the answer is one listed option.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multi_pick: Option<MultiPick>,
+}
+
+/// What joins the option ids of a multi-pick answer.
+pub const MULTI_PICK_SEPARATOR: char = '+';
+/// The part of a purchase answer that says how many tokens it buys (`buy:2`).
+pub const MULTI_PICK_BUY: &str = "buy:";
+
+/// The rule a multi-pick answer follows ([`Choice::multi_pick`]). The engine checks it; a client may check it as you type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct MultiPick {
+    /// `payment`: the options spent must cover `owed`, and each must be needed (without the largest the rest is short).
+    /// `purchase`: `buy:N` tokens of `owed` each, between `buy[0]` and `buy[1]` of them, paid the same way (nothing for none).
+    pub kind: String,
+    pub owed: i64,
+    /// The options that may be named more than once, with the most times (trade goods, commodities).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub repeat: std::collections::BTreeMap<String, u32>,
+    /// A purchase: the fewest and the most tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub buy: Option<[u8; 2]>,
 }
 
 /// Display only: the header of an offer card: what it is, its kind, when it applies and the
@@ -268,6 +294,7 @@ impl Choice {
             context: None,
             details: serde_json::Map::new(),
             free_form: None,
+            multi_pick: None,
         }
     }
 
@@ -296,6 +323,13 @@ impl Choice {
             let mut routed = listed.clone();
             routed.id = option_id.to_owned();
             return Some(routed);
+        }
+        // A multi-pick: every part names a listed option (or the purchase count); the engine checks the set.
+        if self.multi_pick.is_some() {
+            let known = option_id.split(MULTI_PICK_SEPARATOR).all(|part| {
+                self.option(part).is_some() || part.strip_prefix(MULTI_PICK_BUY).is_some_and(|n| n.parse::<u8>().is_ok())
+            });
+            return known.then(|| ChoiceOption::labelled(option_id, "multi_pick", option_id));
         }
         let prefix = self.free_form.as_deref()?;
         (option_id.starts_with(prefix) && option_id.len() > prefix.len())

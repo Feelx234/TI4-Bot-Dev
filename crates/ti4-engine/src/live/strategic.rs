@@ -44,8 +44,8 @@ pub fn complete(core: &CoreState, kernel: &Kernel, choice: &CoreChoice, rendered
         Ask::Strategy(SAsk::ReadyPlanet) => {
             rendered.details.insert("ready_hints".to_owned(), ready_hints(core, kernel, choice.actor));
         }
-        // Leadership's purchases after the first (`buy_tokens_with_influence`): the pools and what the next purchase can be.
-        Ask::Strategy(SAsk::LeadershipBuy { more: false, .. }) => {
+        // Leadership's purchase (one question since the multi-ask conversion): the pools and what can be bought.
+        Ask::Production(ti4_engine_core::choice::production::Ask::Purchase(_)) => {
             if let Some(purchase) = purchase_details(core, kernel, choice.actor) {
                 super::details::pool_details(core, choice.actor, "buy", Some(0), rendered);
                 rendered.details.insert("purchase".to_owned(), purchase);
@@ -63,6 +63,11 @@ pub fn complete(core: &CoreState, kernel: &Kernel, choice: &CoreChoice, rendered
         }
         Ask::Strategy(SAsk::PoliticsAgenda { agenda }) => {
             rendered.details.insert("agenda".to_owned(), crate::strategy_cards::agenda_details(ContentStore::embedded(), IdStr::as_str(agenda)));
+        }
+        // Both agendas at once (the first was the top card): the printed cards, in that order.
+        Ask::Strategy(SAsk::PoliticsAgendas { first, second }) => {
+            let cards = [first, second].map(|a| crate::strategy_cards::agenda_details(ContentStore::embedded(), IdStr::as_str(a)));
+            rendered.details.insert("agendas".to_owned(), Value::Array(cards.to_vec()));
         }
         // Trade's primary: the seat of each option and its commodities (`strategy_core::complete_trade`).
         Ask::Strategy(SAsk::TradeReplenish) => {

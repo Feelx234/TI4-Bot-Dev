@@ -150,12 +150,137 @@ impl MaskChoice for CoreMask {
     }
 }
 
+/// One answer of a script: a plain option id, or what ONE answer of the new engine to a multi-ask (`docs/MULTIASK1_RESUME.md`) is to the
+/// string engine, which asks the same thing as a sequence of questions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Scripted {
+    /// One question, answered with this id.
+    One(String),
+    /// One question per id, in this order (a token gain: a pool per token).
+    Seq(VecDeque<String>),
+    /// A payment: a question per id while the string asks a payment ("pay ...") that offers one of them, the first offered id of the
+    /// list answering it (the string pays a lone option without asking, so it may ask for fewer). The entry ends at any other question.
+    Set(Vec<String>),
+    /// Leadership's purchase: the string's loop ("spend 3 influence for a command token?" answered `yes` until `buys` tokens are bought,
+    /// then `no`; each payment from `atoms` as for [`Self::Set`]). The pool of each token is the next entry's (the core's gain question
+    /// after the purchase): the entry lets it through. `bought` counts the follower's yes of a secondary, which is the first purchase.
+    Leadership { buys: u8, bought: u8, atoms: Vec<String> },
+}
+
+/// What an entry does with a question of the string.
+enum Verdict {
+    /// Answer with this id; `true`: the entry is spent.
+    Answer(String, bool),
+    /// Not this entry's question: a later entry answers it, this one stays.
+    Pass,
+    /// This entry is over (the string settled the rest without asking): drop it, a later entry answers the question.
+    Drop,
+}
+
+impl Scripted {
+    fn verdict(&mut self, choice: &ti4_engine_legacy::choice::Choice) -> Verdict {
+        let paying = choice.prompt.starts_with("pay ");
+        let first_offered = |ids: &mut Vec<String>| ids.iter().position(|id| choice.answer_for(id).is_some()).map(|i| ids.remove(i));
+        match self {
+            Self::One(id) => Verdict::Answer(std::mem::take(id), true),
+            Self::Seq(ids) => {
+                // (A sequence carried over a step boundary that the string does not ask on with: over.)
+                if ids.front().is_some_and(|id| choice.answer_for(id).is_none()) && ids.len() > 1 {
+                    return Verdict::Drop;
+                }
+                let id = ids.pop_front().unwrap_or_default();
+                Verdict::Answer(id, ids.is_empty())
+            }
+            Self::Set(ids) => match first_offered(ids).filter(|_| paying) {
+                Some(id) => Verdict::Answer(id, ids.is_empty()),
+                None => Verdict::Drop,
+            },
+            Self::Leadership { buys, bought, atoms } => {
+                if choice.prompt.contains("influence for a command token") {
+                    if bought < buys {
+                        *bought += 1;
+                        return Verdict::Answer("yes".to_owned(), false);
+                    }
+                    return Verdict::Answer("no".to_owned(), true);
+                }
+                if paying && let Some(id) = first_offered(atoms) {
+                    return Verdict::Answer(id, false);
+                }
+                if choice.prompt == crate::multiask::GAIN_PROMPT {
+                    return Verdict::Pass;
+                }
+                Verdict::Drop
+            }
+        }
+    }
+}
+
+/// The number of an entry a step began part way through and the step before used ([`Script::clear`] keeps it): no question of the native
+/// group it answers.
+pub(crate) const CARRIED: usize = usize::MAX;
+
+/// The follower's queue: the entries (each with its number since the queue was last cleared), and the entry that answered each question.
+#[derive(Debug, Default)]
+pub(crate) struct Script {
+    entries: VecDeque<(usize, Option<String>, Scripted)>,
+    /// The entries that answered a question and are not spent (a multi-ask's expansion the string's step ended inside).
+    touched: Vec<usize>,
+    /// The number the next entry gets.
+    next: usize,
+    /// For each question answered since the queue was cleared, the entry that answered it.
+    pub(crate) answered_by: Vec<usize>,
+}
+
+impl Script {
+    /// Drop what the step did not use, but keep an entry it began and did not finish (one answer of the core that the string asks over two of
+    /// its steps): it answers the next step's questions first, under the number [`CARRIED`].
+    fn clear(&mut self) {
+        let carried = self.entries.iter().find(|(at, _, _)| self.touched.contains(at)).map(|(_, who, e)| (who.clone(), e.clone()));
+        *self = Self::default();
+        if let Some((who, entry)) = carried {
+            self.entries.push_back((CARRIED, who, entry));
+        }
+    }
+
+    /// Queue `entry`; `player`: the seat a multi-ask's expansion answers for (a question of another seat is not its own).
+    fn push(&mut self, player: Option<String>, entry: Scripted) {
+        self.entries.push_back((self.next, player, entry));
+        self.next += 1;
+    }
+
+    /// The id that answers `choice`, taken off the queue ("" when the queue is dry or names nothing offered).
+    fn take(&mut self, choice: &ti4_engine_legacy::choice::Choice) -> String {
+        let mut i = 0;
+        loop {
+            let Some((at, who, entry)) = self.entries.get_mut(i) else { return String::new() };
+            let at = *at;
+            // Another seat's question: a multi-ask expansion lets it through (a plain answer is played as given: a wrong seat is a difference).
+            let verdict = if who.as_deref().is_some_and(|w| w != choice.player.as_str()) { Verdict::Pass } else { entry.verdict(choice) };
+            match verdict {
+                Verdict::Answer(id, done) => {
+                    if done {
+                        self.entries.remove(i);
+                    } else {
+                        self.touched.push(at);
+                    }
+                    self.answered_by.push(at);
+                    return id;
+                }
+                Verdict::Pass => i += 1,
+                Verdict::Drop => {
+                    self.entries.remove(i);
+                }
+            }
+        }
+    }
+}
+
 /// Answers from a queue of option ids (the follower).
-struct Follower(Rc<RefCell<VecDeque<String>>>);
+struct Follower(Rc<RefCell<Script>>);
 
 impl ti4_engine_legacy::choice::Decider for Follower {
     fn choose(&mut self, choice: &ti4_engine_legacy::choice::Choice) -> Result<ti4_engine_legacy::choice::ChoiceOption, ti4_engine_legacy::choice::IllegalChoice> {
-        let wanted = self.0.borrow_mut().pop_front().unwrap_or_default();
+        let wanted = self.0.borrow_mut().take(choice);
         if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some_and(|v| v == "2") {
             eprintln!("    follower: {} {:?} wanted {wanted:?} offered {:?}", choice.player, choice.prompt, choice.ids());
         }
@@ -171,7 +296,7 @@ impl ti4_engine_legacy::choice::Decider for Follower {
 pub struct MaskSubject<M: MaskChoice> {
     game: Game<'static>,
     mask: AreaMask,
-    script: Rc<RefCell<VecDeque<String>>>,
+    script: Rc<RefCell<Script>>,
     events_seen: usize,
     records_seen: usize,
     _mask: PhantomData<M>,
@@ -193,6 +318,16 @@ impl<M: MaskChoice> MaskSubject<M> {
         self.script.borrow_mut().clear();
     }
 
+    /// Queue one scripted entry (a multi-ask answer of the new engine, expanded for the string's questions).
+    pub(crate) fn answer_scripted(&mut self, player: Option<String>, entry: Scripted) {
+        self.script.borrow_mut().push(player, entry);
+    }
+
+    /// For each question answered since the script was last cleared, the entry that answered it.
+    pub(crate) fn answered_by(&self) -> Vec<usize> {
+        self.script.borrow().answered_by.clone()
+    }
+
     /// The events pushed since the last [`Subject::events_since`], not consumed.
     pub(crate) fn peek_events(&self) -> &[String] {
         self.game.events.get(self.events_seen..).unwrap_or_default()
@@ -203,7 +338,7 @@ impl<M: MaskChoice> Subject for MaskSubject<M> {
     fn new(spec: &GameSpec, pilot: Pilot) -> Result<Self, String> {
         let mask = M::mask();
         let mut game = dual::with_mask(mask, || crate::legacy_game::legacy_game(spec))?;
-        let script = Rc::new(RefCell::new(VecDeque::new()));
+        let script = Rc::new(RefCell::new(Script::default()));
         match pilot {
             Pilot::Bot => game.table.set_default(Box::new(crate::legacy_adapter::ThinDecider::new(crate::workload::golden_decider(spec.seed)))),
             Pilot::Script => game.table.set_default(Box::new(Follower(Rc::clone(&script)))),
@@ -221,7 +356,7 @@ impl<M: MaskChoice> Subject for MaskSubject<M> {
     }
 
     fn answer(&mut self, option_id: &str) {
-        self.script.borrow_mut().push_back(option_id.to_owned());
+        self.script.borrow_mut().push(None, Scripted::One(option_id.to_owned()));
     }
 
     fn step(&mut self) -> StepInfo {

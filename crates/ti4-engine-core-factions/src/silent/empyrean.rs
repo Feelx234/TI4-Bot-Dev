@@ -9,7 +9,7 @@
 use ti4_engine_core::choice::generic::Content;
 use ti4_engine_core::choice::reaction::{AbilityKind, Ask as RAsk, Opt as ROpt, Relation, Subtype as RSub};
 use ti4_engine_core::choice::silent::{Ask as GAsk, Opt as GOpt, Subtype as GSub};
-use ti4_engine_core::choice::strategy::{gain_pool_choice, Opt as SOpt};
+use ti4_engine_core::choice::strategy::{gain_answer, gain_pool_choice, gain_pools};
 use ti4_engine_core::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use ti4_engine_core::containers::SmallList;
 use ti4_engine_core::generated::{Faction, Leader, PromissoryNote, System, Technology};
@@ -61,8 +61,10 @@ fn acamar(eff: &mut Eff<'_, '_>) -> Result<(), TimingError> {
         }
         fx_strategy::exhaust_agent(s, k, me, Leader::Acamar);
     }
-    if let Pick::Opt(Opt::Strategy(SOpt::Pool(pool))) = eff.ask(&gain_pool_choice(mover, 1)) {
-        fx::gain_token(eff.state(), mover, pool, 1);
+    if let Some(split) = gain_answer(eff.ask(&gain_pool_choice(mover, 1)), 1) {
+        for pool in gain_pools(split) {
+            fx::gain_token(eff.state(), mover, pool, 1);
+        }
     }
     Ok(())
 }

@@ -473,7 +473,28 @@ fn weakest_seat_option(choice: &Choice, seen: &dyn View) -> Option<usize> {
 /// Politics' look at the agenda deck: an agenda with an outcome the seat wants goes on top, one
 /// that harms it (an election of a rival for a card, a point for the leader) at the bottom.
 fn place_agenda(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize> {
+    // The core's one question for both agendas (`details.agendas`, the first was the top card; option ids `{top}/{bottom}`): the same
+    // verdict per agenda, in the order the one-agenda-at-a-time question reached (a good second agenda above a good first one, a bad
+    // second one below a bad first one).
+    if let Some([first, second]) = choice.details.get("agendas").and_then(|v| v.as_array()).and_then(|a| {
+        let id = |i: usize| a.get(i)?.get("id")?.as_str();
+        Some([id(0)?, id(1)?])
+    }) {
+        let id = match (agenda_good(first, seen, me), agenda_good(second, seen, me)) {
+            (true, true) => format!("{second},{first}/"),
+            (true, false) => format!("{first}/{second}"),
+            (false, true) => format!("{second}/{first}"),
+            (false, false) => format!("/{first},{second}"),
+        };
+        return choice.options.iter().position(|o| o.id == id);
+    }
     let agenda = agenda_of(choice)?;
+    let id = if agenda_good(agenda, seen, me) { "top" } else { "bottom" };
+    choice.options.iter().position(|o| o.id == id)
+}
+
+/// Whether the bot wants `agenda` on top of the deck (voted on soon) rather than at the bottom.
+fn agenda_good(agenda: &str, seen: &dyn View, me: &PlayerId) -> bool {
     let mut good = GOOD_FOR_ELECTED.contains(&agenda)
         || GOOD_PLANET.contains(&agenda)
         || matches!(agenda, "mutiny" | "unconventional" | "incentive");
@@ -487,8 +508,7 @@ fn place_agenda(choice: &Choice, seen: &dyn View, me: &PlayerId) -> Option<usize
             good = verdict.score_of(best) >= tuning::agenda_min_margin();
         }
     }
-    let id = if good { "top" } else { "bottom" };
-    choice.options.iter().position(|o| o.id == id)
+    good
 }
 
 // -- combat ---------------------------------------------------------------------------------------
@@ -640,6 +660,49 @@ mod tests {
             "vote_predictive_intelligence",
         );
         assert_eq!(pick(&votes, &seen(&state), &me), Some(0));
+    }
+
+    /// The core's one question for both Politics agendas is answered as the string's two questions were (same verdict per agenda, in the
+    /// order those two answers reach), so the bot plays as before.
+    #[test]
+    fn both_politics_agendas_at_once_land_where_two_single_answers_put_them() {
+        let state = game(&["a", "b"]);
+        let me = PlayerId::new("a");
+        let agenda = |id: &str| serde_json::json!({ "id": id, "name": id });
+        let single = |id: &str| {
+            let mut c = with_subtype(
+                Choice::new(me.clone(), format!("place {id} where"), vec![ChoiceOption::labelled("top", "agenda", "top"), ChoiceOption::labelled("bottom", "agenda", "bottom")]),
+                "politics_place_agenda",
+            );
+            c.details.insert("agenda".to_owned(), agenda(id));
+            pick(&c, &seen(&state), &me).map(|i| i == 0)
+        };
+        for (first, second) in [("core_mining", "arms_reduction"), ("arms_reduction", "core_mining"), ("core_mining", "rt_biotic"), ("arms_reduction", "minister_war")] {
+            let ids = [
+                format!("{first}/{second}"),
+                format!("{second}/{first}"),
+                format!("{first},{second}/"),
+                format!("{second},{first}/"),
+                format!("/{first},{second}"),
+                format!("/{second},{first}"),
+            ];
+            let mut both = with_subtype(
+                Choice::new(me.clone(), "place both", ids.iter().map(|id| ChoiceOption::labelled(id.clone(), "agenda_order", id.clone())).collect()),
+                "politics_place_agenda",
+            );
+            both.details.insert("agendas".to_owned(), serde_json::json!([agenda(first), agenda(second)]));
+            let Some(at) = pick(&both, &seen(&state), &me) else {
+                assert_eq!((single(first), single(second)), (None, None), "no rule for one agenda: none for two");
+                continue;
+            };
+            let want = match (single(first), single(second)) {
+                (Some(true), Some(true)) => &ids[3],
+                (Some(true), Some(false)) => &ids[0],
+                (Some(false), Some(true)) => &ids[1],
+                _ => &ids[4],
+            };
+            assert_eq!(&ids[at], want, "{first} then {second}");
+        }
     }
 
     #[test]

@@ -455,7 +455,7 @@ pub fn pay_opts(cx: &Cx<'_>, who: Seat, kind: Spend, paid: i64, cost: i64, ex: &
     if ex.commodities > 0 {
         opts.push(PayOpt::Commodity { shown: Shown { worth: small(worth), pool_after: small(pool - worth) } });
     }
-    (PayAsk { kind: currency(kind), owed: cost - paid, pool, goods }, opts)
+    (PayAsk { kind: currency(kind), owed: cost - paid, pool, goods, commodities: ex.commodities }, opts)
 }
 
 fn small(n: i64) -> i32 {

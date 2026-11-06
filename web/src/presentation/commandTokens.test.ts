@@ -17,7 +17,6 @@ import {
   planPayment,
   poolPips,
   removeToken,
-  restackMoves,
   resultingCount,
   tokenOutcome,
   tokenPlan,
@@ -59,6 +58,23 @@ describe("describeCommandTokens", () => {
     expect(view.current).toEqual({ tactic: 3, fleet: 4, strategic: 2 });
     expect(view.reinforcements).toBe(7);
     expect(view.total).toBe(2);
+  });
+
+  it("reads the new engine's one question for all tokens (a split per option) as the same gain", () => {
+    const splits = ["2|0|0", "1|1|0", "1|0|1", "0|2|0", "0|1|1", "0|0|2"].map((id) => ({
+      id,
+      kind: "gain",
+      label: id,
+      payload: {},
+    }));
+    const view = describeCommandTokens({ ...gain(2), options: splits }, true)!;
+    expect(view.mode).toBe("gain");
+    expect(view.total).toBe(2);
+    // The plan is still a pool step per token: the server turns them into the one split answer.
+    expect(tokenPlan({ tactic: 1, fleet: 1, strategic: 0 })).toEqual([
+      { kind: "pool", pool: "tactic_tokens" },
+      { kind: "pool", pool: "fleet_tokens" },
+    ]);
   });
 
   it("offers a gain only with a batch submitter, so a plain list remains the fallback", () => {
@@ -417,64 +433,33 @@ describe("payment override", () => {
 });
 
 describe("restack (Predictive Intelligence)", () => {
-  const moveIds = ["tactic|fleet", "tactic|strategy", "fleet|tactic", "fleet|strategy", "strategy|tactic", "strategy|fleet", "done"];
+  // The engine's one question over every final split of the nine tokens (no fleet floor).
+  const splitIds = Array.from({ length: 10 }, (_, t) => t).flatMap((t) =>
+    Array.from({ length: 10 - t }, (_, f) => `${t}|${f}|${9 - t - f}`),
+  );
   const restack = () => ({
-    options: moveIds.map((id) => ({ id, kind: id === "done" ? "decline" : "redistribute", label: id, payload: {} })),
+    options: splitIds.map((id) => ({ id, kind: "redistribute", label: id, payload: {} })),
     details: {
       kind: "command_tokens",
-      mode: "restack",
+      mode: "redistribute",
       pools: { tactic: 3, fleet: 4, strategic: 2 },
       reinforcements: 7,
       total: 9,
     },
   });
 
-  it("reads the pools and the total, and needs no batch submitter", () => {
+  it("reads as a redistribution of every token, without a batch submitter", () => {
     const view = describeCommandTokens(restack(), false)!;
-    expect(view.mode).toBe("restack");
+    expect(view.mode).toBe("redistribute");
     expect(view.current).toEqual({ tactic: 3, fleet: 4, strategic: 2 });
     expect(view.total).toBe(9);
-    expect(view.arrangements.has("tactic|fleet")).toBe(true);
+    expect(view.arrangements.has("0|0|9")).toBe(true);
   });
 
-  it("is not offered without any move option", () => {
-    const none = { ...restack(), options: [{ id: "done", kind: "decline", label: "done", payload: {} }] };
-    expect(describeCommandTokens(none, true)).toBeNull();
-  });
-
-  it("plans the fewest single moves, naming the strategy pool as the engine does", () => {
+  it("sends the arrangement as one answer; keeping it sends the split as it stands", () => {
     const view = describeCommandTokens(restack(), false)!;
-    expect(restackMoves(view, { tactic: 3, fleet: 4, strategic: 2 })).toEqual([]);
-    expect(restackMoves(view, { tactic: 1, fleet: 4, strategic: 4 })).toEqual([
-      "tactic|strategy",
-      "tactic|strategy",
-    ]);
-    expect(restackMoves(view, { tactic: 0, fleet: 3, strategic: 6 })).toEqual([
-      "tactic|strategy",
-      "tactic|strategy",
-      "tactic|strategy",
-      "fleet|strategy",
-    ]);
-  });
-
-  it("finishes with done unless every token was moved (then the engine stops asking itself)", () => {
-    const view = describeCommandTokens(restack(), false)!;
-    expect(tokenOutcome(view, { tactic: 3, fleet: 4, strategic: 2 })).toEqual({
-      kind: "moves",
-      moveIds: [],
-      finish: true,
-    });
-    expect(tokenOutcome(view, { tactic: 1, fleet: 4, strategic: 4 })).toEqual({
-      kind: "moves",
-      moveIds: ["tactic|strategy", "tactic|strategy"],
-      finish: true,
-    });
-    const swap = { ...view, current: { tactic: 3, fleet: 0, strategic: 0 }, total: 3 };
-    expect(tokenOutcome(swap, { tactic: 0, fleet: 3, strategic: 0 })).toEqual({
-      kind: "moves",
-      moveIds: ["tactic|fleet", "tactic|fleet", "tactic|fleet"],
-      finish: false,
-    });
+    expect(tokenOutcome(view, { tactic: 1, fleet: 4, strategic: 4 })).toEqual({ kind: "option", optionId: "1|4|4" });
+    expect(tokenOutcome(view, { tactic: 3, fleet: 4, strategic: 2 })).toEqual({ kind: "option", optionId: "3|4|2" });
   });
 });
 

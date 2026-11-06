@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { BoardView, ChoiceOption, PendingChoiceDto } from "../protocol/types.ts";
+import { BoardView, PendingChoiceDto } from "../protocol/types.ts";
 import { Dialog } from "../primitives/index.ts";
 import { usePipelineRunner, SemanticIntent } from "../hooks/usePipelineRunner.ts";
-import { ChoiceRendererModel, isDeclineOption } from "../presentation/choiceModel.ts";
+import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { useParticipantText, useIsSeat, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { findStrategyCardMeta } from "../protocol/contentCatalog.ts";
 import {
@@ -198,14 +198,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
 
   const confirmTokens = async (outcome: TokenOutcome) => {
     if (outcome.kind === "option") await onSubmit(outcome.optionId);
-    else if (outcome.kind === "moves") {
-      // One engine question per move; the pipeline answers them in turn.
-      const intents: SemanticIntent[] = outcome.moveIds.map((id) => ({
-        predicate: (o: ChoiceOption) => o.id === id,
-      }));
-      if (outcome.finish) intents.push({ predicate: isDeclineOption });
-      executePipeline(intents);
-    } else await onSubmitBatch?.({ kind: "tokens", steps: outcome.steps });
+    else await onSubmitBatch?.({ kind: "tokens", steps: outcome.steps });
   };
   // Minimized floating banner allowing inspection of map, players, and tables
   if (isMinimized) {

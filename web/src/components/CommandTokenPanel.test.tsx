@@ -518,50 +518,35 @@ describe("command token panel (resource values)", () => {
 });
 
 describe("command token panel (Predictive Intelligence restack)", () => {
-  const moves = ["tactic|fleet", "tactic|strategy", "fleet|tactic", "fleet|strategy", "strategy|tactic", "strategy|fleet"];
+  const splitIds = Array.from({ length: 10 }, (_, t) => t).flatMap((t) =>
+    Array.from({ length: 10 - t }, (_, f) => `${t}|${f}|${9 - t - f}`),
+  );
   const restackChoice = (nonce: string, pools: { tactic: number; fleet: number; strategic: number }): PendingChoiceDto => ({
     actor: "seat_1",
     nonce,
     prompt: "Predictive Intelligence: redistribute command tokens",
-    options: [
-      ...moves.map((id) => ({ id, kind: "redistribute", label: id, payload: {} })),
-      { id: "done", kind: "decline", label: "finish redistribution", payload: {} },
-    ],
+    options: splitIds.map((id) => ({ id, kind: "redistribute", label: id, payload: {} })),
     context: { subtype: "predictive_intelligence_redistribute" } as PendingChoiceDto["context"],
-    details: { kind: "command_tokens", mode: "restack", pools, reinforcements: 7, total: 9 },
+    details: { kind: "command_tokens", mode: "redistribute", pools, reinforcements: 7, total: 9 },
   });
 
-  it("answers one question per move, then done, as the engine asks them", async () => {
+  it("answers the whole arrangement in one decision", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
-    const { rerender } = render(
-      <PendingChoiceModal choice={restackChoice("pi-1", { tactic: 3, fleet: 4, strategic: 2 })} onSubmit={onSubmit} />,
-    );
-    expect(screen.getByTestId("command-token-panel")).toHaveAttribute("data-mode", "restack");
-    expect(screen.getByTestId("token-confirm")).toHaveTextContent("Keep as is");
+    render(<PendingChoiceModal choice={restackChoice("pi-1", { tactic: 3, fleet: 4, strategic: 2 })} onSubmit={onSubmit} />);
+    expect(screen.getByTestId("command-token-panel")).toHaveAttribute("data-mode", "redistribute");
     await click("token-minus-tactic");
     await click("token-minus-tactic");
     await click("token-plus-strategic");
     await click("token-plus-strategic");
-    expect(screen.getByTestId("token-confirm")).toHaveTextContent("Confirm 2 moves");
     await click("token-confirm");
-    expect(onSubmit).toHaveBeenLastCalledWith("tactic|strategy");
-    rerender(
-      <PendingChoiceModal choice={restackChoice("pi-2", { tactic: 2, fleet: 4, strategic: 3 })} onSubmit={onSubmit} />,
-    );
-    await act(async () => {});
-    expect(onSubmit).toHaveBeenLastCalledWith("tactic|strategy");
-    rerender(
-      <PendingChoiceModal choice={restackChoice("pi-3", { tactic: 1, fleet: 4, strategic: 4 })} onSubmit={onSubmit} />,
-    );
-    await act(async () => {});
-    expect(onSubmit).toHaveBeenLastCalledWith("done");
-    expect(onSubmit).toHaveBeenCalledTimes(3);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit).toHaveBeenCalledWith("1|4|4");
   });
 
-  it("keeping the arrangement just answers done", async () => {
+  it("keeping the arrangement answers the split as it stands", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(<PendingChoiceModal choice={restackChoice("pi-1", { tactic: 3, fleet: 4, strategic: 2 })} onSubmit={onSubmit} />);
     await click("token-confirm");
-    expect(onSubmit).toHaveBeenCalledWith("done");
+    expect(onSubmit).toHaveBeenCalledWith("3|4|2");
   });
 });

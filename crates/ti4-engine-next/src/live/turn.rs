@@ -74,10 +74,11 @@ pub fn codes(r: &Render) -> TurnCodes {
 /// The display facts of the questions of the turn-flow jobs.
 pub fn complete(core: &CoreState, choice: &CoreChoice, rendered: &mut Choice) {
     match choice.ask {
-        // Predictive Intelligence: the pools as they stand now (`technology_dual::drive_valued`'s closure).
+        // Predictive Intelligence: the pools as they stand now. One question over every final split (the multi-ask conversion): the
+        // client shows it as a redistribution (the string's `restack` mode moved one token per question).
         Ask::Technology(TAsk::Restack) => {
             let letnev = core.players().by_seat(choice.actor).is_some_and(|p| p.faction == Faction::TheBaronyOfLetnev);
-            rendered.details.extend(crate::ties::strategy_cards_core::pool_details(core, choice.actor, letnev, "restack", None));
+            rendered.details.extend(crate::ties::strategy_cards_core::pool_details(core, choice.actor, letnev, "redistribute", None));
         }
         // Imperial Arbiter's offer (`Game::imperial_arbiter` through `laws::offer_discard`).
         Ask::Agenda(AAsk::DiscardLaw { law: Agenda::ImperialArbiter, .. }) => discard_law(Agenda::ImperialArbiter, ARBITER_EFFECT, Vec::new(), rendered),

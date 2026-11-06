@@ -4,6 +4,7 @@
 //! (`Ask::Pay`). Everything an option's text and preview need is a number carried by the option, because
 //! the renderer (`ti4-engine/src/render/production.rs`) sees no state. Never text; every type is `Copy`.
 
+use crate::containers::SmallList;
 use crate::generated::{Planet, System, Unit};
 use crate::ids::Seat;
 use crate::state::Code;
@@ -15,14 +16,260 @@ pub enum Currency {
     Influence,
 }
 
-/// The payment question: one step of a bill of `kind` with `owed` still to pay, when the player could
-/// spend `pool` of that currency and holds `goods` trade goods.
+/// The payment question: the rest of a bill of `kind` with `owed` still to pay, when the player could spend `pool` of that currency and
+/// holds `goods` trade goods (and `commodities` it may spend as trade goods, Keleres' agent).
+///
+/// ONE question for the rest of the bill (the multi-ask conversion, `docs/MULTIASK1_RESUME.md`): the options are the ATOMS one may
+/// spend (each planet face, then trade goods, then commodities), and the answer is a [`PaySet`] of them, checked by [`set_worth`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PayAsk {
     pub kind: Currency,
     pub owed: i64,
     pub pool: i64,
     pub goods: i64,
+    pub commodities: i64,
+}
+
+/// Leadership's purchase (52.3, `docs/MULTIASK1_RESUME.md`): ONE question for every command token bought at `each` influence apiece,
+/// between `min` and `max` of them, and how to pay. The options are the payment atoms (as for [`PayAsk`], `pay.owed` is `each`); the
+/// answer is a [`PaySet`] whose `buy` is the number bought ([`purchase_worth`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PurchaseAsk {
+    pub pay: PayAsk,
+    pub each: u8,
+    pub min: u8,
+    pub max: u8,
+}
+
+/// The answer to a payment question ([`PayAsk`]): the planet faces taken (bit `i` is the `i`-th [`Opt::Exhaust`] of the question's
+/// options, in their order), the trade goods and the commodities spent, and (Leadership's purchase only) how many command tokens
+/// it buys. A plain value: the question's option list says what each bit stands for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct PaySet {
+    pub faces: u32,
+    pub goods: u8,
+    pub commodities: u8,
+    pub buy: u8,
+}
+
+impl PaySet {
+    /// The set of the atoms `picks` (options of `opts`; a trade good or commodity once per one spent), `None` when one is not offered.
+    #[must_use]
+    pub fn of(opts: &[Opt], picks: &[Opt]) -> Option<Self> {
+        let mut set = Self::default();
+        for pick in picks {
+            match pick {
+                Opt::TradeGood { .. } => set.goods = set.goods.checked_add(1)?,
+                Opt::Commodity { .. } => set.commodities = set.commodities.checked_add(1)?,
+                Opt::Exhaust { .. } => {
+                    let at = opts.iter().filter(|o| matches!(o, Opt::Exhaust { .. })).position(|o| o == pick)?;
+                    if at >= 32 {
+                        return None;
+                    }
+                    set.faces |= 1 << at;
+                }
+                _ => return None,
+            }
+        }
+        Some(set)
+    }
+
+    /// The faces of `opts` the set takes, in option order.
+    pub fn exhausted<'a>(self, opts: impl IntoIterator<Item = &'a Opt>) -> impl Iterator<Item = &'a Opt> {
+        opts.into_iter().filter(|o| matches!(o, Opt::Exhaust { .. })).enumerate().filter(move |(i, _)| *i < 32 && self.faces & (1 << i) != 0).map(|(_, o)| o)
+    }
+}
+
+/// The worth of the atoms of `set` against the options `opts` of a payment question, each atom with the worth the option shows:
+/// `None` when the set names an atom the question does not offer (a bit past its faces, two faces of one planet, more trade goods or
+/// commodities than held).
+#[must_use]
+pub fn set_atoms(opts: &[Opt], goods: i64, commodities: i64, set: PaySet) -> Option<SmallList<i64, 24>> {
+    let faces = opts.iter().filter(|o| matches!(o, Opt::Exhaust { .. })).count();
+    if faces < 32 && set.faces >> faces != 0 {
+        return None;
+    }
+    let mut worths: SmallList<i64, 24> = SmallList::new();
+    let mut planets: SmallList<Planet, 24> = SmallList::new();
+    for o in set.exhausted(opts) {
+        let Opt::Exhaust { planet, shown, .. } = o else { continue };
+        if planets.as_slice().contains(planet) {
+            return None;
+        }
+        planets.push(*planet);
+        worths.push(i64::from(shown.worth));
+    }
+    let worth_of = |pick: fn(&Opt) -> bool| opts.iter().find(|o| pick(o)).map(|o| match o {
+        Opt::TradeGood { shown } | Opt::Commodity { shown } => i64::from(shown.worth),
+        _ => 0,
+    });
+    if set.goods > 0 {
+        let w = worth_of(|o| matches!(o, Opt::TradeGood { .. }))?;
+        if i64::from(set.goods) > goods {
+            return None;
+        }
+        (0..set.goods).for_each(|_| worths.push(w));
+    }
+    if set.commodities > 0 {
+        let w = worth_of(|o| matches!(o, Opt::Commodity { .. }))?;
+        if i64::from(set.commodities) > commodities {
+            return None;
+        }
+        (0..set.commodities).for_each(|_| worths.push(w));
+    }
+    Some(worths)
+}
+
+/// The canonical answer to a payment question: its atoms in option order (a planet once), each trade good, then each commodity, up to
+/// the first that covers the bill. Always legal ([`set_worth`]): everything before the last atom was short of the bill, and the last
+/// atom is no larger than the largest. `None` when the atoms cannot cover it.
+#[must_use]
+pub fn first_set(ask: &PayAsk, opts: &[Opt]) -> Option<PaySet> {
+    set_from(ask, opts, 0)
+}
+
+/// [`first_set`] that takes the atom at `first` (an index into `opts`) before the others: "pay with this one, then whatever comes
+/// first" (a trade good or commodity first: as many of those as needed first). Legal for the same reason. What `Choice::pick(index)`
+/// answers a payment question with.
+#[must_use]
+pub fn set_from(ask: &PayAsk, opts: &[Opt], first: usize) -> Option<PaySet> {
+    let lead = opts.get(first)?;
+    let mut set = PaySet::default();
+    let mut sum = 0i64;
+    let mut planets: SmallList<Planet, 24> = SmallList::new();
+    let face_of = |at: usize| u32::try_from(opts[..at].iter().filter(|o| matches!(o, Opt::Exhaust { .. })).count()).unwrap_or(u32::MAX);
+    // The lead atom first.
+    match lead {
+        Opt::Exhaust { planet, shown, .. } if face_of(first) < 32 => {
+            planets.push(*planet);
+            set.faces |= 1 << face_of(first);
+            sum += i64::from(shown.worth);
+        }
+        Opt::TradeGood { shown } if ask.goods > 0 => {
+            set.goods = 1;
+            sum += i64::from(shown.worth);
+        }
+        Opt::Commodity { shown } if ask.commodities > 0 => {
+            set.commodities = 1;
+            sum += i64::from(shown.worth);
+        }
+        _ => return None,
+    }
+    // A trade good or a commodity first means "pay in those": as many of them as the bill needs before anything else.
+    match lead {
+        Opt::TradeGood { shown } => {
+            while sum < ask.owed && i64::from(set.goods) < ask.goods {
+                set.goods += 1;
+                sum += i64::from(shown.worth);
+            }
+        }
+        Opt::Commodity { shown } => {
+            while sum < ask.owed && i64::from(set.commodities) < ask.commodities {
+                set.commodities += 1;
+                sum += i64::from(shown.worth);
+            }
+        }
+        _ => {}
+    }
+    let mut face = 0u32;
+    for o in opts {
+        if sum >= ask.owed {
+            break;
+        }
+        match o {
+            Opt::Exhaust { planet, shown, .. } => {
+                if face < 32 && !planets.as_slice().contains(planet) {
+                    planets.push(*planet);
+                    set.faces |= 1 << face;
+                    sum += i64::from(shown.worth);
+                }
+                face += 1;
+            }
+            Opt::TradeGood { shown } => {
+                while sum < ask.owed && i64::from(set.goods) < ask.goods {
+                    set.goods += 1;
+                    sum += i64::from(shown.worth);
+                }
+            }
+            Opt::Commodity { shown } => {
+                while sum < ask.owed && i64::from(set.commodities) < ask.commodities {
+                    set.commodities += 1;
+                    sum += i64::from(shown.worth);
+                }
+            }
+            _ => {}
+        }
+    }
+    (sum >= ask.owed).then_some(set)
+}
+
+/// Up to `limit` legal answers of a payment question ([`set_worth`]), in a fixed order (faces by option order, then trade goods, then
+/// commodities): what a test's policy or a sampling bot picks from. Bounded: the number of legal sets grows quickly with the planets.
+#[must_use]
+pub fn legal_sets(ask: &PayAsk, opts: &[Opt], limit: usize) -> Vec<PaySet> {
+    let faces = opts.iter().filter(|o| matches!(o, Opt::Exhaust { .. })).count().min(20);
+    let goods = if opts.iter().any(|o| matches!(o, Opt::TradeGood { .. })) { u8::try_from(ask.goods.clamp(0, 16)).unwrap_or(0) } else { 0 };
+    let comms = if opts.iter().any(|o| matches!(o, Opt::Commodity { .. })) { u8::try_from(ask.commodities.clamp(0, 16)).unwrap_or(0) } else { 0 };
+    let mut out = Vec::new();
+    'all: for mask in 0..(1u32 << faces) {
+        for g in 0..=goods {
+            for c in 0..=comms {
+                let set = PaySet { faces: mask, goods: g, commodities: c, buy: 0 };
+                if set_worth(ask, opts, set).is_some() {
+                    out.push(set);
+                    if out.len() >= limit {
+                        break 'all;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The worth `set` pays when it answers Leadership's purchase question: `None` unless the old purchase loop could have ended with it
+/// ("spend 3 influence for a command token?" yes or no, each purchase paid one atom per question until the running total covers it, an
+/// overpayment carried to the next): `buy` tokens between `min` and `max`, nothing spent for none, else `sum >= each * buy` and
+/// `sum - max < each * buy` (ordered with the largest atom last, every earlier atom was taken while a purchase was still open).
+#[must_use]
+pub fn purchase_worth(ask: &PurchaseAsk, opts: &[Opt], set: PaySet) -> Option<i64> {
+    if set.buy < ask.min || set.buy > ask.max {
+        return None;
+    }
+    let worths = set_atoms(opts, ask.pay.goods, ask.pay.commodities, set)?;
+    let sum: i64 = worths.as_slice().iter().sum();
+    let bill = i64::from(ask.each) * i64::from(set.buy);
+    if set.buy == 0 {
+        return (sum == 0).then_some(0);
+    }
+    let max = worths.as_slice().iter().copied().max()?;
+    (sum >= bill && sum - max < bill).then_some(sum)
+}
+
+/// A canonical answer to Leadership's purchase question: `buy` tokens, paid by [`set_from`] over a bill of `each * buy` (the atom at
+/// `first` first). `None` when that many cannot be paid.
+#[must_use]
+pub fn purchase_set(ask: &PurchaseAsk, opts: &[Opt], buy: u8, first: usize) -> Option<PaySet> {
+    if buy == 0 {
+        return (ask.min == 0).then_some(PaySet::default());
+    }
+    let bill = PayAsk { owed: i64::from(ask.each) * i64::from(buy), ..ask.pay };
+    let set = PaySet { buy, ..set_from(&bill, opts, first)? };
+    purchase_worth(ask, opts, set).map(|_| set)
+}
+
+/// The worth `set` pays when it answers the payment question `ask` with the options `opts`: `None` unless it is an answer the old
+/// one-atom-per-question loop could have reached (`sum >= owed` and `sum - max < owed`: ordered with its largest atom last, every
+/// earlier atom was taken while the bill was still open). Proved against the loop by brute force in `pay.rs`'s tests.
+#[must_use]
+pub fn set_worth(ask: &PayAsk, opts: &[Opt], set: PaySet) -> Option<i64> {
+    if set.buy != 0 {
+        return None;
+    }
+    let worths = set_atoms(opts, ask.goods, ask.commodities, set)?;
+    let sum: i64 = worths.as_slice().iter().sum();
+    let max = worths.as_slice().iter().copied().max()?;
+    (sum >= ask.owed && sum - max < ask.owed).then_some(sum)
 }
 
 /// Numbers an option shows (its worth, the pool after it): derived from the position, so they are not part
@@ -177,8 +424,10 @@ pub struct OneAsk {
 /// What the area asks. Parameters only; the option list is derived by `rules::production::pay_opts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Ask {
-    /// Pay a step of a bill.
+    /// Pay the rest of a bill (one set of atoms).
     Pay(PayAsk),
+    /// Leadership: how many command tokens to buy, and the atoms that pay for them (one set).
+    Purchase(PurchaseAsk),
     /// Choose what to build.
     Choose(ChooseAsk),
     /// Choose where to put what was produced.
@@ -208,6 +457,8 @@ pub enum Opt {
     TradeGood { shown: Shown },
     /// Spend a commodity as a trade good (Keleres' agent).
     Commodity { shown: Shown },
+    /// The answer to a payment question: these atoms of its options ([`PaySet`], [`set_worth`]). Never an offered option.
+    Set(PaySet),
     /// Build `made` copies of `unit`, paying for it (`build|unit|made`).
     Build { unit: Unit, made: u8 },
     /// Produce one `unit` by returning a captured one (`exchange|unit`).

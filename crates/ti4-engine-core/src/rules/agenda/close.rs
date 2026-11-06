@@ -21,7 +21,7 @@
 
 use super::{is_law, undisputed_winner};
 use crate::choice::agenda::{Ask as AAsk, Opt as AOpt, Rider};
-use crate::choice::strategy::{gain_pool_choice, Ask as SAsk, Opt as SOpt};
+use crate::choice::strategy::{gain_pool_choice, Ask as SAsk};
 use crate::choice::{Ask, Choice, Opt, Pick};
 use crate::containers::SmallList;
 use crate::generated::{Agenda, System, Planet, Unit, UnitBaseType};
@@ -538,15 +538,15 @@ impl Window for Close {
             self.stage = Stage::Predict;
             return Ok(());
         }
-        let Pick::Opt(Opt::Strategy(SOpt::Pool(pool))) = pick else { return Err(Illegal) };
         if self.stage != Stage::Lead {
             return Err(Illegal);
         }
-        fx::gain_token(sx.state, self.who, pool, 1);
-        self.left -= 1;
-        if self.left == 0 {
-            self.stage = Stage::Predict;
+        let split = crate::choice::strategy::gain_answer(pick, self.left).ok_or(Illegal)?;
+        for pool in crate::choice::strategy::gain_pools(split) {
+            fx::gain_token(sx.state, self.who, pool, 1);
         }
+        self.left = 0;
+        self.stage = Stage::Predict;
         Ok(())
     }
 }
@@ -608,14 +608,24 @@ mod tests {
         t
     }
 
-    /// Run the window, answering each pool question with `pools` in turn.
+    /// The gain answer that puts `pools` (one per token) into the pools.
+    fn gain(pools: &[Pool]) -> Pick {
+        let n = |p: Pool| u8::try_from(pools.iter().filter(|q| **q == p).count()).unwrap();
+        Pick::Opt(Opt::Strategy(crate::choice::strategy::Opt::Gain { tactic: n(Pool::Tactic), fleet: n(Pool::Fleet), strategic: n(Pool::Strategic) }))
+    }
+
+    /// Run the window, answering each gain question (one per seat paid, `left` tokens at once) with the next `left` of `pools`.
     fn run(window: Close, s: &mut CoreState, pools: &[Pool]) -> Driver<Close> {
         let k = Kernel::plain();
         let mut d = Driver::new(window, Resolver::new(&[A], Some(A)), linked(true), 1);
         let mut status = d.run(s, &k).unwrap();
-        for pool in pools {
-            assert!(matches!(status, Status::Asking(_)), "asks before {pool:?}");
-            status = d.resume(s, &k, Pick::Opt(Opt::Strategy(SOpt::Pool(*pool)))).unwrap();
+        let mut rest = pools;
+        while !rest.is_empty() {
+            let Status::Asking(c) = &status else { panic!("asks before {rest:?}") };
+            let Ask::Strategy(SAsk::GainPool { left }) = c.ask else { panic!("a gain question, not {:?}", c.ask) };
+            let (now, later) = rest.split_at(usize::from(left));
+            status = d.resume(s, &k, gain(now)).unwrap();
+            rest = later;
         }
         assert_eq!(status, Status::Done);
         d
@@ -958,18 +968,21 @@ mod tests {
     }
 
     #[test]
-    fn leadership_rider_puts_the_remaining_count_in_each_question() {
+    fn leadership_rider_asks_one_question_for_all_three_tokens() {
         let mut s = game();
         predict(&mut s, B, Prediction::Tagged(Outcome::For, PredictionTag::LeadRider));
         let k = Kernel::plain();
         let mut d = Driver::new(close(law(), Some(Outcome::For)), Resolver::new(&[A], Some(A)), AbilityTable::default(), 1);
-        let mut status = d.run(&mut s, &k).unwrap();
-        for left in [3, 2, 1] {
-            let Status::Asking(c) = status else { panic!("asks with {left} left") };
-            assert_eq!((c.actor, c.ask), (B, Ask::Strategy(SAsk::GainPool { left })));
-            status = d.resume(&mut s, &k, Pick::Opt(Opt::Strategy(SOpt::Pool(Pool::Tactic)))).unwrap();
-        }
+        let before = s.players().by_seat(B).unwrap().econ.tactic_tokens;
+        let status = d.run(&mut s, &k).unwrap();
+        let Status::Asking(c) = status else { panic!("asks") };
+        assert_eq!((c.actor, c.ask), (B, Ask::Strategy(SAsk::GainPool { left: 3 })));
+        assert_eq!(c.opts.len(), 10, "every split of three tokens");
+        // A split that does not sum to the three tokens is refused.
+        assert!(d.resume(&mut s, &k, gain(&[Pool::Tactic, Pool::Tactic])).is_err());
+        let status = d.resume(&mut s, &k, gain(&[Pool::Tactic; 3])).unwrap();
         assert_eq!(status, Status::Done);
+        assert_eq!(s.players().by_seat(B).unwrap().econ.tactic_tokens, before + 3);
     }
 
     #[test]
@@ -1018,7 +1031,7 @@ mod tests {
         assert_eq!(c.actor, B);
         assert_eq!(c.ctx.origin, crate::choice::Origin::ActionCard(ActionCard::TechnologyRider));
         assert!(!c.can_decline(), "\"research 1 technology\" is not optional");
-        let Some(Pick::Opt(Opt::Strategy(SOpt::Research(t)))) = c.pick(0) else { panic!("a technology") };
+        let Some(Pick::Opt(Opt::Strategy(crate::choice::strategy::Opt::Research(t)))) = c.pick(0) else { panic!("a technology") };
         let status = d.resume(&mut s, &k, c.pick(0).unwrap()).unwrap();
         assert_eq!(status, Status::Done, "no paid research follows");
         assert!(!d.window.unsupported());

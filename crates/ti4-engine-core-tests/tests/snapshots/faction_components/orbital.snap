@@ -4,8 +4,8 @@ Q0 seat 0 Promissory(OrbitalPlanet)
 Q1 seat 0 Promissory(OrbitalDeploy { system: VefutII, planet: VefutII, mech: FactionlessMech })
   >0: Promissory(Deploy)
    1: Decline
-Q2 seat 0 Production(Pay(PayAsk { kind: Resources, owed: 3, pool: 4, goods: 0 }))
-  >0: Production(Exhaust { planet: VefutII, source: Resources, shown: Shown { worth: 2, pool_after: 2 } })
+Q2 seat 0 Production(Pay(PayAsk { kind: Resources, owed: 3, pool: 4, goods: 0, commodities: 0 }))
+   0: Production(Exhaust { planet: VefutII, source: Resources, shown: Shown { worth: 2, pool_after: 2 } })
    1: Production(Exhaust { planet: Saudor, source: Resources, shown: Shown { worth: 2, pool_after: 2 } })
 done
 --- delta ---

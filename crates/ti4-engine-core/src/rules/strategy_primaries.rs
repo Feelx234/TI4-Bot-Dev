@@ -10,7 +10,7 @@
 
 use crate::choice::agenda::Shown;
 use crate::choice::generic::Rule;
-use crate::choice::strategy::{ctx, gain_pool_choice, rule_ctx, Ask as SAsk, Opt as SOpt, Subtype as SSub};
+use crate::choice::strategy::{ctx, gain_pool_choice, rule_ctx, Ask as SAsk, Opt as SOpt, Stack, Subtype as SSub};
 use crate::choice::generic::Content;
 use crate::choice::{Ask, Choice, Ctx, Opt, Opts, Origin, Pick, Subtype};
 use crate::containers::SmallList;
@@ -160,8 +160,10 @@ impl Window for WarfarePrimary {
                 fx::remove_command_token(sx.state, self.who, system);
                 self.stage = WStage::Gain;
             }
-            (WStage::Gain, SOpt::Pool(pool)) => {
-                fx::gain_token(sx.state, self.who, pool, 1);
+            (WStage::Gain, SOpt::Gain { tactic, fleet, strategic }) => {
+                for pool in crate::choice::strategy::gain_pools([tactic, fleet, strategic]) {
+                    fx::gain_token(sx.state, self.who, pool, 1);
+                }
                 self.stage = WStage::Redistribute;
             }
             (WStage::Redistribute, SOpt::Split { tactic, fleet, strategic }) => {
@@ -348,7 +350,7 @@ pub enum PStage {
     Speaker,
     /// The two action cards are drawn as a child window, which asks the hand limit's discard (rule 2.4).
     Drawing,
-    /// Waiting on where an agenda goes.
+    /// Waiting on where the agendas go (one question for both, or the lone agenda's).
     Agenda,
     Done,
 }
@@ -364,7 +366,6 @@ pub struct Politics {
     drop_unofficial: bool,
     /// The agendas looked at, in the order they were taken off the deck.
     looked: SmallList<Agenda, 2>,
-    next: u8,
     /// The draw and the hand limit (`action_cards::draw`), a child of the action-card area.
     draw: ErasedChild,
     /// The table has no link to the draw window, or gave it no printed-name groups: the caller declines the run.
@@ -374,7 +375,16 @@ pub struct Politics {
 impl Politics {
     #[must_use]
     pub const fn new(who: Seat, primary: bool, drop_unofficial: bool) -> Self {
-        Self { who, primary, stage: PStage::Start, drop_unofficial, looked: SmallList::new(), next: 0, draw: ErasedChild::idle(), unsupported: false }
+        Self { who, primary, stage: PStage::Start, drop_unofficial, looked: SmallList::new(), draw: ErasedChild::idle(), unsupported: false }
+    }
+
+    /// The agenda question: both agendas at once (66.2: "in any order"), or the lone one when the deck held only one.
+    fn agenda_ask(&self) -> SAsk {
+        match self.looked.as_slice() {
+            [first, second] => SAsk::PoliticsAgendas { first: *first, second: *second },
+            [agenda, ..] => SAsk::PoliticsAgenda { agenda: *agenda },
+            [] => SAsk::PoliticsSpeaker,
+        }
     }
 
     /// Seats that may become speaker: everyone but the speaker, in seating order.
@@ -437,7 +447,7 @@ impl Window for Politics {
         }
         match self.stage {
             PStage::Speaker => Next::Continue(ask(SAsk::PoliticsSpeaker)),
-            PStage::Agenda => Next::Continue(ask(SAsk::PoliticsAgenda { agenda: self.looked.as_slice()[usize::from(self.next)] })),
+            PStage::Agenda => Next::Continue(ask(self.agenda_ask())),
             PStage::Start | PStage::Drawing | PStage::Done => Next::Done,
         }
     }
@@ -453,9 +463,9 @@ impl Window for Politics {
             }),
             PStage::Agenda => Some(Choice {
                 actor: self.who,
-                ask: ask(SAsk::PoliticsAgenda { agenda: self.looked.as_slice()[usize::from(self.next)] }),
+                ask: ask(self.agenda_ask()),
                 ctx: ctx(StrategyCard::Politics, false, SSub::PoliticsPlaceAgenda),
-                opts: opts([SOpt::Top, SOpt::Bottom]),
+                opts: if self.looked.len() == 2 { opts(Stack::ALL.map(SOpt::Stack)) } else { opts([SOpt::Top, SOpt::Bottom]) },
             }),
             PStage::Start | PStage::Done => None,
         }
@@ -476,16 +486,25 @@ impl Window for Politics {
                 self.begin_draw(sx);
             }
             (PStage::Agenda, placed @ (SOpt::Top | SOpt::Bottom)) => {
-                let agenda = self.looked.as_slice()[usize::from(self.next)];
+                let agenda = self.looked.as_slice()[0];
                 if placed == SOpt::Top {
                     sx.state.decks_mut().agenda.put_top(agenda);
                 } else {
                     sx.state.decks_mut().agenda.put_bottom(agenda);
                 }
-                self.next += 1;
-                if usize::from(self.next) == self.looked.len() {
-                    self.stage = PStage::Done;
+                self.stage = PStage::Done;
+            }
+            (PStage::Agenda, SOpt::Stack(stack)) => {
+                let &[first, second] = self.looked.as_slice() else { return Err(Illegal) };
+                let (top, bottom) = stack.piles(first, second);
+                // The top pile goes on from its lowest card up, the bottom pile from its highest card down.
+                for agenda in top.as_slice().iter().rev() {
+                    sx.state.decks_mut().agenda.put_top(*agenda);
                 }
+                for agenda in bottom.as_slice() {
+                    sx.state.decks_mut().agenda.put_bottom(*agenda);
+                }
+                self.stage = PStage::Done;
             }
             _ => return Err(Illegal),
         }
@@ -990,8 +1009,8 @@ mod tests {
         }
         assert_eq!(asked[0], Ask::Strategy(SAsk::PoliticsSpeaker));
         assert_eq!(asked[1], Ask::Cards(crate::choice::cards::Ask::HandLimit { held: 8 }));
-        assert!(matches!(asked[2], Ask::Strategy(SAsk::PoliticsAgenda { .. })) && matches!(asked[3], Ask::Strategy(SAsk::PoliticsAgenda { .. })), "{asked:?}");
-        assert_eq!(asked.len(), 4);
+        assert!(matches!(asked[2], Ask::Strategy(SAsk::PoliticsAgendas { .. })), "both agendas in one question: {asked:?}");
+        assert_eq!(asked.len(), 3);
         assert_eq!(s.players().by_seat(Seat(0)).unwrap().cards.hand.len(), 7);
         assert_eq!(s.meta().speaker, Seat(1));
         assert_eq!(s.decks().agenda.len(), 3, "the agendas went back");

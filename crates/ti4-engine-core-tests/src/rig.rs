@@ -258,6 +258,23 @@ impl<W: Window> Rig<W> {
         self.answer(p)
     }
 
+    /// Answer a payment question with the set of these atoms (offered options; a trade good once per one spent).
+    ///
+    /// # Panics
+    /// When the question is no payment or an atom is not offered.
+    pub fn pay(&mut self, atoms: &[Opt]) -> &mut Self {
+        let opts: Vec<ti4_engine_core::choice::production::Opt> = self.opts().into_iter().filter_map(|o| if let Opt::Production(p) = o { Some(p) } else { None }).collect();
+        let picks: Vec<ti4_engine_core::choice::production::Opt> = atoms.iter().filter_map(|o| if let Opt::Production(p) = o { Some(*p) } else { None }).collect();
+        let set = ti4_engine_core::choice::production::PaySet::of(&opts, &picks).unwrap_or_else(|| panic!("{atoms:?} are not atoms of this question\n{}", self.transcript()));
+        self.answer(Pick::Opt(Opt::Production(ti4_engine_core::choice::production::Opt::Set(set))))
+    }
+
+    /// Answer a payment question with the set of the offered atoms for which `want` holds (a trade good: as many as are held).
+    pub fn pay_where(&mut self, want: impl Fn(&Opt) -> bool) -> &mut Self {
+        let atoms: Vec<Opt> = self.opts().into_iter().filter(|o| want(o)).collect();
+        self.pay(&atoms)
+    }
+
     /// Answer with a specific offered option.
     ///
     /// # Panics
@@ -290,7 +307,16 @@ impl<W: Window> Rig<W> {
         self.answer(Pick::Number(n))
     }
 
+    /// Answer with `p` (a set, a number, an option).
+    ///
+    /// # Panics
+    /// When the driver refuses.
+    pub fn answer_pick(&mut self, p: Pick) -> &mut Self {
+        self.answer(p)
+    }
+
     fn answer(&mut self, p: Pick) -> &mut Self {
+        let p = self.as_answer(p);
         if let Err(e) = self.try_answer(p) {
             panic!("the answer {p:?} was refused: {e:?}\n{}", self.transcript());
         }
@@ -321,13 +347,19 @@ impl<W: Window> Rig<W> {
         }
         for n in 0..500u64 {
             let Some(Status::Asking(c)) = &self.status else { return self };
-            let len = c.opts.len();
+            // A multi-pick (a payment) is answered by one of its legal sets, the canonical one first.
+            let answers = if c.is_multi_pick() { c.answers(64) } else { Vec::new() };
+            let len = if c.is_multi_pick() { answers.len() } else { c.opts.len() };
             let i = match policy {
                 Policy::First => 0,
                 Policy::Last => len.saturating_sub(1),
                 Policy::Mix(seed) => ((seed + n * 7) % len.max(1) as u64) as usize,
             };
-            let p = c.pick(i).unwrap_or(Pick::Number(0));
+            let p = if c.is_multi_pick() {
+                if i == 0 { c.default_pick() } else { answers.get(i).copied() }.unwrap_or(Pick::Number(0))
+            } else {
+                c.pick(i).unwrap_or(Pick::Number(0))
+            };
             self.answer(p);
         }
         panic!("500 questions and the window is still asking\n{}", self.transcript());
@@ -395,6 +427,21 @@ impl<W: Window> Rig<W> {
         r
     }
 
+    /// A test's answer as the question takes it: to a payment (a multi-pick, `docs/MULTIASK1_RESUME.md`) an ATOM means "pay with this
+    /// one first, then the canonical order" (`Choice::pick` of its index); every other pick is itself.
+    fn as_answer(&self, p: Pick) -> Pick {
+        let Some(Status::Asking(c)) = &self.status else { return p };
+        if !c.is_multi_pick() {
+            return p;
+        }
+        match p {
+            Pick::Opt(o) if !matches!(o, Opt::Production(ti4_engine_core::choice::production::Opt::Set(_))) => {
+                c.opts.index_of(&o).and_then(|i| c.pick(i)).unwrap_or(p)
+            }
+            _ => p,
+        }
+    }
+
     /// P4 for the question asked now. Panics with the transcript on a violation.
     ///
     /// # Panics
@@ -410,7 +457,9 @@ impl<W: Window> Rig<W> {
         }
         for (i, o) in c.opts.iter().enumerate() {
             let mut r = self.replay();
-            if let Err(e) = r.try_answer(Pick::Opt(*o)) {
+            // (A payment's option is an atom: the set it leads is the answer.)
+            let pick = if c.is_multi_pick() { c.pick(i).unwrap_or(Pick::Opt(*o)) } else { Pick::Opt(*o) };
+            if let Err(e) = r.try_answer(pick) {
                 panic!("the offered option {i} ({o:?}) is refused: {e:?}\n{}", self.transcript());
             }
         }

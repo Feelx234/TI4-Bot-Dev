@@ -117,7 +117,7 @@ fn play(core: &mut CoreState, env: &Env<'_>, pol: &mut Pol) -> (Vec<Choice>, Res
             Err(e) => return (asked, Err(e)),
             Ok((Live::Asks(a), _)) => {
                 let i = pol(&a.choice).min(a.choice.opts.len() - 1);
-                answer = Some(Pick::Opt(a.choice.opts.as_slice()[i]));
+                answer = Some(a.choice.pick(i).expect("an answer"));
                 asked.push(a.choice);
             }
             Ok((Live::Done, _)) => {
@@ -167,14 +167,14 @@ fn a_clone_in_the_middle_of_the_window_continues_identically() {
                 let again = ask_aftermath(&copy, &env).expect("asks").expect("a question");
                 // (The subtype's text code is the adapter's: a window rebuilt without the table puts the default; everything else is equal.)
                 assert_eq!((again.choice.actor, again.choice.ask, &again.choice.opts), (a.choice.actor, a.choice.ask, &a.choice.opts), "the copy asks the same question");
-                let pick = Pick::Opt(a.choice.opts.as_slice()[0]);
+                let pick = a.choice.pick(0).expect("an answer");
                 let mut rest = core.clone();
                 let p = |_: &Choice| 0;
                 let run = |c: &mut CoreState| {
                     let mut answer = Some(pick);
                     for _ in 0..800 {
                         match advance_aftermath(c, &env, answer.take()).expect("legal") {
-                            (Live::Asks(a), _) => answer = Some(Pick::Opt(a.choice.opts.as_slice()[p(&a.choice)])),
+                            (Live::Asks(a), _) => answer = Some(a.choice.pick(p(&a.choice)).expect("an answer")),
                             (Live::Done, _) => {
                                 c.pending_mut().close(WindowKind::EventScoring);
                                 if c.pending().window(WindowKind::Aftermath).is_none() {
@@ -215,7 +215,7 @@ fn the_payload_on_the_stack_is_the_chain_after_every_question() {
                 let mut copy = core.clone();
                 held.to_pending(&mut copy);
                 assert_eq!(core, copy, "to_pending(from_pending(c)) is the payload");
-                answer = Some(Pick::Opt(a.choice.opts.as_slice()[0]));
+                answer = Some(a.choice.pick(0).expect("an answer"));
             }
             (Live::Done, _) => {
                 core.pending_mut().close(WindowKind::EventScoring);
@@ -403,7 +403,7 @@ fn a_production_capacity_hands_the_step_to_the_production_use_and_announces_it_r
                 assert_eq!(again.choice, a.choice, "the aftermath's own question is the use's");
                 assert!(plain_kinds(&core).is_empty(), "PRODUCTION_RESOLVED is not written while the use asks");
                 let i = stop_producing(&a.choice);
-                answer = Some(Pick::Opt(a.choice.opts.as_slice()[i]));
+                answer = Some(a.choice.pick(i).expect("an answer"));
                 asked_while_open.push(a.choice);
             }
             Live::Done => {
@@ -589,7 +589,7 @@ fn a_unit_built_in_the_aftermath_production_step_is_announced_before_it_is_resol
                     }
                     _ => stop_producing(&a.choice),
                 };
-                answer = Some(Pick::Opt(a.choice.opts.as_slice()[i]));
+                answer = a.choice.pick(i);
             }
             Live::Done => {
                 if core.pending().window(WindowKind::Aftermath).is_none() {
@@ -656,13 +656,13 @@ fn a_feat_of_the_fight_opens_the_scoring_window_and_the_aftermath_waits_for_it()
     let mut scored = false;
     for _ in 0..800 {
         match advance_aftermath(&mut core, &env, answer.take()).expect("legal") {
-            (Live::Asks(a), _) => answer = Some(Pick::Opt(a.choice.opts.as_slice()[0])),
+            (Live::Asks(a), _) => answer = Some(a.choice.pick(0).expect("an answer")),
             (Live::Done, _) => {
                 if core.pending().window(WindowKind::EventScoring).is_some() {
                     assert!(core.pending().window(WindowKind::Aftermath).is_some(), "the aftermath waits under the scoring window");
                     let ask = ask::<EventScoring>(&core, &env).expect("asks").expect("a question");
                     assert_eq!(ask.choice.actor, Seat(0));
-                    let first = Pick::Opt(ask.choice.opts.as_slice()[0]);
+                    let first = ask.choice.pick(0).expect("an answer");
                     let (live, _) = advance_event_scoring(&mut core, &env, Some(first)).expect("legal");
                     assert!(matches!(live, Live::Done), "the one seat with something to score is done");
                     assert!(plain_kinds(&core).contains(&PlainKind::ObjectiveScored));
@@ -813,7 +813,7 @@ fn the_question_shows_the_points_and_a_second_secret_of_the_same_event_waits_for
         assert_eq!(asking.choice.ask, Ask::Objectives(ti4_engine_core::choice::objectives::Ask::Score { vp: 3 }), "the question shows the points held");
         assert_eq!(asking.choice.opts.len(), 3, "two secrets and the decline");
         let who = asking.choice.actor;
-        advance_event_scoring(&mut core, &env, Some(Pick::Opt(asking.choice.opts.as_slice()[0]))).expect("legal");
+        advance_event_scoring(&mut core, &env, Some(asking.choice.pick(0).expect("an answer"))).expect("legal");
         let next = ask::<EventScoring>(&core, &env).expect("open").expect("someone is asked");
         assert_eq!(next.choice.actor == who, again, "capped {capped}: the seat that scored is asked again only without the one-per-player cap");
     }

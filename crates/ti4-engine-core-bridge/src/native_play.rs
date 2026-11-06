@@ -171,6 +171,20 @@ pub struct Asked {
     pub prompt: String,
     pub options: Vec<String>,
     pub chosen: String,
+    /// How the string engine asks the same thing when it asks it as a sequence of questions (a multi-ask of the core,
+    /// [`crate::multiask::legacy_answers`]); `None`: one question, answered with `chosen`.
+    pub legacy: Option<crate::oracle::Scripted>,
+    /// A question only the string asks (the status phase's token gain): no decision of the native game (not in the chain), the shadow
+    /// answers the string with `chosen`.
+    pub phantom: bool,
+}
+
+impl Asked {
+    /// What the string engine is answered with for this question.
+    #[must_use]
+    pub fn scripted(&self) -> crate::oracle::Scripted {
+        self.legacy.clone().unwrap_or_else(|| crate::oracle::Scripted::One(self.chosen.clone()))
+    }
 }
 
 /// The seat-bound answerer: a deterministic seeded random chooser over the offered options (the random pick under the rule bot, `ti4_rule_bot::
@@ -196,12 +210,28 @@ impl Asker for Bot<'_> {
         let place = self.seats.iter().position(|s| s == rendered.player.as_str()).unwrap_or(0);  // mutants:skip (a seat text always found; the fallback place)
         let (picked, _, _) = ti4_rule_bot::choose_explained(rendered, None, self.seed, place, self.index);
         self.index += 1;
-        let chosen = rendered.options[picked.min(rendered.options.len() - 1)].id.clone();  // mutants:skip (picked is always below the length: the clamp is defensive)
+        let mut chosen = rendered.options[picked.min(rendered.options.len() - 1)].id.clone();  // mutants:skip (picked is always below the length: the clamp is defensive)
+        // A multi-pick (a payment, Leadership's purchase): the picked atom leads the set the engine fills up (`Choice::pick`); the answer
+        // names the whole set, so the shadow can play it to the string atom by atom.
+        if rendered.multi_pick.is_some() {
+            let choice = &q.asking.choice;
+            if let Some(ti4_engine_core::choice::Pick::Opt(ti4_engine_core::choice::Opt::Production(ti4_engine_core::choice::production::Opt::Set(set)))) = choice.pick(picked) {
+                chosen = ti4_engine::render::production::set_text(choice.opts.as_slice(), &rendered.options, set);
+            }
+        }
+        // The shadow's string cannot reach two of Politics' six orders (S10): the harness seat takes the other order of the same piles, so a
+        // shadowed game plays on (the core's six are proved by its own tests).
+        if let Some(swapped) = crate::multiask::reachable_politics_order(rendered, &chosen) {
+            chosen = swapped;
+        }
+        let legacy = crate::multiask::legacy_answers(rendered, &chosen);
         self.asked.push(Asked {
             player: rendered.player.as_str().to_owned(),
             prompt: rendered.prompt.clone(),
             options: rendered.options.iter().map(|o| o.id.clone()).collect(),
             chosen: chosen.clone(),
+            legacy,
+            phantom: false,
         });
         Ok(chosen)
     }
@@ -507,7 +537,11 @@ impl NativeGame {
             return Step::Gap(Gap { arm: format!("ask.{source}"), kind: GapKind::AskSource, cause: format!("question source {source}") });
         }
         let arm_label = source.map_or_else(|| name.to_owned(), |s| format!("ask.{}", ask_name(s)));
-        // 3. The native step.
+        // 3. The native step. (The status phase's token gain asks nothing: the string still asks a pool per token, the shadow's phantoms.)
+        let gaining: Vec<String> = match self.core.pending().window(WindowKind::Tokens) {
+            Some(ti4_engine_core::state::Window::Tokens(t)) => t.pending.as_slice().iter().map(|s| self.render.seat_text(*s).to_owned()).collect(),
+            _ => Vec::new(),
+        };
         let mut lone = live::LoneCard(&mut bot);
         let out = match live::live_step(&mut self.core, arm, &lcx, &mut lone) {
             Ok(out) => out,
@@ -529,9 +563,14 @@ impl NativeGame {
             after_arm(&mut self.core, arm);
         }
         // 5. Commit: the decisions, the events, the code table.
-        let asked = std::mem::take(&mut bot.asked);
+        let mut asked = std::mem::take(&mut bot.asked);
+        if !gaining.is_empty() && self.core.pending().window(WindowKind::Tokens).is_none() {
+            let (prompt, options, chosen) = crate::multiask::status_gain_question();
+            let phantoms = gaining.into_iter().map(|player| Asked { player, prompt: prompt.to_owned(), options: options.clone(), chosen: chosen.clone(), legacy: None, phantom: true });
+            asked.splice(0..0, phantoms);
+        }
         self.decided = bot.index;
-        for a in &asked {
+        for a in asked.iter().filter(|a| !a.phantom) {
             let mut h = Sha256::new();
             h.update(self.chain.as_bytes());
             h.update(format!("{}\u{1}{}\u{1}{}", a.player, a.prompt, a.chosen).as_bytes());
@@ -837,6 +876,15 @@ pub const KNOWN_S7: &str = "known string bug S7";
 /// The label of a difference that is the string's S9 (Rearmament Agreement, For: the string places the plain mech, the core the seat's own from its reinforcements).
 pub const KNOWN_S9: &str = "known string bug S9";
 
+/// The label of a difference that is the string's S10 (Politics places the two agendas it looked at one at a time in the order they were drawn: it cannot put the
+/// first above the second on top, nor below it at the bottom; 66.2 says "in any order", the core offers all six orders since the multi-ask conversion).
+pub const KNOWN_S10: &str = "known string bug S10";
+
+/// S10: the core's Politics answer is one of the two orders the string cannot reach ([`crate::multiask::politics_answers`] is `None`).
+fn s10_politics_order(answered: &[&Asked]) -> bool {
+    answered.iter().any(|a| a.legacy.is_none() && a.prompt.ends_with("on the top or the bottom of the agenda deck") && a.chosen.contains('/'))
+}
+
 /// S6, S7 and S9 (`docs/STRING_ENGINE_BUGS.md`, rules version 36): the step the shadow compares ran an effect the core plays as printed and the string does not.
 /// S6: the string's events of the step announce the Ixthian Artifact's effect (`AGENDA_EFFECT_RESOLVED:artifact` / `AGENDA_EFFECT_DEFERRED:artifact`), after which the two
 /// sides differ in questions (the core asks the researches or the units to destroy), events and state (the board). S7: the group answered a Parley, after which the string
@@ -846,6 +894,8 @@ fn effect_bug(answered: &[&Asked], legacy_events: &[String]) -> Option<&'static 
         Some(KNOWN_S6)
     } else if answered.iter().any(|a| a.chosen == "parley") {
         Some(KNOWN_S7)
+    } else if s10_politics_order(answered) {
+        Some(KNOWN_S10)
     } else if legacy_events.iter().any(|e| e == "AGENDA_EFFECT_RESOLVED:rearmament") {
         // S9: only the For half differs (the Against half is the same on both sides), so a difference in this step is the For's mech.
         Some(KNOWN_S9)
@@ -1079,7 +1129,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 // where the native loop has a step of its own: the answers are still unused.)
                 // (Or the string stopped after the events that open an arm and asked nothing, where the native step puts the question right behind them: the
                 // retreat announcement after `RETREAT_STEP_STARTED`. Those events are the head of what the native steps pushed; the legacy game goes on.)
-                while run.records.is_empty() && (!owed.native.is_empty() || run.events.is_empty() || events_lead(&owed.native, &group, &run.events)) && run.info.error.is_none() && (!group.iter().all(|p| p.asked.is_empty()) || steps_idle(&run, &group)) && catch_up_allowed(catch_up) {
+                while run.fresh_is_empty() && (!owed.native.is_empty() || run.events.is_empty() || events_lead(&owed.native, &group, &run.events)) && run.info.error.is_none() && (!group.iter().all(|p| p.asked.is_empty()) || steps_idle(&run, &group)) && catch_up_allowed(catch_up) {
                     let arms: Vec<String> = group.iter().map(|p| p.source.map_or_else(|| arms::name(p.arm).to_owned(), |s| format!("ask.{}", ask_name(s)))).collect();
                     let _ = (legacy.decisions_since(), legacy.events_since());
                     let mut new_legacy = run.events.clone();
@@ -1095,7 +1145,7 @@ pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result
                 if first_difference.is_some() {
                     break End::Finished;
                 }
-                let mut used = run.records.len();
+                let mut used = run.used();
                 let mut have: usize = group.iter().map(|p| p.asked.len()).sum();
                 while have < used {
                     match carry.take().unwrap_or_else(|| native.step()) {
@@ -1273,12 +1323,12 @@ fn ahead_for(group: &[Played]) -> usize {
 }
 
 /// The answers of the next `n` native steps, played on a fork (the native game itself does not move).
-fn answers_ahead(native: &NativeGame, n: usize) -> Vec<String> {
+fn answers_ahead(native: &NativeGame, n: usize) -> Vec<(Option<String>, crate::oracle::Scripted)> {
     let mut fork = native.fork();
     let mut out = Vec::new();
     for _ in 0..n {
         match fork.step() {
-            Step::Played(p) => out.extend(p.asked.iter().map(|a| a.chosen.clone())),
+            Step::Played(p) => out.extend(p.asked.iter().map(|a| (a.legacy.is_some().then(|| a.player.clone()), a.scripted()))),
             other => {
                 if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
                     eprintln!("  answers ahead stop at a step that is not a played one: {}", match &other { Step::Gap(g) => format!("gap {} {}", g.arm, g.cause), Step::Defect(d) => format!("defect {} {}", d.arm, d.what), _ => "finished".to_owned() });
@@ -1300,26 +1350,73 @@ fn legacy_prefix<T: Clone>(strict: bool, legacy: Vec<T>, native_len: usize) -> V
 struct LegacyRun {
     info: crate::oracle::StepInfo,
     records: Vec<ti4_engine::choice::DecisionRecord>,
+    /// For each record, the scripted entry (the place in the group's questions, then the ones ahead) that answered it.
+    by: Vec<usize>,
     events: Vec<String>,
+}
+
+impl LegacyRun {
+    /// How many of the native questions (the group's, then the ones ahead) the legacy step used.
+    fn used(&self) -> usize {
+        if self.by.len() != self.records.len() {
+            return self.records.len();
+        }
+        // (Not the last: a purchase's entry answers its closing "no" after the gain entry behind it answered the pools. An entry carried over
+        // from the step before is no question of this group.)
+        self.by.iter().filter(|b| **b != crate::oracle::CARRIED).max().map_or(0, |last| last + 1)
+    }
+
+    /// The step answered no question of the group (none at all, or only the rest of an entry carried over from the step before).
+    fn fresh_is_empty(&self) -> bool {
+        self.records.len() == self.by.len() && self.by.iter().all(|b| *b == crate::oracle::CARRIED) || self.records.is_empty()
+    }
+
+    /// The legacy questions as one value per native question (`asked`, then the ones ahead): a plain question as the record says, the
+    /// questions of a multi-ask's expansion as the native question itself when they match it loosely ([`crate::multiask::loose_match`]), else
+    /// as the list of the string's questions (a difference).
+    fn questions(&self, asked: &[&Asked]) -> Vec<Value> {
+        let one = |r: &ti4_engine::choice::DecisionRecord| json!({ "player": r.player.as_str(), "prompt": r.prompt, "options": r.offered });
+        if self.by.len() != self.records.len() {
+            return self.records.iter().map(one).collect();
+        }
+        let mut out = Vec::new();
+        // The questions an entry carried over from the step before answered: the rest of a native question the group before already compared.
+        for entry in 0..self.used() {
+            let records: Vec<&ti4_engine::choice::DecisionRecord> = self.records.iter().zip(&self.by).filter(|(_, by)| **by == entry).map(|(r, _)| r).collect();
+            match asked.get(entry) {
+                Some(a) if a.legacy.is_some() => {
+                    let shown: Vec<(&str, &str, &[String])> = records.iter().map(|r| (r.player.as_str(), r.chosen.as_str(), r.offered.as_slice())).collect();
+                    if crate::multiask::loose_match(&a.player, &a.scripted(), &shown) {
+                        out.push(json!({ "player": a.player, "prompt": a.prompt, "options": a.options }));
+                    } else {
+                        out.push(Value::Array(records.iter().map(|r| one(r)).collect()));
+                    }
+                }
+                _ => out.extend(records.iter().map(|r| one(r))),
+            }
+        }
+        out
+    }
 }
 
 /// Step the legacy game once with the answers of `group` (and then the `ahead` ones, which a question the string asks inside the step
 /// takes); what the step did not use is dropped.
-fn run_legacy(legacy: &mut MaskSubject<LegacyMask>, group: &[Played], ahead: &[String]) -> LegacyRun {
+fn run_legacy(legacy: &mut MaskSubject<LegacyMask>, group: &[Played], ahead: &[(Option<String>, crate::oracle::Scripted)]) -> LegacyRun {
     if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() {
         eprintln!("  legacy script: {:?} + ahead {:?}", group.iter().flat_map(|p| p.asked.iter().map(|a| a.chosen.as_str())).collect::<Vec<_>>(), ahead);
     }
     for a in group.iter().flat_map(|p| p.asked.iter()) {
-        legacy.answer(&a.chosen);
+        legacy.answer_scripted(a.legacy.is_some().then(|| a.player.clone()), a.scripted());
     }
-    for a in ahead {
-        legacy.answer(a);
+    for (player, a) in ahead {
+        legacy.answer_scripted(player.clone(), a.clone());
     }
     let info = legacy.step();
+    let by = legacy.answered_by();
     legacy.clear_script();
     let records = crate::legacy_adapter::thin_records(legacy.peek_records());
     let events = legacy.peek_events().to_vec();
-    LegacyRun { info, records, events }
+    LegacyRun { info, records, by, events }
 }
 
 /// Step the legacy game once with the answers of `group` and compare.
@@ -1399,7 +1496,7 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
     let strict = strict(last.arm);
     // Questions: player, prompt and the option ids, in order. A group that ENDS an arm of the string's close compares the prefix.
     let n: Vec<Value> = asked.iter().map(|a| json!({ "player": a.player, "prompt": a.prompt, "options": a.options })).collect();
-    let l: Vec<Value> = records.iter().map(|r| json!({ "player": r.player.as_str(), "prompt": r.prompt, "options": r.offered })).collect();
+    let l = run.questions(&asked);
     let l = legacy_prefix(strict, l, n.len());
     if let Some(d) = crate::native_subject::first_leaf(&Value::Array(l.clone()), &Value::Array(n.clone())) {
         let known = if s1_in_questions(&legacy.game().state, &d.path, &n, &l) {
@@ -2001,7 +2098,7 @@ mod tests {
         // The next group's legacy events must open with it.
         let mut next = Owed { native: vec!["INVENTED".to_owned()], legacy: Vec::new(), announced: Vec::new() };
         let nothing: Vec<Played> = vec![Played { arm: Arm::Tokens, source: None, asked: Vec::new(), events: Vec::new(), announced: 0, finished: false }];
-        let run = LegacyRun { info: run.info, records: Vec::new(), events: vec!["OTHER".to_owned()] };
+        let run = LegacyRun { info: run.info, records: Vec::new(), by: Vec::new(), events: vec!["OTHER".to_owned()] };
         let d = compare_run(&mut legacy, &native, &base, &nothing, &run, &mut next, false).expect("the string pushed another line than the one owed");
         assert_eq!((d.what, d.native.as_str(), d.legacy.as_str()), ("events", "INVENTED", "OTHER"));
     }
@@ -2277,7 +2374,7 @@ mod tests {
     /// Rules version 36, string bugs S6 (Ixthian Artifact) and S7 (Parley): the step that ran the effect is the one the shadow recognises, nothing else.
     #[test]
     fn s6_and_s7_are_recognised_by_the_step_that_ran_the_effect() {
-        let asked = |chosen: &str| Asked { player: "a".to_owned(), prompt: "p".to_owned(), options: vec![], chosen: chosen.to_owned() };
+        let asked = |chosen: &str| Asked { player: "a".to_owned(), prompt: "p".to_owned(), options: vec![], chosen: chosen.to_owned(), legacy: None, phantom: false };
         let (parley, decline) = (asked("parley"), asked("decline"));
         assert_eq!(effect_bug(&[&parley], &[]), Some(KNOWN_S7));
         for event in ["AGENDA_EFFECT_RESOLVED:artifact", "AGENDA_EFFECT_DEFERRED:artifact"] {
@@ -2519,7 +2616,7 @@ mod tests {
     #[test]
     fn a_legacy_step_that_did_and_said_nothing_is_idle_against_a_group_that_pushed_events() {
         let info = crate::oracle::StepInfo { phase: "action".to_owned(), active: None, finished: false, error: None, resolved_choice: false };
-        let run = |events: &[&str]| LegacyRun { info: info.clone(), records: Vec::new(), events: events.iter().map(|e| (*e).to_owned()).collect() };
+        let run = |events: &[&str]| LegacyRun { info: info.clone(), records: Vec::new(), by: Vec::new(), events: events.iter().map(|e| (*e).to_owned()).collect() };
         let pushed = Played { arm: Arm::Phase, source: None, asked: Vec::new(), events: vec!["STATUS_PHASE_BEGAN".to_owned()], announced: 0, finished: true };
         let silent = Played { events: Vec::new(), ..pushed.clone() };
         assert!(steps_idle(&run(&[]), std::slice::from_ref(&pushed)));
@@ -2534,7 +2631,7 @@ mod tests {
         let played = |arm: Arm, source: Option<AskArm>, asks: usize| Played {
             arm,
             source,
-            asked: (0..asks).map(|_| Asked { player: "a".to_owned(), prompt: "p".to_owned(), options: vec![], chosen: "c".to_owned() }).collect(),
+            asked: (0..asks).map(|_| Asked { player: "a".to_owned(), prompt: "p".to_owned(), options: vec![], chosen: "c".to_owned(), legacy: None, phantom: false }).collect(),
             events: Vec::new(),
             announced: 0,
             finished: true,

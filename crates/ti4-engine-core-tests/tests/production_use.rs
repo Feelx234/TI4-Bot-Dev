@@ -60,7 +60,7 @@ struct Played {
 }
 
 fn pick_where(c: &Choice, f: &dyn Fn(&Opt) -> bool) -> Option<Pick> {
-    c.opts.iter().find(|o| f(o)).map(|o| Pick::Opt(*o))
+    c.opts.iter().find(|o| f(o)).and_then(|o| c.answer_with(*o))
 }
 
 /// Run the open use to its end; each question is answered by `pol` (`None`: the first option).
@@ -77,7 +77,7 @@ fn play(core: &mut CoreState, env: &Env<'_>, pol: &mut dyn FnMut(&Choice) -> Opt
                 played.events.extend(out.emitted.iter().map(|e| e.kind));
                 match live {
                     Live::Asks(a) => {
-                        answer = Some(pol(&a.choice).unwrap_or(Pick::Opt(a.choice.opts.as_slice()[0])));
+                        answer = Some(pol(&a.choice).unwrap_or(a.choice.pick(0).expect("an answer")));
                         played.asked.push(a.choice);
                     }
                     Live::Done => return played,
@@ -140,7 +140,7 @@ fn units_produced_names_the_source_and_every_unit_with_its_place() {
         let (live, out) = advance_production(&mut core, &env, answer.take()).expect("legal");
         announced = announced.or_else(|| out.emitted.iter().find(|e| e.kind == EventKind::UnitsProduced).cloned());
         match live {
-            Live::Asks(a) => answer = Some(pol(&a.choice).unwrap_or(Pick::Opt(a.choice.opts.as_slice()[0]))),
+            Live::Asks(a) => answer = Some(pol(&a.choice).unwrap_or(a.choice.pick(0).expect("an answer"))),
             Live::Done => break,
         }
     }
@@ -248,7 +248,7 @@ fn a_clone_in_the_middle_of_the_window_continues_identically_and_the_payload_is_
                 let mut again = core.clone();
                 machine.to_pending(&mut again);
                 assert_eq!(again, core, "to_pending(from_pending(c)) is the payload after question {questions}");
-                let pick = pol(&a.choice).unwrap_or(Pick::Opt(a.choice.opts.as_slice()[0]));
+                let pick = pol(&a.choice).unwrap_or(a.choice.pick(0).expect("an answer"));
                 let mut copy = core.clone();
                 let mut original = core.clone();
                 let ra = play_rest(&mut original, &env, pick);
@@ -272,7 +272,7 @@ fn play_rest(core: &mut CoreState, env: &Env<'_>, pick: Pick) -> usize {
         match live {
             Live::Asks(a) => {
                 n += 1;
-                answer = Some(pol(&a.choice).unwrap_or(Pick::Opt(a.choice.opts.as_slice()[0])));
+                answer = Some(pol(&a.choice).unwrap_or(a.choice.pick(0).expect("an answer")));
             }
             Live::Done => return n,
         }
@@ -432,7 +432,7 @@ fn an_ability_use_announces_its_units_as_an_ability_and_offers_no_self_assembly(
         match live {
             Live::Asks(a) => {
                 asked_tech |= matches!(a.choice.ask, Ask::Technology(_));
-                answer = Some(pol(&a.choice).unwrap_or(Pick::Opt(a.choice.opts.as_slice()[0])));
+                answer = Some(pol(&a.choice).unwrap_or(a.choice.pick(0).expect("an answer")));
             }
             Live::Done => break,
         }
@@ -554,7 +554,7 @@ fn the_machine_reports_what_the_use_made_so_far() {
         if matches!(a.choice.ask, Ask::Production(PAsk::Choose(_))) {
             break;
         }
-        let pick = pick_where(&a.choice, &|o| matches!(o, Opt::Production(POpt::TradeGood { .. }))).unwrap_or(Pick::Opt(a.choice.opts.as_slice()[0]));
+        let pick = pick_where(&a.choice, &|o| matches!(o, Opt::Production(POpt::TradeGood { .. }))).unwrap_or(a.choice.pick(0).expect("an answer"));
         live = advance_production(&mut core, &env, Some(pick)).expect("legal").0;
     }
     let made = ProductionMachine::from_pending(&core, &k).unwrap().made();

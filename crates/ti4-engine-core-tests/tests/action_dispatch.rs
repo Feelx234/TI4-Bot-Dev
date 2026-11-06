@@ -63,7 +63,8 @@ fn typed(s: &CoreState, kind: EventKind) -> usize {
 fn pick(s: &mut CoreState, e: &Env<'_>, want: impl Fn(&Opt) -> bool) -> Result<(Live, Out), LiveError> {
     let q = ask_ask(s, e).unwrap().unwrap().choice;
     let opt = q.opts.as_slice().iter().copied().find(|o| want(o)).expect("the option is on the menu");
-    advance_ask(s, e, Some(Pick::Opt(opt)))
+    // (A payment's option is an atom: the answer is the set it leads.)
+    advance_ask(s, e, q.answer_with(opt))
 }
 
 fn with_map(seats: usize) -> (CoreState, Kernel) {
@@ -998,7 +999,7 @@ fn build_only(s: &mut CoreState, e: &Env<'_>, mut live: Live, wanted: Unit, time
         if matches!(take, Opt::Production(POpt::Build { unit, .. }) if unit == wanted) {
             built += 1;
         }
-        live = advance_ask(s, e, Some(Pick::Opt(take))).unwrap().0;
+        live = advance_ask(s, e, q.answer_with(take)).unwrap().0;
     }
 }
 

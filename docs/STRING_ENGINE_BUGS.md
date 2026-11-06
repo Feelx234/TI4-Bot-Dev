@@ -193,6 +193,22 @@ home system."
   (`native_play::effect_bug`) and cannot play on past it.
 * What a fix of the string would need (not done, user rule): `placed_unit_id(.., "mech")` and `supply::allowed` in `effect_rearmament`.
 
+## S10. Politics places the two agendas it looked at one at a time, in the order they were drawn
+
+Found by lane core-multiask-1 (2026-11-06, `docs/MULTIASK1_RESUME.md`). Printed card (Politics primary, rule 66.2): "Look at the top 2 cards of the agenda
+deck. Place each card on the top or bottom of the deck in any order." Six final orders.
+
+* What the string does (`strategy_cards::politics`): asks "place {agenda} where" for the first card drawn, then for the second, each top or bottom. Both on top
+  puts the second above the first; both on the bottom puts the second below the first. The other two orders (first above second on top, first below second
+  at the bottom) cannot be reached.
+* What the core does now (`rules/strategy_primaries.rs::Politics`): ONE question over the six orders (`Ask::PoliticsAgendas`, `Opt::Stack`). Test
+  `strategy_primaries::politics_reaches_every_order_of_the_two_agendas_the_rules_allow` (4 of 6 before the conversion, 6 now).
+* Who is right: the core.
+* The harness: the shadow plays the four shared orders to the string as its two answers (`multiask::politics_answers`); a game whose answer is one of the
+  other two stops there as `(known string bug S10)` (`native_play::s10_politics_order`). The rule bot only picks the four shared orders (same verdict per agenda
+  as before); the shadow's random seat picks any.
+* What a fix of the string would need (not done, user rule): one question over the six orders in `strategy_cards::politics`.
+
 ## Harness limits found on the way (the shadow's, not the engines')
 
 * H1. A game the string has not stepped yet carries its galaxy with `hyperlane_lanes` off (`laws::apply_to_galaxy` runs at the start of every step). The core

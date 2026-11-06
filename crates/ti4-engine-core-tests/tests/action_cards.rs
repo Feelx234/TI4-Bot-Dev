@@ -263,7 +263,7 @@ mod cards {
     }
 
     #[test]
-    fn summit_gives_two_command_tokens_one_pool_at_a_time() {
+    fn summit_gives_two_command_tokens_in_one_question() {
         covers_card!(ActionCard::Summit);
         let mut rig = play_rig(ActionCard::Summit).expect("a play");
         rig.run();
@@ -274,10 +274,9 @@ mod cards {
         };
         let start = total(&rig.state);
         assert_eq!(start, before.tactic_tokens + before.fleet_tokens + before.strategic_tokens);
-        rig.pick(0);
-        assert!(!rig.is_done(), "two tokens: a second question");
+        assert_eq!(rig.opts().len(), 6, "every split of two tokens");
         rig.pick(1);
-        assert!(rig.is_done());
+        assert!(rig.is_done(), "two tokens: one question");
         assert_eq!(total(&rig.state), start + 2);
     }
 

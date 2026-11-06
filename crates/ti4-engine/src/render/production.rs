@@ -4,7 +4,7 @@
 //! Owner: package B3. Ported: the payment question (`pay` options: exhaust a planet face, spend a trade good,
 //! spend a commodity), byte for byte as `production::payment_options` lists them.
 
-use ti4_engine_core::choice::production::{Ask, ChooseAsk, Currency, Opt, PayAsk, PlaceAsk, Shown, Subtype};
+use ti4_engine_core::choice::production::{Ask, ChooseAsk, Currency, Opt, PayAsk, PaySet, PlaceAsk, Shown, Subtype};
 use ti4_engine_core::generated::{System, Unit};
 use ti4_engine_core::rules::production::Spot;
 use ti4_engine_core::query::fleet::Standing;
@@ -36,6 +36,20 @@ fn planet_id(p: Planet) -> &'static str {
     <Planet as IdStr>::as_str(p)
 }
 
+/// The raw id of a payment set (`set:{faces}:{goods}:{commodities}:{buy}`).
+#[must_use]
+pub fn set_id(set: PaySet) -> String {
+    format!("set:{}:{}:{}:{}", set.faces, set.goods, set.commodities, set.buy)
+}
+
+/// A payment set back from [`set_id`].
+#[must_use]
+pub fn parse_set_id(id: &str) -> Option<PaySet> {
+    let mut parts = id.strip_prefix("set:")?.split(':');
+    let set = PaySet { faces: parts.next()?.parse().ok()?, goods: parts.next()?.parse().ok()?, commodities: parts.next()?.parse().ok()?, buy: parts.next()?.parse().ok()? };
+    parts.next().is_none().then_some(set)
+}
+
 impl Family for Fam {
     type Ask = Ask;
     type Opt = Opt;
@@ -45,6 +59,7 @@ impl Family for Fam {
         match a {
             Ask::AgentOffer { payer } => format!("Xander Alexin Victori III: let {} spend commodities as trade goods", r.seat_text(*payer)),
             Ask::Pay(p) => format!("pay {} more {}", p.owed, name(p.kind)),
+            Ask::Purchase(p) => format!("buy command tokens for {} influence each (up to {})", p.each, p.max),
             Ask::Choose(c) => format!("produce in {} ({} left)", <System as IdStr>::as_str(c.system), c.remaining),
             Ask::Place(p) => format!("place the {}", unit_id(p.unit)),
             Ask::SlingSystem(_) => "Sling Relay: produce in which dock system".to_owned(),
@@ -74,11 +89,17 @@ impl Family for Fam {
     }
 
     fn option(r: &Render, a: &Ask, o: &Opt) -> ChoiceOption {
-        let PayAsk { kind, owed, pool, goods } = match *a {
+        // The answer to a payment question: a set of its atoms, named raw (the bits of its faces, the goods, the commodities, the tokens
+        // bought) because the atoms are the question's (a client names the atoms' ids joined by `+`, `live::pick_of`).
+        if let Opt::Set(set) = *o {
+            return ChoiceOption::labelled(set_id(set), "multi_pick", "pay with these");
+        }
+        let PayAsk { kind, owed, pool, goods, .. } = match *a {
             Ask::AgentOffer { payer } => {
                 return ChoiceOption::labelled("use", "leader_ability", format!("exhaust the agent: {}'s commodities count as trade goods", r.seat_text(payer)));
             }
             Ask::Pay(p) => p,
+            Ask::Purchase(p) => p.pay,
             Ask::Choose(c) => return build_option(r, &c, o),
             Ask::Place(p) => return place_option(r, &p, o),
             Ask::SlingSystem(_) | Ask::SlingShip(_) | Ask::Economy(_) | Ask::Hero(_) => return triggered_option(a, o),
@@ -129,6 +150,7 @@ impl Family for Fam {
             | Opt::HeroUse
             | Opt::Use
             | Opt::One { .. }
+            | Opt::Set(_)
             | Opt::Decline => unreachable!("builds are asked by Ask::Choose"),
             Opt::Commodity { shown } => {
                 let worth = i64::from(shown.worth);
@@ -153,6 +175,7 @@ impl Family for Fam {
         let kind = match *a {
             Ask::AgentOffer { .. } => return (id == "use").then_some(Opt::Use),
             Ask::Pay(p) => p.kind,
+            Ask::Purchase(p) => p.pay.kind,
             Ask::Choose(_) => return parse_build(id),
             Ask::Place(p) => return parse_place(&p, id),
             Ask::SlingSystem(_) => return Some(Opt::SlingSystem { system: <System as IdStr>::from_id(id)? }),
@@ -172,6 +195,9 @@ impl Family for Fam {
                 };
             }
         };
+        if let Some(set) = parse_set_id(id) {
+            return Some(Opt::Set(set));
+        }
         match id {
             "trade_good" => Some(Opt::TradeGood { shown: Shown::default() }),
             "commodity" => Some(Opt::Commodity { shown: Shown::default() }),
@@ -198,7 +224,7 @@ mod tests {
     #[test]
     fn every_payment_option_parses_back_from_its_id() {
         let r = Render::default();
-        let ask = CoreAsk::Production(Ask::Pay(PayAsk { kind: Currency::Resources, owed: 3, pool: 5, goods: 1 }));
+        let ask = CoreAsk::Production(Ask::Pay(PayAsk { kind: Currency::Resources, owed: 3, pool: 5, goods: 1, commodities: 1 }));
         let planet = <Planet as IdStr>::from_id("abyz").expect("abyz is a planet");
         let opts = [
             Opt::Exhaust { planet, source: Currency::Resources, shown: Shown { worth: 3, pool_after: 2 } },

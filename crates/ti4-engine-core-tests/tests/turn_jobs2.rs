@@ -806,7 +806,7 @@ fn chaos_mapping_produces_the_unit_the_seat_picks_and_pays_for_it() {
     for _ in 0..8 {
         assert!(matches!(q.ask, Ask::Production(PAsk::Pay(_))), "{:?}", q.ask);
         let pay = q.opts.as_slice().iter().copied().find(|o| matches!(o, Opt::Production(POpt::TradeGood { .. }))).expect("a trade good pays");
-        match advance_ask(&mut s, &e, Some(Pick::Opt(pay))).unwrap() {
+        match advance_ask(&mut s, &e, q.answer_with(pay)).unwrap() {
             (Live::Asks(a), _) => q = a.choice,
             (Live::Done, _) => break,
         }
@@ -837,7 +837,7 @@ fn a_chaos_mapping_unit_over_the_capacity_of_its_system_is_followed_by_the_remov
     let mut q = asked(advance_ask(&mut s, &e, Some(Pick::Opt(fighter))));
     while matches!(q.ask, Ask::Production(PAsk::Pay(_))) {
         let pay = q.opts.as_slice().iter().copied().find(|o| matches!(o, Opt::Production(POpt::TradeGood { .. }))).expect("a trade good pays");
-        q = asked(advance_ask(&mut s, &e, Some(Pick::Opt(pay))));
+        q = asked(advance_ask(&mut s, &e, q.answer_with(pay)));
     }
     assert!(matches!(q.ask, Ask::Tactical(_)), "the enforcement asks which unit goes: {:?}", q.ask);
     assert_eq!(q.actor, Seat(0));

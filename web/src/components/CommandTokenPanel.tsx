@@ -37,7 +37,6 @@ import {
   type CommandTokenView,
   type TokenOutcome,
   type TokenStaging,
-  restackMoves,
 } from "../presentation/commandTokens.ts";
 import { useStatusTokenPlanContext } from "./StatusTokenPlanHost.tsx";
 import { describeStatusPart } from "../presentation/statusTokenPlan.ts";
@@ -115,8 +114,6 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
   const blocker = confirmBlocker(view, staging, bought);
   const changed = bought > 0 || override !== null || TOKEN_POOLS.some((pool) => staging[pool] !== start[pool]);
   const gain = view.mode === "gain";
-  const restack = view.mode === "restack";
-  const moveCount = restack ? restackMoves(view, staging).length : 0;
   const purchase = view.purchase;
   const buyLimit = maxPurchases(view);
   const check = paymentCheck(view, bought, override);
@@ -192,13 +189,6 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
           <span className="secondary-prep__note" style={{ margin: 0 }}>
             {describeStatusPart(statusPlan.part, planned)}
           </span>
-        </p>
-      )}
-      {restack && (
-        <p className="token-panel__note" data-testid="token-restack-note">
-          Predictive Intelligence: arrange the pools you want at the end of your turn. The{" "}
-          {moveCount === 0 ? "moves" : `${moveCount} move${moveCount === 1 ? "" : "s"}`} needed are
-          sent one after another, then the redistribution ends.
         </p>
       )}
       {purchase && (
@@ -496,11 +486,7 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
         >
           {submitting
             ? "Submitting..."
-            : restack
-              ? moveCount === 0
-                ? "Keep as is"
-                : `Confirm ${moveCount} move${moveCount === 1 ? "" : "s"}`
-              : !gain
+            : !gain
               ? "Confirm arrangement"
               : total === 0
                 ? "No purchase"

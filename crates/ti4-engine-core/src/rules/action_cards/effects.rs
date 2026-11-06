@@ -2598,15 +2598,15 @@ impl Play {
         let (seeds, k) = (sx.seeds, sx.kernel);
         let core = &mut *sx.state;
         if self.fx == Fx::Summit {
-            let Pick::Opt(crate::choice::Opt::Strategy(crate::choice::strategy::Opt::Pool(pool))) = pick else { return Err(Illegal) };
-            // Reinforcements count the tokens a Mahact fleet pool holds (the host's fact: the marks may not be part of the lend).
-            if economy::tokens_in_reinforcements(core, self.who, self.env.mahact_held) > 0 {
-                fx::gain_token(core, self.who, pool, 1);
+            let split = crate::choice::strategy::gain_answer(pick, Self::SUMMIT_TOKENS - self.step).ok_or(Illegal)?;
+            for pool in crate::choice::strategy::gain_pools(split) {
+                // Reinforcements count the tokens a Mahact fleet pool holds (the host's fact: the marks may not be part of the lend).
+                if economy::tokens_in_reinforcements(core, self.who, self.env.mahact_held) > 0 {
+                    fx::gain_token(core, self.who, pool, 1);
+                }
             }
-            self.step += 1;
-            if self.step >= Self::SUMMIT_TOKENS {
-                self.stage = Stage::Done;
-            }
+            self.step = Self::SUMMIT_TOKENS;
+            self.stage = Stage::Done;
             return Ok(());
         }
         if self.fx == Fx::Squad && matches!(pick, Pick::Opt(crate::choice::Opt::Decline)) {

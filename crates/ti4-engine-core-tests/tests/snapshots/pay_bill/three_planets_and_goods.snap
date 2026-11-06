@@ -1,15 +1,8 @@
-Q0 seat 0 Production(Pay(PayAsk { kind: Influence, owed: 5, pool: 9, goods: 3 }))
-  >0: Production(Exhaust { planet: Wellon, source: Influence, shown: Shown { worth: 2, pool_after: 7 } })
+Q0 seat 0 Production(Pay(PayAsk { kind: Influence, owed: 5, pool: 9, goods: 3, commodities: 0 }))
+   0: Production(Exhaust { planet: Wellon, source: Influence, shown: Shown { worth: 2, pool_after: 7 } })
    1: Production(Exhaust { planet: Thibah, source: Influence, shown: Shown { worth: 1, pool_after: 8 } })
    2: Production(Exhaust { planet: MeharXull, source: Influence, shown: Shown { worth: 3, pool_after: 6 } })
    3: Production(TradeGood { shown: Shown { worth: 1, pool_after: 8 } })
-Q1 seat 0 Production(Pay(PayAsk { kind: Influence, owed: 3, pool: 7, goods: 3 }))
-  >0: Production(Exhaust { planet: Thibah, source: Influence, shown: Shown { worth: 1, pool_after: 6 } })
-   1: Production(Exhaust { planet: MeharXull, source: Influence, shown: Shown { worth: 3, pool_after: 4 } })
-   2: Production(TradeGood { shown: Shown { worth: 1, pool_after: 6 } })
-Q2 seat 0 Production(Pay(PayAsk { kind: Influence, owed: 2, pool: 6, goods: 3 }))
-  >0: Production(Exhaust { planet: MeharXull, source: Influence, shown: Shown { worth: 3, pool_after: 3 } })
-   1: Production(TradeGood { shown: Shown { worth: 1, pool_after: 5 } })
 done
 --- delta ---
 planet[MeharXull]: control Some(0) units [] attach [] coexist {} placed_in None flags 0 -> control Some(0) units [] attach [] coexist {} placed_in None flags 1

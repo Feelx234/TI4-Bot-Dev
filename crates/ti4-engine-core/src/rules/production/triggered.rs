@@ -281,7 +281,7 @@ impl Window for SlingRelay {
                 Ok(())
             }
             (SlingStage::Paying { system, unit, cost, paid }, pick) => {
-                let Some(worth) = self.pay_step(cost, paid).apply(sx.state, sx.kernel, pick) else {
+                let Some(worth) = self.pay_step(cost, paid).answer_set(sx.state, sx.kernel, pick) else {
                     self.stage = SlingStage::Done;
                     return Ok(());
                 };
@@ -475,7 +475,7 @@ impl Window for EconomyWindow {
                 Ok(())
             }
             (EconomyStage::Paying { unit, made, cost, paid }, pick) => {
-                let Some(worth) = self.pay_step(cost, paid).apply(sx.state, sx.kernel, pick) else {
+                let Some(worth) = self.pay_step(cost, paid).answer_set(sx.state, sx.kernel, pick) else {
                     self.stage = EconomyStage::Done;
                     return Ok(());
                 };

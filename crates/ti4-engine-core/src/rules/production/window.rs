@@ -254,7 +254,16 @@ impl ProductionWindow {
         cost - used
     }
 
-    /// Apply a payment option; its worth, `None` for one that cannot be paid.
+    /// Pay `owed` with the set that answered the payment question (`docs/MULTIASK1_RESUME.md`): its worth, `None` (nothing spent) for
+    /// a set that is no legal answer.
+    fn apply_set(&self, s: &mut CoreState, k: &Kernel, owed: i32, set: crate::choice::production::PaySet) -> Option<i32> {
+        let cx = self.cx(s, k);
+        let (ask, offered) = rules::pay_opts(&cx, self.who, Spend::Resources, 0, i64::from(owed), &Held::of(&cx, self.who).extras());
+        let worth = super::pay::pay_set(s, self.who, &ask, offered.as_slice(), set)?;
+        i32::try_from(worth).ok()
+    }
+
+    /// Apply a lone payment option; its worth, `None` for one that cannot be paid.
     fn apply_payment(&self, s: &mut CoreState, k: &Kernel, picked: POpt) -> Option<i32> {
         let cx = self.cx(s, k);
         let (_, offered) = rules::pay_opts(&cx, self.who, Spend::Resources, 0, 0, &Held::of(&cx, self.who).extras());
@@ -467,10 +476,9 @@ impl Window for ProductionWindow {
                 _ => Err(Illegal),
             },
             Stage::Paying { unit, owed, made, cost, paid } => {
-                let Some(worth) = self.apply_payment(sx.state, sx.kernel, opt) else {
-                    self.stage = Stage::Done;
-                    return Ok(());
-                };
+                // The question pays the rest of the bill: only a set answers it.
+                let POpt::Set(set) = opt else { return Err(Illegal) };
+                let worth = self.apply_set(sx.state, sx.kernel, owed, set).ok_or(Illegal)?;
                 let owed = owed - worth;
                 let paid = paid + worth;
                 self.stage = if owed > 0 {

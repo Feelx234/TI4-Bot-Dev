@@ -23,3 +23,4 @@ pub mod oracle;
 pub mod islands;
 pub mod native_subject;
 pub mod native_play;
+pub mod multiask;

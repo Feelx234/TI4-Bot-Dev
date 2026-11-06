@@ -998,7 +998,7 @@ fn a_fragment_and_an_entropic_field_are_explored_in_order_and_the_pool_is_asked(
     assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 })), "{}", rig.transcript());
     assert_eq!(rig.opts().len(), 3);
     rig.assert_options_sound();
-    rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Strategic)));
+    rig.pick_opt(Opt::Strategy(SOpt::gain_of(&[Pool::Strategic])));
     assert!(rig.is_done() && rig.driver.window.used && !rig.driver.window.unsupported, "{}", rig.transcript());
     let p = rig.state.players().by_seat(Seat(0)).unwrap();
     assert_eq!(p.cards.fragments.get(ExploreType::Frontier), Some(1));
@@ -1097,7 +1097,7 @@ fn a_deck_that_runs_out_undoes_the_run_after_the_questions_already_asked() {
     let (mut rig, _) = empyrean(&[Explore::EntropicField], 2, LATEST_RULES);
     rig.run();
     assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { .. })), "the first card's question is asked before the failure");
-    rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Tactic)));
+    rig.pick_opt(Opt::Strategy(SOpt::gain_of(&[Pool::Tactic])));
     assert!(rig.is_done());
     assert!(!rig.driver.window.used && !rig.driver.window.unsupported);
     assert!(rig.state.explore().log.is_empty() || rig.start_state().explore().log.len() == rig.state.explore().log.len());
@@ -1419,7 +1419,7 @@ fn the_pool_is_asked_from_version_twelve_and_a_minor_field_gives_one_good() {
     let (mut rig, _) = empyrean(&[Explore::MinorEntropicField], 1, 12);
     rig.run();
     assert!(matches!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { .. })), "version 12 asks");
-    rig.pick_opt(Opt::Strategy(SOpt::Pool(Pool::Tactic)));
+    rig.pick_opt(Opt::Strategy(SOpt::gain_of(&[Pool::Tactic])));
     assert_eq!(goods_of(&rig), 1, "a minor entropic field: one command token and one trade good");
 }
 

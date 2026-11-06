@@ -45,7 +45,7 @@ fn warfare_recalls_a_token_from_the_board_gains_one_and_redistributes_the_sheet(
     assert_eq!(tokens_on_board(&rig.state, 0), 1, "the token left the board");
     assert!(!rig.state.board().sys(s[2]).cmd.contains(Seat(0)));
     assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::GainPool { left: 1 }));
-    rig.pick_opt(strat(SOpt::Pool(Pool::Strategic)));
+    rig.pick_opt(strat(SOpt::gain_of(&[Pool::Strategic])));
     assert_eq!(sheet(&rig.state, 0), (3, 3, 3), "the gained token went to the pool chosen");
     // Redistribute: 9 tokens, at least 2 in the fleet pool: 36 splits.
     assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::WarfareRedistribute { total: 9, floor: 2 }));
@@ -62,7 +62,7 @@ fn warfare_refuses_a_system_without_a_token_and_a_split_below_the_fleet_floor() 
     let mut rig = Rig::new(warfare_table(), WarfarePrimary::new(Seat(0), false));
     rig.run();
     rig.expect_illegal(Pick::Opt(strat(SOpt::System(s[1]))));
-    rig.expect_illegal(Pick::Opt(strat(SOpt::Pool(Pool::Tactic))));
+    rig.expect_illegal(Pick::Opt(strat(SOpt::gain_of(&[Pool::Tactic]))));
     rig.pick(0).pick(0);
     rig.expect_illegal(Pick::Opt(strat(SOpt::Split { tactic: 8, fleet: 1, strategic: 0 })));
     rig.expect_illegal(Pick::Opt(strat(SOpt::Split { tactic: 4, fleet: 4, strategic: 4 })));
@@ -193,13 +193,51 @@ fn politics_primary_picks_a_new_speaker_draws_two_cards_and_puts_two_agendas_bac
     rig.pick_opt(strat(SOpt::Speaker(Seat(2))));
     assert_eq!(rig.state.meta().speaker, Seat(2));
     assert_eq!(rig.state.players().by_seat(Seat(0)).unwrap().cards.hand.as_slice(), &[ActionCard::ALL[0], ActionCard::ALL[1]], "two action cards");
-    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::PoliticsAgenda { agenda: Agenda::ALL[0] }));
-    assert_eq!(rig.opts(), vec![strat(SOpt::Top), strat(SOpt::Bottom)]);
-    rig.pick_opt(strat(SOpt::Bottom));
-    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::PoliticsAgenda { agenda: Agenda::ALL[1] }));
-    rig.pick_opt(strat(SOpt::Top));
+    // Both agendas in one question: the six orders 66.2 allows.
+    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::PoliticsAgendas { first: Agenda::ALL[0], second: Agenda::ALL[1] }));
+    assert_eq!(rig.opts(), ti4_engine_core::choice::strategy::Stack::ALL.map(|s| strat(SOpt::Stack(s))).to_vec());
+    rig.expect_illegal(Pick::Opt(strat(SOpt::Top)));
+    rig.pick_opt(strat(SOpt::Stack(ti4_engine_core::choice::strategy::Stack::Split { top_first: false })));
     assert!(rig.is_done());
     assert_eq!(rig.state.decks().agenda.cards(), &[Agenda::ALL[1], Agenda::ALL[2], Agenda::ALL[3], Agenda::ALL[0]], "the first went to the bottom, the second back on top");
+}
+
+/// Rule 66.2 (Politics primary): "look at the top 2 cards of the agenda deck; place each card on the top or bottom of the deck in any
+/// order": six final decks. Every way of answering the agenda part is played out and the decks it ends with are collected; they must
+/// be exactly the six. (Before the multi-ask conversion the core asked one agenda at a time in the order they were drawn, so the first
+/// could never end above the second on top, nor below it at the bottom: 4 of 6.)
+#[test]
+fn politics_reaches_every_order_of_the_two_agendas_the_rules_allow() {
+    use std::collections::BTreeSet;
+    covers!("rules::strategy_primaries::Politics");
+    let (a, b, rest) = (Agenda::ALL[0], Agenda::ALL[1], [Agenda::ALL[2], Agenda::ALL[3]]);
+    let deck = |top: &[Agenda], bottom: &[Agenda]| -> Vec<Agenda> { top.iter().copied().chain(rest).chain(bottom.iter().copied()).collect() };
+    let want: BTreeSet<Vec<Agenda>> =
+        [deck(&[a], &[b]), deck(&[b], &[a]), deck(&[a, b], &[]), deck(&[b, a], &[]), deck(&[], &[a, b]), deck(&[], &[b, a])].into_iter().collect();
+    let to_agendas = || {
+        let mut rig = politics(true);
+        rig.run();
+        rig.pick_opt(strat(SOpt::Speaker(Seat(2))));
+        rig
+    };
+    let mut reached = BTreeSet::new();
+    // Every answer sequence of the agenda part, one or two questions deep.
+    let first = to_agendas().opts().len();
+    for i in 0..first {
+        let mut rig = to_agendas();
+        rig.pick(i);
+        if rig.is_done() {
+            reached.insert(rig.state.decks().agenda.cards().to_vec());
+            continue;
+        }
+        for j in 0..rig.opts().len() {
+            let mut rig = to_agendas();
+            rig.pick(i).pick(j);
+            assert!(rig.is_done(), "two agendas, at most two answers");
+            reached.insert(rig.state.decks().agenda.cards().to_vec());
+        }
+    }
+    assert_eq!(reached, want);
 }
 
 #[test]
@@ -213,6 +251,23 @@ fn politics_secondary_only_draws_and_the_speaker_alone_cannot_be_changed() {
     assert_eq!(rig.state.meta().speaker, Seat(1));
     let alone = Rig::new(Scenario::new(&[Faction::TheEmbersOfMuaat]), Politics::new(Seat(0), true, false)).run().is_done();
     assert!(alone, "no deck, no other player: nothing is asked");
+}
+
+/// A deck with one agenda left: the lone agenda's question (top or bottom), as before the conversion.
+#[test]
+fn politics_with_one_agenda_left_asks_top_or_bottom_for_it() {
+    covers!("rules::strategy_primaries::Politics");
+    let mut s = politics_table();
+    s.decks_mut().agenda = Deck::new(vec![Agenda::ALL[0]]);
+    let mut rig = Rig::from_parts(s, ti4_engine_core_tests::kernel_all(), Politics::new(Seat(0), true, false));
+    rig.run();
+    rig.pick_opt(strat(SOpt::Speaker(Seat(2))));
+    assert_eq!(rig.asked().ask, Ask::Strategy(SAsk::PoliticsAgenda { agenda: Agenda::ALL[0] }));
+    assert_eq!(rig.opts(), vec![strat(SOpt::Top), strat(SOpt::Bottom)]);
+    rig.expect_illegal(Pick::Opt(strat(SOpt::Stack(ti4_engine_core::choice::strategy::Stack::Top { first_up: true }))));
+    rig.pick_opt(strat(SOpt::Bottom));
+    assert!(rig.is_done());
+    assert_eq!(rig.state.decks().agenda.cards(), &[Agenda::ALL[0]]);
 }
 
 #[test]

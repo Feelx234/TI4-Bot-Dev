@@ -626,7 +626,7 @@ impl Window for CrownExplore {
 
 // -- one exploration ------------------------------------------------------------------------------------------
 
-use crate::choice::strategy::{Ask as SAsk, Opt as SOpt};
+use crate::choice::strategy::Ask as SAsk;
 use crate::generated::{Attachment, ExploreResolution};
 use crate::kernel::children::{ErasedChild, Report, Spawn};
 use crate::kernel::stage::Ran;
@@ -1461,12 +1461,12 @@ impl Window for Exploring {
                 Ok(())
             }
             EStage::Pooling => {
-                let Pick::Opt(Opt::Strategy(SOpt::Pool(pool))) = pick else { return Err(Illegal) };
-                fx::gain_token(sx.state, self.run.who, pool, 1);
-                self.run.pool_left = self.run.pool_left.saturating_sub(1);
-                if self.run.pool_left == 0 {
-                    self.finish_goods(sx);
+                let split = crate::choice::strategy::gain_answer(pick, self.run.pool_left).ok_or(Illegal)?;
+                for pool in crate::choice::strategy::gain_pools(split) {
+                    fx::gain_token(sx.state, self.run.who, pool, 1);
                 }
+                self.run.pool_left = 0;
+                self.finish_goods(sx);
                 Ok(())
             }
             EStage::Rewarding(then) => {

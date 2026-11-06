@@ -1,12 +1,13 @@
 Q0 seat 0 Strategy(PoliticsSpeaker)
   >0: Strategy(Speaker(Seat(0)))
    1: Strategy(Speaker(Seat(2)))
-Q1 seat 0 Strategy(PoliticsAgenda { agenda: JudicialAbolishment })
-  >0: Strategy(Top)
-   1: Strategy(Bottom)
-Q2 seat 0 Strategy(PoliticsAgenda { agenda: ImperialArbiter })
-  >0: Strategy(Top)
-   1: Strategy(Bottom)
+Q1 seat 0 Strategy(PoliticsAgendas { first: JudicialAbolishment, second: ImperialArbiter })
+  >0: Strategy(Stack(Split { top_first: true }))
+   1: Strategy(Stack(Split { top_first: false }))
+   2: Strategy(Stack(Top { first_up: true }))
+   3: Strategy(Stack(Top { first_up: false }))
+   4: Strategy(Stack(Bottom { first_up: true }))
+   5: Strategy(Stack(Bottom { first_up: false }))
 done
 --- delta ---
 meta.speaker.[0]: 1 -> 0
