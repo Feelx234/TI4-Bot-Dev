@@ -73,7 +73,7 @@ fn the_wrapper_plays_the_quick_game_of_the_native_playthrough_to_the_same_finger
     );
     // (Rules version 36: the fingerprint hashes the position, whose `rules_version` is 36 now; with the version put back to 35 the hash is the old pin
     // `74d5675ac754ac81` -- same 1,165 steps, same answers, same position otherwise. Ixthian Artifact and Parley do not occur in this game.)
-    assert_eq!(fingerprint(&game), "c5a8d4b9086367c7");
+    assert_eq!(fingerprint(&game), "4f79d5630eaf630d");
     // And the NativeGame of the bridge gives the same (the pin of its own test).
     let mut native = NativeGame::from_spec(&lobby_spec("sol", 4, 1)).unwrap();
     let played = play_game(&mut native, 2_000, 50);

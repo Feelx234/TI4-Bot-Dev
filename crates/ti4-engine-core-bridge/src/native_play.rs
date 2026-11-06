@@ -171,6 +171,9 @@ pub struct Asked {
     pub prompt: String,
     pub options: Vec<String>,
     pub chosen: String,
+    /// The option id a table decider's journal names for the answer (the picked option itself; `chosen` names the whole set of a multi-pick): the chain
+    /// and the fingerprint are made of it, so the wrapper `Game` with the same bot has the same fingerprint.
+    pub journal: String,
     /// How the string engine asks the same thing when it asks it as a sequence of questions (a multi-ask of the core,
     /// [`crate::multiask::legacy_answers`]); `None`: one question, answered with `chosen`.
     pub legacy: Option<crate::oracle::Scripted>,
@@ -193,6 +196,8 @@ impl Asked {
 /// The typed rule bot (`ti4-rule-bot-typed`) cannot answer yet: its only entry point is the self-check that calls the string bot with a string
 /// observation, and the live path has none. Until its `Seen` view answers, this is the bot of the native playthrough.
 struct Bot<'a> {
+    /// See [`NativeGame::shadowing`].
+    shadowing: bool,
     seed: u64,
     /// The seat texts in seat order (the place of a seat in the game is the index of its text).
     seats: &'a [String],
@@ -213,7 +218,7 @@ impl Asker for Bot<'_> {
         let mut chosen = rendered.options[picked.min(rendered.options.len() - 1)].id.clone();  // mutants:skip (picked is always below the length: the clamp is defensive)
         // A multi-pick (a payment, Leadership's purchase): the picked atom leads the set the engine fills up (`Choice::pick`); the answer
         // names the whole set, so the shadow can play it to the string atom by atom.
-        if rendered.multi_pick.is_some() {
+        if rendered.multi_pick.is_some() && !rendered.options[picked.min(rendered.options.len() - 1)].is_decline() {
             let choice = &q.asking.choice;
             match choice.pick(picked) {
                 Some(ti4_engine_core::choice::Pick::Opt(ti4_engine_core::choice::Opt::Production(ti4_engine_core::choice::production::Opt::Set(set)))) => {
@@ -228,11 +233,15 @@ impl Asker for Bot<'_> {
         }
         // The shadow's string cannot reach two of Politics' six orders (S10): the harness seat takes the other order of the same piles, so a
         // shadowed game plays on (the core's six are proved by its own tests).
-        if let Some(swapped) = crate::multiask::reachable_politics_order(rendered, &chosen) {
+        if self.shadowing
+            && let Some(swapped) = crate::multiask::reachable_politics_order(rendered, &chosen)
+        {
             chosen = swapped;
         }
         let legacy = crate::multiask::legacy_answers(rendered, &chosen);
+        let journal = rendered.options[picked.min(rendered.options.len() - 1)].id.clone();
         self.asked.push(Asked {
+            journal,
             player: rendered.player.as_str().to_owned(),
             prompt: rendered.prompt.clone(),
             options: rendered.options.iter().map(|o| o.id.clone()).collect(),
@@ -299,6 +308,9 @@ pub struct NativeGame {
     chain: String,
     /// A fork (the shadow's lookahead): no trace.
     quiet: bool,
+    /// The shadow's subject: the bot takes the order of Politics' piles the string can reach ([`crate::multiask::reachable_politics_order`], S10). A game
+    /// played alone (and the wrapper `Game` with the same bot) keeps the order the bot picked.
+    pub shadowing: bool,
     /// The last step was a glued one that finished (`glued`: the turn prelude, the strategy announcement; a finished aftermath and the tail of the
     /// tactical action after it): the string runs it together with the next step, whose reconcile hooks are not run (the events a prelude question or
     /// a retreat staged are announced at the start of the string's NEXT step).
@@ -375,6 +387,7 @@ impl NativeGame {
             events: Vec::new(),
             chain: String::new(),
             quiet: false,
+            shadowing: false,
             after_glue: false,
         })
     }
@@ -418,6 +431,7 @@ impl NativeGame {
             events: Vec::new(),
             chain: String::new(),
             quiet: false,
+            shadowing: false,
             after_glue: false,
         })
     }
@@ -442,6 +456,7 @@ impl NativeGame {
             events: self.events.clone(),
             chain: self.chain.clone(),
             quiet: true,
+            shadowing: self.shadowing,
             after_glue: self.after_glue,
         }
     }
@@ -506,7 +521,7 @@ impl NativeGame {
     fn step_inner(&mut self) -> Step {
         let env = live::env::env_with_plays(&self.render, &self.core, self.kernel, self.seeds.clone(), self.sources);
         let lcx = live::Cx::new(&self.render, &env);
-        let mut bot = Bot { seed: self.seed, seats: &self.seats, index: self.decided, asked: Vec::new() };
+        let mut bot = Bot { shadowing: self.shadowing, seed: self.seed, seats: &self.seats, index: self.decided, asked: Vec::new() };
         let from = self.core.ledger.events.len();
         if !self.quiet && std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some() && !self.core.pending().staged.is_empty() {
             eprintln!("  staged at the start of the step (after glue {}): {:?}", self.after_glue, self.core.pending().staged.iter().map(|e| e.kind).collect::<Vec<_>>());
@@ -573,14 +588,14 @@ impl NativeGame {
         let mut asked = std::mem::take(&mut bot.asked);
         if !gaining.is_empty() && self.core.pending().window(WindowKind::Tokens).is_none() {
             let (prompt, options, chosen) = crate::multiask::status_gain_question();
-            let phantoms = gaining.into_iter().map(|player| Asked { player, prompt: prompt.to_owned(), options: options.clone(), chosen: chosen.clone(), legacy: None, phantom: true });
+            let phantoms = gaining.into_iter().map(|player| Asked { player, prompt: prompt.to_owned(), options: options.clone(), chosen: chosen.clone(), journal: chosen.clone(), legacy: None, phantom: true });
             asked.splice(0..0, phantoms);
         }
         self.decided = bot.index;
         for a in asked.iter().filter(|a| !a.phantom) {
             let mut h = Sha256::new();
             h.update(self.chain.as_bytes());
-            h.update(format!("{}\u{1}{}\u{1}{}", a.player, a.prompt, a.chosen).as_bytes());
+            h.update(format!("{}\u{1}{}\u{1}{}", a.player, a.prompt, a.journal).as_bytes());
             self.chain = hex(&h.finalize());
         }
         let events = ti4_engine::render::events::pushed_since(&self.render, &self.cx, &self.core, from)
@@ -1066,6 +1081,7 @@ pub struct Shadowed {
 pub fn shadow_play(spec: &GameSpec, max_steps: usize, max_rounds: u32) -> Result<Shadowed, String> {
     let mut legacy = MaskSubject::<LegacyMask>::new(spec, Pilot::Script)?;
     let mut native = NativeGame::from_legacy(legacy.game(), spec.seed)?;
+    native.shadowing = true;
     let mut matrix = Matrix::default();
     let mut group: Vec<Played> = Vec::new();
     let mut compared = 0usize;
@@ -1849,7 +1865,7 @@ mod tests {
         assert_eq!((played.rounds, played.steps), (9, 1110), "nine rounds of the table");
         assert!(native.get("tokens").copied().unwrap_or(0) >= 8 && native.get("status").copied().unwrap_or(0) >= 8, "the status phases ran natively, their close included: {native:?}");
         // (Rules version 36 moved the pin from `74d5675ac754ac81`: the hashed position carries `rules_version` 36; the game is the same, see `tests/wrapper_native.rs`.)
-        assert_eq!(played.fingerprint, "c5a8d4b9086367c7");
+        assert_eq!(played.fingerprint, "4f79d5630eaf630d");
         assert_eq!(g.step(), Step::Finished, "a finished game stops the loop");
     }
 
@@ -1974,7 +1990,7 @@ mod tests {
             let mut choice = rendered.clone();
             choice.player = ti4_model::id::PlayerId::new(&seats[place]);
             for index in 0..6 {
-                let mut bot = Bot { seed: 9, seats: &seats, index, asked: Vec::new() };
+                let mut bot = Bot { shadowing: true, seed: 9, seats: &seats, index, asked: Vec::new() };
                 let id = bot.ask(&Question { asking: &asking, rendered: choice.clone(), core: &g.core }).unwrap();
                 let (picked, _, _) = ti4_rule_bot::choose_explained(&choice, None, 9, place, index);
                 assert_eq!(id, choice.options[picked].id, "place {place}, index {index}");
@@ -1985,7 +2001,7 @@ mod tests {
         }
         let mut empty = rendered.clone();
         empty.options.clear();
-        let mut bot = Bot { seed: 9, seats: &seats, index: 0, asked: Vec::new() };
+        let mut bot = Bot { shadowing: true, seed: 9, seats: &seats, index: 0, asked: Vec::new() };
         assert_eq!(bot.ask(&Question { asking: &asking, rendered: empty, core: &g.core }), Err(Stop::Blocked), "a question without options is not answered");
     }
 
@@ -2401,7 +2417,7 @@ mod tests {
     /// Rules version 36, string bugs S6 (Ixthian Artifact) and S7 (Parley): the step that ran the effect is the one the shadow recognises, nothing else.
     #[test]
     fn s6_and_s7_are_recognised_by_the_step_that_ran_the_effect() {
-        let asked = |chosen: &str| Asked { player: "a".to_owned(), prompt: "p".to_owned(), options: vec![], chosen: chosen.to_owned(), legacy: None, phantom: false };
+        let asked = |chosen: &str| Asked { player: "a".to_owned(), prompt: "p".to_owned(), options: vec![], chosen: chosen.to_owned(), journal: chosen.to_owned(), legacy: None, phantom: false };
         let (parley, decline) = (asked("parley"), asked("decline"));
         assert_eq!(effect_bug(&[&parley], &[]), Some(KNOWN_S7));
         for event in ["AGENDA_EFFECT_RESOLVED:artifact", "AGENDA_EFFECT_DEFERRED:artifact"] {
@@ -2665,7 +2681,7 @@ mod tests {
         let played = |arm: Arm, source: Option<AskArm>, asks: usize| Played {
             arm,
             source,
-            asked: (0..asks).map(|_| Asked { player: "a".to_owned(), prompt: "p".to_owned(), options: vec![], chosen: "c".to_owned(), legacy: None, phantom: false }).collect(),
+            asked: (0..asks).map(|_| Asked { player: "a".to_owned(), prompt: "p".to_owned(), options: vec![], chosen: "c".to_owned(), journal: "c".to_owned(), legacy: None, phantom: false }).collect(),
             events: Vec::new(),
             announced: 0,
             finished: true,
