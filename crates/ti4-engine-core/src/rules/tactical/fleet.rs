@@ -129,7 +129,7 @@ impl Enforce {
         n
     }
 
-    /// The removal led by one unit of key `first`, then one unit at a time of the first key that still has a unit, until the excess is gone.
+    /// The removal led by one unit of key `first`, then one unit at a time of the key the question would offer first, until the excess is gone.
     fn lead_set(&self, core: &CoreState, k: &Kernel, over: Over, keys: &[(Unit, bool)], first: usize) -> Option<u64> {
         let mut counts = crate::choice::cards::with_discard_count(0, first, 1);
         let mut scratch = core.clone();
@@ -137,7 +137,9 @@ impl Enforce {
             return None;
         }
         while self.excess(&scratch, k, over) > 0 {
-            let next = keys.iter().position(|key| self.candidates(&scratch, over).iter().any(|p| (p.kind(), p.sustained()) == *key))?;
+            // The first option the question would offer now (the string's first option after each removal).
+            let now = *self.keys(&scratch, over).first()?;
+            let next = keys.iter().position(|key| *key == now)?;
             let c = crate::choice::cards::discard_count(counts, next);
             counts = crate::choice::cards::with_discard_count(counts, next, c.checked_add(1)?);
             self.remove(&mut scratch, over, keys, crate::choice::cards::with_discard_count(0, next, 1));
