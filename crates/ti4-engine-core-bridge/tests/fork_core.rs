@@ -942,3 +942,60 @@ fn the_draw_census_of_the_quick_game_and_two_bot_games_on_the_thin_game() {
     }
     eprintln!("CENSUS thin total: {}", total.line());
 }
+
+/// Integration 28 (re-check of lane nestq-1, `docs/INTEGRATION28.md`): how often a nested question is served from the question the
+/// suspension remembers (`driver::live::memo_census`), on the core live API (the four games above) and on the thin `Game` with the rule bot
+/// (the quick game and two more: the render mints codes between calls, so more answers may fall back to the re-ask). In a debug build the
+/// check `live::verify_remembered` is on (the default there): every memo use is rebuilt from scratch and compared, and a mismatch panics.
+#[test]
+fn the_remembered_nested_question_serves_the_answers_and_the_debug_check_finds_no_mismatch() {
+    use ti4_content::ContentStore;
+    use ti4_engine::native::Game;
+    use ti4_engine::wire::choice::Table;
+    use ti4_engine_core::driver::live::memo_census;
+    let line = |c: &memo_census::Counts| {
+        let answers = c.answer_hits + c.answer_fallbacks;
+        format!(
+            "answers {answers}: from the memo {} ({:.1} %), re-asked {}; reads with a nested question {}: from the memo {}, replayed {}; debug-checked {}",
+            c.answer_hits,
+            if answers == 0 { 0.0 } else { 100.0 * c.answer_hits as f64 / answers as f64 },
+            c.answer_fallbacks,
+            c.read_hits + c.read_fallbacks,
+            c.read_hits,
+            c.read_fallbacks,
+            c.checked
+        )
+    };
+    let debug = cfg!(debug_assertions);
+    for &(players, seed, faction) in GAMES {
+        let mut play = Play::new(players, seed, faction);
+        memo_census::reset();
+        assert!(play.play_until(None, 20_000).expect("plays"), "the game ends");
+        let c = memo_census::counts();
+        eprintln!("MEMO core {players}p seed {seed} {faction} ({} steps): {}", play.steps, line(&c));
+        assert!(c.answer_hits > 0, "the core driver answers nested questions from the memo");
+        if debug {
+            assert_eq!(c.checked, c.answer_hits + c.read_hits, "every memo use was checked");
+        }
+    }
+    for &(players, seed, faction) in &[(4, 1, "sol"), (3, 3, "yssaril"), (5, 2, "l1z1x")] {
+        let spec = lobby_spec(faction, players, seed);
+        let legacy = spec.build().expect("a lobby game builds");
+        let seats: Vec<String> = legacy.state.players.iter().map(|p| p.id.as_str().to_owned()).collect();
+        let galaxy = legacy.galaxy().cloned().expect("a lobby game has a map");
+        let table = Table::with_default(Box::new(BotDecider { seed, seats, index: 0 }));
+        let mut game = Game::try_with_table(legacy.state.clone(), ContentStore::embedded(), table).expect("playable").with_galaxy(galaxy);
+        memo_census::reset();
+        let mut steps = 0;
+        while !game.state.finished {
+            assert_eq!(game.step().error, None, "{players}p seed {seed} {faction} step {steps}");
+            steps += 1;
+            assert!(steps < 5_000);
+        }
+        let c = memo_census::counts();
+        eprintln!("MEMO thin {players}p seed {seed} {faction} ({steps} steps): {}", line(&c));
+        if debug {
+            assert_eq!(c.checked, c.answer_hits + c.read_hits, "every memo use was checked");
+        }
+    }
+}

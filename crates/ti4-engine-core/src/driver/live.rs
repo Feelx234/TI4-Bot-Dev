@@ -154,7 +154,12 @@ fn is_option(choice: &Choice, pick: &Pick) -> bool {
 /// The window is not open, or the replay of a suspended step failed.
 pub fn ask<M: Held>(core: &CoreState, env: &Env<'_>) -> Result<Option<Asking>, LiveError> {
     let window = M::from_pending(core, env.kernel).ok_or(LiveError::NotOpen)?;
-    if let Some(asked) = recall::<M>(core) {
+    let asked = recall::<M>(core);
+    #[cfg(feature = "probe-counters")]
+    if core.pending().nested.is_some() {
+        memo_census::note(asked.is_some(), true);
+    }
+    if let Some(asked) = asked {
         let asking = as_replayed::<M>(core, env, &asked);
         if let Some(n) = &core.pending().nested {
             verify::<M>(core, env, n, &asking, true);
@@ -297,6 +302,8 @@ pub(crate) fn answer_nested<M: Held>(d: &mut Driver<M>, core: &mut CoreState, en
     // The driver replays a nested answer without judging it (the dual feeds it recorded ones): a live answer comes from outside, so it
     // must be one of the options of the question.
     d.restore_nested(n);
+    #[cfg(feature = "probe-counters")]
+    memo_census::note(asked.is_some(), false);
     let legal = match asked {
         Some(asked) => {
             verify::<M>(core, env, n, &asked.asking, false);
@@ -315,6 +322,65 @@ pub(crate) fn answer_nested<M: Held>(d: &mut Driver<M>, core: &mut CoreState, en
 
 thread_local! {
     static VERIFY: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+/// How often a nested question was served from its memo (feature `probe-counters` only, a test-build feature of the bridge; no product,
+/// gate or wasm build has it): per thread, answers (`answer_nested`) and reads (`ask` with a nested question pending), each split into
+/// served from the memo and re-asked (fallback). `checked` counts the memo uses the debug check (`verify_remembered`) rebuilt and compared.
+#[cfg(feature = "probe-counters")]
+pub mod memo_census {
+    use std::cell::Cell;
+
+    /// The counts since the last [`reset`].
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct Counts {
+        /// Answers checked against the remembered question.
+        pub answer_hits: u64,
+        /// Answers that re-ran the step to rebuild the question (no memo, or a memo of another position).
+        pub answer_fallbacks: u64,
+        /// Reads (`ask`) served from the memo.
+        pub read_hits: u64,
+        /// Reads that replayed the step.
+        pub read_fallbacks: u64,
+        /// Memo uses the debug check rebuilt and compared (0 in builds without debug assertions or with the check off).
+        pub checked: u64,
+    }
+
+    thread_local! {
+        static COUNTS: Cell<Counts> = const { Cell::new(Counts { answer_hits: 0, answer_fallbacks: 0, read_hits: 0, read_fallbacks: 0, checked: 0 }) };
+    }
+
+    pub(super) fn note(hit: bool, read: bool) {
+        COUNTS.with(|c| {
+            let mut n = c.get();
+            match (read, hit) {
+                (false, true) => n.answer_hits += 1,
+                (false, false) => n.answer_fallbacks += 1,
+                (true, true) => n.read_hits += 1,
+                (true, false) => n.read_fallbacks += 1,
+            }
+            c.set(n);
+        });
+    }
+
+    pub(super) fn checked() {
+        COUNTS.with(|c| {
+            let mut n = c.get();
+            n.checked += 1;
+            c.set(n);
+        });
+    }
+
+    /// Zero the counts of this thread.
+    pub fn reset() {
+        COUNTS.with(|c| c.set(Counts::default()));
+    }
+
+    /// The counts of this thread since the last [`reset`].
+    #[must_use]
+    pub fn counts() -> Counts {
+        COUNTS.with(Cell::get)
+    }
 }
 
 /// The check of the remembered questions (a test mode of debug builds, on by default there; release builds never check): every use of a
@@ -344,6 +410,8 @@ fn verify<M: Held>(core: &CoreState, env: &Env<'_>, n: &crate::state::Nested, as
         if whole {
             assert_eq!(rebuilt, *asked, "the remembered positions of the question differ");
         }
+        #[cfg(feature = "probe-counters")]
+        memo_census::checked();
     }
 }
 
