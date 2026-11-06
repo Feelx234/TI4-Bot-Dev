@@ -116,6 +116,71 @@ fn position_of<'q>(q: &'q Question<'_>) -> &'q CoreState {
     q.asking.nested.as_ref().map(|(_, at)| &**at).or(q.asking.at.as_deref()).unwrap_or(q.core)
 }
 
+/// The cut step's copies of the parts of [`TableAsker::ask`] (the blocking asker keeps them inline, so the wasm is as it was; the bridge's
+/// `tests/fork_mid.rs` proves the two equal).
+#[cfg(feature = "search")]
+impl TableAsker<'_> {
+    /// What the asker settles before the table is asked: a question with no option stops the step, a question that shows hidden cards is
+    /// noted, a planning fork declines the optional reaction of a seat its filter keeps out, and the last card of the draft is taken.
+    /// `Some(id)`: the question is answered without the table.
+    pub(super) fn screen(&mut self, q: &Question<'_>) -> Result<Option<String>, Stop> {
+        let rendered = &q.rendered;
+        if rendered.options.is_empty() {
+            self.empty = Some((rendered.player.clone(), rendered.prompt.clone()));
+            return Err(Stop::Blocked);
+        }
+        if rendered.context.as_ref().is_some_and(|c| c.subtype.contains("show_") || c.subtype.contains("reveal") || c.subtype.contains("take_from_revealed")) {
+            self.hidden = true;
+        }
+        // A planning fork: an optional reaction of a seat the filter keeps out is declined without a question (and without a journal entry),
+        // and the table's observer is told the window passed that seat by.
+        if let (Some(filter), Some(context)) = (self.participation, rendered.context.as_ref())
+            && context.optional
+            && matches!(context.source, crate::wire::decision_context::DecisionSource::Reaction(_))
+            && !filter(&super::Participant { owner: rendered.player.clone(), optional: true })
+            && let Some(decline) = rendered.options.iter().find(|o| o.is_decline())
+        {
+            if let Some(trigger) = &context.trigger {
+                let relation = if trigger.relation == "after" { crate::ties::timing::Relation::After } else { crate::ties::timing::Relation::When };
+                if let Ok(state) = materialize::materialize(position_of(q), self.cx, self.base) {
+                    self.table.window_skipped(&rendered.player, &trigger.event_type, relation, &state);
+                }
+            }
+            return Ok(Some(decline.id.clone()));
+        }
+        // The last card of the draft is not a choice: the picker takes it and is told so (never journaled).
+        if q.asking.choice.ask == ti4_engine_core::choice::Ask::Strategy(ti4_engine_core::choice::strategy::Ask::Draft)
+            && rendered.options.len() == 1
+            && let Some(only) = self.table.auto_resolve(rendered, "only one strategy card left")
+        {
+            return Ok(Some(only.id));
+        }
+        Ok(None)
+    }
+
+    /// The position the decider of `q` is shown, as the string's `GameState`.
+    pub(super) fn shown(&mut self, q: &Question<'_>) -> Result<ti4_model::state::GameState, Stop> {
+        materialize::materialize(position_of(q), self.cx, self.base).map_err(|e| {
+            self.defect = Some(format!("the position cannot be shown to the decider: {e}"));
+            Stop::Blocked
+        })
+    }
+
+    /// The decider answered `option_id` for `player`: the observer of the strategic actions is told the card when the answer names one.
+    pub(super) fn answered(&self, core: &CoreState, option_id: &str, player: &PlayerId) {
+        if let Some(observer) = self.strategic
+            && let Some(card) = self.strategic_action_of(core, option_id, player)
+        {
+            observer(player, &card);
+        }
+    }
+
+    /// The table this asker puts its questions to.
+    pub(super) fn table(&mut self) -> &mut Table {
+        self.table
+    }
+}
+
 impl Asker for TableAsker<'_> {
     fn ask(&mut self, q: &Question<'_>) -> Result<String, Stop> {
         let rendered = &q.rendered;

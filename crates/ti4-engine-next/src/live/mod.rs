@@ -322,6 +322,80 @@ fn live_step_inner(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_
     }
 }
 
+/// One run of [`live_step_inner`] cut at its questions (lane C5, `Game::pull`): the same calls in the same order, with the asker's turn
+/// handed back to the caller instead of made inside. A run is [`pull::begin`], then [`pull::answer`] for each question it stops at; the
+/// caller keeps the run's [`CombatTexts`](ti4_engine_core::kernel::ability::CombatTexts) and the question between the calls (they are data,
+/// so a run cut at a question is copied with the position). The staged-event drop and the rollback of [`run_live`] are the caller's.
+#[cfg(feature = "search")]
+pub mod pull {
+    use ti4_engine_core::driver::live::{Asking, AskFn, Env, Live, LiveError, LiveFn};
+    use ti4_engine_core::kernel::ability::CombatTexts;
+    use ti4_engine_core::state::CoreState;
+
+    use super::{pick_of, trade, Cx, Stop};
+
+    /// Where a run stopped.
+    #[derive(Debug)]
+    pub enum RunStop {
+        /// A question of the run (the arm's pending one, or one asked from inside an answer).
+        Asks(Box<Asking>),
+        /// The run is over; `finished`: the arm's window ended.
+        Ended { finished: bool },
+    }
+
+    /// The environment of one run: the step's, with the texts of the space combat the run began with.
+    #[must_use]
+    pub fn prepared<'a>(cx: &Cx<'a>, combat: &CombatTexts) -> Env<'a> {
+        let mut prepared = cx.env.clone();
+        prepared.table.facts.combat = combat.clone();
+        prepared
+    }
+
+    /// Begin a run: the arm's pending question, or the window run to its first.
+    ///
+    /// # Errors
+    /// [`Stop`]; the position may be changed (the caller restores it).
+    pub fn begin(core: &mut CoreState, advance: LiveFn, ask: AskFn, cx: &Cx<'_>) -> Result<(CombatTexts, RunStop), Stop> {
+        let combat = (cx.texts)(core, cx.render);
+        let env = prepared(cx, &combat);
+        cx.render.sync_codes(&mut core.texts.codes);
+        // As `live_step_inner`: every call goes through the chance resolver (lane C3), and a chance question left pending by a search is
+        // answered by it like any other, so no chance question is ever handed to the caller.
+        let stop = match ask(core, &env)? {
+            Some(a) if ti4_engine_chance::chance_asked(&a).is_none() => RunStop::Asks(Box::new(a)),
+            _ => {
+                let (live, out) = ti4_engine_chance::advance_resolved(core, &env, advance, None)?;
+                cx.render.sync_codes(&mut core.texts.codes);
+                match live {
+                    Live::Done => RunStop::Ended { finished: !out.held },
+                    Live::Asks(a) => RunStop::Asks(a),
+                }
+            }
+        };
+        Ok((combat, stop))
+    }
+
+    /// Apply the answer `id` to the run's question `asking` and run on to the run's next question or its end.
+    ///
+    /// # Errors
+    /// [`Stop`]; the position may be changed (the caller restores it).
+    pub fn answer(core: &mut CoreState, advance: LiveFn, cx: &Cx<'_>, combat: &CombatTexts, asking: &Asking, id: &str) -> Result<RunStop, Stop> {
+        let env = prepared(cx, combat);
+        let pick = match trade::pick(core, &asking.choice, id) {
+            Some(Ok(pick)) => pick,
+            Some(Err(why)) => return Err(Stop::Live(LiveError::Unknown(why))),
+            None => pick_of(cx.render, &asking.choice, id).ok_or(Stop::Illegal)?,
+        };
+        let (live, out) = ti4_engine_chance::advance_resolved(core, &env, advance, Some(pick))?;
+        cx.render.sync_codes(&mut core.texts.codes);
+        Ok(match live {
+            Live::Done => RunStop::Ended { finished: !out.held },
+            Live::Asks(next) if next.nested.is_some() || core.pending().nested.is_some() => RunStop::Asks(next),
+            Live::Asks(_) => RunStop::Ended { finished: false },
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
 

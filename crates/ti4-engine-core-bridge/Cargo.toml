@@ -37,6 +37,8 @@ ti4-perf-alloc = { path = "../ti4-perf-alloc" }
 [dev-dependencies]
 # The draw census of `tests/fork_core.rs` (lane C0, docs/C0_RESUME.md): thread-local counters, only in this crate's test builds.
 ti4-engine-core = { workspace = true, features = ["probe-counters"] }
+# The mid-step fork tests of `tests/fork_mid.rs` (lane C5, docs/C5_RESUME.md): `Game::pull` / `Game::answer`.
+ti4-engine = { workspace = true, features = ["search"] }
 
 [features]
 # `perf_kernel`: the counting allocator (counts, bytes, live, peak) instead of plain mimalloc.
