@@ -168,7 +168,8 @@ impl<T: Clone, const CHUNK: usize> Default for Log<T, CHUNK> {
 }
 impl<T: Clone + PartialEq, const CHUNK: usize> PartialEq for Log<T, CHUNK> {
     fn eq(&self, other: &Self) -> bool {
-        self.len == other.len && self.iter().zip(other.iter()).all(|(a, b)| a == b)
+        // (A clone shares the sealed chunks: then only the open one is compared, the check of a position against a copy of itself is cheap.)
+        self.len == other.len && if self.shares_prefix_with(other) { self.tail_slice() == other.tail_slice() } else { self.iter().zip(other.iter()).all(|(a, b)| a == b) }
     }
 }
 impl<T: Clone + Eq, const CHUNK: usize> Eq for Log<T, CHUNK> {}

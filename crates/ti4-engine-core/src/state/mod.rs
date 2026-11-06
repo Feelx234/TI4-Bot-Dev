@@ -54,7 +54,7 @@ pub use objectives::{ObjectiveRef, ObjectiveSet, Objectives};
 pub use pending_windows::{FreeNote, FreeSpec, FreeTerms, LeaderFollowers, StatusReport, Tokens, Trade, Vote, VoteStage, Voting};
 pub use invasion::{CommitOrigin, IBill, IBombard, IBombardCursor, ICustodians, IPlanetBombard, IReport, IRound, IStage, IWalk, Invasion};
 pub use production::{OStage, OneFacts, OneRun, PStage, ProductionUse, ProductionWindow, UseMode, UsePhase};
-pub use pending::{DriverFlags, Nested, NestedOp, Pending, PendingAsk, PendingTag, Scoring, ScoringTiming, Secondary, SecondaryHow, Window, WindowKind};
+pub use pending::{DriverFlags, Memo, Nested, NestedOp, Pending, PendingAsk, PendingTag, Scoring, ScoringTiming, Secondary, SecondaryHow, Window, WindowKind};
 pub use piece::Piece;
 #[cfg(test)]
 pub(crate) use plain::kinds as queue_kinds;
