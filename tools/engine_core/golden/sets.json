@@ -139,7 +139,7 @@
     "frozen": false,
     "source": "tools/engine_profile/soak/std-100.json",
     "games": 4,
-    "decisions": 6561,
+    "decisions": 6821,
     "pure_share_at_record": null
   }
 ]
