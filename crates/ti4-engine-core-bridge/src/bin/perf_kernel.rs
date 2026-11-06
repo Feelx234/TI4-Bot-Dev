@@ -15,7 +15,7 @@
 //! perf_kernel mem   <players> <seed> [faction]        memory: live heap / RSS at step marks, peak, heap per state field at the end
 //! perf_kernel micro <players> <seed> [faction] [at]   the per-step pieces on the live core after `at` steps (default 600), each in a loop
 //! ```
-//! Environment: `PERF_KERNEL_NOSTATE=1` skips the final state hash. `PERF_KERNEL_CHECK=1` runs the consistency checks of the perf changes after every step
+//! Environment: `PERF_KERNEL_NOSTATE=1` skips the final state hash. `PERF_KERNEL_RUNS=1` (with `game`) counts the window runs (the stage probe's calls). `PERF_KERNEL_CHECK=1` runs the consistency checks of the perf changes after every step
 //! (board indexes against a scan of the cells, the deferred play facts against the eager ones, the kept `Env` against one built from scratch; see `checks`), `cargo test --bin perf_kernel` plays a set of games with them on.
 
 use std::collections::hash_map::DefaultHasher;
@@ -608,14 +608,29 @@ fn micro(players: usize, seed: u64, faction: &str, at: usize) {
 
 use ti4_engine_core::generated::System;
 
+/// `PERF_KERNEL_RUNS=1`: the stage probe's calls (one per run of a window operation and one per stop of a driver: the difference of two builds is
+/// the difference of their runs, docs/NESTQ1_RESUME.md).
+static SEEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn count_seen(_: &'static str, _: &dyn std::fmt::Debug) {
+    SEEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("game") => {
             let (p, s) = (args[2].parse().unwrap(), args[3].parse().unwrap());
             let f = args.get(4).map_or("sol", String::as_str);
+            let runs = std::env::var_os("PERF_KERNEL_RUNS").is_some();
+            if runs {
+                ti4_engine_core::driver::probe::set(Some(count_seen));
+            }
             let r = play_one(p, s, f).expect("builds");
             println!("{}", json(&r));
+            if runs {
+                eprintln!("{{\"probe_calls\":{}}}", SEEN.load(std::sync::atomic::Ordering::Relaxed));
+            }
         }
         Some("setup") => {
             let (p, s) = (args[2].parse().unwrap(), args[3].parse().unwrap());
