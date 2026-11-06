@@ -15,7 +15,7 @@
 //! * the original, compared with a copy taken before the copies played, is unchanged.
 //!
 //! The original goes on with the bot's answer, and at the end its fingerprint is the one of the game played with the blocking `Game::step`
-//! (the quick game: `538dc68f23dddcc9`, 1,165 steps). At every `LOAD_EVERY`-th question the game is also saved and loaded: the decision
+//! (the quick game: `43c985a35397f2c9` since chance-2 C3b, 1,165 steps). At every `LOAD_EVERY`-th question the game is also saved and loaded: the decision
 //! journal replayed from the opening through `Game::replayed` stands at the same question in the same position, and goes on identically.
 //!
 //! `cargo test --profile lockstep -p ti4-engine-core-bridge --test fork_mid` runs the quick game; `-- --ignored` the 14 games of
@@ -345,7 +345,7 @@ fn the_quick_game_copied_at_every_question_continues_as_its_replay_and_the_origi
 #[test]
 fn the_quick_game_played_by_pull_is_the_blocking_game() {
     let (reference, steps) = blocking_reference(4, 1, "sol");
-    assert_eq!((reference.as_str(), steps), ("538dc68f23dddcc9", 1165));
+    assert_eq!((reference.as_str(), steps), ("43c985a35397f2c9", 1165));
     let (mut game, bot) = new_game(4, 1, "sol");
     while !game.state.finished {
         let r = pull_step(&mut game, &bot, &mut Vec::new());
