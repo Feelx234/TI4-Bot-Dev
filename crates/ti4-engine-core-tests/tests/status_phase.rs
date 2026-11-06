@@ -361,7 +361,7 @@ fn a_hand_over_its_limit_after_the_draw_is_asked_to_discard_one() {
     advance_status(&mut s, &e, None).unwrap();
     let (live, _) = advance_scoring(&mut s, &e, None).unwrap();
     let Live::Asks(q) = live else { panic!("eight cards: discard one") };
-    assert!(matches!(q.choice.ask, Ask::Cards(ti4_engine_core::choice::cards::Ask::HandLimit { held: 8 })), "{:?}", q.choice.ask);
+    assert!(matches!(q.choice.ask, Ask::Cards(ti4_engine_core::choice::cards::Ask::HandLimit { held: 8, discard: 1 })), "{:?}", q.choice.ask);
     // Before rules version 17 the status draw is not subject to the hand limit.
     let (mut old, k) = Scenario::lobby(2).phase(Phase::Status).active(None).rules(16).build();
     old.decks_mut().objective.set(vec![PublicObjective::ALL[0]]);

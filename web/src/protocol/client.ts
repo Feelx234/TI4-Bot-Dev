@@ -386,6 +386,7 @@ function pendingChoice(
           }
         : context,
     ...(envelope.choice.details ? { details: envelope.choice.details } : {}),
+    ...(envelope.choice.multi_pick ? { multi_pick: envelope.choice.multi_pick } : {}),
   };
 }
 

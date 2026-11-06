@@ -46,7 +46,7 @@ fn the_politics_rider_draws_three_cards_asks_what_to_discard_over_the_limit_and_
     let window = || Close::new(facts, directive(), None, Some(Outcome::For), &[(Seat(1), Outcome::For)], &[(Outcome::For, 3), (Outcome::Against, 1)], &[Outcome::For, Outcome::Against]);
     let mut rig = Rig::from_parts(st(), kernel_all(), window()).with_table(table_with_groups());
     rig.run();
-    assert!(matches!(rig.asked().ask, Ask::Cards(CAsk::HandLimit { held: 8 })), "five cards and three drawn: {:?}", rig.asked().ask);
+    assert!(matches!(rig.asked().ask, Ask::Cards(CAsk::HandLimit { held: 8, discard: 1 })), "five cards and three drawn: {:?}", rig.asked().ask);
     assert_eq!(rig.asked().actor, Seat(1));
     rig.assert_options_sound();
     assert_eq!(rig.state.decks().action.cards().len(), 1, "3 cards came off the top");
@@ -87,9 +87,9 @@ fn unconventional_measures_for_asks_a_voter_over_the_limit_which_card_goes() {
     let mut rig = Rig::from_parts(st(), kernel_all(), window()).with_table(table_with_groups());
     rig.run();
     assert_eq!(hand(&rig.state, 0), 2, "the first voter draws 2");
-    assert!(matches!(rig.asked().ask, Ask::Cards(CAsk::HandLimit { held: 8 })), "six cards and two drawn: {:?}", rig.asked().ask);
+    assert!(matches!(rig.asked().ask, Ask::Cards(CAsk::HandLimit { held: 8, discard: 1 })), "six cards and two drawn: {:?}", rig.asked().ask);
     assert_eq!(rig.asked().actor, Seat(1));
-    rig.pick_opt(Opt::Cards(CO::Discard { index: 0, card: ActionCard::Rally }));
+    rig.pick_opt(Opt::Cards(CO::Discard { index: 0, card: ActionCard::Rally, copies: 1 }));
     assert!(rig.is_done() && !rig.driver.window.unsupported());
     assert_eq!(hand(&rig.state, 1), 7);
     assert!(rig.stages.iter().any(|s| s == "Drawing"));

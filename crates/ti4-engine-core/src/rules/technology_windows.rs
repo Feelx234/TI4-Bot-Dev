@@ -468,12 +468,10 @@ impl TurnEnd {
         u8::try_from(POOLS.iter().map(|p| i32::from(held(s, self.who, *p))).sum::<i32>().max(0)).unwrap_or(u8::MAX)
     }
 
-    /// Every final split of the tokens held (`tokens::distribution_options` with no floor), as the window's options.
+    /// Every final split of the tokens held (`tokens::distribution_options` with no floor, in its order), as the window's options.
     fn splits(&self, s: &CoreState) -> impl Iterator<Item = TOpt> {
-        crate::rules::strategy_primaries::splits(self.total(s), 0).filter_map(|o| match o {
-            crate::choice::strategy::Opt::Split { tactic, fleet, strategic } => Some(TOpt::Split { tactic, fleet, strategic }),
-            _ => None,
-        })
+        let total = self.total(s);
+        (0..=total).flat_map(move |tactic| (0..=(total - tactic)).map(move |fleet| TOpt::Split { tactic, fleet, strategic: total - tactic - fleet }))
     }
 
     /// The Bio-Stims options: exhausted specialty planets of the owner, then exhausted technologies other than Bio-Stims.
@@ -554,8 +552,10 @@ impl Window for TurnEnd {
             (EStage::Restack, Pick::Opt(Opt::Technology(split @ TOpt::Split { tactic, fleet, strategic }))) if self.splits(sx.state).any(|o| o == split) => {
                 let now = [Pool::Tactic, Pool::Fleet, Pool::Strategic].map(|p| held(sx.state, self.who, p));
                 self.changed = now != [tactic, fleet, strategic].map(i16::from);
-                if self.changed {
-                    crate::rules::strategy_primaries::apply_split(sx.state, self.who, tactic, fleet, strategic);
+                if self.changed
+                    && let Some(p) = sx.state.players_mut().by_seat_mut(self.who)
+                {
+                    (p.econ.tactic_tokens, p.econ.fleet_tokens, p.econ.strategic_tokens) = (i16::from(tactic), i16::from(fleet), i16::from(strategic));
                 }
                 self.to_bio_stims(sx.state);
             }

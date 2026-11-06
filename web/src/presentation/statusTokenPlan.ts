@@ -8,22 +8,27 @@ import {
   tokenOutcome,
   type Pools,
 } from "./commandTokens.ts";
-import { describePools, type StepResolution, type TokenPrefill } from "./secondaryPlan.ts";
+import { type StepResolution, type TokenPrefill } from "./secondaryPlan.ts";
 
 /**
- * A prepared status phase: the follower's private, revocable suggestion for the two token
- * decisions of rule 81.5. Like a prepared secondary it is stored by meaning (a distribution of
- * pools), never by option id, lives on this device only and is checked against the real question
- * when the engine asks; nothing is sent or spent before then.
+ * A prepared status phase: the follower's private, revocable suggestion for the token decision of
+ * rule 81.5. Like a prepared secondary it is stored by meaning (a distribution of pools), never by
+ * option id, lives on this device only and is checked against the real question when the engine
+ * asks; nothing is sent or spent before then.
+ *
+ * The engine asks no gain question in the status phase (the gained tokens go to the tactic pool
+ * unasked), only the redistribution: so the plan is the final arrangement alone. A stored plan of
+ * an older build that names a gain keeps only its redistribution.
  */
 export interface StatusTokenPlan {
-  /** Where the tokens gained in step 81.5 go, e.g. `{ tactic: 2, fleet: 0, strategic: 0 }`. */
-  gain?: Pools;
   /** The arrangement wanted after the gain: the final pools of the redistribution. */
   redistribute?: Pools;
 }
 
-export type StatusTokenPart = "gain" | "redistribute";
+export type StatusTokenPart = "redistribute";
+
+/** The status phase's gain (81.5): two tokens, which the engine puts in the tactic pool unasked. */
+export const STATUS_GAIN: Pools = { tactic: 2, fleet: 0, strategic: 0 };
 
 /** A plan as kept on the device, with the round it is for and which parts were already answered. */
 export interface StoredStatusPlan {
@@ -71,16 +76,14 @@ export function parseStoredStatusPlan(raw: string | null | undefined): StoredSta
   if (record.v !== 1 || typeof record.round !== "number" || !Number.isInteger(record.round)) return null;
   const source = (record.plan ?? {}) as Record<string, unknown>;
   const plan: StatusTokenPlan = {};
-  const gain = parsePools(source.gain, 1);
-  if (gain) plan.gain = gain;
   const redistribute = parsePools(source.redistribute, 1);
   if (redistribute) plan.redistribute = redistribute;
-  if (!plan.gain && !plan.redistribute) return null;
+  if (!plan.redistribute) return null;
   const stored: StoredStatusPlan = { v: 1, round: record.round, plan };
   const applied = record.applied as Record<string, unknown> | undefined;
   if (applied && typeof applied === "object") {
     stored.applied = {};
-    for (const part of ["gain", "redistribute"] as const) {
+    for (const part of ["redistribute"] as const) {
       const cursor = applied[part];
       if (typeof cursor === "number" && Number.isInteger(cursor)) stored.applied[part] = cursor;
     }
@@ -102,42 +105,26 @@ export function partUsed(stored: StoredStatusPlan, part: StatusTokenPart, cursor
 export function openParts(stored: StoredStatusPlan | null, cursor: number | undefined): StatusTokenPlan {
   if (!stored) return {};
   const open: StatusTokenPlan = {};
-  if (stored.plan.gain && !partUsed(stored, "gain", cursor)) open.gain = stored.plan.gain;
   if (stored.plan.redistribute && !partUsed(stored, "redistribute", cursor)) {
     open.redistribute = stored.plan.redistribute;
   }
   return open;
 }
 
-/** Which of the two plannable decisions a pending choice is, or `null` for any other question. */
+/** Whether a pending choice is the plannable decision (the redistribution), else `null`. */
 export function statusTokenPart(
   choice: Pick<PendingChoiceDto, "context"> | null | undefined,
 ): StatusTokenPart | null {
-  const context = choice?.context;
-  if (!context) return null;
-  const phase = String(context.phase ?? "").toLowerCase();
-  if (context.subtype === "status_redistribute_tokens") return "redistribute";
-  // Rule 52.4's gain is asked by Leadership, action cards and exploration too; only the status
-  // phase's own (81.5) is planned.
-  if (context.subtype === "gain_command_token" && phase === "status") return "gain";
-  return null;
+  return choice?.context?.subtype === "status_redistribute_tokens" ? "redistribute" : null;
 }
 
-/** "Gain 2 command tokens: 2 tactic" for the one-line summaries. */
-export function describeStatusPart(part: StatusTokenPart, pools: Pools): string {
-  const total = planTotal(pools);
-  return part === "gain"
-    ? `Gain ${total} command token${total === 1 ? "" : "s"}: ${describePools(pools)}`
-    : `Redistribute to tactic ${pools.tactic} / fleet ${pools.fleet} / strategy ${pools.strategic}`;
+/** "Redistribute to tactic 3 / fleet 3 / strategy 2" for the one-line summaries. */
+export function describeStatusPart(_part: StatusTokenPart, pools: Pools): string {
+  return `Redistribute to tactic ${pools.tactic} / fleet ${pools.fleet} / strategy ${pools.strategic}`;
 }
 
 export function describeStatusPlan(plan: StatusTokenPlan): string {
-  return [
-    plan.gain ? describeStatusPart("gain", plan.gain) : null,
-    plan.redistribute ? describeStatusPart("redistribute", plan.redistribute) : null,
-  ]
-    .filter(Boolean)
-    .join("; ");
+  return plan.redistribute ? describeStatusPart("redistribute", plan.redistribute) : "";
 }
 
 /** What a plan says about one pending decision. */
@@ -173,28 +160,8 @@ export function resolveStatusTokens(
     ...(withPrefill ? { prefill } : {}),
   });
   const view = describeCommandTokens(choice, true);
-  if (!view || view.mode !== (part === "gain" ? "gain" : "redistribute")) {
+  if (!view || view.mode !== "redistribute") {
     return review("The token question is not in a form the plan can answer; choose by hand.");
-  }
-  if (part === "gain") {
-    if (view.purchase) return review("A purchase is offered with this gain; choose by hand.");
-    if (view.total !== planned) {
-      return review(
-        `You gain ${view.total} command token${view.total === 1 ? "" : "s"} now, not the ${planned} you planned.`,
-      );
-    }
-    if (view.reinforcements !== null && planned > view.reinforcements) {
-      return review(`Only ${view.reinforcements} tokens are left in your reinforcements.`);
-    }
-    const outcome = tokenOutcome(view, wanted);
-    if (!outcome || outcome.kind !== "plan") {
-      return review("The planned pools can no longer be placed.", true);
-    }
-    return {
-      part,
-      resolution: { kind: "tokens", steps: outcome.steps, text: describeStatusPart(part, wanted), prefill },
-      prefill,
-    };
   }
   if (view.total !== planned) {
     return review(
@@ -218,8 +185,8 @@ export function resolveStatusTokens(
   };
 }
 
-/** The pools a player holds now after gaining `gain` into `pools` (what a redistribution starts from). */
-export function poolsAfterGain(current: Pools, gain: Pools | undefined): Pools {
+/** The pools a player holds after gaining `gain` (default: the status phase's) into `current`. */
+export function poolsAfterGain(current: Pools, gain: Pools | undefined = STATUS_GAIN): Pools {
   return {
     tactic: current.tactic + (gain?.tactic ?? 0),
     fleet: current.fleet + (gain?.fleet ?? 0),

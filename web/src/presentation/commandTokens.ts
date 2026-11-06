@@ -1,7 +1,8 @@
 import type { PendingChoiceDto } from "../protocol/types.ts";
 import { suggestAutoPay, type PayablePlanet, type PaymentDraft, type PaymentOffer } from "./paymentDraft.ts";
 
-const GAIN_PROMPT = "gain a command token into which pool";
+/** The engine's gain prompts: one token, or (one question for all of them) several. */
+const GAIN_PROMPT = /^gain (a|\d+) command tokens? into which pools?$/;
 
 /**
  * The headline for a command-token gain. The engine's prompt names a single token; the real
@@ -10,7 +11,7 @@ const GAIN_PROMPT = "gain a command token into which pool";
  */
 export function gainTokensPrompt(choice: Pick<PendingChoiceDto, "prompt" | "details">): string {
   const details = choice.details;
-  if (choice.prompt !== GAIN_PROMPT || details?.kind !== "command_tokens" || details.mode !== "gain") {
+  if (!GAIN_PROMPT.test(choice.prompt) || details?.kind !== "command_tokens" || details.mode !== "gain") {
     return choice.prompt;
   }
   const count = details.tokens_to_place;
@@ -70,6 +71,8 @@ export interface PurchaseView {
   cost: number;
   /** Influence the seat can spend now (planets plus trade goods). */
   influence: number;
+  /** The fewest tokens the purchase question takes (the secondary buys at least one), else 0. */
+  min: number;
   max: number;
   planets: PurchasePlanet[];
   tradeGoods: number;
@@ -93,6 +96,11 @@ export interface CommandTokenView {
   arrangements: ReadonlySet<string>;
   /** Gain: the influence purchase that follows (or is asked first), planned on the same screen. */
   purchase: PurchaseView | null;
+  /**
+   * Leadership's secondary window (follow, yes or no) carries the purchase that follows it: its
+   * "yes" is the plan's first step, before the purchase question's own steps.
+   */
+  purchaseWindow?: boolean;
   /** Extra non-fighter ships per system the seat's fleet supply allows (Letnev's Armada: 2), else 0. */
   fleetSupplyBonus: number;
 }
@@ -117,7 +125,7 @@ const asCount = (value: unknown): number | null =>
  * only when `canBatch`; a redistribution is a single decision and always is.
  */
 export function describeCommandTokens(
-  choice: Pick<PendingChoiceDto, "options" | "details">,
+  choice: Pick<PendingChoiceDto, "options" | "details" | "multi_pick">,
   canBatch: boolean,
   resourcesOf?: ReadonlyMap<string, number>,
 ): CommandTokenView | null {
@@ -127,7 +135,7 @@ export function describeCommandTokens(
 }
 
 function describeBase(
-  choice: Pick<PendingChoiceDto, "options" | "details">,
+  choice: Pick<PendingChoiceDto, "options" | "details" | "multi_pick">,
   canBatch: boolean,
   /** Resource value per planet id (from the board), so the flow can show and weigh resources. */
   resourcesOf?: ReadonlyMap<string, number>,
@@ -135,7 +143,7 @@ function describeBase(
   const details = choice.details;
   if (!details) return null;
   // Leadership's secondary window keeps its strategy-secondary details and adds the purchase.
-  const purchase = describePurchase(details.purchase, resourcesOf);
+  const purchase = withBuyRange(describePurchase(details.purchase, resourcesOf), choice.multi_pick?.buy);
   const buyWindow = details.kind === "strategy_secondary" && purchase !== null;
   if (details.kind !== "command_tokens" && !buyWindow) return null;
   const pools = details.pools as Partial<Record<TokenPool, unknown>> | undefined;
@@ -148,10 +156,21 @@ function describeBase(
   const held: Pools = { tactic: current.tactic, fleet: current.fleet, strategic: current.strategic };
   const reinforcements = asCount(details.reinforcements);
   if (details.mode === "buy") {
-    // The yes/no purchase question itself: nothing free to place, only what can be bought.
+    // Nothing free to place, only what can be bought: Leadership's secondary window (follow: yes or
+    // no), or the purchase question itself (one multi-pick: `buy:N` and its payment atoms).
     const ids = new Set(choice.options.map((option) => option.id));
-    if (!canBatch || !purchase || !ids.has("yes") || !ids.has("no")) return null;
-    return { mode: "gain", current: held, reinforcements, total: 0, arrangements: new Set(), purchase };
+    const window = ids.has("yes") && ids.has("no");
+    const question = choice.multi_pick?.kind === "purchase";
+    if (!canBatch || !purchase || !(window || question)) return null;
+    return {
+      mode: "gain",
+      current: held,
+      reinforcements,
+      total: 0,
+      arrangements: new Set(),
+      purchase,
+      purchaseWindow: window && buyWindow,
+    };
   }
   if (details.mode === "gain") {
     const total = asCount(details.tokens_to_place);
@@ -199,7 +218,14 @@ function describePurchase(raw: unknown, resourcesOf?: ReadonlyMap<string, number
     if (typeof planet?.id !== "string" || worth === null) return null;
     planets.push({ id: planet.id, worth, resources: resourcesOf?.get(planet.id) ?? null });
   }
-  return { cost, influence, max, planets, tradeGoods, tradeGoodWorth };
+  return { cost, influence, min: 0, max, planets, tradeGoods, tradeGoodWorth };
+}
+
+/** The purchase question's own range of tokens (`multi_pick.buy`), when it is the open question. */
+function withBuyRange(purchase: PurchaseView | null, buy: readonly number[] | undefined): PurchaseView | null {
+  if (!purchase || !buy || buy.length !== 2) return purchase;
+  const [min, max] = buy;
+  return { ...purchase, min: Math.max(0, min), max: Math.min(purchase.max, max) };
 }
 
 export const stagedTotal = (staging: TokenStaging): number =>
@@ -447,6 +473,16 @@ export function paymentCheck(
   const paid = plan.spent;
   const remainder = Math.max(0, bill - paid);
   const waste = Math.max(0, paid - bill);
+  if (bought === 0 && purchase.min > 0) {
+    return {
+      plan,
+      bill,
+      paid,
+      remainder: 0,
+      waste: paid,
+      problem: `Buy at least ${purchase.min} token${purchase.min === 1 ? "" : "s"}.`,
+    };
+  }
   if (bought === 0) {
     const need = Math.max(0, purchase.cost - paid);
     return {
@@ -462,16 +498,20 @@ export function paymentCheck(
     };
   }
   let problem: string | null = null;
-  if (paid < bill) {
+  if (bought < purchase.min) {
+    problem = `Buy at least ${purchase.min} token${purchase.min === 1 ? "" : "s"}.`;
+  } else if (paid < bill) {
     problem = `Short by ${bill - paid} influence: exhaust another planet or spend more trade goods.`;
   } else {
+    // The engine's rule (`purchase_worth`): without the largest item the rest must fall short, so
+    // every item was needed (ordered largest last, each earlier one was spent while the bill was open).
     const items = [
       ...plan.planets.map((planet) => ({ name: planet.id, worth: planet.worth })),
       ...(plan.tradeGoods > 0 ? [{ name: "a trade good", worth: purchase.tradeGoodWorth }] : []),
     ];
-    const smallest = items.reduce((a, b) => (b.worth < a.worth ? b : a));
-    if (paid - smallest.worth >= bill) {
-      problem = `More than needed: the bill is ${bill} and this pays ${paid}. The engine stops asking once the bill is covered, so take out ${smallest.name} (${smallest.worth}).`;
+    const largest = items.reduce((a, b) => (b.worth > a.worth ? b : a));
+    if (paid - largest.worth >= bill) {
+      problem = `More than needed: the bill is ${bill} and this pays ${paid}; even without ${largest.name} (${largest.worth}) the rest covers it. Take something out.`;
     }
   }
   return { plan, bill, paid, remainder, waste, problem };
@@ -509,7 +549,9 @@ export function tokenPlanWithPurchase(
   const plan = check.plan;
   if (!plan || (bought > 0 && check.problem !== null)) return null;
   const pools = tokenPlan(staging);
-  const steps: TokenStep[] = pools.slice(0, view.total);
+  // Leadership's secondary: the window's "yes" (follow) comes before the purchase question.
+  const steps: TokenStep[] = view.purchaseWindow && bought > 0 ? [{ kind: "purchase", buy: true }] : [];
+  steps.push(...pools.slice(0, view.total));
   const items: { step: TokenStep; worth: number }[] = [
     ...plan.planets.map((planet) => ({
       step: { kind: "exhaust" as const, planet: planet.id },
@@ -520,8 +562,10 @@ export function tokenPlanWithPurchase(
       worth: purchase.tradeGoodWorth,
     })),
   ];
-  // A chosen payment goes in by worth, smallest last, so the last item is the one that may overshoot.
-  if (override) items.sort((a, b) => b.worth - a.worth);
+  // A chosen payment goes in by worth, largest last: a set the engine takes (without its largest
+  // item the rest is short) then has every item listed before the bill is covered, so all of what
+  // the player picked is sent (the host gathers the items into the purchase's one answer).
+  if (override) items.sort((a, b) => a.worth - b.worth);
   let covered = 0;
   let next = 0;
   for (let token = 1; token <= bought; token += 1) {

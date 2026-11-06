@@ -89,6 +89,11 @@ fn pools_of(details: &serde_json::Map<String, serde_json::Value>) -> Option<[u8;
 /// question (the answer is `chosen` itself).
 #[must_use]
 pub fn legacy_answers(rendered: &ti4_engine::choice::Choice, chosen: &str) -> Option<Scripted> {
+    // A removal answered with one option: the core removes it first and fills up with the first options; the string asks per unit.
+    if rendered.prompt.starts_with("remove a unit: over") && !chosen.contains('+') {
+        let lead = rendered.options.iter().find(|o| o.id == chosen).map(|o| o.label.clone());
+        return Some(Scripted::Removal { prompt: rendered.prompt.clone(), lead });
+    }
     if let Some(multi) = &rendered.multi_pick {
         return Some(multi_answers(rendered, &multi.kind, multi.buy.is_some_and(|[min, _]| min > 0), chosen));
     }
@@ -107,6 +112,10 @@ pub fn multi_answers(rendered: &ti4_engine::choice::Choice, kind: &str, secondar
             Some(n) => buys = n.parse().unwrap_or(0),
             None => atoms.push(part.to_owned()),
         }
+    }
+    if kind == "discard" {
+        let label = |id: &str| rendered.options.iter().find(|o| o.id == id).map_or_else(|| id.to_owned(), |o| o.label.clone());
+        return Scripted::Labels(atoms.iter().map(|id| label(id)).collect());
     }
     atoms.sort_by_key(|id| worth(id));
     if kind == "purchase" { Scripted::Leadership { buys, bought: u8::from(secondary), atoms } } else { Scripted::Set(atoms) }
@@ -143,6 +152,9 @@ pub fn loose_match(player: &str, entry: &Scripted, records: &[(&str, &str, &[Str
         Scripted::Seq(ids) => ids.iter().map(String::as_str).collect(),
         Scripted::Set(ids) => ids.iter().map(String::as_str).collect(),
         Scripted::Leadership { atoms, .. } => atoms.iter().map(String::as_str).chain(["yes", "no"]).collect(),
+        // (The string's ids of a discard are places in the hand: only the seat and that the answer was offered are compared.)
+        Scripted::Removal { .. } => return records.iter().all(|(p, chosen, offered)| *p == player && offered.iter().any(|o| o == chosen)),
+        Scripted::Labels(_) => return records.iter().all(|(p, chosen, offered)| *p == player && offered.iter().any(|o| o == chosen)),
     };
     records.iter().all(|(p, chosen, offered)| *p == player && allowed.contains(chosen) && offered.iter().any(|o| o == chosen))
 }

@@ -23,15 +23,19 @@ fn rig(units: &[(Unit, usize)], limit: i64) -> (Rig<Enforce>, System) {
 }
 
 #[test]
-fn ships_over_the_fleet_supply_are_removed_one_question_each_until_the_fleet_fits() {
+fn ships_over_the_fleet_supply_are_removed_in_one_question_until_the_fleet_fits() {
     covers!("rules::tactical::fleet::Enforce");
     let (mut rig, system) = rig(&[(Unit::CruiserI, 3)], 1);
     rig.run();
     assert!(matches!(rig.asked().ask, Ask::Tactical(TAsk::Remove { over: Over::Supply, .. })), "{:?}", rig.asked().ask);
     assert_eq!(rig.opts().len(), 1, "units of one kind are one option");
     rig.assert_options_sound();
-    rig.pick(0);
-    assert!(matches!(rig.asked().ask, Ask::Tactical(TAsk::Remove { over: Over::Supply, .. })), "two cruisers are still over a supply of one");
+    // One answer for the whole excess (the multi-ask conversion): one cruiser alone leaves the fleet over, three are one too many.
+    let one = ti4_engine_core::choice::cards::Counts::of(0x1);
+    let three = ti4_engine_core::choice::cards::Counts::of(0x3);
+    rig.expect_illegal(Pick::Opt(Opt::Tactical(TOpt::RemoveSet { counts: one })));
+    rig.expect_illegal(Pick::Opt(Opt::Tactical(TOpt::RemoveSet { counts: three })));
+    // The option alone: that unit first, then the first options until the fleet fits.
     rig.pick(0);
     assert!(rig.is_done());
     assert_eq!(rig.driver.window.removed, 2);
@@ -79,4 +83,89 @@ fn a_removal_that_names_the_wrong_kind_or_no_candidate_is_illegal() {
 fn enforcement_survives_every_answer_policy() {
     covers!("rules::tactical::fleet::Enforce");
     smoke_quiet(|| rig(&[(Unit::CruiserI, 3), (Unit::FighterI, 2)], 1).0);
+}
+
+/// The multi-ask conversion's proof for the removal: the one answer (`Enforce::removal_ok`) reaches exactly the fleets the string's
+/// one-unit-per-question loop reached (each question offers the first unit of each kind; the loop stops once the fleet fits), brute-forced
+/// over small fleets and supplies.
+#[test]
+fn the_one_removal_answer_reaches_exactly_what_the_unit_by_unit_loop_reached() {
+    use std::collections::BTreeSet;
+    covers!("rules::tactical::fleet::Enforce");
+    let fleet = |rig: &Rig<Enforce>, system: System| -> Vec<(Unit, usize)> {
+        [Unit::CruiserI, Unit::DestroyerI, Unit::CarrierI].iter().map(|u| (*u, count(rig, system, *u))).collect()
+    };
+    for (units, limit) in [
+        (&[(Unit::CruiserI, 3)][..], 1),
+        (&[(Unit::CruiserI, 2), (Unit::DestroyerI, 2)][..], 2),
+        (&[(Unit::CruiserI, 2), (Unit::DestroyerI, 1), (Unit::CarrierI, 1)][..], 1),
+        (&[(Unit::CruiserI, 1), (Unit::DestroyerI, 3)][..], 2),
+    ] {
+        let (base, system) = rig(units, limit);
+        // The old loop: every sequence of one-unit answers (an option is a kind; it removes the first unit of that kind).
+        let mut old = BTreeSet::new();
+        let mut stack = vec![Vec::<usize>::new()];
+        while let Some(path) = stack.pop() {
+            let mut r = base.replay();
+            r.run();
+            let mut fits = r.is_done();
+            for (step, i) in path.iter().enumerate() {
+                let Some(ti4_engine_core::driver::Status::Asking(c)) = r.status().cloned() else { fits = true; break };
+                // One unit of option `i` alone, while more must go: the old loop's answer (removing exactly that unit).
+                let set = ti4_engine_core::choice::cards::with_discard_count(0, *i, 1);
+                let _ = (c, step);
+                let mut probe = r.replay();
+                let _ = &mut probe;
+                let before = fleet(&r, system);
+                // Remove that unit by hand on the state and re-run the window: the loop asks again while the fleet is over.
+                let kind = match r.opts()[*i] {
+                    Opt::Tactical(TOpt::Remove { kind, .. }) => kind,
+                    _ => unreachable!(),
+                };
+                let mut s = r.state.clone();
+                let at = s.board().sys(system).units.as_slice().iter().position(|p| p.kind() == kind && p.owner() == Seat(0)).unwrap();
+                let piece = s.board().sys(system).units.as_slice()[at];
+                ti4_engine_core::kernel::fx_move::destroy_ship(&mut s, system, piece);
+                let mut next = Rig::from_parts(s, ti4_engine_core_tests::kernel_all(), Enforce::new(Seat(0), system, limits(limit)));
+                next.run();
+                let _ = (set, before);
+                r = next;
+                fits = r.is_done();
+            }
+            if fits || r.is_done() {
+                old.insert(fleet(&r, system));
+                continue;
+            }
+            for i in 0..r.opts().len() {
+                let mut p = path.clone();
+                p.push(i);
+                stack.push(p);
+            }
+        }
+        // The new question: every count vector the window accepts.
+        let mut new = BTreeSet::new();
+        let mut first = base.replay();
+        first.run();
+        if first.is_done() {
+            new.insert(fleet(&first, system));
+        } else {
+            let n = first.opts().len();
+            for x in 0..5u64.pow(u32::try_from(n).unwrap()) {
+                let mut bits = 0u64;
+                let mut y = x;
+                for i in 0..n {
+                    bits = ti4_engine_core::choice::cards::with_discard_count(bits, i, u8::try_from(y % 5).unwrap());
+                    y /= 5;
+                }
+                let mut r = first.replay();
+                r.run();
+                let pick = Pick::Opt(Opt::Tactical(TOpt::RemoveSet { counts: ti4_engine_core::choice::cards::Counts::of(bits) }));
+                if r.try_answer(pick).is_ok() {
+                    assert!(r.is_done(), "a legal set ends the supply stage: {units:?} {bits:x}");
+                    new.insert(fleet(&r, system));
+                }
+            }
+        }
+        assert_eq!(new, old, "{units:?} supply {limit}");
+    }
 }

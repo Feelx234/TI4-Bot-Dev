@@ -49,7 +49,7 @@ export interface UseStatusTokenPlanInput {
 }
 
 /**
- * The viewer's prepared status-phase token decisions (gain per 81.5 / 52.4, then redistribution).
+ * The viewer's prepared status-phase token decision (the redistribution of 81.5; the gain is not asked).
  * Stored on this device only for one round; resolved against the real question and, in auto mode,
  * sent through the same click-equivalent path as a prepared secondary (`useSecondaryAutoPlay`).
  */
@@ -153,7 +153,7 @@ export function useStatusTokenPlan({
   const save = useCallback(
     (plan: StatusTokenPlan) => {
       if (!gameId || !viewerSeat || round === undefined) return;
-      if (!plan.gain && !plan.redistribute) {
+      if (!plan.redistribute) {
         persist(null);
         return;
       }
@@ -168,7 +168,7 @@ export function useStatusTokenPlan({
     stored,
     /** The parts still to answer. */
     plan: open,
-    hasPlan: Boolean(open.gain || open.redistribute),
+    hasPlan: Boolean(open.redistribute),
     part: resolved.part,
     resolution: resolved.resolution,
     prefill: resolved.prefill,

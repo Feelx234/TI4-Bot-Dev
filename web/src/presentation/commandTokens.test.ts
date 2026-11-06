@@ -232,6 +232,50 @@ describe("gain + buy model", () => {
     expect(describeCommandTokens(gain(), true)!.purchase).toBeNull();
   });
 
+  it("reads the new engine's purchase question (one multi-pick) and its range of tokens", () => {
+    const question = {
+      options: [
+        { id: "exhaust|jord", kind: "pay", label: "exhaust jord", payload: { worth: 2 } },
+        { id: "trade_good", kind: "pay", label: "spend a trade good", payload: { worth: 1 } },
+      ],
+      details: buyQuestion().details,
+      multi_pick: { kind: "purchase", owed: 3, repeat: { trade_good: 7 }, buy: [1, 2] as [number, number] },
+    };
+    const view = describeCommandTokens(question, true)!;
+    expect(view.mode).toBe("gain");
+    expect(view.total).toBe(0);
+    expect(view.purchaseWindow).toBe(false);
+    expect(view.purchase).toMatchObject({ min: 1, max: 2 });
+    // The secondary buys at least one: nothing bought is not an answer.
+    expect(paymentCheck(view, 0, null).problem).toMatch(/at least 1/);
+    expect(tokenOutcome(view, staged(0, 0, 0), 0, null)).toBeNull();
+    // One token: the purchase's steps (no window "yes" in front), then its pool.
+    expect(tokenOutcome(view, staged(0, 1, 0), 1, { planetIds: ["jord"], tradeGoods: 1 })).toEqual({
+      kind: "plan",
+      steps: [
+        { kind: "purchase", buy: true },
+        { kind: "trade_good" },
+        { kind: "exhaust", planet: "jord" },
+        { kind: "pool", pool: "fleet_tokens" },
+        { kind: "purchase", buy: false },
+      ],
+    });
+    // Without the multi-pick (or with a plain pay list) the purchase question is not the token panel's.
+    expect(describeCommandTokens({ ...question, multi_pick: undefined }, true)).toBeNull();
+  });
+
+  it("puts the secondary window's own 'yes' before the purchase question's steps", () => {
+    const view = describeCommandTokens(secondaryWindow(), true)!;
+    expect(view.purchaseWindow).toBe(true);
+    const outcome = tokenOutcome(view, staged(1, 0, 0), 1, { planetIds: ["jord"], tradeGoods: 1 });
+    expect(outcome?.kind === "plan" && outcome.steps.slice(0, 2)).toEqual([
+      { kind: "purchase", buy: true },
+      { kind: "purchase", buy: true },
+    ]);
+    // Not following: the window's "no".
+    expect(tokenOutcome(view, staged(0, 0, 0), 0, null)).toEqual({ kind: "plan", steps: [{ kind: "purchase", buy: false }] });
+  });
+
   it("falls back to the per-decision flow without a batch submitter or a usable purchase", () => {
     expect(describeCommandTokens(gainBuy(), false)).toBeNull();
     expect(describeCommandTokens(buyQuestion(), false)).toBeNull();
@@ -355,6 +399,7 @@ describe("payment override", () => {
     purchase: {
       cost: 3,
       influence: 14,
+      min: 0,
       max: 4,
       planets: [
         { id: "jord", worth: 2, resources: null },
@@ -389,9 +434,14 @@ describe("payment override", () => {
     const v = view();
     const short = paymentCheck(v, 1, { planetIds: ["jord"], tradeGoods: 0 });
     expect([short.remainder, short.problem]).toEqual([1, expect.stringContaining("Short by 1")]);
-    const extra = paymentCheck(v, 1, { planetIds: ["lodor", "jord"], tradeGoods: 0 });
-    expect(extra.problem).toContain("take out jord");
-    expect(canConfirmTokens(v, staged, 1, { planetIds: ["lodor", "jord"], tradeGoods: 0 })).toBe(false);
+    // The engine's rule: without the LARGEST item the rest must be short (paid largest last, each
+    // earlier item was spent while the bill was open). Lodor 3 + Arcturus 4 for 3: Lodor alone covers it.
+    const extra = paymentCheck(v, 1, { planetIds: ["lodor", "arcturus"], tradeGoods: 0 });
+    expect(extra.problem).toContain("without arcturus");
+    expect(canConfirmTokens(v, staged, 1, { planetIds: ["lodor", "arcturus"], tradeGoods: 0 })).toBe(false);
+    // Jord 2 then Lodor 3 is a set the engine takes (2 is short, the 3 completes it), waste 2.
+    const spare = paymentCheck(v, 1, { planetIds: ["lodor", "jord"], tradeGoods: 0 });
+    expect([spare.paid, spare.waste, spare.problem]).toEqual([5, 2, null]);
     expect(tokenOutcome(v, staged, 1, { planetIds: ["jord"], tradeGoods: 0 })).toBeNull();
   });
 
@@ -404,13 +454,13 @@ describe("payment override", () => {
     expect(overrideIsValid(v, 2, { planetIds: ["lodor", "arcturus"], tradeGoods: 0 })).toBe(true);
   });
 
-  it("sends the chosen exhaust and trade good steps, smallest last, in the order the engine asks", () => {
+  it("sends every chosen exhaust and trade good step, largest last", () => {
     const v = view();
     const steps = tokenPlanWithPurchase(v, staged, 1, { planetIds: ["jord"], tradeGoods: 1 });
     expect(steps).toEqual([
       { kind: "purchase", buy: true },
-      { kind: "exhaust", planet: "jord" },
       { kind: "trade_good" },
+      { kind: "exhaust", planet: "jord" },
       { kind: "pool", pool: "tactic_tokens" },
       { kind: "purchase", buy: false },
     ]);
@@ -418,10 +468,9 @@ describe("payment override", () => {
       planetIds: ["jord", "arcturus"],
       tradeGoods: 0,
     });
-    // 4 covers the first token (1 carried), 2 more covers the second.
     expect(two?.filter((s) => s.kind === "exhaust")).toEqual([
-      { kind: "exhaust", planet: "arcturus" },
       { kind: "exhaust", planet: "jord" },
+      { kind: "exhaust", planet: "arcturus" },
     ]);
     expect(two?.[0]).toEqual({ kind: "purchase", buy: true });
   });
@@ -473,6 +522,11 @@ describe("gainTokensPrompt", () => {
     expect(gainTokensPrompt(gain(3))).toBe("Gain 3 command tokens — assign them to pools");
     expect(gainTokensPrompt(gain(2))).toBe("Gain 2 command tokens — assign them to pools");
     expect(gainTokensPrompt(gain(1))).toBe("Gain 1 command token — choose its pool");
+  });
+  it("reads the new engine's prompt for one question over several tokens", () => {
+    expect(gainTokensPrompt(gain(3, "gain 3 command tokens into which pools"))).toBe(
+      "Gain 3 command tokens — assign them to pools",
+    );
   });
   it("leaves other prompts, missing counts and redistributions alone", () => {
     expect(gainTokensPrompt(gain(3, "something else"))).toBe("something else");

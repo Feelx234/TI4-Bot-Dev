@@ -287,7 +287,7 @@ fn a_taker_over_the_hand_limit_discards_through_the_hand_limit_window_unless_the
     let mut limited = kyver([&full, &[C[0]], &[]], true);
     limited.run();
     limited.pick_opt(Opt::Leaders(LOpt::KyverTake));
-    assert!(matches!(limited.asked().ask, Ask::Cards(CAsk::HandLimit { held: 8 })), "{}", limited.transcript());
+    assert!(matches!(limited.asked().ask, Ask::Cards(CAsk::HandLimit { held: 8, discard: 1 })), "{}", limited.transcript());
     assert_eq!(limited.asked().actor, Seat(0));
     let mut crafty = kyver([&full, &[C[0]], &[]], false);
     crafty.run();
@@ -452,7 +452,7 @@ fn the_owner_is_asked_which_units_go_when_the_survivors_cannot_hold_them_all() {
             questions += 1;
         }
         assert_eq!(at(&rig, system, 1, Unit::FighterI), 4);
-        assert_eq!(questions, 4);
+        assert_eq!(questions, 1, "the four fighters go in one answer (the multi-ask conversion)");
         assert_eq!(captured(&rig).iter().filter(|c| c.1 == Unit::FighterI).count(), 4, "each fighter that left is captured");
         return;
     }

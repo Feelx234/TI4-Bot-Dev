@@ -120,9 +120,10 @@ export function handDecisionNote(
   }
   if (DISCARD_SUBTYPES.has(subtype)) {
     const held = /\bof (\d+)\s*$/.exec(choice.prompt)?.[1];
-    return held
-      ? `You hold ${held} action cards. Choose one to discard; it goes to the discard pile.`
-      : "Choose an action card to discard.";
+    // The hand limit is one multi-pick for every card over it ("discard 2 of 9").
+    const count = /\bdiscard (\d+) of\b/.exec(choice.prompt)?.[1];
+    const what = count && count !== "1" ? `Choose ${count} to discard; they go` : "Choose one to discard; it goes";
+    return held ? `You hold ${held} action cards. ${what} to the discard pile.` : "Choose an action card to discard.";
   }
   if (TAKE_SUBTYPES.has(subtype)) {
     return "Another player has shown you these action cards. Choose one to add to your hand; the rest stay with them.";
