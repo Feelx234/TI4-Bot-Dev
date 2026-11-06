@@ -167,7 +167,7 @@ pub struct PendingAsk {
     pub args: [u32; 3],
 }
 
-/// Driver progress flags (`Game.status_resolved`, `agenda_resolved`, `strategy_phase_announced`).
+/// Driver progress flags (`Game.status_resolved`, `agenda_resolved`, `strategy_phase_announced`, the wrapper's `after_glue`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DriverFlags(pub u8);
 
@@ -175,6 +175,11 @@ impl DriverFlags {
     pub const STATUS_RESOLVED: u8 = 1;
     pub const AGENDA_RESOLVED: u8 = 1 << 1;
     pub const STRATEGY_PHASE_ANNOUNCED: u8 = 1 << 2;
+    /// The last step of the wrapper's loop was a glued one that finished (the turn prelude, the strategy announcement, a finished aftermath,
+    /// the tail of a tactical action): the next step does not run its reconcile hooks first. Written by the wrapper at the end of a step and
+    /// read at the start of the next (lane C5, FORK_RNG V1: it lives in the position, so a bare `CoreState` says how a step resumes); no rule
+    /// of the core reads it.
+    pub const AFTER_GLUE: u8 = 1 << 3;
 
     #[must_use]
     pub const fn has(self, flag: u8) -> bool {

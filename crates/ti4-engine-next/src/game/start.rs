@@ -142,7 +142,16 @@ impl<'a> Game<'a> {
             .map(|id| state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned()))
             .collect();
         let render = Render::new(cx.owners.ids().to_vec()).with_factions(factions).with_codes(core.texts.codes.clone());
-        let native = Native { seeds: Rc::new(TextSeeds::of(&cx)), kernel: crate::live::kernel::kernel_for(POK), base: state.clone(), core, cx, render, after_glue: false };
+        let native = Native {
+            seeds: Rc::new(TextSeeds::of(&cx)),
+            kernel: crate::live::kernel::kernel_for(POK),
+            base: state.clone(),
+            core,
+            cx,
+            render,
+            #[cfg(feature = "search")]
+            mid: None,
+        };
         let secondary = secondary_view(&native.core, &native.cx);
         Ok(Self {
             state,

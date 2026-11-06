@@ -26,6 +26,9 @@ ts-rs = { workspace = true, optional = true }
 # No default feature reaches `ti4-engine-legacy` (tools/engine_core/check_production_graph.sh checks it).
 default = []
 ts = ["dep:ts-rs", "ti4-model/ts"]
+# Lane C5 (docs/C5_RESUME.md): the step cut at its questions (`Game::pull` / `Game::answer`), so a game can be copied at every decision.
+# Preparation for the search; no production crate turns it on (the wasm stays as it is), the bridge's fork tests do.
+search = []
 # The dev-tool surface: the legacy (string) engine as a dependency, `lend_string` module. Research tools, the bridge and the tests that drive
 # a string window turn it on; no production crate does.
 lend-string = ["dep:ti4-engine-legacy"]

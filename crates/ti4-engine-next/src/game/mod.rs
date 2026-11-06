@@ -28,7 +28,7 @@ use ti4_engine_core::driver::live::{Asking, ask_arm_fn, is_open, live_arm};
 use ti4_engine_core::driver::session::{Arm, AskArm, Facts, live_ask_arm, step_arm};
 use ti4_engine_core::driver::turn::{self, TurnFlowWin};
 use ti4_engine_core::kernel::Kernel;
-use ti4_engine_core::state::{CoreState, Slice, SliceSet, WindowKind};
+use ti4_engine_core::state::{CoreState, DriverFlags, Slice, SliceSet, WindowKind};
 use ti4_model::content_types::{FULL, POK, SourceSet};
 use ti4_model::id::{PlayerId, StrategyCardId, SystemId};
 use ti4_model::state::{GameState, Phase};
@@ -43,8 +43,13 @@ use crate::wire::observation::ExecutionObservation;
 use crate::wire::rng::{GameRng, RngPositions};
 
 mod asker;
+#[cfg(feature = "search")]
+mod mid;
 mod rolls;
 mod start;
+
+#[cfg(feature = "search")]
+pub use mid::Pulled;
 
 pub use start::{GameStart, StartParts};
 
@@ -126,9 +131,9 @@ struct Native {
     kernel: &'static Kernel,
     /// The position the core was loaded from: the fields no slice carries.
     base: GameState,
-    /// The last step was a glued one that finished (the turn prelude, the strategy announcement, a finished aftermath, the tail of a tactical
-    /// action): the next step does not run its reconcile hooks first (`native_play::NativeGame::after_glue`).
-    after_glue: bool,
+    /// The step that stands at a question the table has not been asked yet (lane C5, [`Game::pull`]).
+    #[cfg(feature = "search")]
+    mid: Option<mid::Mid>,
 }
 
 impl Native {
@@ -158,7 +163,16 @@ impl Native {
             .map(|id| state.players.iter().find(|p| p.id.as_str() == id).map_or_else(String::new, |p| p.faction.as_str().to_owned()))
             .collect();
         let render = Render::new(cx.owners.ids().to_vec()).with_factions(factions).with_codes(core.texts.codes.clone());
-        Ok(Self { seeds: Rc::new(TextSeeds::of(&cx)), kernel: live::kernel::kernel_for(sources), base: state.clone(), core, cx, render, after_glue: false })
+        Ok(Self {
+            seeds: Rc::new(TextSeeds::of(&cx)),
+            kernel: live::kernel::kernel_for(sources),
+            base: state.clone(),
+            core,
+            cx,
+            render,
+            #[cfg(feature = "search")]
+            mid: None,
+        })
     }
 
     /// The position as the string's `GameState`.
@@ -181,6 +195,19 @@ impl Native {
 /// The arms the string runs together with the next step (the prelude and the announcement go on into the question of the same step).
 const fn glued(arm: Arm) -> bool {
     matches!(arm, Arm::TurnPrelude | Arm::StrategyAnnounce)
+}
+
+/// The last step was a glued one that finished (the turn prelude, the strategy announcement, a finished aftermath, the tail of a tactical
+/// action): the next step does not run its reconcile hooks first (`native_play::NativeGame::after_glue`). Kept in the position
+/// ([`DriverFlags::AFTER_GLUE`], lane C5, FORK_RNG V1), so a copy of the core alone says how the next step begins.
+fn after_glue(core: &CoreState) -> bool {
+    core.pending().driver.has(DriverFlags::AFTER_GLUE)
+}
+
+fn set_after_glue(core: &mut CoreState, on: bool) {
+    if after_glue(core) != on {
+        core.pending_mut().driver.set(DriverFlags::AFTER_GLUE, on);
+    }
 }
 
 /// What one native step did.
@@ -269,18 +296,36 @@ struct NativeSnapshot {
     codes: ti4_engine_core::containers::Interner,
     factions: Vec<String>,
     base: GameState,
-    after_glue: bool,
+    #[cfg(feature = "search")]
+    mid: Option<mid::Mid>,
 }
 
 impl NativeSnapshot {
     fn of(n: &Native) -> Self {
-        Self { core: n.core.clone(), cx: n.cx.clone(), codes: n.render.codes_snapshot(), factions: n.render.factions.clone(), base: n.base.clone(), after_glue: n.after_glue }
+        Self {
+            core: n.core.clone(),
+            cx: n.cx.clone(),
+            codes: n.render.codes_snapshot(),
+            factions: n.render.factions.clone(),
+            base: n.base.clone(),
+            #[cfg(feature = "search")]
+            mid: n.mid.clone(),
+        }
     }
 
     fn open(&self, sources: SourceSet) -> Native {
         let mut render = Render::new(self.cx.owners.ids().to_vec()).with_codes(self.codes.clone());
         render.factions.clone_from(&self.factions);
-        Native { core: self.core.clone(), cx: self.cx.clone(), render, seeds: Rc::new(TextSeeds::of(&self.cx)), kernel: live::kernel::kernel_for(sources), base: self.base.clone(), after_glue: self.after_glue }
+        Native {
+            core: self.core.clone(),
+            cx: self.cx.clone(),
+            render,
+            seeds: Rc::new(TextSeeds::of(&self.cx)),
+            kernel: live::kernel::kernel_for(sources),
+            base: self.base.clone(),
+            #[cfg(feature = "search")]
+            mid: self.mid.clone(),
+        }
     }
 }
 
@@ -299,8 +344,15 @@ impl<'a> GameSnapshot<'a> {
         let Self { state, table, events, content, sources, galaxy, rng, seed, native, rolls, blocked, steps, secondary, participation, round_income } = self;
         let mut game_rng = GameRng::new(seed);
         game_rng.set_positions(&rng);
+        #[allow(unused_mut)]
+        let mut native = native.as_ref().map(|n| n.open(sources));
+        // (A step that stands at a question rolls the journal back to where it began: a copy without the log has none of it.)
+        #[cfg(feature = "search")]
+        if let Some(mid) = native.as_mut().and_then(|n| n.mid.as_mut()) {
+            mid.clamp_log(table.log.records.len());
+        }
         Game {
-            native: native.as_ref().map(|n| n.open(sources)),
+            native,
             state,
             table: Table::from_state(table),
             events,
@@ -752,6 +804,10 @@ impl<'a> Game<'a> {
     /// The choice currently offered, without resolving automatic followers or phase work.
     #[must_use]
     pub fn legal_options(&self) -> Option<Choice> {
+        #[cfg(feature = "search")]
+        if let Some(q) = self.pending_question() {
+            return Some(q.clone());
+        }
         if self.state.finished || self.blocked.is_some() {
             return None;
         }
@@ -778,6 +834,11 @@ impl<'a> Game<'a> {
     /// Resolve one generated decision, or one choice-free phase/window transition.
     #[must_use]
     pub fn step(&mut self) -> StepResult {
+        // (A step that stands at a question is answered with `Game::answer`: a blocking step would begin another one over it.)
+        #[cfg(feature = "search")]
+        if self.pending_question().is_some() {
+            return self.result(false, Some(GameError::Blocked("the step stands at a question: answer it with Game::answer".to_owned())));
+        }
         self.table.begin_step();
         if let Err(error) = self.try_load() {
             return self.result(false, Some(error));
@@ -807,6 +868,49 @@ impl<'a> Game<'a> {
                     self.blocked = Some(error.clone());
                 }
                 self.result(false, Some(error))
+            }
+        }
+    }
+
+    /// What [`Game::observe`] compares the step with, taken when it begins (nothing without an observation). (The cut step's copy of `step`'s
+    /// lines: the blocking step keeps them inline, so the wasm is as it was.)
+    #[cfg(feature = "search")]
+    fn observed_before(&self) -> Observed {
+        let rng = self.observation.as_ref().and_then(|_| self.native.as_ref().and_then(|n| materialize::rng_positions(&n.core).ok()));
+        let private = self.observation.as_ref().map(|_| (private_marks(&self.state), deck_lengths(&self.state)));
+        (rng, private)
+    }
+
+    /// The result of a step that ran: the observation latched, a defect blocks the game.
+    #[cfg(feature = "search")]
+    fn step_outcome(&mut self, outcome: Result<Done, GameError>, before: &Observed) -> StepResult {
+        match outcome {
+            Ok(done) => {
+                if done.finished_game {
+                    return self.result(false, None);
+                }
+                self.observe(before, done.hidden);
+                self.result(done.asked > 0, None)
+            }
+            Err(error) => {
+                if matches!(error, GameError::Core(_) | GameError::Unmapped(_) | GameError::Disabled(_)) {
+                    self.blocked = Some(error.clone());
+                }
+                self.result(false, Some(error))
+            }
+        }
+    }
+
+    #[cfg(feature = "search")]
+    fn observe(&self, (before_rng, before_private): &Observed, hidden: bool) {
+        if let Some(observation) = &self.observation {
+            if self.rng_positions_differ(before_rng.as_ref()) {
+                if std::env::var_os("TI4_DBG_LATCH").is_some() { eprintln!("RNG {:?} -> {:?}", before_rng, self.native.as_ref().and_then(|n| materialize::rng_positions(&n.core).ok())); }
+                observation.randomness();
+            }
+            if hidden || before_private.as_ref().is_some_and(|b| *b != (private_marks(&self.state), deck_lengths(&self.state))) {
+                if std::env::var_os("TI4_DBG_LATCH").is_some() { eprintln!("HIDDEN"); }
+                observation.hidden_information();
             }
         }
     }
@@ -854,7 +958,6 @@ impl<'a> Game<'a> {
         let Some(native) = native.as_mut() else { return Err(GameError::Blocked("the core is not loaded".to_owned())) };
         let before = native.core.clone();
         let (codes, factions) = (native.render.codes_snapshot(), native.render.factions.clone());
-        let after_glue = native.after_glue;
         let log_len = table.log.records.len();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             native_step(native, table, events, content, *sources, galaxy.as_ref(), strategic_observer.as_ref(), aftermath_observer.as_ref(), participation.as_ref(), state)
@@ -884,13 +987,30 @@ impl<'a> Game<'a> {
             }
             Err(error) => {
                 native.core = before;
-                native.after_glue = after_glue;
                 native.rebuild_render(codes, factions);
                 table.log.records.truncate(log_len);
                 Err(error)
             }
         }
     }
+}
+
+#[cfg(feature = "search")]
+/// What [`Game::observe`] compares a step with: the stream positions and the private marks before it.
+type Observed = (Option<RngPositions>, Option<(BTreeMap<String, String>, Vec<usize>)>);
+
+/// The cut step's copy of `step_native`'s commit: count the step, refresh the mirror, the rolls, the follower view and the map.
+#[cfg(feature = "search")]
+fn publish(native: &Native, state: &mut GameState, rolls: &mut Vec<Roll>, secondary: &mut Option<SecondaryView>, galaxy: Option<&mut Galaxy>, steps: &mut usize) -> Result<(), GameError> {
+    *steps += 1;
+    let mirror = native.materialized()?;
+    *state = mirror;
+    *rolls = rolls::rendered(&native.core, &native.cx, &native.render, rolls.len());
+    *secondary = secondary_view(&native.core, &native.cx);
+    if let Some(galaxy) = galaxy {
+        crate::laws::apply_to_galaxy(state, galaxy);
+    }
+    Ok(())
 }
 
 const fn window_name(kind: WindowKind) -> &'static str {
@@ -928,6 +1048,47 @@ fn private_marks(state: &GameState) -> BTreeMap<String, String> {
     state.faction_marks.iter().filter(|(k, _)| k.starts_with("cards:reveal:") || k.starts_with("cards:staged:") || (k.starts_with("private:") && k.ends_with(":insider:peek"))).map(|(k, v)| (k.clone(), v.clone())).collect()
 }
 
+#[cfg(feature = "search")]
+/// The logs the core's ability table writes during a step and the wrapper reads at its end (see [`step_env`]).
+#[derive(Clone)]
+struct StepLogs {
+    /// The seats a reaction window passed by because they had nothing to resolve (`Table::window_skipped`, the wait banner of the hidden reactions).
+    skipped: ti4_engine_core::kernel::ability::SkippedLog,
+    /// The payments with one way left to pay the core collapsed without a question (`AbilityTable::auto_paid`): the payer is told at the end.
+    auto_paid: Arc<std::sync::Mutex<Vec<ti4_engine_core::kernel::ability::AutoPaid>>>,
+}
+
+/// The cut step's `Env` (`native_step` builds the same inline): built from the position the step begins with (`core`), with the step's logs hung on it.
+#[cfg(feature = "search")]
+fn step_env(n: &Native, core: &CoreState, sources: SourceSet, logs: StepLogs) -> (ti4_engine_core::driver::live::Env<'static>, StepLogs) {
+    let mut env = live::env::env_with_plays(&n.render, core, n.kernel, n.seeds.clone(), sources);
+    env.table.skipped = Some(Arc::clone(&logs.skipped));
+    env.table.auto_paid = Some(Arc::clone(&logs.auto_paid));
+    (env, logs)
+}
+
+#[cfg(feature = "search")]
+impl StepLogs {
+    fn new() -> Self {
+        Self { skipped: Arc::new(std::sync::Mutex::new(Vec::new())), auto_paid: Arc::new(std::sync::Mutex::new(Vec::new())) }
+    }
+}
+
+/// The cut step's copy of `native_step`'s arm choice: the arm of the step after its reconcile hooks; `None` when the game is over.
+#[cfg(feature = "search")]
+fn choose_arm(core: &CoreState) -> Result<Option<Arm>, GameError> {
+    let facts = Facts::of_core(core, false);
+    let asks = asks_of(core);
+    let arm = step_arm(&facts, asks);
+    if arm == Arm::Finished {
+        return Ok(None);
+    }
+    if live_arm(arm).is_none() {
+        return Err(GameError::Core(format!("the arm {} has no live function", arms::name(arm))));
+    }
+    Ok(Some(arm))
+}
+
 /// The body of `NativeGame::step_inner` with the table instead of the bot.
 #[allow(clippy::too_many_arguments)]
 fn native_step(
@@ -954,7 +1115,7 @@ fn native_step(
     let mut asker = TableAsker::new(table, content, sources, galaxy, &n.cx, &n.base, strategic, aftermath).with_participation(participation);
     // 1. The reconcile hooks every step starts with (not the second half of a glued pair: the string's step runs on from the prelude).
     for _ in 0..8 {
-        if n.after_glue {
+        if after_glue(&n.core) {
             break;
         }
         let left_open = is_open::<TurnFlowWin>(&n.core);
@@ -1024,9 +1185,69 @@ fn native_step(
     let one = n.render.sync_codes(&mut n.core.texts.codes);
     debug_assert!(one, "the renderer's code table continues the position's");
     let handed_off = arm == Arm::Tactical && n.core.pending().window(WindowKind::Aftermath).is_some();
-    n.after_glue = out.finished && (glued(arm) || arm == Arm::Aftermath || handed_off || (n.after_glue && arm == Arm::Tactical && asked == 0));
+    let glue = out.finished && (glued(arm) || arm == Arm::Aftermath || handed_off || (after_glue(&n.core) && arm == Arm::Tactical && asked == 0));
+    set_after_glue(&mut n.core, glue);
     let _ = state;
     Ok(Done { finished_game: false, asked, hidden })
+}
+
+/// The reconcile runs a step may make before its arm (`native_step`'s loop).
+#[cfg(feature = "search")]
+const RECONCILE_ROUNDS: u8 = 8;
+
+/// The cut step's copy of the end of `native_step` (the blocking step keeps it inline, so the wasm is as it was; `tests/fork_mid.rs` of the
+/// bridge proves the two equal). The end of a step whose arm ran (`finished`: its window ended; `asked`: the questions of the arm; `from`: the ledger's event count when the
+/// step began): the payer told of the payments with one way left, the observer of the seats the windows passed by, the hand-overs between the
+/// arms, the events rendered, the code table synced and the glue flag of the next step set.
+#[allow(clippy::too_many_arguments)]
+#[cfg(feature = "search")]
+fn commit(n: &mut Native, table: &mut Table, events: &mut Vec<String>, env: &ti4_engine_core::driver::live::Env<'_>, logs: &StepLogs, arm: Arm, finished: bool, asked: usize, from: usize) -> Result<(), GameError> {
+    let lcx = live::Cx::new(&n.render, env);
+    // The step is committed. A step the driver replays (a rollback and a run again) logged the same payment again: one note per (question, position).
+    let mut noted = std::collections::BTreeSet::new();
+    let paid: Vec<_> = logs
+        .auto_paid
+        .lock()
+        .expect("auto-paid log")
+        .iter()
+        .filter(|p| noted.insert((format!("{:?}", p.choice), p.at.ledger.events.len())))
+        .map(|p| live::render_asking(&lcx, &p.at, &ti4_engine_core::driver::live::Asking { choice: p.choice.clone(), nested: None, at: Some(p.at.clone()) }))
+        .collect();
+    drop(lcx);
+    for rendered in &paid {
+        table.auto_resolve(rendered, "it was the only way left to pay");
+    }
+    // A window looked at each seat once, however often the driver ran it again after a nested question.
+    let mut told = std::collections::BTreeSet::new();
+    let passed_by: Vec<_> = logs.skipped.lock().expect("skipped log").iter().filter(|(who, event, relation)| told.insert((event.id, who.0, *relation == ti4_engine_core::choice::reaction::Relation::After))).cloned().collect();
+    // Only a table with a window observer (the server's bluff banner) is told anything, and the position it is told in is the same for every seat of the
+    // step: the string state is built once, and not at all for a table nobody listens at (it was a whole `materialized()` per seat, 7.6 per step on
+    // average, a third of a game's time: docs/PERF_WHY.md).
+    let mut shown: Option<GameState> = None;
+    for (who, event, relation) in passed_by {
+        if !table.has_window_observer() {
+            break;
+        }
+        let at = match &shown {
+            Some(at) => at,
+            None => shown.insert(n.materialized()?),
+        };
+        let relation = if relation == ti4_engine_core::choice::reaction::Relation::After { crate::ties::timing::Relation::After } else { crate::ties::timing::Relation::When };
+        table.window_skipped(&n.render.player(who), &crate::kernel_sync::text::event_text(&n.render, event.kind), relation, at);
+    }
+    // 4. The hand-overs between the arms.
+    if finished {
+        n.after_arm(arm);
+    }
+    // 5. Commit: the events, the code table.
+    let lines = crate::render::events::pushed_since(&n.render, &n.cx, &n.core, from).map(|lines| lines.into_iter().map(|p| p.text().to_owned()).collect::<Vec<_>>());
+    events.extend(lines.unwrap_or_else(|| vec!["<a line the tables cannot name>".to_owned()]));
+    let one = n.render.sync_codes(&mut n.core.texts.codes);
+    debug_assert!(one, "the renderer's code table continues the position's");
+    let handed_off = arm == Arm::Tactical && n.core.pending().window(WindowKind::Aftermath).is_some();
+    let glue = finished && (glued(arm) || arm == Arm::Aftermath || handed_off || (after_glue(&n.core) && arm == Arm::Tactical && asked == 0));
+    set_after_glue(&mut n.core, glue);
+    Ok(())
 }
 
 /// [`Native::asks`] on a bare core.

@@ -1172,6 +1172,33 @@ impl Table {
         outcome
     }
 
+    /// [`Table::ask_seeing`] without the decider (lane C5, `Game::pull`): the choice counted, put in its position and announced to the
+    /// session as the decider would see it, and returned for the caller to answer with [`Table::settle_pulled`].
+    ///
+    /// # Errors
+    /// As [`Table::ask`] (`NoProgress`).
+    #[cfg(feature = "search")]
+    pub fn present(&mut self, choice: &Choice, seen: &Observed<'_>) -> Result<Choice, IllegalChoice> {
+        self.count_ask(choice)?;
+        let associated = associate(choice, seen);
+        if let Some(callback) = &mut self.observed_offer {
+            callback(&self.log.records, seen.state);
+        }
+        Ok(associated)
+    }
+
+    /// The answer `option_id` to a choice of [`Table::present`]: validated and recorded as a decider's answer is.
+    ///
+    /// # Errors
+    /// [`IllegalChoice::NotOffered`]; nothing is recorded.
+    #[cfg(feature = "search")]
+    pub fn settle_pulled(&mut self, choice: &Choice, option_id: &str) -> Result<ChoiceOption, IllegalChoice> {
+        let Some(answer) = choice.answer_for(option_id) else {
+            return Err(IllegalChoice::NotOffered { player: choice.player.clone(), chosen: option_id.to_owned(), offered: choice.ids().into_iter().map(str::to_owned).collect() });
+        };
+        self.settle(choice, answer)
+    }
+
     // Strict callers can detect errors swallowed by legacy Option-returning effect APIs.
     pub fn choice_error_checkpoint(&self) -> u64 {
         self.choice_failures
@@ -1200,6 +1227,31 @@ impl Table {
         self.log.record(choice, &option);
         Ok(option)
     }
+}
+
+/// The cut step's copy of the association of [`Table::ask_seeing`] (kept inline there, so the wasm is as it was). A choice as its decider is shown it: the context put in the invasion of the position, and a decision raised by an agenda being revealed or
+/// resolved (Veto, a rider, Confusing Legal Text, any reaction window on it) carrying the printed agenda as display-only `details.agenda`, exactly
+/// as vote decisions do, unless the producer attached it already.
+#[cfg(feature = "search")]
+fn associate(choice: &Choice, seen: &Observed<'_>) -> Choice {
+    let mut associated = choice.clone();
+    if let Some(context) = associated.context.take() {
+        associated.context = Some(context.about_invasion(seen.state));
+    }
+    let trigger_agenda = associated
+        .context
+        .as_ref()
+        .and_then(|context| context.trigger.as_ref())
+        .and_then(|trigger| trigger.agenda.clone());
+    if let Some(agenda) = trigger_agenda {
+        if !associated.details.contains_key("agenda") {
+            associated.details.insert(
+                "agenda".to_owned(),
+                crate::ties::strategy_cards::agenda_details(seen.content, &agenda),
+            );
+        }
+    }
+    associated
 }
 
 // ─── building options ──────────────────────────────────────────────────────────
