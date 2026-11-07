@@ -12555,17 +12555,17 @@
         "rules_version": 36
       },
       "termination": "victory",
-      "winner": 3,
+      "winner": 0,
       "vp": [
-        9,
-        6,
+        10,
+        5,
         5,
         10
       ],
       "rounds": 7,
-      "decisions": 1912,
+      "decisions": 1865,
       "wall_ms": 1332.328863,
-      "hash": "85ea9e44b5130df9"
+      "hash": "0e830eec05dae056"
     },
     {
       "spec": {
@@ -12613,15 +12613,15 @@
       "termination": "victory",
       "winner": 1,
       "vp": [
-        6,
+        5,
         10,
-        4,
+        3,
         9
       ],
       "rounds": 6,
-      "decisions": 1408,
+      "decisions": 1410,
       "wall_ms": 923.2341469999999,
-      "hash": "564d58c3d65678ab"
+      "hash": "564307459ccadb4e"
     },
     {
       "spec": {
@@ -12809,15 +12809,15 @@
       "termination": "victory",
       "winner": 3,
       "vp": [
-        5,
-        6,
-        6,
+        7,
+        8,
+        4,
         10
       ],
-      "rounds": 6,
-      "decisions": 1756,
+      "rounds": 7,
+      "decisions": 2066,
       "wall_ms": 1116.883898,
-      "hash": "4767df8863a49f32"
+      "hash": "ded2cdc568d37eff"
     },
     {
       "spec": {
@@ -12893,15 +12893,15 @@
       "termination": "victory",
       "winner": 2,
       "vp": [
-        8,
-        4,
-        10,
+        9,
+        5,
+        9,
         5
       ],
       "rounds": 9,
-      "decisions": 2208,
+      "decisions": 2228,
       "wall_ms": 1550.00405,
-      "hash": "9c58d4eb143444ec"
+      "hash": "4b3168fd88b2dfbc"
     },
     {
       "spec": {
@@ -13031,17 +13031,17 @@
         "rules_version": 36
       },
       "termination": "victory",
-      "winner": 1,
+      "winner": 3,
       "vp": [
+        6,
         9,
-        10,
         7,
-        7
+        10
       ],
       "rounds": 7,
-      "decisions": 1904,
+      "decisions": 1769,
       "wall_ms": 1337.461901,
-      "hash": "721c636ae677009e"
+      "hash": "f16a9263c3c2e3ce"
     },
     {
       "spec": {
@@ -13118,14 +13118,14 @@
       "winner": 0,
       "vp": [
         10,
-        7,
+        8,
         5,
         7
       ],
       "rounds": 7,
-      "decisions": 1645,
+      "decisions": 1611,
       "wall_ms": 1487.971597,
-      "hash": "9c20ec066c42c24c"
+      "hash": "837e0d45ddcb6675"
     },
     {
       "spec": {
@@ -13202,14 +13202,14 @@
       "winner": 0,
       "vp": [
         10,
-        8,
+        7,
         4,
         6
       ],
       "rounds": 6,
-      "decisions": 1473,
+      "decisions": 1503,
       "wall_ms": 1164.918624,
-      "hash": "d370c6030ab2fcea"
+      "hash": "6d1cdb431b4db070"
     },
     {
       "spec": {
@@ -13565,15 +13565,15 @@
       "termination": "victory",
       "winner": 2,
       "vp": [
-        7,
-        7,
-        10,
-        7
+        8,
+        8,
+        8,
+        8
       ],
       "rounds": 9,
-      "decisions": 2373,
+      "decisions": 2382,
       "wall_ms": 2093.0533699999996,
-      "hash": "35e5439dcf6e7598"
+      "hash": "af27a947832de9c7"
     },
     {
       "spec": {
@@ -13652,12 +13652,12 @@
         10,
         3,
         8,
-        8
+        7
       ],
       "rounds": 6,
-      "decisions": 1610,
+      "decisions": 1616,
       "wall_ms": 2502.442589,
-      "hash": "f2d420093cebdd6e"
+      "hash": "c12b9d0837ed694a"
     },
     {
       "spec": {
@@ -13762,14 +13762,14 @@
       "winner": 2,
       "vp": [
         8,
-        6,
+        7,
         10,
         6
       ],
       "rounds": 7,
-      "decisions": 1781,
+      "decisions": 1737,
       "wall_ms": 2311.705159,
-      "hash": "03dad498fcf40777"
+      "hash": "8ce2bd71033071ec"
     },
     {
       "spec": {
@@ -13787,17 +13787,17 @@
         "rules_version": 36
       },
       "termination": "victory",
-      "winner": 1,
+      "winner": 3,
       "vp": [
-        5,
-        10,
+        7,
+        9,
         8,
-        9
+        10
       ],
-      "rounds": 9,
-      "decisions": 2183,
+      "rounds": 8,
+      "decisions": 2015,
       "wall_ms": 2883.155181,
-      "hash": "6752fa21dafc87db"
+      "hash": "2abe44c11e326807"
     },
     {
       "spec": {
@@ -13846,14 +13846,14 @@
       "winner": 3,
       "vp": [
         4,
-        5,
-        5,
-        10
+        8,
+        6,
+        9
       ],
-      "rounds": 7,
-      "decisions": 1722,
+      "rounds": 8,
+      "decisions": 2112,
       "wall_ms": 1542.9009279999998,
-      "hash": "9d039770ce9abd12"
+      "hash": "83813ef7a5633cd9"
     },
     {
       "spec": {
@@ -14011,17 +14011,17 @@
         "rules_version": 36
       },
       "termination": "victory",
-      "winner": 1,
+      "winner": 2,
       "vp": [
-        7,
+        6,
+        6,
         10,
-        8,
-        5
+        6
       ],
-      "rounds": 8,
-      "decisions": 1813,
+      "rounds": 7,
+      "decisions": 1600,
       "wall_ms": 3497.477386,
-      "hash": "4676b9771f16b672"
+      "hash": "67acc7f8d59e74f1"
     },
     {
       "spec": {
@@ -14067,17 +14067,17 @@
         "rules_version": 36
       },
       "termination": "victory",
-      "winner": 3,
+      "winner": 1,
       "vp": [
-        9,
-        6,
-        6,
-        10
+        7,
+        10,
+        2,
+        5
       ],
-      "rounds": 9,
-      "decisions": 2112,
+      "rounds": 8,
+      "decisions": 1665,
       "wall_ms": 2928.2604499999998,
-      "hash": "b7f0162a12cc4b9d"
+      "hash": "d1bfd92bfa54af85"
     },
     {
       "spec": {
@@ -14385,7 +14385,7 @@
       "rounds": 6,
       "decisions": 1647,
       "wall_ms": 2298.472216,
-      "hash": "375ba25667bb03f6"
+      "hash": "ee55196d604aa0a7"
     },
     {
       "spec": {
@@ -14491,13 +14491,13 @@
       "vp": [
         10,
         4,
-        2,
-        6
+        5,
+        5
       ],
       "rounds": 5,
-      "decisions": 1152,
+      "decisions": 1337,
       "wall_ms": 1544.956418,
-      "hash": "dffa8cd3448c9188"
+      "hash": "22c1a05f8942d978"
     },
     {
       "spec": {
@@ -14551,9 +14551,9 @@
         8
       ],
       "rounds": 7,
-      "decisions": 1812,
+      "decisions": 1824,
       "wall_ms": 2569.273475,
-      "hash": "4af0d16863394167"
+      "hash": "6ee8a983f56b7d40"
     },
     {
       "spec": {
@@ -14800,12 +14800,12 @@
         5,
         10,
         4,
-        6
+        7
       ],
-      "rounds": 7,
-      "decisions": 1646,
+      "rounds": 8,
+      "decisions": 1889,
       "wall_ms": 2264.874006,
-      "hash": "bee10c84967acc39"
+      "hash": "dde83445ce5a089c"
     },
     {
       "spec": {
@@ -14995,13 +14995,13 @@
       "vp": [
         8,
         10,
-        7,
-        7
+        9,
+        5
       ],
       "rounds": 7,
-      "decisions": 1787,
+      "decisions": 1832,
       "wall_ms": 1708.154476,
-      "hash": "9f6e97a8441f44d9"
+      "hash": "497afd8838ba9af3"
     },
     {
       "spec": {
@@ -15133,15 +15133,15 @@
       "termination": "victory",
       "winner": 2,
       "vp": [
-        3,
-        4,
+        6,
+        7,
         10,
-        3
+        6
       ],
-      "rounds": 6,
-      "decisions": 1238,
+      "rounds": 7,
+      "decisions": 1533,
       "wall_ms": 1687.088252,
-      "hash": "a3537cafb7a90566"
+      "hash": "5a428118d6ef8bde"
     },
     {
       "spec": {
@@ -15189,15 +15189,15 @@
       "termination": "victory",
       "winner": 1,
       "vp": [
-        5,
-        10,
         4,
-        1
+        10,
+        6,
+        5
       ],
-      "rounds": 7,
-      "decisions": 1516,
+      "rounds": 8,
+      "decisions": 1863,
       "wall_ms": 2208.276871,
-      "hash": "8c245caa698af9be"
+      "hash": "06a11cb7b6e06911"
     },
     {
       "spec": {
@@ -15373,7 +15373,7 @@
       "rounds": 8,
       "decisions": 2627,
       "wall_ms": 4545.7061269999995,
-      "hash": "aa0fdda0fe3920ad"
+      "hash": "5bf8a28dd2519a72"
     },
     {
       "spec": {
@@ -15555,17 +15555,17 @@
       "termination": "victory",
       "winner": 2,
       "vp": [
-        6,
+        8,
         7,
         10,
+        9,
         8,
-        6,
         8
       ],
       "rounds": 7,
-      "decisions": 2240,
+      "decisions": 2154,
       "wall_ms": 3444.9152440000003,
-      "hash": "bb36e25772559ce2"
+      "hash": "f0c777664f0e1c6e"
     },
     {
       "spec": {
@@ -15683,17 +15683,17 @@
       "termination": "victory",
       "winner": 4,
       "vp": [
-        7,
+        6,
         5,
         7,
-        9,
+        8,
         10,
         5
       ],
       "rounds": 7,
-      "decisions": 2112,
+      "decisions": 2118,
       "wall_ms": 1592.3417650000001,
-      "hash": "199e5f01bec62962"
+      "hash": "61d206d1edb45529"
     },
     {
       "spec": {
@@ -15755,9 +15755,9 @@
         6
       ],
       "rounds": 9,
-      "decisions": 2572,
+      "decisions": 2517,
       "wall_ms": 2134.570928,
-      "hash": "4c835dbb573399dd"
+      "hash": "c76ea561c2467b9f"
     },
     {
       "spec": {
@@ -15851,9 +15851,9 @@
         10
       ],
       "rounds": 8,
-      "decisions": 2808,
+      "decisions": 2800,
       "wall_ms": 2397.3945689999996,
-      "hash": "1a5a926f2283c7ca"
+      "hash": "f14ad3e4972de205"
     },
     {
       "spec": {
@@ -16129,19 +16129,19 @@
         "rules_version": 36
       },
       "termination": "victory",
-      "winner": 4,
+      "winner": 3,
       "vp": [
         6,
         7,
-        8,
         7,
         10,
-        7
+        6,
+        8
       ],
-      "rounds": 7,
-      "decisions": 2223,
+      "rounds": 8,
+      "decisions": 2533,
       "wall_ms": 3640.448464,
-      "hash": "d0070327260ee101"
+      "hash": "a402ffdc3710b117"
     },
     {
       "spec": {
@@ -16263,13 +16263,13 @@
         4,
         10,
         3,
-        6,
+        4,
         8
       ],
       "rounds": 6,
-      "decisions": 1684,
+      "decisions": 1761,
       "wall_ms": 2220.992474,
-      "hash": "524eeb1d4a2c4b7b"
+      "hash": "3cdf565d704795fd"
     },
     {
       "spec": {
@@ -16451,17 +16451,17 @@
       "termination": "victory",
       "winner": 5,
       "vp": [
-        4,
+        5,
         6,
-        8,
+        6,
         2,
         5,
         10
       ],
       "rounds": 6,
-      "decisions": 1774,
+      "decisions": 1749,
       "wall_ms": 1440.8935440000002,
-      "hash": "06ae5fc0574499e3"
+      "hash": "65f0f24799102e07"
     },
     {
       "spec": {
@@ -16491,9 +16491,9 @@
         7
       ],
       "rounds": 6,
-      "decisions": 2069,
+      "decisions": 2079,
       "wall_ms": 1744.40901,
-      "hash": "f2441474d2241ba6"
+      "hash": "673adf19a0cb0dda"
     },
     {
       "spec": {
@@ -16579,17 +16579,17 @@
       "termination": "victory",
       "winner": 4,
       "vp": [
+        9,
         7,
         6,
-        4,
         7,
         10,
-        6
+        7
       ],
-      "rounds": 7,
-      "decisions": 2124,
+      "rounds": 8,
+      "decisions": 2460,
       "wall_ms": 1887.9181,
-      "hash": "a40130719851aa0d"
+      "hash": "f336206a2919e1ff"
     },
     {
       "spec": {
@@ -16742,14 +16742,14 @@
         10,
         8,
         6,
-        5,
-        6,
-        8
+        4,
+        9,
+        9
       ],
       "rounds": 8,
-      "decisions": 2656,
+      "decisions": 2647,
       "wall_ms": 2243.0496510000003,
-      "hash": "142db90da2755e57"
+      "hash": "b3a03d4474e5c793"
     },
     {
       "spec": {
@@ -16771,17 +16771,17 @@
       "termination": "victory",
       "winner": 3,
       "vp": [
-        3,
-        5,
-        5,
+        4,
+        8,
+        7,
         10,
-        2,
+        3,
         5
       ],
-      "rounds": 6,
-      "decisions": 1521,
+      "rounds": 7,
+      "decisions": 2155,
       "wall_ms": 1681.346645,
-      "hash": "3426cee1c9d7757e"
+      "hash": "e73c7845d960fab9"
     },
     {
       "spec": {
@@ -16995,17 +16995,17 @@
       "termination": "victory",
       "winner": 2,
       "vp": [
-        4,
-        3,
-        10,
-        8,
         5,
-        6
+        5,
+        10,
+        7,
+        6,
+        7
       ],
       "rounds": 7,
-      "decisions": 2483,
+      "decisions": 2431,
       "wall_ms": 2197.345609,
-      "hash": "ed7a2e4b7a7d8adc"
+      "hash": "8f02c2c92dea5433"
     },
     {
       "spec": {
@@ -17027,17 +17027,17 @@
       "termination": "victory",
       "winner": 5,
       "vp": [
-        5,
-        4,
-        8,
+        7,
+        3,
+        9,
         6,
-        4,
+        6,
         10
       ],
       "rounds": 8,
-      "decisions": 2695,
+      "decisions": 2608,
       "wall_ms": 2762.995116,
-      "hash": "4f008c6c07ae29a6"
+      "hash": "4d97c36596fd5b16"
     },
     {
       "spec": {
@@ -17089,19 +17089,19 @@
         "rules_version": 36
       },
       "termination": "victory",
-      "winner": 0,
+      "winner": 4,
       "vp": [
-        10,
-        3,
         7,
+        4,
+        6,
         1,
-        5,
-        5
+        10,
+        1
       ],
       "rounds": 8,
-      "decisions": 2253,
+      "decisions": 2109,
       "wall_ms": 2456.072924,
-      "hash": "a44399c9f3ff68ed"
+      "hash": "5750d83b31b212a4"
     },
     {
       "spec": {
@@ -17419,9 +17419,9 @@
         5
       ],
       "rounds": 6,
-      "decisions": 1842,
+      "decisions": 1834,
       "wall_ms": 1407.9885299999999,
-      "hash": "5200481ff9497db9"
+      "hash": "2340a5ee0eab146b"
     },
     {
       "spec": {
@@ -17505,19 +17505,19 @@
         "rules_version": 36
       },
       "termination": "victory",
-      "winner": 2,
+      "winner": 3,
       "vp": [
         6,
         5,
-        10,
         8,
+        10,
         5,
         4
       ],
       "rounds": 8,
-      "decisions": 2297,
+      "decisions": 2303,
       "wall_ms": 1867.2392900000002,
-      "hash": "c65405f524063fca"
+      "hash": "6043bff54b7f21ac"
     },
     {
       "spec": {
@@ -17569,19 +17569,19 @@
         "rules_version": 36
       },
       "termination": "victory",
-      "winner": 0,
+      "winner": 2,
       "vp": [
+        5,
+        8,
         10,
-        9,
-        8,
-        8,
-        4,
-        7
+        6,
+        3,
+        6
       ],
-      "rounds": 8,
-      "decisions": 2793,
+      "rounds": 7,
+      "decisions": 2188,
       "wall_ms": 2838.2945799999998,
-      "hash": "a93ab4b3ec490aa1"
+      "hash": "2dbe9a2b3327b9c5"
     },
     {
       "spec": {
@@ -17697,19 +17697,19 @@
         "rules_version": 36
       },
       "termination": "victory",
-      "winner": 1,
+      "winner": 4,
       "vp": [
+        7,
+        7,
+        7,
         5,
         10,
-        9,
-        4,
-        6,
-        9
+        8
       ],
-      "rounds": 7,
-      "decisions": 2045,
+      "rounds": 8,
+      "decisions": 2302,
       "wall_ms": 2175.901005,
-      "hash": "ee567df254aec821"
+      "hash": "433dae0c41c3f993"
     },
     {
       "spec": {
@@ -17829,15 +17829,15 @@
       "vp": [
         10,
         8,
-        7,
-        5,
-        5,
-        9
+        8,
+        6,
+        6,
+        7
       ],
-      "rounds": 8,
-      "decisions": 2769,
+      "rounds": 9,
+      "decisions": 2852,
       "wall_ms": 2973.82503,
-      "hash": "0efa69836fec0280"
+      "hash": "a1bc3bd925198d49"
     },
     {
       "spec": {
@@ -18317,7 +18317,7 @@
       "rounds": 7,
       "decisions": 2467,
       "wall_ms": 2037.64777,
-      "hash": "c543fb4ab8f1bbe4"
+      "hash": "96f94e2f419d885f"
     },
     {
       "spec": {
