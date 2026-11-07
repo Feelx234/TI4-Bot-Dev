@@ -8,8 +8,9 @@ use ti4_engine::core_sync::Ctx;
 use ti4_engine::live;
 use ti4_engine::render::Render;
 use ti4_engine_core::kernel::Kernel;
-use ti4_model::content_types::SourceSet;
-use ti4_model::id::PlayerId;
+use ti4_engine_core::generated::PublicObjective;
+use ti4_model::content_types::{ContentType, SourceSet};
+use ti4_model::id::{PlayerId, SystemId};
 use ti4_model::state::GameState;
 use ti4_rule_bot_typed::seen_view::Owners;
 use ti4_selfplay::spec::GameSpec;
@@ -35,6 +36,37 @@ pub struct Table {
     pub cx: Ctx,
     /// The opening position as the string `GameState` (the fields no slice of the core carries).
     pub base: GameState,
+    /// Lane C8: the public objectives this game's decks could hold, stage I then stage II (the setup's catalogue of the scope minus the
+    /// objectives the map rules out, `map_feasibility`): which five of each stage were dealt is hidden, so a determinisation draws the
+    /// unrevealed ones from these pools.
+    pub objective_pools: [Vec<PublicObjective>; 2],
+}
+
+/// The public objectives of each stage the setup deals from (`deck::build_starting_decks_excluding`): the scope's catalogue by points,
+/// minus what `map_feasibility` rules out on this board (a public rule: every seat can work it out).
+fn objective_pools(content: &ContentStore, sources: SourceSet, galaxy: &Galaxy, base: &GameState) -> [Vec<PublicObjective>; 2] {
+    use ti4_engine::generated::IdStr;
+    use ti4_engine::map_feasibility::{census, unsatisfiable_public};
+    let homes: Vec<SystemId> = base.players.iter().filter_map(|p| p.home_system.clone()).collect();
+    let excluded = unsatisfiable_public(&census(content, sources, galaxy, &homes));
+    let mut pools = [Vec::new(), Vec::new()];
+    for record in content.from_sources(ContentType::PublicObjectives, sources) {
+        let (Some(id), Some(points)) = (record.id(), record.int("points")) else { continue };
+        let Some(objective) = PublicObjective::from_id(id) else { continue };
+        if excluded.contains(&id) {
+            continue;
+        }
+        match points {
+            1 => pools[0].push(objective),
+            2 => pools[1].push(objective),
+            _ => {}
+        }
+    }
+    for pool in &mut pools {
+        pool.sort_unstable();
+        pool.dedup();
+    }
+    pools
 }
 
 /// Set up the game of `spec` on the native setup (the product's `GameSpec::start`) and stop at its first question.
@@ -50,7 +82,9 @@ pub fn start(spec: &GameSpec) -> Result<Position, String> {
     let sources = ti4_model::content_types::POK;
     let seats = cx.owners.ids().to_vec();
     let owners = Owners::new(seats.iter().map(|s| PlayerId::new(s.as_str())).collect());
-    let table = Table { kernel: live::kernel::kernel_for(sources), sources, seats, factions, seed, owners, galaxy, content: ContentStore::embedded(), cx, base: state };
+    let content = ContentStore::embedded();
+    let objective_pools = objective_pools(content, sources, &galaxy, &state);
+    let table = Table { kernel: live::kernel::kernel_for(sources), sources, seats, factions, seed, owners, galaxy, content, cx, base: state, objective_pools };
     Ok(Position::open(Rc::new(table), core, render))
 }
 
