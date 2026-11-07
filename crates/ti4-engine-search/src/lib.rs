@@ -22,18 +22,26 @@
 //! outcome classes, the search-only random stream), [`agent`] (the [`agent::SeatAgent`] trait, the rule bot, a policy hook, a random
 //! seat) and [`driver`] (a whole game with one agent per seat: the selfplay core driver).
 //!
+//! Hidden information (lane C8, `docs/C8_RESUME.md`): [`determinize`] makes the copy a search starts from at its root: every card the
+//! searching seat has not seen (other seats' secret objectives, the secret, public objective, agenda, relic and exploration decks) is
+//! drawn anew from the search's own stream, consistently with what the seat has seen ([`seen_digest`] is the same).
+//!
 //! A dev tool: no production crate depends on this one (`tools/engine_core/check_production_graph.sh`), and it is not in the wasm.
 //! `tools/engine_core/check_layers.py search` checks its rules (no stream read, no draw, no legacy crate).
 
 pub mod advance;
 pub mod agent;
 pub mod chance;
+pub mod determinize;
 pub mod driver;
 mod position;
 mod table;
 #[cfg(test)]
+mod c8_tests;
+#[cfg(test)]
 mod tests;
 
+pub use determinize::{determinize, seen_digest};
 pub use position::{Node, Position, SearchError};
 pub use table::{MCTS_FACTIONS, Table, lobby_spec, mcts_spec, quick_spec, start};
 pub use ti4_engine_chance::Mode;

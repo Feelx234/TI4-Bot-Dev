@@ -26,6 +26,7 @@ use ti4_engine_core::choice::{Ask, Choice, Pick, strategy};
 use ti4_engine_core::driver::live::{AskFn, Asking, Env, Live, LiveError, LiveFn, Out, ask_arm_fn, is_open, live_arm};
 use ti4_engine_core::driver::session::{Arm, AskArm, Facts, live_ask_arm, step_arm};
 use ti4_engine_core::driver::turn::{self, TurnFlowWin};
+use ti4_engine_core::generated::Agenda;
 use ti4_engine_core::seen::Seen;
 use ti4_engine_core::state::{CoreState, DriverFlags, WindowKind};
 
@@ -120,6 +121,9 @@ pub struct Position {
     bot_memory: Rc<BotMemory>,
     /// The chance requests the last call answered in [`Mode::Play`] (from the streams), with their faces.
     rolled: Vec<(Request, Faces)>,
+    /// Lane C8: the agendas each seat put back on the agenda deck with Politics in this line of play (the placer knows where they are;
+    /// [`crate::determinize`] keeps them in place for that seat). Not part of the game: not compared by [`Self::differences`].
+    placed: Rc<Vec<(ti4_engine_core::Seat, Agenda)>>,
 }
 
 fn glued(arm: Arm) -> bool {
@@ -181,6 +185,7 @@ impl Position {
             decisions: 0,
             bot_memory: Rc::new(BotMemory::default()),
             rolled: Vec::new(),
+            placed: Rc::new(Vec::new()),
         };
         pos.guarded(|p| {
             let flow = p.begin_step()?;
@@ -427,6 +432,7 @@ impl Position {
             decisions: self.decisions,
             bot_memory: Rc::clone(&self.bot_memory),
             rolled: Vec::new(),
+            placed: Rc::clone(&self.placed),
         }
     }
 
@@ -577,11 +583,70 @@ impl Position {
     }
 
     fn decided(&mut self, pick: Pick) -> Result<(), SearchError> {
+        let placed = self.politics_placement();
         let result = self.resume(pick, false);
         if result.is_ok() {
             self.decisions += 1;
+            if let Some((seat, agendas)) = placed {
+                Rc::make_mut(&mut self.placed).extend(agendas.into_iter().flatten().map(|a| (seat, a)));
+            }
         }
         result
+    }
+
+    /// The agendas the question puts back on the deck when it is Politics' placement (lane C8: its actor learns where they go).
+    fn politics_placement(&self) -> Option<(ti4_engine_core::Seat, [Option<Agenda>; 2])> {
+        let Stop::Decide(asking) = &self.stop else { return None };
+        match asking.choice.ask {
+            Ask::Strategy(strategy::Ask::PoliticsAgendas { first, second }) => Some((asking.choice.actor, [Some(first), Some(second)])),
+            Ask::Strategy(strategy::Ask::PoliticsAgenda { agenda }) => Some((asking.choice.actor, [Some(agenda), None])),
+            _ => None,
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------------------------
+    // Lane C8 (crate::determinize): the states a determinisation reads and rewrites
+    // ---------------------------------------------------------------------------------------------------------------------------------
+
+    /// The live core and the positions the stop's question was asked in (`Asking::at`, the nested question's own): every state that holds
+    /// cards a determinisation must relabel alike.
+    pub(crate) fn card_states(&self) -> Vec<&CoreState> {
+        let mut out = vec![&self.core];
+        if let Stop::Decide(a) | Stop::Chance(a, _) = &self.stop {
+            out.extend(a.at.as_deref());
+            out.extend(a.nested.as_ref().map(|(_, at)| &**at));
+        }
+        out
+    }
+
+    /// The stop's question, if any (a chance request's carrier question included).
+    pub(crate) fn stop_choice(&self) -> Option<&Choice> {
+        match &self.stop {
+            Stop::Decide(a) | Stop::Chance(a, _) => Some(&a.choice),
+            _ => None,
+        }
+    }
+
+    /// Apply `f` to every state of [`Self::card_states`] (the stop's question copied, never the original's).
+    pub(crate) fn rewrite_card_states(&mut self, f: &mut dyn FnMut(&mut CoreState)) {
+        f(&mut self.core);
+        let asking = match &mut self.stop {
+            Stop::Decide(a) | Stop::Chance(a, _) if a.at.is_some() || a.nested.is_some() => a,
+            _ => return,
+        };
+        let mut copy = (**asking).clone();
+        if let Some(at) = copy.at.as_deref_mut() {
+            f(at);
+        }
+        if let Some((_, at)) = copy.nested.as_mut() {
+            f(at);
+        }
+        *asking = Rc::new(copy);
+    }
+
+    /// The agendas `seat` put back on the deck with Politics in this line of play, in the order it placed them.
+    pub(crate) fn placed_by(&self, seat: ti4_engine_core::Seat) -> impl Iterator<Item = Agenda> + '_ {
+        self.placed.iter().filter(move |(s, _)| *s == seat).map(|(_, a)| *a)
     }
 
     // ---------------------------------------------------------------------------------------------------------------------------------

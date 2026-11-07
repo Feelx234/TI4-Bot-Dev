@@ -10,6 +10,7 @@
 //! 3. `sims`: games of the MCTS setup (rule bot with its view at every seat): at every tree decision `K` simulations, each a
 //!    `fork_search` + `advance_to_tree_decision` with the rule bot delegate (one segment, as M0 timed it): simulations/s, answers/s,
 //!    and the live heap of `K` kept forks.
+//! 4. `determinize` (lane C8): at every tree decision of the MCTS setup, the time and bytes of `determinize` for the actor.
 
 use std::time::{Duration, Instant};
 
@@ -194,6 +195,40 @@ fn sims(games: u64, first: u64, k: usize) -> Result<(), String> {
     Ok(())
 }
 
+fn determinise(games: u64, first: u64) -> Result<(), String> {
+    let (mut times, mut allocated, mut pool, mut pinned) = (Vec::new(), Vec::new(), 0usize, 0usize);
+    for seed in first..first + games {
+        let mut pos = ti4_engine_search::start(&ti4_engine_search::mcts_spec(seed))?;
+        let mut bot = RuleBotAgent::seeing();
+        while let Node::Decide(choice) = pos.node() {
+            let choice = choice.clone();
+            if default_tree(&pos, &choice) {
+                let mut rng = SearchRng::at(seed, &[pos.decisions() as u64]);
+                let b0 = bytes();
+                let t = Instant::now();
+                let (d, report) = ti4_engine_search::determinize::determinize_report(&pos, choice.actor, &mut rng);
+                times.push(t.elapsed().as_secs_f64() * 1e6);
+                allocated.push((bytes() - b0) as f64);
+                drop(d);
+                pool += report.secrets + report.objectives[0] + report.objectives[1] + report.agendas + report.relics + report.explores;
+                pinned += report.pinned;
+            }
+            let d = bot.decide(&pos, &choice)?;
+            pos.apply(d).map_err(|e| e.to_string())?;
+        }
+    }
+    let n = times.len();
+    println!(
+        "determinize: {n} tree decisions: median {:.1} us, mean {:.1} us; allocated mean {:.0} B; cards redrawn per call {:.1}, kept because named {:.2}",
+        median(times.clone()),
+        mean(&times),
+        mean(&allocated),
+        pool as f64 / n.max(1) as f64,
+        pinned as f64 / n.max(1) as f64
+    );
+    Ok(())
+}
+
 fn main() -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
     let seed: u64 = arg(&args, "--seed").map_or(Ok(1), |s| s.parse()).map_err(|_| "--seed")?;
@@ -208,6 +243,9 @@ fn main() -> Result<(), String> {
     }
     if what.as_deref().is_none_or(|w| w == "sims") {
         sims(games, seed, k)?;
+    }
+    if what.as_deref().is_none_or(|w| w == "determinize") {
+        determinise(games, seed)?;
     }
     Ok(())
 }
