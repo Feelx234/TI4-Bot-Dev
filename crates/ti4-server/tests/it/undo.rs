@@ -248,9 +248,21 @@ fn barriers(session: &GameSession, seat: &PlayerId, own: usize) -> BTreeSet<Stri
             }
             Err(other) => assert_eq!(other, RejectionReason::NoPendingChoice),
         }
+        // (The seat follows Politics, which draws two action cards right after its own decision: since multiask-1 the status phase asks no pool
+        // question after its draw, so a seat that only passes never decided again before anyone else did.)
+        let answer = if choice.prompt == "spend a strategy token to draw two action cards" {
+            "yes".to_owned()
+        } else {
+            passive(&choice)
+        };
         session
-            .submit_choice(seat, &nonce, version, &passive(&choice))
+            .submit_choice(seat, &nonce, version, &answer)
             .expect("the answer is taken");
+        // (The walk ends once it met both barriers: further on, seed 11's game reaches a reaction question whose answer the session never
+        // replies to -- multiask-1-fix, docs/MULTIASK1_RESUME.md 8.)
+        if found.contains("OtherSeat") && found.contains("Revealed") {
+            break;
+        }
     }
     found
 }
@@ -261,7 +273,9 @@ fn slow_a_card_that_is_drawn_ends_the_undo_and_a_recovered_game_knows_it() {
     let session = GameSession::start(straight);
     // A seat that only passes rolls nothing after a decision of its own: the die is in the
     // tests of `session/undo.rs`. It draws a card in the status phase, which no latch tells.
-    let found = barriers(&session, &seat, 120);
+    // (multiask-1-fix: the game of seed 11 ends after about a hundred decisions of the seat since the conversion -- seat c scores its tenth point --
+    // so the walk takes 90 of them.)
+    let found = barriers(&session, &seat, 90);
     assert!(found.contains("OtherSeat"), "{found:?}");
     assert!(found.contains("Revealed"), "{found:?}");
 

@@ -51,66 +51,92 @@ fn submit(question: &Value, plan: Value) -> Value {
 #[test]
 fn slow_a_movement_plan_is_applied_whole_or_not_at_all() {
     let _serial = crate::common::serial();
-    let seed = 6;
-    let page = Arc::new(Mutex::new(Page {
-        script: vec![
-            Act::Until(Box::new(movement_question)),
-            // 1. The plan names a ship that is not there: refused at once, nothing changes.
-            Act::Probe(Box::new(|page| {
-                let question = last_question(&page.messages).clone();
-                let mut plan = plan_from(&question, 1);
-                plan["steps"][0]["unit"] = json!("not-a-unit");
-                let reply = send(&submit(&question, plan));
-                assert_eq!(reply["resume"], Value::Null, "{reply}");
-                assert_eq!(reply["batch"]["status"], "refused", "{reply}");
-                assert!(reply["batch"]["message"].as_str().unwrap().len() > 5);
-            })),
-            // 2. The first step is fine and the second is not: the game goes back to this
-            //    question, and the next one is this one again.
-            Act::Probe(Box::new(|page| {
-                let question = last_question(&page.messages).clone();
-                let mut plan = plan_from(&question, 1);
-                let good = plan["steps"][0].clone();
-                let mut bad = good.clone();
-                bad["unit"] = json!("not-a-unit");
-                plan["steps"] = json!([good, bad, { "kind": "done_moving" }]);
-                page.script.push_front(Act::Probe(Box::new(|page| {
-                    // The next question after the rollback: the same nonce, the same decisions.
-                    let before = page.asks.len();
-                    let _ = before;
-                })));
-                page.script.push_front(Act::Cmd(submit(&question, plan)));
-            })),
-        ]
-        .into(),
-        ..Page::default()
-    }));
-    install(&page, seed, "a");
-    // Run until the rollback came back around, then take the whole game on to the end.
-    let page_after = page.clone();
-    let checked = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let checked_in = checked.clone();
-    page.lock()
-        .unwrap()
-        .script
-        .push_back(Act::Probe(Box::new(move |page| {
-            checked_in.store(true, std::sync::atomic::Ordering::Relaxed);
-            let asks = &page.asks;
-            let (this, previous) = (&asks[asks.len() - 1], &asks[asks.len() - 2]);
-            // After a rolled-back batch the same question is asked again (same nonce).
-            let nonce = |ask: &Value| {
-                crate::common::pending(ask["messages"].as_array().unwrap()).map(|(nonce, ..)| nonce)
-            };
-            assert_eq!(nonce(this), nonce(previous), "the same question again");
-            assert_eq!(this["batch"]["status"], "refused", "{}", this["batch"]);
-            let _ = &page_after;
-        })));
-    let end = start(&setup(seed, 4), None);
-    assert!(end["end"]["error"].is_null(), "{end}");
-    assert!(
-        checked.load(std::sync::atomic::Ordering::Relaxed),
-        "the rollback was seen"
-    );
+    // (multiask-1-fix: the conversion changed every game; at seed 6 (and 2, 4) the ship moved first now meets the Yin seat's OWN reaction after
+    // SHIP_MOVED, which interrupts the plan before its bad second step -- correct (`interrupted`, the person is asked), but not the case of this
+    // test. The first seed of the list whose second step is reached is the one: an interruption is accepted on the way, any other outcome fails.)
+    let mut found = None;
+    for seed in [6_u64, 1, 3, 5, 7, 8, 9, 10, 11, 12] {
+        let status = Arc::new(Mutex::new(String::new()));
+        let status_in = status.clone();
+        let page = Arc::new(Mutex::new(Page {
+            script: vec![
+                Act::Until(Box::new(movement_question)),
+                // 1. The plan names a ship that is not there: refused at once, nothing changes.
+                Act::Probe(Box::new(|page| {
+                    let question = last_question(&page.messages).clone();
+                    let mut plan = plan_from(&question, 1);
+                    plan["steps"][0]["unit"] = json!("not-a-unit");
+                    let reply = send(&submit(&question, plan));
+                    assert_eq!(reply["resume"], Value::Null, "{reply}");
+                    assert_eq!(reply["batch"]["status"], "refused", "{reply}");
+                    assert!(reply["batch"]["message"].as_str().unwrap().len() > 5);
+                })),
+                // 2. The first step is fine and the second is not: the game goes back to this
+                //    question, and the next one is this one again.
+                Act::Probe(Box::new(|page| {
+                    let question = last_question(&page.messages).clone();
+                    let mut plan = plan_from(&question, 1);
+                    let good = plan["steps"][0].clone();
+                    let mut bad = good.clone();
+                    bad["unit"] = json!("not-a-unit");
+                    plan["steps"] = json!([good, bad, { "kind": "done_moving" }]);
+                    page.script.push_front(Act::Probe(Box::new(|page| {
+                        // The next question after the rollback: the same nonce, the same decisions.
+                        let before = page.asks.len();
+                        let _ = before;
+                    })));
+                    page.script.push_front(Act::Cmd(submit(&question, plan)));
+                })),
+            ]
+            .into(),
+            ..Page::default()
+        }));
+        install(&page, seed, "a");
+        // Run until the rollback came back around, then take the whole game on to the end.
+        let page_after = page.clone();
+        let checked = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let checked_in = checked.clone();
+        page.lock()
+            .unwrap()
+            .script
+            .push_back(Act::Probe(Box::new(move |page| {
+                checked_in.store(true, std::sync::atomic::Ordering::Relaxed);
+                let asks = &page.asks;
+                let (this, previous) = (&asks[asks.len() - 1], &asks[asks.len() - 2]);
+                // After a rolled-back batch the same question is asked again (same nonce).
+                let nonce = |ask: &Value| {
+                    crate::common::pending(ask["messages"].as_array().unwrap())
+                        .map(|(nonce, ..)| nonce)
+                };
+                let now = this["batch"]["status"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned();
+                *status_in.lock().unwrap() = now.clone();
+                if now == "interrupted" {
+                    return;
+                }
+                assert_eq!(nonce(this), nonce(previous), "the same question again");
+                assert_eq!(now, "refused", "{}", this["batch"]);
+                let _ = &page_after;
+            })));
+        let end = start(&setup(seed, 4), None);
+        assert!(end["end"]["error"].is_null(), "{end}");
+        assert!(
+            checked.load(std::sync::atomic::Ordering::Relaxed),
+            "the rollback was seen"
+        );
+        let status = status.lock().unwrap().clone();
+        if status == "refused" {
+            found = Some(seed);
+            break;
+        }
+        assert_eq!(
+            status, "interrupted",
+            "seed {seed}: the plan's batch is refused or interrupted"
+        );
+    }
+    let seed = found.expect("some seed reaches the plan's second step");
 
     // 3. A good plan is applied as the engine asks, and is told once it ended.
     let page = Arc::new(Mutex::new(Page {

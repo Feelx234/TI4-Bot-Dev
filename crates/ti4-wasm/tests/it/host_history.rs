@@ -44,9 +44,11 @@ fn slow_an_undo_goes_back_one_answer_and_the_game_goes_on_the_same() {
     let reference = decisions_hash();
     let answers = plain.lock().unwrap().answers.len();
 
-    // The same game, with an undo after the 25th answer.
+    // The same game, with an undo after the 24th answer.
+    // (multiask-1-fix: the conversion changed the game; the 25th answer is now the first research of a Technology primary, whose second
+    // research is asked in the same step, so an undo there goes back to the step's start: two answers. The 24th is the strategic action.)
     let undone = page(vec![
-        Act::Answer(25),
+        Act::Answer(24),
         Act::Probe(Box::new(|page| {
             let question = last_question(&page.messages);
             assert_eq!(
@@ -260,7 +262,11 @@ fn a_save_of_an_older_rules_version_is_refused_and_a_current_one_resumes() {
 
     // The same save as an older build wrote it: no field (version 0), and every version below
     // the newest. Refused before a game is built, with both numbers in the text.
-    for older in [None, Some(1), Some(ti4_model::state::MIN_SUPPORTED_RULES_VERSION - 1)] {
+    for older in [
+        None,
+        Some(1),
+        Some(ti4_model::state::MIN_SUPPORTED_RULES_VERSION - 1),
+    ] {
         let mut old = save.clone();
         match older {
             None => {

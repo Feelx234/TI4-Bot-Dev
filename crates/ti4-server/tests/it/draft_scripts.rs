@@ -39,7 +39,10 @@ pub(crate) fn config(game_id: &str, seed: u64) -> (SessionConfig, PlayerId) {
         ti4_host::map::create_game_with_template(content, &ids, seed, Some(&template))
             .expect("a game");
     let tiles = ti4_host::map::build_board_tiles(content, &galaxy);
+    // (No think delay: the default 600 ms per bot decision made a long stretch of the five bots outlast `DEADLINE`, unless another test of the
+    // process had set the override first -- `undo::slow_a_card_that_is_drawn...` failed alone with "the game does not ask the seat".)
     let mut config = SessionConfig::new(game_id, state)
+        .with_random_bot_delay_ms(0)
         .with_seed(seed)
         .with_player_ids(ids.clone())
         .with_galaxy(galaxy, tiles);
