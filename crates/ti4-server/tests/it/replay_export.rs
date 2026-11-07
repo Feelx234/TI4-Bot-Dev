@@ -135,7 +135,7 @@ async fn a_game_in_progress_replays_to_its_open_question() {
     // 64 since the multi-ask conversion (one question per token gain, purchase, payment): on this
     // table 61, 62, 63, 65, 68 and 69 answers were such positions (56-60, 64, 66, 67, 70-75 agreed).
     // After the Leadership primary's "buy nothing" first (the decline), the bad counts moved: 56, 64
-    // and 65 differ now (55, 57-63, 66-75 and 80 agree), so 63 (int-29 had picked 62 on its line; re-scanned on int-30). Open issue, see
+    // and 65 differ now (55, 57-63, 66-75 and 80 agree), so 63. int-30 (+ chance-2): re-scanned, 64 and 65 differ, 56-63 and 66-70 agree, 63 kept. Open issue, see
     // `open_live_state_and_replay_of_the_export_at_an_answer_count` and docs/MULTIASK1_RESUME.md.
     lobby_case("lobby_midgame", 63).await;
 }
