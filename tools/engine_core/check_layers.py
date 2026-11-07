@@ -4,6 +4,7 @@
     python3 -I tools/engine_core/check_layers.py core [ROOT]     the gate (exit 1 on a violation)
     python3 -I tools/engine_core/check_layers.py chance [CRATE]  the bottom crate ti4-chance (exit 1 on a violation)
     python3 -I tools/engine_core/check_layers.py resolver [CRATE]  the chance resolver ti4-engine-chance (exit 1 on a violation)
+    python3 -I tools/engine_core/check_layers.py search [CRATE]  the search API ti4-engine-search (exit 1 on a violation)
     python3 -I tools/engine_core/check_layers.py engine [ROOT]   the report on ti4-engine/src (4.2 table)
 
 core:   every module of `crates/ti4-engine-core/src` (and `ti4-engine-core-factions`, when it exists)
@@ -25,6 +26,10 @@ chance: (docs/FORK_RNG_THEORY.md 4.2, lane C1) `crates/ti4-chance` is the bottom
 resolver: (4.2, lane C3) `crates/ti4-engine-chance`, the chance resolver over the core: its Cargo.toml names no `ti4-` crate but
         `ti4-engine-core` and `ti4-chance` outside `[dev-dependencies]`, its sources (test code ignored) name no other `ti4_` crate,
         and they use no clock, thread or OS entropy and no unsafe (it is linked into the browser build).
+search: (lane C6, docs/C6_RESUME.md) `crates/ti4-engine-search`, the search API: its Cargo.toml names no legacy, host, server, browser or
+        bridge crate outside `[dev-dependencies]`, its sources (test code ignored) name none of them, and they never read or draw the game's
+        streams: no `.rng` but `.rng.positions()`, no `rng_mut`, no `answer` / `answer_mut` of ti4-chance, no `advance_resolved` / `settle*`;
+        the play-mode resolver (`advance_observed`) only in `position.rs`; no OS entropy, no unsafe.
 engine: the tier table of 4.2 over the string engine; counts the module references that point up or
         sideways inside L4 (the number the port brings to zero). Reporting only, exit 0.
 """
@@ -253,6 +258,43 @@ def check_resolver(crate):
     return bad, units
 
 
+SEARCH_DEPS_FORBIDDEN = ('ti4-engine-legacy', 'ti4-host', 'ti4-server', 'ti4-wasm', 'ti4-engine-core-bridge', 'ti4-engine-core-tests')
+SEARCH_NAMES_FORBIDDEN = ('ti4_engine_legacy', 'ti4_host', 'ti4_server', 'ti4_wasm', 'ti4_engine_core_bridge')
+# The game's streams: a search position never reads or draws them (docs/FORK_RNG_THEORY.md 4.4, D2). `.rng.positions()` (how far each stream
+# was drawn, no key) is the one read allowed; the play-mode resolver is `ti4_engine_chance::advance_observed` in `position.rs` alone.
+SEARCH_FORBIDDEN = (r'rng_mut\(', r'\banswer_mut\b', r'\btry_answer_mut\b', r'ti4_chance::answer\b', r'ti4_chance::\{[^}]*\banswer\b',
+                    r'\.rng\b(?!\.positions\(\))', r'thread_rng', r'rand::rng\(', r'from_os_rng', r'from_entropy', r'\bgetrandom\b',
+                    r'\bunsafe\b', r'advance_resolved', r'settle_from', r'\bsettle\(')
+
+
+def check_search(crate):
+    """The search API `ti4-engine-search` (lane C6): no product host, server, browser or legacy crate; never the game's streams."""
+    import tomllib
+    bad, units = [], 0
+    cargo = os.path.join(crate, 'Cargo.toml')
+    t = tomllib.load(open(cargo, 'rb'))
+    for where in ('dependencies', 'build-dependencies'):
+        for name, spec in t.get(where, {}).items():
+            real = spec.get('package', name) if isinstance(spec, dict) else name
+            if real in SEARCH_DEPS_FORBIDDEN:
+                bad.append(f'{os.path.relpath(cargo, REPO)}: [{where}] names {real}; the search API depends on the core, the resolver and the thin crate only')
+    for path in rs_files(os.path.join(crate, 'src')):
+        units += 1
+        if os.path.basename(path) == 'tests.rs':
+            continue   # the crate's test module (declared under #[cfg(test)]): it reads the streams to check that nothing else does
+        rel = os.path.relpath(path, REPO)
+        text = strip_tests(open(path, encoding='utf-8').read())
+        for name in SEARCH_NAMES_FORBIDDEN:
+            if re.search(r'\b' + name + r'\b', text):
+                bad.append(f'{rel}: names `{name}`, which the search API must not')
+        for pat in SEARCH_FORBIDDEN:
+            for m in re.finditer(pat, text):
+                bad.append(f'{rel}: uses `{m.group(0)}`: a search position never reads or draws the game\'s streams')
+        if os.path.basename(path) != 'position.rs' and re.search(r'advance_observed|advance_in\b', text):
+            bad.append(f'{rel}: calls the play-mode resolver outside position.rs')
+    return bad, units
+
+
 def check_engine(root):
     tier = {}
     for name, mods in TIERS.items():
@@ -349,6 +391,13 @@ def main():
         for b in bad:
             print('RESOLVER', b)
         print(f'check_layers resolver: {units} files checked, {len(bad)} violations')
+        sys.exit(1 if bad else 0)
+    elif mode == 'search':
+        root = sys.argv[2] if len(sys.argv) > 2 else os.path.join(REPO, 'crates/ti4-engine-search')
+        bad, units = check_search(root)
+        for b in bad:
+            print('SEARCH', b)
+        print(f'check_layers search: {units} files checked, {len(bad)} violations')
         sys.exit(1 if bad else 0)
     elif mode == 'engine':
         check_engine(sys.argv[2] if len(sys.argv) > 2 else os.path.join(REPO, 'crates/ti4-engine/src'))
