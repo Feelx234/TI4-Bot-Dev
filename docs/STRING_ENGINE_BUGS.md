@@ -111,6 +111,9 @@ unlocks with the third scored objective, whatever the kind of the objective.
 * Who is right: the core (51.7; the comment of `award_tail` says it: a hero unlocked by the third objective "must not wait for a status phase the game may never reach").
 * The harness recognises it (`s5_unlock_differs`: the string announces `LEADER_UNLOCKED:..` where the core does not, or the leader's state is `unlocked` in the core and `locked`
   in the string) and reports `(known string bug S5)`. The shadow cannot play on past it.
+* A third form (multiask-1-fix, yssaril 5 players seed 1, step 606): when another leader unlocks at the same bookkeeping, both announce an unlock at the index and the
+  string's extra one shifts the core's by one (`LEADER_UNLOCKED:xxchahero` before `LEADER_UNLOCKED:jolnarcommander`). `s5_extra_unlock` takes it: the string's unlock
+  at the index is one the core never announces, and the core's event there is the string's next one.
 * A fix of the string (one line after `secrets::award` in `select`, `leaders::check_unlocks(state, content, sources, None, &player)`) was written and tested
   (`a_secret_scored_for_the_first_time...` passed) and **not kept**: it moves the recorded legacy games (`golden::tests::the_smoke_subset_reproduces`, g020 step 795:
   the state at the start of the step differs from the recording). Behind a `RULES_VERSION` it would be one line. The legacy test
@@ -217,3 +220,7 @@ deck. Place each card on the top or bottom of the deck in any order." Six final 
 * H2. The string sometimes takes a step that asks and says nothing (the scoring window of an event nobody scores, ahead of the phase flip) where the native
   loop has a step of its own with no question: the shadow steps the string again with the same answers (up to four times) instead of comparing the native
   group against the empty step.
+* H3. (multiask-1-fix, naaz 4 players seed 1, step 258.) The string ASKS a question of one option that the native engine takes without asking (Public Disgrace's
+  "choose a different strategy card" with one other card on the mat). The follower answered it with the next entry (the action menu's answer), the string refused
+  it and restored the first choice, so the seat kept `te6warfare` where the core dealt it `te4construction` (the rule: "must choose a different card, if able").
+  The follower takes a question of one option itself when the next entry does not answer it (`LONE_TAKEN` in `answered_by`: no question of the group).
