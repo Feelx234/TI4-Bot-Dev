@@ -70,8 +70,8 @@ done
 ids=(); titles=(); cmds=()
 step() { ids+=("$1"); titles+=("$2"); cmds+=("$3"); }
 
-step layers   "layers of the core (check_layers.py core and thin, engine report)" \
-  "python3 -I tools/engine_core/check_layers.py core && python3 -I tools/engine_core/check_layers.py thin && { python3 -I tools/engine_core/check_layers.py engine > $out/layers-engine.txt 2>&1 || true; }"
+step layers   "layers of the core (check_layers.py core, thin, setup, chance, resolver, search, mcts; engine report)" \
+  "python3 -I tools/engine_core/check_layers.py core && python3 -I tools/engine_core/check_layers.py thin && python3 -I tools/engine_core/check_layers.py setup && python3 -I tools/engine_core/check_layers.py chance && python3 -I tools/engine_core/check_layers.py resolver && python3 -I tools/engine_core/check_layers.py search && python3 -I tools/engine_core/check_layers.py mcts && { python3 -I tools/engine_core/check_layers.py engine > $out/layers-engine.txt 2>&1 || true; }"
 # BASE_REF: the flag/env value, else the tag heavy-base-int28 (the tip of core-integration-28), else heavy-base-int27 (core-integration-27), else heavy-base-int26 (core-integration-26), else heavy-base-int25 (core-integration-25), else heavy-base-int24 (the tip of core-integration-24: web/ and state.rs as the rules-version-36 line has them), else
 # core-integration-24, else origin/core-integration-24; none of them = the step fails. Why not the live branch tip: the P1 commits of the
 # flip legitimately changed web/ (Thunder's Edge switch gone, screenshots) and state.rs (version handling), so a diff against

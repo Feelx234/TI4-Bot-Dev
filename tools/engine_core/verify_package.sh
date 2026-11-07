@@ -50,6 +50,16 @@ check layers python3 -I tools/engine_core/check_layers.py core
 note "     $(tail -1 "$out/layers.log")"
 check layers-thin python3 -I tools/engine_core/check_layers.py thin
 note "     $(tail -1 "$out/layers-thin.log")"
+check layers-setup python3 -I tools/engine_core/check_layers.py setup
+note "     $(tail -1 "$out/layers-setup.log")"
+check layers-chance python3 -I tools/engine_core/check_layers.py chance
+note "     $(tail -1 "$out/layers-chance.log")"
+check layers-resolver python3 -I tools/engine_core/check_layers.py resolver
+note "     $(tail -1 "$out/layers-resolver.log")"
+check layers-search python3 -I tools/engine_core/check_layers.py search
+note "     $(tail -1 "$out/layers-search.log")"
+check layers-mcts python3 -I tools/engine_core/check_layers.py mcts
+note "     $(tail -1 "$out/layers-mcts.log")"
 check lint-core tools/engine_core/lint_core.sh
 note "     $(tail -1 "$out/lint-core.log")"
 # D2-9 lane 9a/9b (docs/D29A_RESUME.md, docs/D29B_RESUME.md): the production graph reaches neither legacy nor lend-string. Strict by default
