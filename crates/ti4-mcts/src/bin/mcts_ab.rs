@@ -2,7 +2,7 @@
 //! `mcts_eval` with hundreds of games and the Wilson / paired intervals).
 //!
 //! ```text
-//! mcts_ab [--first S] [--seeds N] [--eval rule|rule-flat|uniform|rollout:H|rollout-rule:H] [--full F] [--fast K] [--gumbel G] [--rescale 0|1]
+//! mcts_ab [--first S] [--seeds N] [--eval rule|rule-flat|uniform|rollout:H|rollout-rule:H|net:PATH] [--full F] [--fast K] [--gumbel G] [--rescale 0|1]
 //!         [--out FILE.json]
 //! ```
 //!
@@ -38,8 +38,8 @@ fn main() -> Result<(), String> {
     let mut identical = 0u32;
     for seed in first..first + seeds {
         let seat = u8::try_from(seed % 4).unwrap_or(0);
-        let base = play_game(seed, &[], &cfg, eval, Limits::default())?;
-        let ab = play_game(seed, &[seat], &cfg, eval, Limits::default())?;
+        let base = play_game(seed, &[], &cfg, &eval, Limits::default())?;
+        let ab = play_game(seed, &[seat], &cfg, &eval, Limits::default())?;
         if let Some(e) = base.error.as_ref().or(ab.error.as_ref()) {
             return Err(format!("seed {seed}: {e}"));
         }

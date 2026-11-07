@@ -15,7 +15,7 @@ fn small() -> Config {
 #[test]
 fn an_mcts_seat_with_rollouts_plays_whole_games() {
     for (seed, seat) in [(1u64, 0u8), (2, 1), (3, 2)] {
-        let r = play_game(seed, &[seat], &small(), EvalSpec::Rollout { horizon: 40, rule_prior: false }, Limits::default()).unwrap();
+        let r = play_game(seed, &[seat], &small(), &EvalSpec::Rollout { horizon: 40, rule_prior: false }, Limits::default()).unwrap();
         assert_eq!(r.error, None, "seed {seed}");
         assert!(r.outcome.finished, "seed {seed}: {:?}", r.outcome);
         assert!(r.counts.searched > 30, "seed {seed}: {:?}", r.counts);
@@ -51,14 +51,14 @@ fn an_mcts_seat_with_rollouts_plays_whole_games() {
 #[test]
 fn the_search_is_deterministic() {
     let limits = Limits { max_steps: 400, max_rounds: 30 };
-    let a = play_game(4, &[0, 2], &small(), EvalSpec::RulePrior, limits).unwrap();
-    let b = play_game(4, &[0, 2], &small(), EvalSpec::RulePrior, limits).unwrap();
+    let a = play_game(4, &[0, 2], &small(), &EvalSpec::RulePrior, limits).unwrap();
+    let b = play_game(4, &[0, 2], &small(), &EvalSpec::RulePrior, limits).unwrap();
     assert_eq!(a.error, None);
     assert!(a.counts.searched > 20, "{:?}", a.counts);
     assert_eq!(a.records, b.records, "the same seeds, another game");
     assert_eq!(a.stats.sims, b.stats.sims);
     assert_eq!(a.stats.expanded, b.stats.expanded);
-    let c = play_game(4, &[0, 2], &Config { seed: 99, ..small() }, EvalSpec::RulePrior, limits).unwrap();
+    let c = play_game(4, &[0, 2], &Config { seed: 99, ..small() }, &EvalSpec::RulePrior, limits).unwrap();
     assert_eq!(c.error, None);
     assert!(c.records != a.records || c.stats.expanded != a.stats.expanded, "another search seed searched alike");
 }
@@ -67,7 +67,7 @@ fn the_search_is_deterministic() {
 #[test]
 fn four_mcts_seats_play_a_whole_game() {
     let cfg = Config { sims_full: 4, sims_fast: 2, ..Config::default() };
-    let r = play_game(5, &[0, 1, 2, 3], &cfg, EvalSpec::RulePrior, Limits::default()).unwrap();
+    let r = play_game(5, &[0, 1, 2, 3], &cfg, &EvalSpec::RulePrior, Limits::default()).unwrap();
     assert_eq!(r.error, None);
     assert!(r.outcome.finished, "{:?}", r.outcome);
     assert!(r.counts.searched > 100, "{:?}", r.counts);
@@ -82,8 +82,8 @@ fn the_ab_smoke_against_the_rule_bot_runs() {
     let (mut mcts_wins, mut base_wins, mut dvp) = (0, 0, 0i32);
     for seed in [11u64, 12] {
         let seat = (seed % 4) as u8;
-        let base = play_game(seed, &[], &cfg, EvalSpec::RulePrior, Limits::default()).unwrap();
-        let ab = play_game(seed, &[seat], &cfg, EvalSpec::RulePrior, Limits::default()).unwrap();
+        let base = play_game(seed, &[], &cfg, &EvalSpec::RulePrior, Limits::default()).unwrap();
+        let ab = play_game(seed, &[seat], &cfg, &EvalSpec::RulePrior, Limits::default()).unwrap();
         assert_eq!(base.error, None);
         assert_eq!(ab.error, None);
         assert!(base.outcome.finished && ab.outcome.finished);

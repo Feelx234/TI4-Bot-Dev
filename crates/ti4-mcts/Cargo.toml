@@ -19,6 +19,7 @@ path = "src/bin/mcts_ab.rs"
 [dependencies]
 ti4-engine-search = { path = "../ti4-engine-search" }
 ti4-mcts-features = { path = "../ti4-mcts-features" }
+ti4-mcts-net = { path = "../ti4-mcts-net" }
 ti4-engine-core.workspace = true
 ti4-chance = { workspace = true, features = ["search"] }
 serde_json.workspace = true

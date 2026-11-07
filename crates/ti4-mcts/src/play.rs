@@ -1,6 +1,7 @@
 //! Whole games with MCTS seats (the tests, `mcts_ab`, `mcts_bench`): the MCTS setup, the rule bot with its view at every other seat, the
 //! core driver with observation on (tree reuse).
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use ti4_engine_search::agent::{RuleBotAgent, SeatAgent};
@@ -8,17 +9,33 @@ use ti4_engine_search::driver::{Limits, Record, play};
 use ti4_engine_search::{Outcome, mcts_spec, start};
 
 use crate::agent::{Counts, MctsAgent, Shared};
-use crate::eval::{Evaluator, RuleBotPrior, Rollout, Uniform};
+use ti4_mcts_net::Net;
+
+use crate::eval::{Evaluator, NetEvaluator, RuleBotPrior, Rollout, Uniform};
 use crate::search::{Config, Stats};
 
 /// Which evaluator: `uniform`, `rule` (rule-bot prior, VP-share value), `rule-flat` (rule-bot prior, uniform value), `rollout:H` (flat
-/// priors, rule-bot rollout of `H` answers), `rollout-rule:H` (the same with rule-bot priors).
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// priors, rule-bot rollout of `H` answers), `rollout-rule:H` (the same with rule-bot priors), `net:PATH` (the policy + value net of a
+/// `.t4w` file, [`NetEvaluator`]).
+#[derive(Clone)]
 pub enum EvalSpec {
     Uniform,
     RulePrior,
     RuleFlat,
     Rollout { horizon: usize, rule_prior: bool },
+    Net(Arc<Net>),
+}
+
+impl std::fmt::Debug for EvalSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Uniform => f.write_str("Uniform"),
+            Self::RulePrior => f.write_str("RulePrior"),
+            Self::RuleFlat => f.write_str("RuleFlat"),
+            Self::Rollout { horizon, rule_prior } => write!(f, "Rollout {{ horizon: {horizon}, rule_prior: {rule_prior} }}"),
+            Self::Net(net) => write!(f, "Net({:?})", net.dims),
+        }
+    }
 }
 
 impl EvalSpec {
@@ -31,18 +48,20 @@ impl EvalSpec {
             None if text == "rule-flat" => Ok(Self::RuleFlat),
             Some(("rollout", h)) => Ok(Self::Rollout { horizon: h.parse().map_err(|_| format!("horizon {h}"))?, rule_prior: false }),
             Some(("rollout-rule", h)) => Ok(Self::Rollout { horizon: h.parse().map_err(|_| format!("horizon {h}"))?, rule_prior: true }),
-            _ => Err(format!("evaluator {text}: want uniform, rule, rule-flat, rollout:H or rollout-rule:H")),
+            Some(("net", path)) => Ok(Self::Net(Arc::new(NetEvaluator::load(std::path::Path::new(path))?))),
+            _ => Err(format!("evaluator {text}: want uniform, rule, rule-flat, rollout:H, rollout-rule:H or net:PATH")),
         }
     }
 
     #[must_use]
-    pub fn build(self) -> Box<dyn Evaluator> {
+    pub fn build(&self) -> Box<dyn Evaluator> {
         match self {
             Self::Uniform => Box::new(Uniform),
             Self::RulePrior => Box::new(RuleBotPrior::default()),
             Self::RuleFlat => Box::new(RuleBotPrior { value: crate::eval::LeafValue::Uniform, ..RuleBotPrior::default() }),
-            Self::Rollout { horizon, rule_prior: false } => Box::new(Rollout::new(horizon)),
-            Self::Rollout { horizon, rule_prior: true } => Box::new(Rollout::new(horizon).with_rule_prior()),
+            Self::Rollout { horizon, rule_prior: false } => Box::new(Rollout::new(*horizon)),
+            Self::Rollout { horizon, rule_prior: true } => Box::new(Rollout::new(*horizon).with_rule_prior()),
+            Self::Net(net) => Box::new(NetEvaluator::new(Arc::clone(net))),
         }
     }
 }
@@ -69,7 +88,7 @@ pub struct GameReport {
 ///
 /// # Errors
 /// The start of the game.
-pub fn play_game(seed: u64, mcts: &[u8], cfg: &Config, eval: EvalSpec, limits: Limits) -> Result<GameReport, String> {
+pub fn play_game(seed: u64, mcts: &[u8], cfg: &Config, eval: &EvalSpec, limits: Limits) -> Result<GameReport, String> {
     let mut pos = start(&mcts_spec(seed))?;
     let mut handles = Vec::new();
     let mut agents: Vec<Box<dyn SeatAgent>> = Vec::new();

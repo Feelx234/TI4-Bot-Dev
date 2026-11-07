@@ -326,3 +326,65 @@ fn a_search_with_a_points_value_scores_when_it_can() {
     }
     assert!(checked >= 3, "{checked} scoring questions checked");
 }
+
+/// The net evaluator (wired at integration 30) on real positions: the tiny parity fixture of `ti4-mcts-net` (real feature widths, small
+/// model). One logit per candidate (the net's raw option logit at that option index), the value the win head's softmax put back on its
+/// absolute seats through the seating order and then made actor-relative; a search with it keeps its invariants and the game.
+#[test]
+fn the_net_evaluator_maps_logits_and_the_seat_order_and_drives_a_search() {
+    use std::sync::Arc;
+
+    use ti4_mcts_features::encode::{self, Encoded, Encoder};
+    use ti4_mcts_features::npy;
+    use ti4_mcts_net::Scratch;
+
+    use crate::eval::{Evaluator, NetEvaluator};
+    use crate::value::to_relative;
+
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ti4-mcts-net/tests/fixtures/tiny/weights.t4w");
+    let net = Arc::new(NetEvaluator::load(&path).expect("the tiny fixture fits this build's features"));
+    for (seed, skip) in [(1u64, 2usize), (2, 15), (3, 40)] {
+        let pos = tree_position(seed, skip, 2);
+        let (hash, streams) = (pos.state_hash(), pos.stream_positions());
+        let choice = pos.choice().unwrap().clone();
+        let cands = candidates(&pos, &choice, None);
+        let mut eval = NetEvaluator::new(Arc::clone(&net));
+        let e = eval.evaluate(&pos, &choice, &cands, 1).unwrap();
+        assert_eq!(e.logits.len(), cands.len());
+        assert!((e.value.iter().sum::<f32>() - 1.0).abs() < 1e-4, "{:?}", e.value);
+        // The reference: the same encoding by hand, the win probabilities by seating order.
+        let seen = pos.seen().unwrap();
+        let mut buf = Encoded::default();
+        Encoder::default().encode_into(&seen, &choice, &mut buf);
+        for v in buf.sys.iter_mut().chain(buf.seat.iter_mut()).chain(buf.obj.iter_mut()).chain(buf.glob.iter_mut()).chain(buf.opt.iter_mut()) {
+            *v = npy::f16_round(*v);
+        }
+        let out = net.forward(&buf, &mut Scratch::default());
+        for (l, c) in e.logits.iter().zip(&cands) {
+            assert!((l - out.logits[*c]).abs() < 1e-6);
+        }
+        let win = out.win_probs();
+        let mut abs = [0.0; SEATS];
+        for (k, s) in encode::relative_seats(&seen, choice.actor).iter().enumerate() {
+            abs[usize::from(s.0)] = win[k];
+        }
+        assert_eq!(e.value, to_relative(&abs, usize::from(choice.actor.0)));
+        // In the MCTS setup the seating order is the seat order, so the net's order is this crate's `(actor + k) % 4`.
+        let rel: Vec<u8> = encode::relative_seats(&seen, choice.actor).iter().map(|s| s.0).collect();
+        let want: Vec<u8> = (0..4u8).map(|k| (choice.actor.0 + k) % 4).collect();
+        assert_eq!(rel, want, "seed {seed}: the seating order is not the seat order");
+        // A search with it.
+        let cfg = Config::default();
+        let mut stats = Stats::default();
+        let tree = new_root(pos.fork_search(), cands.clone(), None, 11, &mut eval, &mut stats).unwrap();
+        let mut s = Searcher::new(&cfg, &mut eval, tree);
+        let r = s.run(16, &mut SearchRng::new(5), true).unwrap();
+        s.tree.check_invariants().unwrap();
+        assert_eq!(r.attempted, 16);
+        assert!(cands.contains(&r.option));
+        drop(s);
+        assert!(eval.passes > 0);
+        assert_eq!(pos.state_hash(), hash);
+        assert_eq!(pos.stream_positions(), streams);
+    }
+}

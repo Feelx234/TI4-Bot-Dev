@@ -4305,6 +4305,7 @@ dependencies = [
  "ti4-engine-core",
  "ti4-engine-search",
  "ti4-mcts-features",
+ "ti4-mcts-net",
  "ti4-perf-alloc",
 ]
 

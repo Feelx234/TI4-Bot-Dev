@@ -4,10 +4,17 @@
 //! * [`RuleBotPrior`]: the rule bot's pick as the prior (`weight` of the mass on it), a heuristic value (uniform or the VP share).
 //! * [`Rollout`]: a rule-bot rollout from the position (to the end, or `horizon` answers then the VP share) as the value; flat or
 //!   rule-bot priors.
-//! * [`FnEvaluator`]: the hook for the net (lane L4, `ti4-mcts-net` on `core-mcts-prep-2`): any closure that maps the position, the
-//!   choice and the candidates to logits and an actor-relative value. See `docs/L6_RESUME.md` for the wiring.
+//! * [`NetEvaluator`]: the policy + value net of `ti4-mcts-net` (lane L4) on the features of `ti4-mcts-features`: the option logits
+//!   of the candidates and the win head as the value (wired at integration 30).
+//! * [`FnEvaluator`]: any closure that maps the position, the choice and the candidates to logits and an actor-relative value.
+
+use std::path::Path;
+use std::sync::Arc;
 
 use ti4_engine_core::choice::Choice;
+use ti4_mcts_features::encode::{self, Encoded, Encoder, FA, FG, FO, FP, FS, MAX_OBJ, MAX_SYS};
+use ti4_mcts_features::npy;
+use ti4_mcts_net::{Net, Scratch};
 use ti4_engine_search::agent::{RuleBotAgent, SeatAgent};
 use ti4_engine_search::chance::SearchRng;
 use ti4_engine_search::{Node, Position};
@@ -205,6 +212,66 @@ impl Evaluator for FnEvaluator {
 
     fn name(&self) -> String {
         self.name.clone()
+    }
+}
+
+/// The net as the evaluator: encode the actor's `Seen` (as the lab's greedy `PolicyAgent` does, every float rounded to the f16 the
+/// shards store), one forward pass, the raw option logits of the candidates and the softmax of the win head.
+///
+/// Seat order: the net's value head is relative to the **seating order** (`encode::relative_seats`: the actor, then clockwise), this
+/// crate's [`Evaluation::value`] to the **seat index** (`(actor + k) % 4`). The win probabilities are put back on their absolute seats
+/// first and then turned actor-relative with [`to_relative`], so the two orders need not agree (they do in the MCTS setup).
+pub struct NetEvaluator {
+    pub net: Arc<Net>,
+    enc: Encoder,
+    buf: Encoded,
+    scratch: Scratch,
+    /// Forward passes made (accounting).
+    pub passes: u64,
+}
+
+impl NetEvaluator {
+    #[must_use]
+    pub fn new(net: Arc<Net>) -> Self {
+        Self { net, enc: Encoder::default(), buf: Encoded::default(), scratch: Scratch::default(), passes: 0 }
+    }
+
+    /// Load a `.t4w` file and check that it fits this build's features.
+    ///
+    /// # Errors
+    /// Weights that do not load, or feature widths that are not this build's.
+    pub fn load(path: &Path) -> Result<Net, String> {
+        let net = Net::load(path)?;
+        if !net.fits(FS, FP, FO, FG, FA, MAX_SYS, MAX_OBJ, SEATS) {
+            return Err(format!("{}: the net's feature widths {:?} are not this build's", path.display(), net.dims));
+        }
+        Ok(net)
+    }
+}
+
+impl Evaluator for NetEvaluator {
+    fn evaluate(&mut self, pos: &Position, choice: &Choice, candidates: &[usize], _key: u64) -> Result<Evaluation, String> {
+        let seen = pos.seen().ok_or("net: the position asks no question")?;
+        self.enc.encode_into(&seen, choice, &mut self.buf);
+        let e = &mut self.buf;
+        for v in e.sys.iter_mut().chain(e.seat.iter_mut()).chain(e.obj.iter_mut()).chain(e.glob.iter_mut()).chain(e.opt.iter_mut()) {
+            *v = npy::f16_round(*v);
+        }
+        let out = self.net.forward(&self.buf, &mut self.scratch);
+        self.passes += 1;
+        let logits = candidates.iter().map(|&c| out.logits.get(c).copied().ok_or_else(|| format!("net: no logit for option {c}"))).collect::<Result<Vec<_>, _>>()?;
+        let win = out.win_probs();
+        let mut abs = [0.0; SEATS];
+        for (k, seat) in encode::relative_seats(&seen, choice.actor).iter().enumerate() {
+            if let (Some(slot), Some(p)) = (abs.get_mut(usize::from(seat.0) % SEATS), win.get(k)) {
+                *slot = *p;
+            }
+        }
+        Ok(Evaluation { logits, value: to_relative(&abs, usize::from(choice.actor.0) % SEATS) })
+    }
+
+    fn name(&self) -> String {
+        "net".to_owned()
     }
 }
 
