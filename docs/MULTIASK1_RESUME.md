@@ -1,6 +1,7 @@
 # multiask-1: sequences of order-independent questions as ONE question (core-multiask-1, 2026-11-06)
 
-Branch `core-multiask-1` from `core-integration-28` (`f22ece5e8`); finished (budget, Leadership decline, re-baseline) on `core-multiask-1-rebase` (section 7). Not pushed, not deployed, live branch untouched. Theory:
+Branch `core-multiask-1` from `core-integration-28` (`f22ece5e8`); finished (budget, Leadership decline, re-baseline) on `core-multiask-1-rebase` (section 7);
+the open items of 7.6 / 7.7 closed on `core-multiask-1-fix` (section 8). Not pushed, not deployed, live branch untouched. Theory:
 `git show core-theory-multiask:docs/MULTI_ASK_THEORY.md`. User decisions (final): the conversion order below, the status-phase gain
 deleted, Politics with all six orders, payments and removals/discards on a validated multi-pick type on the wire, the bot may change its
 set picks, `BOT_VERSION` and `RULES_VERSION` (36) unchanged, one re-baseline at the end, the production build/pay/place reorder out of
@@ -207,3 +208,117 @@ and for one slow test (debug profile, a little slower than `t-web-slow`): `cargo
 | (c) | ti4-wasm `host_batch::slow_a_movement_plan_is_applied_whole_or_not_at_all`, `host_history::slow_an_undo_goes_back_one_answer...` | **Not done.** The first panics `the same question again` (`Some("44")` against `Some("42")`) in a script pinned to seed 6 (the Nth question of the scripted `Act`s has to be a movement question; the conversion changes the questions per game, so the acts fall on other questions); Measured with the seed made a variable (debug profile): `slow_a_movement_plan...` passes for seeds 1 and 3 and fails for 2, 4 and 6 with the same `the same question again` (the next question after a refused batch has a nonce two higher than before it), so it depends on the game and is probably a real rollback bug of the batch on some positions, not only a stale seed; not investigated further. `host_history::slow_an_undo...` not run (it uses seed 13) |
 | (d) | ti4-server `undo::slow_a_card_that_is_drawn_ends_the_undo...` | **Not done.** `draft_scripts.rs:62 the game does not ask the seat`: the scripted game (6 players, seat `a` human, the others random bots) no longer reaches the card draw it waits for; same kind (a pinned game) |
 | (e) | Shadow first differences | jolnar 4p seed 1 is **S3** (recognised now). Two remain, `yssaril` 5p seed 1 (`LEADER_UNLOCKED:xxchahero` announced by the string at the status-phase score of `amass_wealth`, none by the core: `windows/scoring.rs` unlocks "no map, no event, as `award_tail`", so a hero unlocked by a PUBLIC score is announced only at the bookkeeping, if at all) and `naaz` 4p seed 1 (draft, seat c's second card `te4construction` in the core against `te6warfare` in the string, with a Jol-Nar reaction in the same step). Neither is a payment/gain family; both are paths the conversion only made reachable. Not fixed |
+
+## 8. Finishing the lane (branch `core-multiask-1-fix`, from `83571ca76`, 2026-11-07)
+
+Brief: the five open items of 7.6 / 7.7, each fix with a regression test that failed before; no heavy gate (no `end_of_d1.sh`, soak, census, zero-bail
+run, mutation). Commits: `990a6434f` (legacy duals), `ed35c20a7` (Titan Prototype), `b351d8c68` (combat texts), `79512c47d` (shadow), `d3e58e775`
+(slow web tests), `a0d9b4d6f` (bench baselines), then this section.
+
+### 8.1 The 155 legacy lockstep duals (7.7 b): collapsed, not bailed
+
+`cargo test -p ti4-engine-legacy --lib`: **5,352 passed, 0 failed** at `990a6434f` (was 155 failed; 5,354 on the final tree). New module `crates/ti4-engine/src/multiask_dual.rs`:
+
+* `collapse`: the string's recorded questions (prompt, options, answer, nested) become the core's questions, one `Group` per core question:
+  * gains: a run of one seat's pool questions is one split `t|f|s` (a single token too); `details.tokens_to_place` counting down by one keeps two
+    gains of one seat apart (the Empyrean hero's explorations gave four one-token gains in a row);
+  * Predictive Intelligence: the moves up to `done` are the final split (the core's option id), from the pools of the first move question;
+  * Politics: the two `place X where` answers are the order `{top}/{bottom}` (the four the string reaches);
+  * payments: one bill's atom questions (same seat and currency, each owing the previous owed less the atom's worth) are `pay:a+b+..`; `pick` reads
+    it as the SMALLEST legal set holding every asked atom (the string pays a lone remaining atom unasked);
+  * Leadership: the yes / pay / pool loop is `purchase:N:atoms` and, behind it, ONE gain of the bought tokens' pools; a payment followed by a
+    purchase question is the follower's first token (the core's purchase with min 1); a payment answered on a core purchase counts one token
+    (`Kind::matches`: payment and purchase are interchangeable for the loose comparison);
+  * hand limit: `discard:` + the printed names; removals: `remove:` + the option labels (each unit an option of its own);
+  * `lone_answer`: a core payment or purchase with ONE legal answer that the string paid without asking (the follower buying its token with the only
+    trade goods) is answered silently (the drivers skip it; `Follow` answers `multiask:lone`).
+* Window duals: `Recording::collapse_multi_asks` in `run_dual_window` (the one place a recording is finished); a collapsed question is compared
+  loosely (`Group::stand_in` against `loose_of` of the core's rendered question: the seat and the kind), the position, events and dice as before.
+  `multiask_dual::pick_or_parse` replaces `render::parse_pick` in the drivers (`drive_windowed`, `strategy_cards_core::drive_at`, the pay/step
+  loops of `dual_window.rs`, `production_window_dual.rs`) and in `live::pick_of`; it only reads the ids of `collapse` (no client sends them).
+* Live lockstep harnesses: `live::Scripted::new` follows the string run's questions when the test remembered them
+  (`remember_string_questions` in the string runners of `turn_live_tests`, `agenda_live_tests`, `peace_accords_live_tests`, `invasion_live`);
+  `combat_live`'s own asker wraps a `Follow`; `tactical_live` and `production_step_tests` play `core_script` and compare with `align`. The status
+  phase's pool questions (the core asks none, 1') give no answer and are left out.
+
+Per family: gains, restack, Politics, payments, Leadership, discards, removals: all **collapsed**. Named bails (counted, not failures):
+**one**, `production_window_dual::MULTIASK_PAYMENT_STEP` ("a payment step the string asks atom by atom ..."): the per-STEP production dual
+(`ProductionWindow::step`, one string question per dual) cannot compare a step whose atom leaves the bill open (the core asks the rest as one set);
+the step that pays the rest is compared, and the whole use is compared by the windows that drive it to its end. Two tests now expect it
+(`a_mentak_producer_runs...`, `a_production_by_an_ability_runs...`: compared 104, other bails 0). Tests changed in substance: the status
+token-gain arm test asserts the deliberate no-question gain (`the_token_gain_arm_run_by_the_core_asks_no_pool...`); the enforcement test of
+`tactical_live` names all three removals (a partial removal has no core answer); `strategic_live`'s first-option asker answers a payment with
+`Choice::pick(0)`. Regression tests: the duals themselves plus the unit tests of `multiask_dual` (collapse of each family).
+
+### 8.2 Slow web tests (7.7 c, d): stale scripts, no rollback or undo bug
+
+Run with the debug binaries of the `t-web` package set (`cargo test <set> --lib --tests --no-run`, then the `it` binary `--exact <test>`).
+
+* `host_batch::slow_a_movement_plan_is_applied_whole_or_not_at_all`: at seeds 6, 2, 4 the ship moved first now meets the Yin seat's OWN reaction
+  after `SHIP_MOVED`, which interrupts the plan before its bad second step: batch status `interrupted`, the person is asked (correct). The "nonce two
+  higher" was that question; the probe asserted the nonce before the status. Re-pinned: the first seed of a list whose second step is reached
+  (an interruption on the way accepted, anything else fails); the refused batch then comes back to the same question and nonce. No host lock is
+  poisoned any more (the 38 follow-on failures were that panic).
+* `host_history::slow_an_undo_goes_back_one_answer...`: the 25th answer is now the first research of a Technology primary whose second research is
+  asked in the same step, so the undo goes back to the step's start (two answers, `redo_count` 2): the undo is taken after the 24th.
+* `undo::slow_a_card_that_is_drawn...`: (1) the bots had the default 600 ms think delay unless another test of the process had set the override
+  (alone, a long bot stretch outlasted the 60 s `DEADLINE`); `draft_scripts::config` sets no delay. (2) The game of seed 11 now ends (seat c's tenth
+  point) before the seat's 120th decision, and with the status-phase gain gone a passive seat never decides twice around a draw (`Revealed` never
+  met): the walk follows Politics (two cards drawn right after the seat's own decision), takes at most 90 decisions and stops once both barriers
+  are met.
+* **Found on the way, not investigated** (not the conversion's): further on in that walk (seed 11, the seat following Politics, its 84th decision)
+  the seat is asked `when ACTION_CARD_PLAYED` (`reaction:sol:ACTION_CARD_PLAYED:when`, `decline`); `undo_plan` answers `NoPendingChoice` and
+  `submit_choice(.., "decline")` never returns (every thread of the test process in a futex wait). The test stops before it; worth a look in the
+  server's session worker (a reaction question of a human seat inside a bot's step).
+
+### 8.3 Bench `engine_error`s (7.4, 7.7 a): pre-existing core gaps, fixed
+
+None was caused by the multi-ask change itself; the new decision streams reached them.
+
+* 4p seed 93 (bench, bench-v5) and bench-v4 4p seed 30, `TurnGap(StrategyAbility)`: the Titan Prototype read the builder's structure rules with
+  `structure_facts`, which refuses a Minister of Industry holder; the build is the Construction secondary's window, which carries the production
+  after a dock itself (rules 25+, as the string's `place_structure`). `driver/turn/relic.rs` uses `structure_facts_with(.., true)`. Test
+  `action_dispatch::the_titan_prototype_builds_for_a_minister_of_industry` (failed with `Unknown(TurnGap(StrategyAbility))`).
+* 4p seed 76, `CombatUnported`: the combat machine names each roll group from the texts minted before the call (`combat_texts`); Ipswitch, Loose
+  Cannon (Mentak hero) places a ship of each type the other side loses, in the Mentak seat's own form, mid-fight (a Carrier I for a fallen Carrier
+  II), which had no text (`Machine::names` None at `Rolling { round: 1 }`). `ipswitch_forms` names those forms. Test
+  `combat_live::the_texts_of_a_fight_name_the_forms_the_mentak_hero_may_place`.
+* 6p seed 10, `CombatUnported` at the ask: Airo Shir Aur's fight (`hero_fight_types`) named only ships; a Naaz Eidolon a carrier holds in the
+  destination flips to the Z-Grav form when the round starts. Test
+  `combat_live::the_texts_of_the_step_that_plays_airo_shir_aur_name_the_z_grav_form_of_a_naaz_mech_in_the_destination`.
+* Both text fixes are in both copies (`ti4-engine/src/combat_live.rs`, `ti4-engine-next/src/ties/combat_live.rs`). All five games replay to a victory.
+
+### 8.4 Shadow first differences (7.6.2, 7.7 e): the harness's
+
+* yssaril 5p seed 1, step 606: S5 (a secret scored for the first time unlocks no leader in the string; `fsn` was seat c's third objective). Another
+  leader unlocked at the same bookkeeping, so the string's extra `LEADER_UNLOCKED:xxchahero` shifted the common `LEADER_UNLOCKED:jolnarcommander`
+  by one; `s5_extra_unlock` takes that form (STRING_ENGINE_BUGS S5).
+* naaz 4p seed 1, step 258: the string ASKS Public Disgrace's re-choice ("choose a different strategy card") with one card left; the native engine
+  takes it without asking. The follower answered the next entry, the string refused it and restored the first choice (`te6warfare` kept where the
+  rule deals `te4construction`). The follower now takes a question of one option the next entry does not answer (`oracle::LONE_TAKEN`, no question
+  of the group; STRING_ENGINE_BUGS H3). The game plays clean to its end (1,146 steps).
+* Test `native_play::the_first_differences_of_the_multi_ask_sweep_are_s5_and_a_lone_question` (both parts failed before), recogniser unit checks.
+
+### 8.5 Results
+
+| What | Result |
+|---|---|
+| legacy lib (final tree) | 5,354 passed, 0 failed, 7 ignored |
+| core lib + core-tests + factions (debug) | 2,736 passed, 0 failed |
+| bridge lib (lockstep profile) | 153 passed |
+| fingerprints | quick game (`native_play --quick`) **`4f79d5630eaf630d` unchanged**, 1,110 steps; `perf_kernel suite 1` **`2c99ed238f39713e` unchanged** (14 games, 13,865 steps). (`--quick --shadow --twice` prints `efcb0318f94f6606`, deterministic; it is not pinned and was `7824cabdfbb528b6` at integration 29.) Nothing re-pinned |
+| `golden check` | 200 games, 146,430 decisions, 0 failed under the default mask, `all=core` and `all=string`; no re-bless |
+| shadow sweep `--factions all --players 3,4,5,6 --shadow` (gate) | 96 games, 96 finished, 0 gaps, **0 first differences**, 21 at a known string bug (12 S1, 1 S3, 8 S5) |
+| wasm (real build, binaryen wasm-opt) | **6,658,414 raw / 2,122,423 gzip / 1,527,816 brotli**, budget 6,660,000 / 2,126,000 / 1,532,000: ok (margin 1,586 / 3,577 / 4,184 bytes; 7.3 was 6,655,547 / 2,121,013 / 1,527,033) |
+| fast web tier (`cargo t-web`, run as the same package set with `--no-fail-fast`) | 1,661 passed, 1 failed: `session_deterministic_replay::deterministic_replay_produces_identical_decision_logs`, a timing test (it waits 50 ms and hashes the decisions so far) that lost the race while the bench ran on 4 cores; alone it passes 3 of 3 |
+| slow web tests (debug) | ti4-wasm `::slow_` 10 passed; ti4-server `::slow_` 25 passed |
+| web | `tsc` clean; vitest 2,776 passed, 4 skipped (`node_modules` linked from another worktree for the run) |
+| `check_layers` core / setup / thin | 0 / 0 / 0 violations |
+| `lint_core.sh` | 0 hits, 8 allowed, 0 multi-ask guard hits |
+| `clippy_core.sh` | ok, engine warnings 41 = baseline |
+| bench (`prepare_native_record.sh`, gate selfplay, 4 workers) | **1,200 of 1,200 victories**, no problem listed; exactly the five games of 7.4 changed (bench 4p 76, 93, 6p 10; v4 4p 30; v5 4p 93), every other hash unchanged; verify **200 identical, 0 different, 0 not in the baseline, six times** (wall 13 / 3 / 3 / 3 / 13 / 13 min for bench, v1, v2, v3, v4, v5); bench, v4, v5 files adopted, v1..v3 keep theirs |
+
+### 8.6 Left open
+
+* The server hang of 8.2 (a human seat's reaction question inside a bot's step; reproducer above).
+* 7.6.1 (live state vs replay of the export at some answer counts) and 7.6.4 (`Choice::pick` on a purchase atom buys one token, kept): untouched.
