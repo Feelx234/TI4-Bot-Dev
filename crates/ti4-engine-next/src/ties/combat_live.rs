@@ -272,6 +272,13 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
         // A seat that owns an upgrade whose units still stand in the older form takes the new form when the combat opens (`technology::apply_unit_upgrades`):
         // its roll groups are named too, or the machine stands at a roller its texts do not name.
         let milor_in_play = milor_in_play(core);
+        // Ipswitch, Loose Cannon (the Mentak hero): "for each other player's ship that is destroyed during this combat, place 1 ship of that type from
+        // your reinforcements in the active system". The ships land in the middle of the fight in the form the Mentak seat places: named too, or the
+        // machine stands at the roller of a fleet it has no text for (`CombatUnported`, bench 4p seed 76: the hero purged, Ambush's hits, round 1).
+        for (seat, unit) in ipswitch_forms(core, system, &owned) {
+            pieces.push(unit);
+            add(&mut sides, seat, unit);
+        }
         for (owner, unit) in owned {
             let Some(p) = core.players().by_seat(owner) else { continue };
             if let Some(upgrade) = ti4_engine_core::query::tech::unlocked_upgrade(ti4_engine_core::tables::Scope(u32::MAX), unit.data().base_type, p.faction, &p.tech.owned) {
@@ -392,6 +399,43 @@ fn milor_in_play(core: &CoreState) -> bool {
     core.players().iter().any(|p| matches!(p.leaders.status.get(&ti4_engine_core::generated::Leader::BrotherMilor), Some(LeaderStatus::Readied | LeaderStatus::Exhausted)))
 }
 
+/// The forms the Mentak hero's seat may place in the fight at `system` (`owned`: the units that fight there, by owner): for a seat of the fight that
+/// holds Ipswitch unlocked (it may purge it at the start of the combat) or purged for this combat, its forms of the base type of every other seat's ship
+/// there (the plain form, a faction form, an upgrade it owns).
+fn ipswitch_forms(core: &CoreState, system: ti4_engine_core::generated::System, owned: &[(ti4_engine_core::ids::Seat, Unit)]) -> Vec<(ti4_engine_core::ids::Seat, Unit)> {
+    use ti4_engine_core::generated::{Leader, Requirement};
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    use ti4_engine_core::state::LeaderStatus;
+    let mut out = Vec::new();
+    let recorded = match core.marks().tail.get(&MarkKey::MentakHero(system)) {
+        Some(MarkVal::Atom(Atom::Seat(who))) => Some(*who),
+        _ => None,
+    };
+    let mut seats: Vec<ti4_engine_core::ids::Seat> = owned.iter().map(|(s, _)| *s).collect();
+    seats.dedup();
+    for seat in seats {
+        let Some(p) = core.players().by_seat(seat) else { continue };
+        if recorded != Some(seat) && p.leaders.status.get(&Leader::IpswitchLooseCannon) != Some(&LeaderStatus::Unlocked) {
+            continue;
+        }
+        let mut bases: Vec<ti4_engine_core::generated::UnitBaseType> = owned.iter().filter(|(s, u)| *s != seat && u.data().ship).map(|(_, u)| u.data().base_type).collect();
+        bases.sort_unstable();
+        bases.dedup();
+        for base in bases {
+            for u in forms_of(base, p.faction, true) {
+                let fields = match u.data().required_technology {
+                    Requirement::Known(t) => p.tech.owned.contains(t),
+                    _ => true,
+                };
+                if fields {
+                    out.push((seat, u));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Whether `seat` can gain a unit upgrade in the middle of a combat: it holds the action card Reveal Prototype, or it is the Nekro (Technological Singularity).
 fn researches_in_combat(core: &CoreState, seat: ti4_engine_core::ids::Seat) -> bool {
     core.players().by_seat(seat).is_some_and(|p| p.faction == ti4_engine_core::generated::Faction::TheNekroVirus || p.cards.hand.contains(&ti4_engine_core::generated::ActionCard::RevealPrototype))
@@ -409,7 +453,9 @@ fn hero_fight_types(core: &CoreState) -> Vec<(ti4_engine_core::ids::Seat, Unit)>
         return Vec::new();
     }
     let Some(galaxy) = core.galaxy() else { return Vec::new() };
-    let ship = |u: Unit| u.data().ship || u.data().base_type == UnitBaseType::Fighter;
+    // (A dual-form unit in the space area whose other form is a ship fights as that ship, "flip to ship forms": the Naaz Eidolon a carrier holds is a
+    // Z-Grav Eidolon in the fight, which the machine names, `CombatUnported` in bench 6p seed 10, the Mahact hero's fight against a Naaz fleet.)
+    let ship = |u: Unit| u.data().ship || u.data().base_type == UnitBaseType::Fighter || flips_into_a_ship(u);
     let mut out: Vec<(ti4_engine_core::ids::Seat, Unit)> = Vec::new();
     for (origin, cell) in core.board().systems() {
         let mine: Vec<Unit> = cell.units.iter().filter(|p| p.owner() == active && ship(p.kind())).map(|p| p.kind()).collect();

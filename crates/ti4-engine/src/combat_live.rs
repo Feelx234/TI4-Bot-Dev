@@ -236,6 +236,13 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
         // A seat that owns an upgrade whose units still stand in the older form takes the new form when the combat opens (`technology::apply_unit_upgrades`):
         // its roll groups are named too, or the machine stands at a roller its texts do not name.
         let milor_in_play = milor_in_play(core);
+        // Ipswitch, Loose Cannon (the Mentak hero): "for each other player's ship that is destroyed during this combat, place 1 ship of that type from
+        // your reinforcements in the active system". The ships land in the middle of the fight in the form the Mentak seat places: named too, or the
+        // machine stands at the roller of a fleet it has no text for (`CombatUnported`, bench 4p seed 76: the hero purged, Ambush's hits, round 1).
+        for (seat, unit) in ipswitch_forms(core, system, &owned) {
+            pieces.push(unit);
+            add(&mut sides, seat, unit);
+        }
         for (owner, unit) in owned {
             let Some(p) = core.players().by_seat(owner) else { continue };
             if let Some(upgrade) = ti4_engine_core::query::tech::unlocked_upgrade(ti4_engine_core::tables::Scope(u32::MAX), unit.data().base_type, p.faction, &p.tech.owned) {
@@ -356,6 +363,43 @@ fn milor_in_play(core: &CoreState) -> bool {
     core.players().iter().any(|p| matches!(p.leaders.status.get(&ti4_engine_core::generated::Leader::BrotherMilor), Some(LeaderStatus::Readied | LeaderStatus::Exhausted)))
 }
 
+/// The forms the Mentak hero's seat may place in the fight at `system` (`owned`: the units that fight there, by owner): for a seat of the fight that
+/// holds Ipswitch unlocked (it may purge it at the start of the combat) or purged for this combat, its forms of the base type of every other seat's ship
+/// there (the plain form, a faction form, an upgrade it owns).
+fn ipswitch_forms(core: &CoreState, system: ti4_engine_core::generated::System, owned: &[(ti4_engine_core::ids::Seat, Unit)]) -> Vec<(ti4_engine_core::ids::Seat, Unit)> {
+    use ti4_engine_core::generated::{Leader, Requirement};
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    use ti4_engine_core::state::LeaderStatus;
+    let mut out = Vec::new();
+    let recorded = match core.marks().tail.get(&MarkKey::MentakHero(system)) {
+        Some(MarkVal::Atom(Atom::Seat(who))) => Some(*who),
+        _ => None,
+    };
+    let mut seats: Vec<ti4_engine_core::ids::Seat> = owned.iter().map(|(s, _)| *s).collect();
+    seats.dedup();
+    for seat in seats {
+        let Some(p) = core.players().by_seat(seat) else { continue };
+        if recorded != Some(seat) && p.leaders.status.get(&Leader::IpswitchLooseCannon) != Some(&LeaderStatus::Unlocked) {
+            continue;
+        }
+        let mut bases: Vec<ti4_engine_core::generated::UnitBaseType> = owned.iter().filter(|(s, u)| *s != seat && u.data().ship).map(|(_, u)| u.data().base_type).collect();
+        bases.sort_unstable();
+        bases.dedup();
+        for base in bases {
+            for u in forms_of(base, p.faction, true) {
+                let fields = match u.data().required_technology {
+                    Requirement::Known(t) => p.tech.owned.contains(t),
+                    _ => true,
+                };
+                if fields {
+                    out.push((seat, u));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Whether `seat` can gain a unit upgrade in the middle of a combat: it holds the action card Reveal Prototype, or it is the Nekro (Technological Singularity).
 fn researches_in_combat(core: &CoreState, seat: ti4_engine_core::ids::Seat) -> bool {
     core.players().by_seat(seat).is_some_and(|p| p.faction == ti4_engine_core::generated::Faction::TheNekroVirus || p.cards.hand.contains(&ti4_engine_core::generated::ActionCard::RevealPrototype))
@@ -373,7 +417,9 @@ fn hero_fight_types(core: &CoreState) -> Vec<(ti4_engine_core::ids::Seat, Unit)>
         return Vec::new();
     }
     let Some(galaxy) = core.galaxy() else { return Vec::new() };
-    let ship = |u: Unit| u.data().ship || u.data().base_type == UnitBaseType::Fighter;
+    // (A dual-form unit in the space area whose other form is a ship fights as that ship, "flip to ship forms": the Naaz Eidolon a carrier holds is a
+    // Z-Grav Eidolon in the fight, which the machine names, `CombatUnported` in bench 6p seed 10, the Mahact hero's fight against a Naaz fleet.)
+    let ship = |u: Unit| u.data().ship || u.data().base_type == UnitBaseType::Fighter || flips_into_a_ship(u);
     let mut out: Vec<(ti4_engine_core::ids::Seat, Unit)> = Vec::new();
     for (origin, cell) in core.board().systems() {
         let mine: Vec<Unit> = cell.units.iter().filter(|p| p.owner() == active && ship(p.kind())).map(|p| p.kind()).collect();
@@ -1006,6 +1052,48 @@ mod tests {
         let named: Vec<U> = t.unit_codes.iter().map(|(u, _)| *u).collect();
         assert!(named.contains(&U::ZGravEidolonNaazMechSpace), "the form the mech takes at the start of the round is named: {named:?}");
         assert!(t.groups.iter().any(|(k, _, _)| k.contains(&U::ZGravEidolonNaazMechSpace) && k.contains(&U::CarrierI)), "and rolls with the carrier");
+    }
+
+    /// multiask-1-fix (bench 4p seed 76, `UnportedAftermath(CombatUnported)`): Ipswitch, Loose Cannon places a ship of each type the other side loses, in the
+    /// form the Mentak seat places, in the middle of the fight: a Carrier I for a Carrier II that falls. That form is named (the machine stood at the roller of
+    /// the Mentak fleet the Carrier I joined); without the hero it is not.
+    #[test]
+    fn the_texts_of_a_fight_name_the_forms_the_mentak_hero_may_place() {
+        use ti4_engine_core::generated::Unit as U;
+        let (hub, _origin, target) = hub();
+        let mut state = table(&[("a", "mentak"), ("b", "letnev")]);
+        crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "carrier2", &b(), 1);
+        let groups = |state: &GameState| {
+            let mut cx = Ctx::of(state).expect("owners");
+            let mut core = Codec::load(&mut cx, state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&crate::rng::RngPositions::default()) }, SliceSet::ALL).expect("the position loads");
+            let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+            let (seat_a, seat_b) = (render.seat("a").expect("a"), render.seat("b").expect("b"));
+            core.transient_mut().combat.active_space_combat = Some((<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(target.as_str()).expect("a system"), seat_a, seat_b));
+            super::combat_texts(&mut core, &render).groups.into_iter().map(|(k, _, _)| k).collect::<Vec<Vec<U>>>()
+        };
+        assert!(!groups(&state).contains(&vec![U::CarrierI]), "no hero, no Carrier I");
+        state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("mentakhero"), ti4_model::state::LeaderStatus::Unlocked);
+        let named = groups(&state);
+        assert!(named.contains(&vec![U::CarrierI]) && named.contains(&vec![U::CarrierI, U::CruiserI]), "the form the hero places, alone and with the fleet: {named:?}");
+    }
+
+    /// multiask-1-fix (bench 6p seed 10, `UnportedAftermath(CombatUnported)` at the ask): the Naaz Eidolon a carrier holds in the system Airo Shir Aur can fight in
+    /// takes the Z-Grav form when the round starts: the texts of the step that plays the hero name it, as they do for an open fight.
+    #[test]
+    fn the_texts_of_the_step_that_plays_airo_shir_aur_name_the_z_grav_form_of_a_naaz_mech_in_the_destination() {
+        use ti4_engine_core::generated::Unit as U;
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "mahact"), ("b", "naaz")]);
+        crate::fixtures::put(&mut state, &origin, "cruiser", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "carrier", &b(), 1);
+        crate::fixtures::put(&mut state, &target, "naaz_mech", &b(), 1);
+        state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("mahacthero"), ti4_model::state::LeaderStatus::Unlocked);
+        let mut cx = Ctx::of(&state).expect("owners");
+        let mut core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&crate::rng::RngPositions::default()) }, SliceSet::ALL).expect("the position loads");
+        let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+        let texts = super::combat_texts(&mut core, &render);
+        assert!(texts.groups.iter().any(|(k, _, _)| *k == vec![U::ZGravEidolonNaazMechSpace]), "{:?}", texts.unit_codes.iter().map(|(u, _)| *u).collect::<Vec<_>>());
     }
 
     /// Lane Q (mutation of `hero_fight_types`): the pairs Airo Shir Aur can start a fight in name the SHIPS of the hero's fleet (fighters count as ships here, a
