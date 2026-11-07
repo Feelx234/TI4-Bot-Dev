@@ -783,7 +783,7 @@ mod tests {
 
     /// The pin of `perf_kernel suite 1` (the chain and final-state hashes of the 14 games). It moves on purpose only: 775f4136e60a99d5 through
     /// int-28; c8bd543a5d560b91 with chance-2 alone (Spy and Executive Sanctions pick a card uniformly, `Index { n: held }`); 2c99ed238f39713e
-    /// with the multi-ask conversion alone; int-29 (both): 31fe4e2bdd62069f, 13,751 steps, 12,706 decisions (docs/INTEGRATION29.md).
+    /// with the multi-ask conversion alone; int-29 (both): 31fe4e2bdd62069f, 13,751 steps, 12,706 decisions (docs/INTEGRATION29.md); int-30 (+ multi-ask-fix, C6 hit threshold): unchanged (the threshold is draw-neutral; docs/INTEGRATION30.md).
     #[test]
     fn the_suite_hash_is_the_pinned_one() {
         let (mut all, mut steps, mut decisions) = (0xcbf2_9ce4_8422_2325u64, 0usize, 0usize);

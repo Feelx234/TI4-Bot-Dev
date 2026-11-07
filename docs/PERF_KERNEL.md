@@ -259,7 +259,7 @@ the kernel-only loop here is already 0.19 s, so the "typed kernel is inherently 
 ```text
 CARGO_TARGET_DIR=... RUSTFLAGS="-C force-frame-pointers=yes" CARGO_PROFILE_GATE_DEBUG=line-tables-only CARGO_PROFILE_GATE_STRIP=false \
   cargo build --profile gate -p ti4-engine-core-bridge --bin perf_kernel [--features perf-count]
-perf_kernel suite 1 | tail -1                         # suite_hash 31fe4e2bdd62069f since int-29 (2c99ed238f39713e multi-ask alone, c8bd543a5d560b91 chance-2 alone, 775f4136e60a99d5 int-28)
+perf_kernel suite 1 | tail -1                         # suite_hash 31fe4e2bdd62069f since int-29, unchanged at int-30 (2c99ed238f39713e multi-ask alone, c8bd543a5d560b91 chance-2 alone, 775f4136e60a99d5 int-28)
 PERF_KERNEL_NOSTATE=1 perf stat -e instructions:u perf_kernel game 4 1 sol
 perf record -e instructions:u -c 2000000 --call-graph fp -o x.data perf_kernel suite 1 ; python3 docs/perf_kernel_data/prof.py x.data all 40
 perf_kernel mem 4 1 sol ; perf_kernel micro 4 1 sol 600

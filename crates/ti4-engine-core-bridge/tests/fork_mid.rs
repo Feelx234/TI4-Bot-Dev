@@ -345,7 +345,7 @@ fn the_quick_game_copied_at_every_question_continues_as_its_replay_and_the_origi
 #[test]
 fn the_quick_game_played_by_pull_is_the_blocking_game() {
     let (reference, steps) = blocking_reference(4, 1, "sol");
-    // (int-29: chance-2's unbiased Spy / Executive Sanctions pick plus the multi-ask conversion: `fd54dc6c956758bc`, 1,110 steps; chance-2 alone `43c985a35397f2c9`, multi-ask alone `4f79d5630eaf630d`.)
+    // (int-29: chance-2's unbiased Spy / Executive Sanctions pick plus the multi-ask conversion: `fd54dc6c956758bc`, 1,110 steps; chance-2 alone `43c985a35397f2c9`, multi-ask alone `4f79d5630eaf630d`. int-30, + multi-ask-fix and the C6 hit threshold on the chance requests: unchanged, the threshold is draw-neutral and the fixes touch no position of this game.)
     assert_eq!((reference.as_str(), steps), ("fd54dc6c956758bc", 1110));
     let (mut game, bot) = new_game(4, 1, "sol");
     while !game.state.finished {
