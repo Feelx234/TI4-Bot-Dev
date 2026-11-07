@@ -135,6 +135,29 @@ impl Render {
         Self { seats, factions: Vec::new(), codes: RefCell::new(ti4_engine_core::containers::Interner::default()), position: RefCell::new(None), shapes: RefCell::new(Vec::new()), free: RefCell::new(Vec::new()), ability_ids: RefCell::new(std::collections::HashMap::default()), table_codes: std::cell::Cell::new(None), explore_codes: std::cell::Cell::new(None), env_template: RefCell::new(None) }
     }
 
+    /// A WARM copy for a search position (lane C6, `ti4-engine-search`): the code table, the free-form deals, the memoized table codes and the
+    /// kept `Env` template are carried over, so the copy's next `live::env::env_with_plays` is a cache hit (a cold `Render::new`
+    /// rebuilds the `Env`, about 300 us). Every field is a memo of the game or the code table, so the copy renders and mints exactly as the
+    /// original would. Behind `search`: no production build has it.
+    #[cfg(feature = "search")]
+    #[must_use]
+    pub fn fork_warm(&self) -> Self {
+        Self {
+            seats: self.seats.clone(),
+            factions: self.factions.clone(),
+            codes: RefCell::new(self.codes.borrow().clone()),
+            position: RefCell::new(self.position.borrow().clone()),
+            shapes: RefCell::new(self.shapes.borrow().clone()),
+            free: RefCell::new(self.free.borrow().clone()),
+            // (Not the ability ids: a memo of the cold `Env` build only, 17 KB per copy; a copy whose leaders change rebuilds the ids it needs,
+            // and interning a text again gives its old code.)
+            ability_ids: RefCell::new(std::collections::HashMap::default()),
+            table_codes: std::cell::Cell::new(self.table_codes.get()),
+            explore_codes: std::cell::Cell::new(self.explore_codes.get()),
+            env_template: RefCell::new(self.env_template.borrow().clone()),
+        }
+    }
+
     /// The memoized id of a registered ability, or the result of `build` (kept for the next call).
     pub fn ability_id_memo(&self, key: u64, build: impl FnOnce() -> ti4_engine_core::choice::reaction::AbilityId) -> ti4_engine_core::choice::reaction::AbilityId {
         if let Some(id) = self.ability_ids.borrow().get(&key) {

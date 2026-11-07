@@ -133,6 +133,14 @@ pub struct Template {
     table: AbilityTable,
 }
 
+/// (The warm copy of a search position, `Render::fork_warm`.)
+#[cfg(feature = "search")]
+impl Clone for Template {
+    fn clone(&self) -> Self {
+        Self { key: self.key.clone(), registry: self.registry.clone(), table: self.table.clone() }
+    }
+}
+
 impl std::fmt::Debug for Template {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Template").field("key", &self.key).finish_non_exhaustive()
