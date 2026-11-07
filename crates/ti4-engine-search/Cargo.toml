@@ -1,0 +1,43 @@
+[package]
+name = "ti4-engine-search"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "The search API (docs/C6_RESUME.md, lanes C6 and C7 of docs/FORK_RNG_THEORY.md): a forkable core-level Position (CoreState + the step machine + a warm renderer) with pending / answer / fork, chance asks as chance nodes in Search mode, depth-first helpers, the SeatAgent trait and a core driver for selfplay. A dev tool: never in the production graph or the wasm."
+
+[[bin]]
+name = "search_bench"
+path = "src/bin/search_bench.rs"
+
+[[bin]]
+name = "search_selfplay"
+path = "src/bin/search_selfplay.rs"
+
+# The core and the resolver; the thin crate only for what the core cannot do alone (the `Env` with its ability ids, the combat texts, the code
+# table, the wire form of a question for the rule bot), with its `search` feature (the warm renderer copy). No legacy crate, no host, no server.
+[dependencies]
+ti4-engine-core.workspace = true
+ti4-engine-chance.workspace = true
+ti4-chance = { workspace = true, features = ["search"] }
+ti4-engine = { workspace = true, features = ["search"] }
+ti4-model.workspace = true
+ti4-content.workspace = true
+ti4-rule-bot.workspace = true
+ti4-rule-bot-typed.workspace = true
+ti4-mcts-features = { path = "../ti4-mcts-features" }
+# The game specs (`GameSpec::start`, the native setup) as selfplay and the MCTS lab build them.
+ti4-selfplay = { path = "../ti4-selfplay" }
+rand.workspace = true
+rand_chacha.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+# The bench's counting allocator (bytes per fork).
+ti4-perf-alloc = { path = "../ti4-perf-alloc" }
+
+[dev-dependencies]
+# The MCTS lab's blocking loop (the product's native step without the wrapper), the reference of the rule-bot-on-SeenView game.
+ti4-mcts-lab = { path = "../ti4-mcts-lab" }
+
+[lints]
+workspace = true

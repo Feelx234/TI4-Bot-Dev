@@ -173,7 +173,7 @@ impl SpaceCannonDefense {
         let mut total = 0_u32;
         for roll in plan {
             let on = u32::try_from(roll.hits_on).unwrap_or(u32::MAX);
-            let faces: Vec<u32> = sx.dice(RngDomain::Dice, usize::try_from(roll.dice).unwrap_or(0), DIE_SIDES);
+            let faces: Vec<u32> = sx.dice_on(RngDomain::Dice, usize::try_from(roll.dice).unwrap_or(0), DIE_SIDES, on);
             sx.state.ledger_mut().dice.push(RollRec {
                 purpose: RollPurpose::SpaceCannon,
                 owner: Some(roll.owner),
@@ -195,7 +195,7 @@ impl SpaceCannonDefense {
             let attached: Vec<crate::generated::Roll> = crate::query::board::attachments(sx.state, planet).as_slice().iter().filter_map(|a| a.data().space_cannon).collect();
             for cannon in attached {
                 let on = u32::from(cannon.hits_on);
-                let faces: Vec<u32> = sx.dice(RngDomain::Dice, usize::from(cannon.dice), DIE_SIDES);
+                let faces: Vec<u32> = sx.dice_on(RngDomain::Dice, usize::from(cannon.dice), DIE_SIDES, on);
                 sx.state.ledger_mut().dice.push(RollRec {
                     purpose: RollPurpose::SpaceCannon,
                     owner: Some(owner),

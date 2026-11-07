@@ -138,11 +138,14 @@ impl Walk {
     pub fn redraw(&mut self, sx: &mut Sx<'_>) {
         let picks = std::mem::take(&mut self.picks);
         for (e, d) in picks {
-            let Some(len) = Self::staged(sx.state, self.who).and_then(|set| set.rolls.get(usize::from(e))).map(|entry| entry.faces.len()) else { continue };
+            let Some((len, on)) = Self::staged(sx.state, self.who).and_then(|set| set.rolls.get(usize::from(e))).map(|entry| (entry.faces.len(), entry.hits_on)) else { continue };
             if usize::from(d) >= len {
                 continue; // mutants:skip: the picks are dice of the set, which nothing changes between the question and the draw
             }
-            let face = sx.die(RngDomain::Dice, DIE_SIDES);
+            let face = match on {
+                Some(on) => sx.die_on(RngDomain::Dice, DIE_SIDES, u32::from(on)),
+                None => sx.die(RngDomain::Dice, DIE_SIDES),
+            };
             let staging = sx.state.transient_mut().combat.reroll_staging.edit();
             let Some((_, set)) = staging.iter_mut().find(|(s, _)| *s == self.who) else { continue };
             let system = set.system;

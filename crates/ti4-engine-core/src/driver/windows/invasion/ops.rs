@@ -155,7 +155,12 @@ impl InvasionMachine {
         combat.reroll_staging.edit().clear();
         combat.last_reroll_player = None;
         let planned = bombard_plan(rd(sx.state, sx.kernel), system, invader);
-        let dice = roll_bombard(&planned, &mut |n| sx.dice(crate::state::RngDomain::Dice, n, crate::rules::combat::DIE_SIDES));
+        // (`roll_bombard` draws each planned roll once, in plan order: the thresholds in the same order go on the requests, lane C6.)
+        let mut thresholds = planned.iter().flat_map(|p| p.rolls.iter().map(|r| u32::try_from(r.hits_on).unwrap_or(u32::MAX))).collect::<Vec<_>>().into_iter();
+        let dice = roll_bombard(&planned, &mut |n| match thresholds.next() {
+            Some(on) => sx.dice_on(crate::state::RngDomain::Dice, n, crate::rules::combat::DIE_SIDES, on),
+            None => sx.dice(crate::state::RngDomain::Dice, n, crate::rules::combat::DIE_SIDES),
+        });
         let multiplier = x89_multiplier(sx.state, invader);
         let mut staged: Vec<RerollEntry> = Vec::new();
         let mut at = 0_usize;

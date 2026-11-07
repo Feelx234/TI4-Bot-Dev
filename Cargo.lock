@@ -4241,6 +4241,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "ti4-engine-search"
+version = "0.1.0"
+dependencies = [
+ "rand 0.9.5",
+ "rand_chacha 0.9.0",
+ "serde_json",
+ "sha2",
+ "ti4-chance",
+ "ti4-content",
+ "ti4-engine",
+ "ti4-engine-chance",
+ "ti4-engine-core",
+ "ti4-mcts-features",
+ "ti4-mcts-lab",
+ "ti4-model",
+ "ti4-perf-alloc",
+ "ti4-rule-bot",
+ "ti4-rule-bot-typed",
+ "ti4-selfplay",
+]
+
+[[package]]
 name = "ti4-host"
 version = "0.1.0"
 dependencies = [
