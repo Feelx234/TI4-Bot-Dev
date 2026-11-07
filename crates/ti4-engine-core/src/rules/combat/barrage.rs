@@ -173,7 +173,7 @@ impl BarrageStep {
         self.entries.clear();
         for r in plan {
             let hits_on = u32::try_from(r.hits_on).unwrap_or(u32::MAX);
-            let faces: Vec<u32> = sx.dice(RngDomain::Dice, usize::try_from(r.dice).unwrap_or(0), DIE_SIDES);
+            let faces: Vec<u32> = sx.dice_on(RngDomain::Dice, usize::try_from(r.dice).unwrap_or(0), DIE_SIDES, hits_on);
             self.entries.push(Entry { unit: r.unit, hits_on, faces, rerolled: 0 });
         }
         let rolls: Vec<FleetRoll> = self.entries.iter().map(|e| FleetRoll { hits_on: e.hits_on, faces: e.faces.clone(), rerolled: Vec::new() }).collect();
@@ -243,7 +243,7 @@ impl BarrageStep {
             if usize::from(d) >= entry.faces.len() {
                 continue;
             }
-            entry.faces[usize::from(d)] = sx.die(RngDomain::Dice, DIE_SIDES);
+            entry.faces[usize::from(d)] = sx.die_on(RngDomain::Dice, DIE_SIDES, entry.hits_on);
             if d < 64 {
                 entry.rerolled |= 1 << d;
             }

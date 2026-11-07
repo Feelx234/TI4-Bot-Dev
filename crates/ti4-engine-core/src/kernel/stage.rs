@@ -125,7 +125,18 @@ impl<'a> Sx<'a> {
 
     /// `n` dice of `sides` sides from `domain`, in draw order: one chance question per group of at most `MAX_FACES` (12) dice.
     pub fn dice(&mut self, domain: RngDomain, n: usize, sides: u32) -> Vec<u32> {
-        self.tape.dice(&*self.state, domain, n, sides)
+        self.tape.dice(&*self.state, domain, n, sides, None)
+    }
+
+    /// [`Self::dice`] of a roll that hits on `hits_on` or more (a combat roll group, a SPACE CANNON, a bombardment): the same draw, the
+    /// threshold carried by the chance requests (`Kind::Dice::hits_on`) so a search can group their answers by hit count (lane C6).
+    pub fn dice_on(&mut self, domain: RngDomain, n: usize, sides: u32, hits_on: u32) -> Vec<u32> {
+        self.tape.dice(&*self.state, domain, n, sides, Some(u8::try_from(hits_on).unwrap_or(u8::MAX)))
+    }
+
+    /// [`Self::die`] of a die that hits on `hits_on` or more (a reroll of a combat die): the same draw, the threshold on the request.
+    pub fn die_on(&mut self, domain: RngDomain, sides: u32, hits_on: u32) -> u32 {
+        self.dice_on(domain, 1, sides, hits_on).first().copied().unwrap_or(1)
     }
 
     /// A uniformly chosen index in `0..n` from `domain`: one `Index` chance question.

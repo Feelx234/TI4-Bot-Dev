@@ -172,7 +172,7 @@ impl ProduceHits {
     fn roll_for(&mut self, sx: &mut Sx<'_>, kind: Unit) -> usize {
         let me = self.seat();
         let on = u32::from(Self::rd(sx.state, sx.kernel).data(kind).and_then(|d| d.combat).map_or(u8::MAX, |r| r.hits_on));
-        let face = sx.die(RngDomain::Dice, DIE_SIDES);
+        let face = sx.die_on(RngDomain::Dice, DIE_SIDES, on);
         let roll = FleetRoll { hits_on: on, faces: vec![face], rerolled: Vec::new() };
         super::record_rolls(sx.state.ledger_mut(), me, Some(self.f.system), std::slice::from_ref(&roll), RollPurpose::Other(self.f.ambush));
         self.drawn.push((on, vec![face]));

@@ -240,14 +240,14 @@ impl RollStep {
             }
             let hits_on = u32::try_from(value).unwrap_or(u32::MAX);
             // One chance question per value group (lane C3).
-            let faces: Vec<u32> = sx.dice(RngDomain::Dice, count, DIE_SIDES);
+            let faces: Vec<u32> = sx.dice_on(RngDomain::Dice, count, DIE_SIDES, hits_on);
             let misses: Vec<usize> = faces.iter().enumerate().filter(|(_, f)| **f < hits_on).map(|(i, _)| i).collect();
             rolls.push(FleetRoll { hits_on, faces: faces.clone(), rerolled: Vec::new() });
             let mut last = faces;
             if munitions && !misses.is_empty() {
                 let mut again = last.clone();
                 let rerolled = misses.iter().map(|i| *i as u32).collect();
-                let redrawn = sx.dice(RngDomain::Dice, misses.len(), DIE_SIDES);
+                let redrawn = sx.dice_on(RngDomain::Dice, misses.len(), DIE_SIDES, hits_on);
                 for (i, face) in misses.into_iter().zip(redrawn) {
                     again[i] = face;
                 }
@@ -322,7 +322,10 @@ impl RollStep {
             if usize::from(*d) >= entry.faces.len() {
                 continue;
             }
-            let face = sx.die(RngDomain::Dice, DIE_SIDES);
+            let face = match entry.hits_on {
+                Some(on) => sx.die_on(RngDomain::Dice, DIE_SIDES, u32::from(on)),
+                None => sx.die(RngDomain::Dice, DIE_SIDES),
+            };
             entry.faces[usize::from(*d)] = u8::try_from(face).unwrap_or(u8::MAX);
             if *d < 64 {
                 entry.rerolled |= 1 << *d;

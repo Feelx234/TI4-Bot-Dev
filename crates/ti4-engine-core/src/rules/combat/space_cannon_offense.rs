@@ -170,13 +170,13 @@ impl SpaceCannonOffense {
         let mut drawn = Vec::new();
         for roll in plan {
             let on = u32::try_from(roll.hits_on).unwrap_or(u32::MAX);
-            let faces: Vec<u32> = sx.dice(RngDomain::Dice, usize::try_from(roll.dice).unwrap_or(0), DIE_SIDES);
+            let faces: Vec<u32> = sx.dice_on(RngDomain::Dice, usize::try_from(roll.dice).unwrap_or(0), DIE_SIDES, on);
             Self::record(sx, roll.owner, Some(roll.unit), None, system, on, &faces);
             note(roll.owner, Some(roll.unit), None, on, &faces);
             drawn.push((on, faces));
         }
         for (owner, planet, on, count) in attachments {
-            let faces: Vec<u32> = sx.dice(RngDomain::Dice, usize::try_from(count).unwrap_or(0), DIE_SIDES);
+            let faces: Vec<u32> = sx.dice_on(RngDomain::Dice, usize::try_from(count).unwrap_or(0), DIE_SIDES, on);
             Self::record(sx, owner, None, Some(planet), system, on, &faces);
             note(owner, None, Some(planet), on, &faces);
             drawn.push((on, faces));

@@ -1307,8 +1307,10 @@ impl Tape {
     }
 
     /// `n` dice of `sides` sides from `domain`, in draw order (one request per group of at most `MAX_FACES`, `Request::dice_groups`).
+    /// `hits_on`: the roll's threshold (a face `>= hits_on` hits) when one decides the roll; carried by the requests for a search that groups
+    /// a chance node's answers by hit count (lane C6), never read by an answer: the draw is the same.
     #[inline(never)] // one copy for every site (the browser build's size budget)
-    pub fn dice(&mut self, state: &CoreState, domain: crate::state::RngDomain, n: usize, sides: u32) -> Vec<u32> {
+    pub fn dice(&mut self, state: &CoreState, domain: crate::state::RngDomain, n: usize, sides: u32, hits_on: Option<u8>) -> Vec<u32> {
         let sides = die_sides(sides);
         let mut out = Vec::with_capacity(n);
         let mut left = n;
@@ -1317,7 +1319,7 @@ impl Tape {
             #[allow(clippy::cast_possible_truncation)]
             let k = left.min(crate::chance::MAX_FACES) as u8;
             left -= usize::from(k);
-            let req = crate::chance::Request::new(domain, crate::chance::Kind::Dice { n: k, sides, hits_on: None });
+            let req = crate::chance::Request::new(domain, crate::chance::Kind::Dice { n: k, sides, hits_on });
             for f in self.chance(state, &req).as_slice() {
                 out.push(u32::from(*f));
             }
@@ -1584,7 +1586,7 @@ impl<'a> Eff<'_, 'a> {
     /// Roll `count` dice with `sides` sides from the dice stream and record the roll in the ledger (`Dice::roll_by`
     /// of an ability: the faces and the record are the string's). Returns the faces.
     pub fn roll(&mut self, by: Seat, count: usize, hits_on: Option<u8>, purpose: crate::state::RollPurpose, sides: u32) -> Vec<u8> {
-        let faces: Vec<u8> = self.host.tape.dice(&*self.host.state, RngDomain::Dice, count, sides).into_iter().map(|f| u8::try_from(f).unwrap_or(u8::MAX)).collect();
+        let faces: Vec<u8> = self.host.tape.dice(&*self.host.state, RngDomain::Dice, count, sides, hits_on).into_iter().map(|f| u8::try_from(f).unwrap_or(u8::MAX)).collect();
         self.host.state.ledger_mut().dice.push(crate::state::RollRec {
             purpose,
             owner: Some(by),
