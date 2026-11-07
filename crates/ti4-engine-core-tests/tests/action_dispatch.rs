@@ -1386,6 +1386,24 @@ fn the_titan_prototype_chosen_from_the_menu_lets_the_named_player_build_or_gain_
     assert!(plain(&s).contains(&PlainKind::ComponentActionResolved));
 }
 
+/// multiask-1-fix (bench 4p seed 93, bench-v4 4p seed 30: `TurnGap(StrategyAbility)`): a builder who holds Minister of Industry. The build is the
+/// Construction secondary's window, which carries the production after a space dock itself (rules version 25 and later), as the string's
+/// `place_structure` does; the relic read the structure rules without it and stopped the turn.
+#[test]
+fn the_titan_prototype_builds_for_a_minister_of_industry() {
+    use ti4_engine_core::generated::{Agenda, Relic};
+    let (_, planet) = ti4_engine_core_tests::scenario::first_planet();
+    let (mut s, k) = relic_table(Relic::JRXS455O, |sc| sc.map_ring(1).control(planet, 1).goods(1, 3));
+    s.agenda_mut().laws.insert(Agenda::MinisterOfIndustry, ti4_engine_core::state::Outcome::Seat(Seat(1)));
+    let e = env_r(&k);
+    let live = use_relic(&mut s, &e, Relic::JRXS455O);
+    assert!(matches!(live, Live::Asks(_)), "the builder is asked");
+    let (live, _) = pick(&mut s, &e, |o| matches!(o, Opt::Relic(ti4_engine_core::choice::relic::Opt::Builder(Seat(1))))).expect("the build runs for a minister");
+    assert!(matches!(live, Live::Asks(_)), "the builder pays or places");
+    let q = ask_ask(&mut s, &e).unwrap().unwrap().choice;
+    assert_eq!(q.actor, Seat(1), "the builder is asked");
+}
+
 /// Lane F2e: Wormhole Generator places a Creuss token in a system that holds no other player's ship (or a planet the seat controls), exhausts the
 /// technology and ends the action. A system with a rival's ship that the seat does not control is not offered.
 #[test]
