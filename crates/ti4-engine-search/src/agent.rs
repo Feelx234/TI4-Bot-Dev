@@ -41,8 +41,9 @@ impl From<Answer> for Decision {
 /// What was applied to a game (for an agent that keeps a tree between its decisions).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Applied {
-    /// A seat answered a question.
-    Decision { seat: u8, answer: Answer },
+    /// A seat answered a question: the question as it was asked, the answer as given and the core pick it named (`Position::resolve`,
+    /// `None` for a free-form deal).
+    Decision { seat: u8, answer: Answer, choice: Box<Choice>, pick: Option<Pick> },
     /// The game's streams answered a chance request (play).
     Chance { request: Request, faces: Faces },
 }

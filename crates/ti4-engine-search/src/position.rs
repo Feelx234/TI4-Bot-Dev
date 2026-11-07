@@ -545,6 +545,20 @@ impl Position {
         }
     }
 
+    /// The core pick an answer names at the question (without answering it): a pick as it is, a legal index's pick, a wire id read as
+    /// [`Self::answer_id`] reads it. `None` for a free-form deal (its id writes terms into the window) or an id that is no option. For an
+    /// agent that follows the game's answers through a tree (lane L6's tree reuse).
+    #[must_use]
+    pub fn resolve(&self, answer: &Answer) -> Option<Pick> {
+        let Stop::Decide(asking) = &self.stop else { return None };
+        match answer {
+            Answer::Pick(p) => Some(*p),
+            Answer::Index(i) => asking.choice.pick(*i),
+            Answer::Id(_) if matches!(asking.choice.ask, Ask::Trade(_)) => None,
+            Answer::Id(id) => live::pick_of(&self.render, &asking.choice, id),
+        }
+    }
+
     /// Apply an agent's decision: the answer, then the bot memory it left.
     ///
     /// # Errors

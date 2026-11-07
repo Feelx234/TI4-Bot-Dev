@@ -1,0 +1,29 @@
+[package]
+name = "ti4-mcts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "The MCTS core (lane L6 of docs/MCTS_BOT_PLAN.md, resume docs/L6_RESUME.md): Gumbel AlphaZero root search with sequential halving, Gumbel/PUCT selection below the root, max^n backups of a 4-seat value vector, hit-count chance nodes, tree reuse, playout-cap randomisation, the Evaluator trait with stubs and a net hook, and MctsAgent (a SeatAgent). On the search API ti4-engine-search. A dev tool: never in the production graph or the wasm."
+
+[[bin]]
+name = "mcts_bench"
+path = "src/bin/mcts_bench.rs"
+
+[[bin]]
+name = "mcts_ab"
+path = "src/bin/mcts_ab.rs"
+
+# The search API (positions, chance classes, the rule bot as a seat agent), the features crate (tree kinds, the activation filter), the
+# core (choices, picks) and the chance types. No legacy, host, server or browser crate.
+[dependencies]
+ti4-engine-search = { path = "../ti4-engine-search" }
+ti4-mcts-features = { path = "../ti4-mcts-features" }
+ti4-engine-core.workspace = true
+ti4-chance = { workspace = true, features = ["search"] }
+serde_json.workspace = true
+# The bench's counting allocator (live heap per tree node).
+ti4-perf-alloc = { path = "../ti4-perf-alloc" }
+
+[lints]
+workspace = true
