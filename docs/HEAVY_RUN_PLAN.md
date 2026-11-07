@@ -33,7 +33,7 @@ disabled, restore at 22:30 Berlin is a separate task; check `TZ=Europe/Berlin da
 | item | result |
 |---|---|
 | disk | 38 GB free at start; 127 GB free now (301 GB disk, 57 % used). Freed about 90 GB, see section 8 |
-| wasm (cargo `wasm-release` + binaryen 123 via `web-shared/scripts/build-wasm.mjs`) | int-23: 6 432 131 raw / 2 041 438 gzip / 1 469 073 brotli; `size-budget.json` ratcheted to 6.63 / 2.11 / 1.52 MB (real +3 %). **int-24 (version 36), measured: 6 441 691 / 2 044 587 / 1 471 798, all within the budget (the version 36 code adds 9.5 KB raw); budget unchanged**; wasm-opt 7.85 -> 6.44 MB; build 1 min 27 s |
+| wasm (cargo `wasm-release` + binaryen 123 via `web-shared/scripts/build-wasm.mjs`) | int-23: 6 432 131 raw / 2 041 438 gzip / 1 469 073 brotli; `size-budget.json` ratcheted to 6.63 / 2.11 / 1.52 MB (real +3 %). **int-24 (version 36), measured: 6 441 691 / 2 044 587 / 1 471 798, all within the budget (the version 36 code adds 9.5 KB raw); budget unchanged**; wasm-opt 7.85 -> 6.44 MB; build 1 min 27 s. **core-multiask-1-rebase (2026-11-06): budget raised to 6 660 000 / 2 126 000 / 1 532 000 (user decision; real 6 655 547 / 2 121 013 / 1 527 033), see `docs/MULTIASK1_RESUME.md` 7.3** |
 | `lint` step | base retargeted (section 2; int-24: the tag `heavy-base-int24`); passes in 1 s; negative control (base = live tip `nightly-fixes-2026-10-26`) fails as it must |
 | `alpha` step | skipped by default (`ALPHA_SKIP=1`), logged `SKIPPED: ...`, shown as `skip alpha` in `summary.txt` (the `corpus` step likewise: `skip corpus`) |
 | bench baselines | int-25: native recordings at 36 are committed (section 4); the bench steps verify native against native |

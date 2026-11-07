@@ -187,6 +187,19 @@ export const leadershipPurchase: MockChoice = {
   multi_pick: { kind: "purchase", owed: 3, buy: [1, 3] },
 };
 
+/**
+ * Leadership's PRIMARY purchase question alone, after its three free tokens (core-multiask-1-rebase): the question lists the decline
+ * ("buy no command tokens") FIRST and may be answered with nothing bought, `buy: [0, 3]`. The token panel plans it; "No purchase" answers
+ * with the empty set.
+ */
+export const leadershipPurchasePrimary: MockChoice = {
+  ...leadershipPurchase,
+  nonce: "hp-leadership-purchase-primary",
+  context: { subtype: "buy_token_with_influence", source: { StrategyCard: { card: "pok1leadership", secondary: false } } },
+  options: [{ id: "decline", label: "buy no command tokens", kind: "decline", payload: {} }, ...leadershipPurchase.options],
+  multi_pick: { kind: "purchase", owed: 3, buy: [0, 3] },
+};
+
 export async function openLeadership(page: Page, choice: MockChoice) {
   await openMockedGame(page, { players: [playerWithHand({ trade_goods: 0 }), opponent], board: planetsBoard, choice });
   await page.getByTestId("command-token-panel").waitFor();

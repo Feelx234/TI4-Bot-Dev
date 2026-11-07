@@ -1312,7 +1312,8 @@ pub fn run_dual_window<R: PartialEq + Debug>(
     }
     let mut core_state = state.clone();
     let mut string_run = string(state);
-    let recording = crate::dual_window::finish();
+    let mut recording = crate::dual_window::finish();
+    recording.collapse_multi_asks();
     crate::dual_window::census_plain(label, &recording.plain);
     if recording.nested {
         let sig = recording.signature();
@@ -1333,7 +1334,7 @@ pub fn run_dual_window<R: PartialEq + Debug>(
         string_run.order = Some(recording.order.clone());
     }
     let ok = compare_value(area, &format!("{label}.questions"), &recording.questions.len(), &core_run.questions.len());
-    if !ok && trace_on() {
+    if (!ok && trace_on()) || std::env::var_os("TI4_MULTIASK_TRACE").is_some() {
         for (who, list) in [("string", recording.questions.iter().map(|q| (&q.choice, q.answer.clone())).collect::<Vec<_>>()), ("core", core_run.questions.iter().map(|c| (c, None)).collect())] {
             for (c, answer) in list {
                 eprintln!("DUAL TRACE {label} {who} question: {:?} asks {:?}: {:?} answer {answer:?} context {:?} details {:?}", c.player, c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), c.context.as_ref().map(|c| c.canonical()), c.details);
@@ -1341,7 +1342,13 @@ pub fn run_dual_window<R: PartialEq + Debug>(
         }
     }
     if ok {
-        for (asked, rendered) in recording.questions.iter().zip(&core_run.questions) {
+        for (i, (asked, rendered)) in recording.questions.iter().zip(&core_run.questions).enumerate() {
+            // A multi-ask: the seat and the kind of the core's question (the rest of the call is compared as usual).
+            if let Some(kind) = recording.collapsed.get(i).copied().flatten() {
+                let group = crate::multiask_dual::Group { kind: Some(kind), at: Vec::new(), answer: None };
+                compare_choice(area, label, Some(&group.stand_in(&asked.choice)), Some(&crate::multiask_dual::loose_of(kind, rendered)));
+                continue;
+            }
             compare_choice(area, label, Some(&asked.choice), Some(rendered));
         }
     }

@@ -97,6 +97,7 @@ pub mod live;
 pub mod magen_defense;
 pub mod map_feasibility;
 pub mod movement;
+pub mod multiask_dual;
 pub mod neutral_units;
 #[cfg(test)]
 mod nexus_reach_tests;

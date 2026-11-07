@@ -581,6 +581,12 @@ struct FirstOption;
 
 impl live::Asker for FirstOption {
     fn ask(&mut self, q: &live::Question<'_>) -> Result<String, live::Stop> {
+        // A payment (multiask-1) is answered with a set: its first atom first (`Choice::pick(0)`), named raw.
+        if let Some(ti4_engine_core::choice::Pick::Opt(ti4_engine_core::choice::Opt::Production(ti4_engine_core::choice::production::Opt::Set(set)))) =
+            q.asking.choice.is_multi_pick().then(|| q.asking.choice.pick(0)).flatten()
+        {
+            return Ok(crate::render::production::set_id(set));
+        }
         q.rendered.options.first().map(|o| o.id.clone()).ok_or(live::Stop::Exhausted)
     }
 }

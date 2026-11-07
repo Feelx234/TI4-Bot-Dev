@@ -99,23 +99,32 @@ pub struct Scripted {
     ids: VecDeque<String>,
     /// The questions it was asked, as rendered, in order.
     pub seen: Vec<Choice>,
+    /// A lockstep test's string run answered by `ids` (`multiask_dual::remember_string_questions`): its multi-asks are answered as the core
+    /// asks them (`multiask_dual::Follow`).
+    follow: Option<crate::multiask_dual::Follow>,
 }
 
 impl Scripted {
     #[must_use]
     pub fn new<S: Into<String>>(ids: impl IntoIterator<Item = S>) -> Self {
-        Self { ids: ids.into_iter().map(Into::into).collect(), seen: Vec::new() }
+        let ids: Vec<String> = ids.into_iter().map(Into::into).collect();
+        let follow = crate::multiask_dual::take_string_questions(&ids).map(|qs| crate::multiask_dual::Follow::new(&qs, &ids));
+        let ids: VecDeque<String> = ids.into();
+        Self { ids, seen: Vec::new(), follow }
     }
 
     /// Answers not given yet.
     #[must_use]
     pub fn left(&self) -> usize {
-        self.ids.len()
+        self.follow.as_ref().map_or(self.ids.len(), crate::multiask_dual::Follow::left)
     }
 }
 
 impl Asker for Scripted {
     fn ask(&mut self, q: &Question<'_>) -> Result<String, Stop> {
+        if let Some(follow) = self.follow.as_mut() {
+            return follow.answer(&q.asking.choice, &q.rendered, &mut self.seen);
+        }
         self.seen.push(q.rendered.clone());
         self.ids.pop_front().ok_or(Stop::Exhausted)
     }
@@ -193,7 +202,7 @@ pub fn render_asking(cx: &Cx<'_>, core: &CoreState, asking: &Asking) -> Choice {
 #[must_use]
 pub fn pick_of(r: &Render, choice: &CoreChoice, id: &str) -> Option<ti4_engine_core::choice::Pick> {
     use ti4_engine_core::choice::{tactical::Opt as TOpt, Opt};
-    let own = |id: &str| render::parse_pick(r, &choice.ask, id).or_else(|| choice.opts.iter().find(|o| render::option(r, &choice.ask, o).id == id).map(|o| ti4_engine_core::choice::Pick::Opt(*o)));
+    let own = |id: &str| crate::multiask_dual::pick_or_parse(r, choice, id).or_else(|| choice.opts.iter().find(|o| render::option(r, &choice.ask, o).id == id).map(|o| ti4_engine_core::choice::Pick::Opt(*o)));
     own(id).or_else(|| {
         // `move|origin|i|rN`: route N of the option `move|origin|i` (not an option of the question; the machine checks it against its list).
         let (base, n) = crate::tactical::route_suffix(id)?;
@@ -336,7 +345,7 @@ mod tests {
 
     use super::*;
     use crate::core_sync::{with_core, Footprint, Sources};
-    use crate::tokens::{with_pool_details, TokenGain as StringGain};
+    use crate::tokens::TokenGain as StringGain;
 
     /// The scripted answers, then the first option of whatever the close of the window asks.
     struct FirstAfter(Scripted);
@@ -357,40 +366,31 @@ mod tests {
     }
 
     /// The vertical slice of the live loop: `Arm::Tokens` run natively end to end against the string engine's own window
-    /// (`tokens::TokenGain`, `Game::step_token_gain`). Same questions (prompt, option ids, kinds, labels, context, display
-    /// facts), same answers, same positions, same plain events, and the window leaves the stack when the string's `is_complete`.
+    /// (`tokens::TokenGain`, `Game::step_token_gain`). Since multiask-1 the core asks NO pool question here (resume 1': every owed token
+    /// goes to the tactic pool, one `COMMAND_TOKEN_GAINED:Tactic` each, then only the redistribution): the string answered with the tactic
+    /// pool every time leaves the same position and the same plain events, and the core asks no gain question.
     #[test]
-    fn the_token_gain_arm_run_by_the_core_asks_what_the_string_asks_and_leaves_the_same_position() {
+    fn the_token_gain_arm_run_by_the_core_asks_no_pool_and_leaves_the_position_of_the_strings_tactic_answers() {
         let mut gs = crate::fixtures::seated_dealt(&[("a", "mentak"), ("b", "letnev")], ti4_model::content_types::POK);
         let (mut cx, r) = crate::dual_window::tables_for_tests(&gs).expect("a position the codecs carry");
         let order = [PlayerId::new("a"), PlayerId::new("b")];
-        // Seat a places two (it keeps one in reinforcements to spare), seat b one; Letnev's hint shows on b.
-        let answers = ["fleet_tokens", "tactic_tokens", "strategic_tokens"];
+        // Seat a places two, seat b one.
+        let answers = ["tactic_tokens", "tactic_tokens", "tactic_tokens"];
         let owed = [0u8, 0, 1];
 
         // The string run.
         let mut string_state = gs.clone();
         let mut window = StringGain::from_parts(vec![order[0].clone(), order[0].clone(), order[1].clone()], Vec::new());
-        let mut string_questions = Vec::new();
         let mut string_events = Vec::new();
         for id in answers {
             let choice = window.pending_choice().expect("a token is owed");
-            let actor = choice.player.clone();
-            let choice = choice.contextualized(crate::decision_context::DecisionContext::new(
-                actor,
-                crate::decision_context::DecisionSource::Rule("52.4".to_owned()),
-                "gain_command_token",
-                string_state.phase,
-                string_state.round,
-            ));
-            string_questions.push(with_pool_details(choice, &string_state, "gain", Some(window.remaining_for_next_player())));
-            let option = string_questions.last().unwrap().options.iter().find(|o| o.id == id).unwrap().clone();
+            let option = choice.options.iter().find(|o| o.id == id).unwrap().clone();
             let pool = window.resolve(&mut string_state, option).expect("legal");
             string_events.push(format!("COMMAND_TOKEN_GAINED:{pool:?}"));
         }
         assert!(window.is_complete());
 
-        // The live run, one `live_step` per string step.
+        // The live run, until the window ends (the redistributions keep the sheet).
         let kernel = Kernel::plain();
         let env = Env { kernel: &kernel, registry: Cow::new(Registry::default()), table: AbilityTable::default() };
         let render = &r;
@@ -398,35 +398,25 @@ mod tests {
         let fp = Footprint::new(&reads, &[Slice::Players, Slice::Pending]);
         let mut live_questions = Vec::new();
         let mut emitted = Vec::new();
-        let mut finished = Vec::new();
         with_core(&mut gs, &mut cx, Sources::default(), fp, |core, _| {
             let seats: Vec<_> = owed.iter().map(|i| ti4_engine_core::Seat(*i)).collect();
             open(core, &TokenGain::new(Tokens { pending: SmallList::from_slice(&seats), placed: SmallList::new(), report: StatusReport::default() }));
             let live = Cx::new(render, &env);
-            for id in answers {
-                let mut asker = FirstAfter(Scripted::new([id]));
+            for _ in 0..8 {
+                let mut asker = FirstAfter(Scripted::new(Vec::<String>::new()));
                 let step = live_step(core, Arm::Tokens, &live, &mut asker).expect("the arm runs");
                 live_questions.extend(asker.0.seen);
-                finished.push(step.finished);
+                if step.finished {
+                    break;
+                }
             }
             emitted = core.ledger.events.iter().cloned().collect::<Vec<_>>();
         })
         .expect("lendable");
         let live_events: Vec<String> =
             emitted.iter().map(|e| crate::render::events::pushed_of(render, &cx, e).expect("every event has a text").text().to_owned()).collect();
-
-        // The last token also runs the close (the redistributions, answered with their first option): what the string asks comes first.
-        live_questions.truncate(string_questions.len());
-        for (live, string) in live_questions.iter().zip(&string_questions) {
-            assert_eq!(live.player, string.player);
-            assert_eq!(live.prompt, string.prompt);
-            assert_eq!(live.options, string.options);
-            assert_eq!(live.details, string.details);
-            assert_eq!(live.context, string.context);
-        }
+        assert!(live_questions.iter().all(|q| !q.prompt.contains("into which pool")), "no pool question: {:?}", live_questions.iter().map(|q| &q.prompt).collect::<Vec<_>>());
         assert_eq!(live_events[..string_events.len()], string_events, "the plain events, in order (the close's follow)");
-        assert_eq!(finished, [false, false, true], "the window ends with the last token, as `is_complete`");
-        // Position: the tokens landed in the pools the string put them in.
         for who in &order {
             let (a, b) = (gs.player(who).unwrap(), string_state.player(who).unwrap());
             assert_eq!((a.tactic_tokens, a.fleet_tokens, a.strategic_tokens), (b.tactic_tokens, b.fleet_tokens, b.strategic_tokens), "{who:?}");

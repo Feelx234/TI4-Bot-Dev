@@ -929,6 +929,14 @@ fn s5_unlock_differs(d: &Difference) -> bool {
     events || state
 }
 
+/// S5 in the event streams when the core announces another unlock at the same place: the string's `LEADER_UNLOCKED:X` at `at` is one the core never announces
+/// (it unlocked X silently at the secret's score), and the core's event there is the string's NEXT one (the string's unlock shifted the rest by one: yssaril
+/// 5 players seed 1, step 606, `xxchahero` before `jolnarcommander` at the bookkeeping). Two unlocks that differ otherwise stay a difference of the core.
+fn s5_extra_unlock(native: &[String], legacy: &[String], at: usize) -> bool {
+    let Some(extra) = legacy.get(at).filter(|e| e.starts_with("LEADER_UNLOCKED:")) else { return false };
+    !native.contains(extra) && native.get(at).is_some_and(|n| legacy.get(at + 1) == Some(n))
+}
+
 /// The difference of the events the two sides owe each other, with S5 recognised.
 fn owed_events_difference(step: usize, arms: Vec<String>, at: usize, native: String, legacy: String) -> Difference {
     let mut found = Difference { step, arms, what: "events", path: format!("[{at}]"), native, legacy, known: None };
@@ -940,8 +948,11 @@ fn owed_events_difference(step: usize, arms: Vec<String>, at: usize, native: Str
 
 /// S3 (`docs/STRING_ENGINE_BUGS.md`): the core records the feat `won_against_a_note_holder` where the string does not -- the note holder's Support for the Throne was
 /// returned by the activation of the free tactical action, which the string's snapshot of "the notes at the start of the tactical action" already leaves out.
+///
+/// The list of feats is sorted by name, so the missing entry also shows as the NEXT feat of the string at the index (`legacy` holds another feat of the same seat
+/// where the core holds the note feat: jolnar 4 players seed 1, the last step, `last_to_pass`). A string that has the note feat itself is no S3.
 fn s3_feat_differs(d: &Difference) -> bool {
-    d.what == "state" && d.path.contains(".event_feats[") && d.native.contains("won_against_a_note_holder") && d.legacy == "<absent>"
+    d.what == "state" && d.path.contains(".event_feats[") && d.native.contains("won_against_a_note_holder") && (d.legacy == "<absent>" || (d.legacy.contains('"') && !d.legacy.contains("won_against_a_note_holder")))
 }
 
 /// S4: the string's list of planets for the Yin hero (Dannel of the Tenth: "any non-home planets") walks the hex grid, and the Wormhole Nexus sits beside it; the
@@ -1378,12 +1389,12 @@ impl LegacyRun {
         }
         // (Not the last: a purchase's entry answers its closing "no" after the gain entry behind it answered the pools. An entry carried over
         // from the step before is no question of this group.)
-        self.by.iter().filter(|b| **b != crate::oracle::CARRIED).max().map_or(0, |last| last + 1)
+        self.by.iter().filter(|b| **b != crate::oracle::CARRIED && **b != crate::oracle::LONE_TAKEN).max().map_or(0, |last| last + 1)
     }
 
     /// The step answered no question of the group (none at all, or only the rest of an entry carried over from the step before).
     fn fresh_is_empty(&self) -> bool {
-        self.records.len() == self.by.len() && self.by.iter().all(|b| *b == crate::oracle::CARRIED) || self.records.is_empty()
+        self.records.len() == self.by.len() && self.by.iter().all(|b| *b == crate::oracle::CARRIED || *b == crate::oracle::LONE_TAKEN) || self.records.is_empty()
     }
 
     /// The legacy questions as one value per native question (`asked`, then the ones ahead): a plain question as the record says, the
@@ -1550,7 +1561,7 @@ fn compare_run(legacy: &mut MaskSubject<LegacyMask>, native: &NativeGame, base: 
     if let Some(at) = at {
         let show = |v: &[String]| v.get(at).map_or_else(|| format!("<end after {}>", v.len()), Clone::clone);
         let mut found = diff("events", format!("[{at}]"), show(&native_stream), show(&legacy_stream));
-        if s5_unlock_differs(&found) {
+        if s5_unlock_differs(&found) || s5_extra_unlock(&native_stream, &legacy_stream, at) {
             found.known = Some(KNOWN_S5);
         }
         found.known = found.known.or_else(|| effect_bug(&asked, events));
@@ -2378,6 +2389,7 @@ mod tests {
         assert!(s3_feat_differs(&d("state", "players[4].event_feats[1]", "[\"won_against_a_note_holder\",26]", "<absent>")));
         assert!(!s3_feat_differs(&d("state", "players[4].event_feats[1]", "[\"won_in_an_anomaly\",26]", "<absent>")), "another feat is a difference of the core");
         assert!(!s3_feat_differs(&d("state", "players[4].event_feats[1]", "[\"won_against_a_note_holder\",26]", "[\"won_against_a_note_holder\",25]")), "a feat the string has too is not S3");
+        assert!(s3_feat_differs(&d("state", "players[2].event_feats[1][0]", "\"won_against_a_note_holder\"", "\"last_to_pass\"")), "the string's next feat at the index of the missing one");
         assert!(s4_nexus_in_error("script wanted \"82a|mallice\" but a was offered [\"19|wellon\", \"decline\"]"));
         assert!(!s4_nexus_in_error("script wanted \"82a|mallice\" but a was offered [\"82a|mallice\", \"decline\"]"), "offered: no difference");
         assert!(!s4_nexus_in_error("script wanted \"19|wellon\" but a was offered [\"59|archonvail\", \"decline\"]"), "another planet is a difference of the core");
@@ -2389,6 +2401,18 @@ mod tests {
     fn yin_four_players_seed_eight_plays_clean_through_the_hero() {
         let shadowed = shadow_play(&lobby_spec("yin", 4, 8), 1000, 50).expect("builds");
         assert!(shadowed.first_difference.is_none(), "{:?}", shadowed.first_difference);
+    }
+
+    /// multiask-1-fix, the two first differences of the sweep: yssaril 5 players seed 1 is S5 in its shifted form (the string's extra `LEADER_UNLOCKED:xxchahero`
+    /// before the unlock both announce, step 606); naaz 4 players seed 1 was the harness (the string asks Public Disgrace's re-choice with ONE card left, which the
+    /// native engine takes without asking; the follower answered the next entry, the string restored the first choice, step 258) and plays clean past it.
+    #[test]
+    fn the_first_differences_of_the_multi_ask_sweep_are_s5_and_a_lone_question() {
+        let shadowed = shadow_play(&lobby_spec("yssaril", 5, 1), 610, 50).expect("builds");
+        let difference = shadowed.first_difference.expect("yssaril 5p seed 1 stops at S5");
+        assert_eq!(difference.known, Some(KNOWN_S5), "{difference}");
+        let shadowed = shadow_play(&lobby_spec("naaz", 4, 1), 300, 50).expect("builds");
+        assert!(shadowed.first_difference.is_none(), "naaz 4p seed 1: {:?}", shadowed.first_difference);
     }
 
     /// Integration 20, string bug S5 (a secret scored for the first time unlocks no leader in the string; the core does at the score, 51.7): the three games of the older
@@ -2405,6 +2429,13 @@ mod tests {
         assert!(s5_unlock_differs(&d("events", "[1]", "STATUS_BOOKKEEPING_RESOLVED", "LEADER_UNLOCKED:naaluhero")));
         assert!(s5_unlock_differs(&d("state", "players[0].leaders.nomadcommander", "\"unlocked\"", "\"locked\"")));
         assert!(!s5_unlock_differs(&d("events", "[1]", "LEADER_UNLOCKED:a", "LEADER_UNLOCKED:b")), "two unlocks that differ are a difference of the core");
+        // The string's extra unlock shifts the core's next one (multiask-1-fix, yssaril 5 players seed 1 step 606).
+        let v = |e: &[&str]| e.iter().map(|s| (*s).to_owned()).collect::<Vec<String>>();
+        let native = v(&["OBJECTIVE_SCORED:amass_wealth", "LEADER_UNLOCKED:jolnarcommander", "STATUS_BOOKKEEPING_RESOLVED"]);
+        let legacy = v(&["OBJECTIVE_SCORED:amass_wealth", "LEADER_UNLOCKED:xxchahero", "LEADER_UNLOCKED:jolnarcommander", "STATUS_BOOKKEEPING_RESOLVED"]);
+        assert!(s5_extra_unlock(&native, &legacy, 1));
+        assert!(!s5_extra_unlock(&native, &v(&["OBJECTIVE_SCORED:amass_wealth", "LEADER_UNLOCKED:xxchahero", "STATUS_BOOKKEEPING_RESOLVED"]), 1), "another unlock, no shift: a difference of the core");
+        assert!(!s5_extra_unlock(&legacy, &legacy, 1), "an unlock the core announces too is no S5");
         assert!(!s5_unlock_differs(&d("state", "players[0].leaders.nomadcommander", "\"locked\"", "\"unlocked\"")), "the string ahead of the core is a difference of the core");
         assert!(!s5_unlock_differs(&d("state", "players[0].exhausted", "\"unlocked\"", "\"locked\"")), "only a leader's state");
     }

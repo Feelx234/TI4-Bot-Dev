@@ -61,6 +61,7 @@ fn string_agenda_preferring(state: &GameState, ids: &[&str], prefer: Policy) -> 
         }
     }
     let questions = seen.borrow().clone();
+    crate::multiask_dual::remember_string_questions(questions.clone());
     let (state, staged) = super::turn_live_tests::without_staged(serde_json::to_value(&g.state).expect("serializes"));
     let mut all: Vec<String> = ids.iter().map(|s| (*s).to_owned()).collect();
     all.extend(taken.borrow().iter().cloned());

@@ -190,7 +190,9 @@ fn titan_prototype(sx: &mut Sx<'_>, who: Seat) -> Result<bool, Flow> {
         return Err(Flow::Halt);
     }
     let Some(builder) = choose.chosen else { return Ok(false) }; // mutants:skip: the window always ends on an answer when there is a seat
-    let Some(facts) = crate::driver::windows::strategic::facts::structure_facts(sx.state, sx.kernel, roster, builder, &sx.table.codes.turn) else {
+    // (The build is the Construction secondary's window, which carries Minister of Industry's production after a dock itself, as the string's
+    // `place_structure` does: rules version 25 and later.)
+    let Some(facts) = crate::driver::windows::strategic::facts::structure_facts_with(sx.state, sx.kernel, roster, builder, &sx.table.codes.turn, true) else {
         return Err(gap_flow(sx, TurnGap::StrategyAbility));
     };
     let mut build = TitanBuild::new(builder, facts, sx.table.codes.turn.relic);

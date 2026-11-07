@@ -250,6 +250,9 @@ impl Scripted {
 /// group it answers.
 pub(crate) const CARRIED: usize = usize::MAX;
 
+/// The "entry" of a question of one option the follower took itself (no native question asked it): no question of the group.
+pub(crate) const LONE_TAKEN: usize = usize::MAX - 1;
+
 /// The follower's queue: the entries (each with its number since the queue was last cleared), and the entry that answered each question.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Script {
@@ -323,6 +326,15 @@ struct Follower(Rc<RefCell<Script>>);
 
 impl ti4_engine_legacy::choice::Decider for Follower {
     fn choose(&mut self, choice: &ti4_engine_legacy::choice::Choice) -> Result<ti4_engine_legacy::choice::ChoiceOption, ti4_engine_legacy::choice::IllegalChoice> {
+        // A question of ONE option the next entry does not answer: the native engine took it without asking (Public Disgrace's re-choice when one other
+        // card is left, naaz 4 players seed 1 step 258), so the string takes it too and the entry waits for its own question.
+        if let [only] = choice.options.as_slice() {
+            let mut probe = self.0.borrow().clone();
+            if choice.answer_for(&probe.take(choice)).is_none() {
+                self.0.borrow_mut().answered_by.push(LONE_TAKEN);
+                return Ok(only.clone());
+            }
+        }
         let wanted = self.0.borrow_mut().take(choice);
         if std::env::var_os("TI4_NATIVE_PLAY_TRACE").is_some_and(|v| v == "2") {
             eprintln!("    follower: {} {:?} wanted {wanted:?} offered {:?}", choice.player, choice.prompt, choice.ids());

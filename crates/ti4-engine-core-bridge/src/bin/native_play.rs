@@ -190,14 +190,8 @@ fn main() {
             bad = true;
         }
         if o.twice {
-            // The second run is played the way the first was: a shadowed game swaps Politics' order where the string cannot reach it (S10,
-            // `NativeGame::shadowing`), so it is another game than the one played alone.
-            let again = if o.shadow {
-                shadow_play(spec, o.max_steps, o.max_rounds).map(|s| s.played)
-            } else {
-                NativeGame::from_spec(spec).map(|mut g| play_game(&mut g, o.max_steps, o.max_rounds))
-            };
-            match again {
+            // (A shadowed game takes the string-reachable order of Politics' piles, so its second run does too.)
+            match NativeGame::from_spec(spec).map(|mut g| { g.shadowing = o.shadow; play_game(&mut g, o.max_steps, o.max_rounds) }) {
                 Ok(second) if second.fingerprint == p.fingerprint && second.steps == p.steps => println!("    determinism: the second run gives the same fingerprint {}", second.fingerprint),
                 Ok(second) => {
                     println!("    DETERMINISM FAILED: first {} ({} steps), second {} ({} steps)", p.fingerprint, p.steps, second.fingerprint, second.steps);

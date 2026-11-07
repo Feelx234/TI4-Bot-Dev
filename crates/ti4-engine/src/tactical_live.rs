@@ -412,8 +412,14 @@ pub(crate) mod tests {
     fn lockstep(state: GameState, galaxy: &Galaxy, script: &[&str], prefix: bool) -> Vec<String> {
         let _guard = crate::dual::tests::serial();
         let rng = crate::rng::GameRng::new(state.rng_seed).positions();
-        let s = string_run(&state, galaxy, script);
-        let n = native_run(&state, galaxy, &rng, script);
+        let mut s = string_run(&state, galaxy, script);
+        // The native side takes the string's answers as the core asks them (`multiask_dual`: a multi-ask is ONE answer), and the two lists of
+        // questions are compared with each multi-ask as one stand-in.
+        let answers: Vec<String> = script[1..].iter().map(|a| (*a).to_owned()).collect();
+        let core_script: Vec<String> = std::iter::once(script[0].to_owned()).chain(crate::multiask_dual::core_script(&s.asked, &answers)).collect();
+        let core_refs: Vec<&str> = core_script.iter().map(String::as_str).collect();
+        let mut n = native_run(&state, galaxy, &rng, &core_refs);
+        (s.asked, n.asked) = crate::multiask_dual::align(&s.asked, &answers, &n.asked);
         if std::env::var("ZZ").is_ok() {
             for (l, c) in [("string", &s), ("native", &n)] {
                 eprintln!("{l}: bail {:?} events {:?}", c.bail, c.events);
@@ -523,7 +529,9 @@ pub(crate) mod tests {
         crate::fixtures::put(&mut state, &target, "cruiser", &a(), 3);
         state.player_mut(&a()).unwrap().fleet_tokens = 1;
         let mv = id(&origin, 0);
-        let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv, "done_moving", "remove|0", "remove|0"], true);
+        // Three ships over the supply: the string asks a cruiser at a time (the next one moves up to place 0), the core asks the three as ONE
+        // removal (multiask-1); a script that names fewer than the excess has no core answer.
+        let diffs = lockstep(state, &hub.galaxy, &[TACTICAL_ACTION_ID, target.as_str(), &mv, "done_moving", "remove|0", "remove|0", "remove|0"], true);
         assert!(diffs.is_empty(), "{diffs:#?}");
     }
 

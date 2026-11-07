@@ -236,6 +236,13 @@ fn combat_texts_in(core: &mut CoreState, r: &Render, one: bool) -> CombatTexts {
         // A seat that owns an upgrade whose units still stand in the older form takes the new form when the combat opens (`technology::apply_unit_upgrades`):
         // its roll groups are named too, or the machine stands at a roller its texts do not name.
         let milor_in_play = milor_in_play(core);
+        // Ipswitch, Loose Cannon (the Mentak hero): "for each other player's ship that is destroyed during this combat, place 1 ship of that type from
+        // your reinforcements in the active system". The ships land in the middle of the fight in the form the Mentak seat places: named too, or the
+        // machine stands at the roller of a fleet it has no text for (`CombatUnported`, bench 4p seed 76: the hero purged, Ambush's hits, round 1).
+        for (seat, unit) in ipswitch_forms(core, system, &owned) {
+            pieces.push(unit);
+            add(&mut sides, seat, unit);
+        }
         for (owner, unit) in owned {
             let Some(p) = core.players().by_seat(owner) else { continue };
             if let Some(upgrade) = ti4_engine_core::query::tech::unlocked_upgrade(ti4_engine_core::tables::Scope(u32::MAX), unit.data().base_type, p.faction, &p.tech.owned) {
@@ -356,6 +363,43 @@ fn milor_in_play(core: &CoreState) -> bool {
     core.players().iter().any(|p| matches!(p.leaders.status.get(&ti4_engine_core::generated::Leader::BrotherMilor), Some(LeaderStatus::Readied | LeaderStatus::Exhausted)))
 }
 
+/// The forms the Mentak hero's seat may place in the fight at `system` (`owned`: the units that fight there, by owner): for a seat of the fight that
+/// holds Ipswitch unlocked (it may purge it at the start of the combat) or purged for this combat, its forms of the base type of every other seat's ship
+/// there (the plain form, a faction form, an upgrade it owns).
+fn ipswitch_forms(core: &CoreState, system: ti4_engine_core::generated::System, owned: &[(ti4_engine_core::ids::Seat, Unit)]) -> Vec<(ti4_engine_core::ids::Seat, Unit)> {
+    use ti4_engine_core::generated::{Leader, Requirement};
+    use ti4_engine_core::keys::{Atom, MarkKey, MarkVal};
+    use ti4_engine_core::state::LeaderStatus;
+    let mut out = Vec::new();
+    let recorded = match core.marks().tail.get(&MarkKey::MentakHero(system)) {
+        Some(MarkVal::Atom(Atom::Seat(who))) => Some(*who),
+        _ => None,
+    };
+    let mut seats: Vec<ti4_engine_core::ids::Seat> = owned.iter().map(|(s, _)| *s).collect();
+    seats.dedup();
+    for seat in seats {
+        let Some(p) = core.players().by_seat(seat) else { continue };
+        if recorded != Some(seat) && p.leaders.status.get(&Leader::IpswitchLooseCannon) != Some(&LeaderStatus::Unlocked) {
+            continue;
+        }
+        let mut bases: Vec<ti4_engine_core::generated::UnitBaseType> = owned.iter().filter(|(s, u)| *s != seat && u.data().ship).map(|(_, u)| u.data().base_type).collect();
+        bases.sort_unstable();
+        bases.dedup();
+        for base in bases {
+            for u in forms_of(base, p.faction, true) {
+                let fields = match u.data().required_technology {
+                    Requirement::Known(t) => p.tech.owned.contains(t),
+                    _ => true,
+                };
+                if fields {
+                    out.push((seat, u));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Whether `seat` can gain a unit upgrade in the middle of a combat: it holds the action card Reveal Prototype, or it is the Nekro (Technological Singularity).
 fn researches_in_combat(core: &CoreState, seat: ti4_engine_core::ids::Seat) -> bool {
     core.players().by_seat(seat).is_some_and(|p| p.faction == ti4_engine_core::generated::Faction::TheNekroVirus || p.cards.hand.contains(&ti4_engine_core::generated::ActionCard::RevealPrototype))
@@ -373,7 +417,9 @@ fn hero_fight_types(core: &CoreState) -> Vec<(ti4_engine_core::ids::Seat, Unit)>
         return Vec::new();
     }
     let Some(galaxy) = core.galaxy() else { return Vec::new() };
-    let ship = |u: Unit| u.data().ship || u.data().base_type == UnitBaseType::Fighter;
+    // (A dual-form unit in the space area whose other form is a ship fights as that ship, "flip to ship forms": the Naaz Eidolon a carrier holds is a
+    // Z-Grav Eidolon in the fight, which the machine names, `CombatUnported` in bench 6p seed 10, the Mahact hero's fight against a Naaz fleet.)
+    let ship = |u: Unit| u.data().ship || u.data().base_type == UnitBaseType::Fighter || flips_into_a_ship(u);
     let mut out: Vec<(ti4_engine_core::ids::Seat, Unit)> = Vec::new();
     for (origin, cell) in core.board().systems() {
         let mine: Vec<Unit> = cell.units.iter().filter(|p| p.owner() == active && ship(p.kind())).map(|p| p.kind()).collect();
@@ -470,6 +516,8 @@ mod tests {
     /// What one side of the lockstep leaves.
     struct Side {
         asked: Vec<Choice>,
+        /// The string side: the answer of each question of `asked` (the native side follows them, `multiask_dual::Follow`).
+        answers: Vec<String>,
         events: Vec<String>,
         /// The events of the aftermath's own arms, in order (native only): the typed ones the steps emitted, then the plain ones they wrote.
         after: Vec<String>,
@@ -480,16 +528,17 @@ mod tests {
     /// Answers from the script, then the first option (the questions after the script are the same on both sides: the default is deterministic).
     struct Recorder {
         queue: Rc<RefCell<VecDeque<String>>>,
-        asked: Rc<RefCell<Vec<Choice>>>,
+        asked: Rc<RefCell<Vec<(Choice, String)>>>,
         builds: std::cell::Cell<u32>,
     }
 
     impl crate::choice::Decider for Recorder {
         fn choose(&mut self, c: &Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
-            self.asked.borrow_mut().push(c.clone());
             let Some(id) = self.queue.borrow_mut().pop_front().or_else(|| default_answer(c, &self.builds)) else {
+                self.asked.borrow_mut().push((c.clone(), String::new()));
                 return Err(crate::choice::IllegalChoice::NotOffered { player: c.player.clone(), chosen: "<no option>".to_owned(), offered: Vec::new() });
             };
+            self.asked.borrow_mut().push((c.clone(), id.clone()));
             c.options.iter().find(|o| o.id == id).cloned().ok_or(crate::choice::IllegalChoice::NotOffered { player: c.player.clone(), chosen: id, offered: c.ids().into_iter().map(str::to_owned).collect() })
         }
     }
@@ -512,13 +561,13 @@ mod tests {
                 }
             }
         });
-        let asked: Vec<Choice> = asked.borrow().iter().skip(1).filter(|c| !c.options.is_empty()).cloned().collect();
+        let (asked, answers): (Vec<Choice>, Vec<String>) = asked.borrow().iter().skip(1).filter(|(c, _)| !c.options.is_empty()).cloned().unzip();
         if std::env::var_os("M5_DEBUG").is_some() {
             for (i, q) in asked.iter().enumerate() {
                 eprintln!("Q{i} {} {}: {:?}", q.player, q.prompt, q.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>());
             }
         }
-        Side { asked, events: game.events.clone(), after: Vec::new(), state: serde_json::to_value(&game.state).expect("serialises"), bail: None }
+        Side { asked, answers, events: game.events.clone(), after: Vec::new(), state: serde_json::to_value(&game.state).expect("serialises"), bail: None }
     }
 
     /// Answers from the shared queue, then the first option.
@@ -526,21 +575,27 @@ mod tests {
         queue: Rc<RefCell<VecDeque<String>>>,
         seen: Rc<RefCell<Vec<Choice>>>,
         builds: std::cell::Cell<u32>,
+        /// The string run's questions and answers: the native side answers as the core asks them (multi-asks collapsed).
+        follow: Option<crate::multiask_dual::Follow>,
     }
 
     impl crate::live::Asker for Shared {
         fn ask(&mut self, q: &crate::live::Question<'_>) -> Result<String, crate::live::Stop> {
-            self.seen.borrow_mut().push(q.rendered.clone());
             if std::env::var_os("M5_DEBUG").is_some() {
                 eprintln!("NQ {} {} nested={} {:?}", q.rendered.player, q.rendered.prompt, q.asking.nested.is_some(), q.rendered.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>());
             }
+            if let Some(follow) = self.follow.as_mut() {
+                let mut seen = self.seen.borrow_mut();
+                return follow.answer(&q.asking.choice, &q.rendered, &mut seen).or_else(|_| Ok(default_answer(&q.rendered, &self.builds).unwrap_or_default()));
+            }
+            self.seen.borrow_mut().push(q.rendered.clone());
             Ok(self.queue.borrow_mut().pop_front().unwrap_or_else(|| default_answer(&q.rendered, &self.builds).unwrap_or_default()))
         }
     }
 
     /// The native run: the tactical window opens as the menu's answer does, then one `live_step` per step of the arm the position names, until the
     /// action is over.
-    fn native_run(state: &GameState, galaxy: &Galaxy, rng: &crate::rng::RngPositions, script: &[&str], builds: u32) -> Side {
+    fn native_run(state: &GameState, galaxy: &Galaxy, rng: &crate::rng::RngPositions, script: &[&str], builds: u32, string: Option<&Side>) -> Side {
         let mut cx = Ctx::of(state).expect("owners");
         let render = Render::new(cx.owners.ids().to_vec());
         let sources = POK;
@@ -560,7 +615,8 @@ mod tests {
         let live = Cx::new(&render, &env);
         let queue = Rc::new(RefCell::new(script[1..].iter().map(|s| (*s).to_owned()).collect::<VecDeque<_>>()));
         let seen = Rc::new(RefCell::new(Vec::new()));
-        let mut asker = Shared { queue: queue.clone(), seen: seen.clone(), builds: std::cell::Cell::new(builds) };
+        let follow = string.map(|s| crate::multiask_dual::Follow::new(&s.asked, &s.answers));
+        let mut asker = Shared { queue: queue.clone(), seen: seen.clone(), builds: std::cell::Cell::new(builds), follow };
         let mut bail = None;
         let mut after = Vec::new();
         for _ in 0..120 {
@@ -603,7 +659,7 @@ mod tests {
         crate::tactical_live::tests::adopt_staged_texts(&mut core, &render);
         let materialized = materialize::materialize(&core, &cx, state).expect("materializes");
         let after_events = after;
-        Side { asked, events, after: after_events, state: serde_json::to_value(&materialized).expect("serialises"), bail }
+        Side { asked, answers: Vec::new(), events, after: after_events, state: serde_json::to_value(&materialized).expect("serialises"), bail }
     }
 
     /// The `#seen:` marks of the per-step reconcile hooks (`starting_tech::settle`, `announce_gains`: lane B's `live_reconcile`) are the string's
@@ -657,7 +713,7 @@ mod tests {
         let _guard = crate::dual::tests::serial();
         let rng = crate::rng::GameRng::new(state.rng_seed).positions();
         let s = string_run(&state, galaxy, script, builds);
-        let n = native_run(&state, galaxy, &rng, script, builds);
+        let n = native_run(&state, galaxy, &rng, script, builds, Some(&s));
         let mut out = Vec::new();
         if let Some(why) = &n.bail {
             out.push(format!("BAIL: {why}"));
@@ -995,6 +1051,48 @@ mod tests {
         let named: Vec<U> = t.unit_codes.iter().map(|(u, _)| *u).collect();
         assert!(named.contains(&U::ZGravEidolonNaazMechSpace), "the form the mech takes at the start of the round is named: {named:?}");
         assert!(t.groups.iter().any(|(k, _, _)| k.contains(&U::ZGravEidolonNaazMechSpace) && k.contains(&U::CarrierI)), "and rolls with the carrier");
+    }
+
+    /// multiask-1-fix (bench 4p seed 76, `UnportedAftermath(CombatUnported)`): Ipswitch, Loose Cannon places a ship of each type the other side loses, in the
+    /// form the Mentak seat places, in the middle of the fight: a Carrier I for a Carrier II that falls. That form is named (the machine stood at the roller of
+    /// the Mentak fleet the Carrier I joined); without the hero it is not.
+    #[test]
+    fn the_texts_of_a_fight_name_the_forms_the_mentak_hero_may_place() {
+        use ti4_engine_core::generated::Unit as U;
+        let (hub, _origin, target) = hub();
+        let mut state = table(&[("a", "mentak"), ("b", "letnev")]);
+        crate::fixtures::put(&mut state, &target, "cruiser", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "carrier2", &b(), 1);
+        let groups = |state: &GameState| {
+            let mut cx = Ctx::of(state).expect("owners");
+            let mut core = Codec::load(&mut cx, state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&crate::rng::RngPositions::default()) }, SliceSet::ALL).expect("the position loads");
+            let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+            let (seat_a, seat_b) = (render.seat("a").expect("a"), render.seat("b").expect("b"));
+            core.transient_mut().combat.active_space_combat = Some((<ti4_engine_core::generated::System as crate::generated::IdStr>::from_id(target.as_str()).expect("a system"), seat_a, seat_b));
+            super::combat_texts(&mut core, &render).groups.into_iter().map(|(k, _, _)| k).collect::<Vec<Vec<U>>>()
+        };
+        assert!(!groups(&state).contains(&vec![U::CarrierI]), "no hero, no Carrier I");
+        state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("mentakhero"), ti4_model::state::LeaderStatus::Unlocked);
+        let named = groups(&state);
+        assert!(named.contains(&vec![U::CarrierI]) && named.contains(&vec![U::CarrierI, U::CruiserI]), "the form the hero places, alone and with the fleet: {named:?}");
+    }
+
+    /// multiask-1-fix (bench 6p seed 10, `UnportedAftermath(CombatUnported)` at the ask): the Naaz Eidolon a carrier holds in the system Airo Shir Aur can fight in
+    /// takes the Z-Grav form when the round starts: the texts of the step that plays the hero name it, as they do for an open fight.
+    #[test]
+    fn the_texts_of_the_step_that_plays_airo_shir_aur_name_the_z_grav_form_of_a_naaz_mech_in_the_destination() {
+        use ti4_engine_core::generated::Unit as U;
+        let (hub, origin, target) = hub();
+        let mut state = table(&[("a", "mahact"), ("b", "naaz")]);
+        crate::fixtures::put(&mut state, &origin, "cruiser", &a(), 1);
+        crate::fixtures::put(&mut state, &target, "carrier", &b(), 1);
+        crate::fixtures::put(&mut state, &target, "naaz_mech", &b(), 1);
+        state.player_mut(&a()).unwrap().leaders.insert(ti4_model::id::LeaderId::new("mahacthero"), ti4_model::state::LeaderStatus::Unlocked);
+        let mut cx = Ctx::of(&state).expect("owners");
+        let mut core = Codec::load(&mut cx, &state, Sources { galaxy: Some(&hub.galaxy), rng: Some(&crate::rng::RngPositions::default()) }, SliceSet::ALL).expect("the position loads");
+        let render = Render::new(cx.owners.ids().to_vec()).with_codes(core.texts.codes.clone());
+        let texts = super::combat_texts(&mut core, &render);
+        assert!(texts.groups.iter().any(|(k, _, _)| *k == vec![U::ZGravEidolonNaazMechSpace]), "{:?}", texts.unit_codes.iter().map(|(u, _)| *u).collect::<Vec<_>>());
     }
 
     /// Lane Q (mutation of `hero_fight_types`): the pairs Airo Shir Aur can start a fight in name the SHIPS of the hero's fleet (fighters count as ships here, a
