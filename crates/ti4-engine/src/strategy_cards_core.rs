@@ -253,6 +253,11 @@ mod real {
                     return Ok(out);
                 }
                 Status::Asking(choice) => {
+                    // A payment with one legal answer that the string paid without asking (multiask-1): answered, not compared.
+                    if let Some(pick) = crate::multiask_dual::lone_answer(&choice, script.collapsed.get(out.questions.len()).copied().flatten()) {
+                        status = driver.resume(core, kernel, pick)?;
+                        continue;
+                    }
                     let position = crate::render::Position { state: std::rc::Rc::new(core.clone()), kernel };
                     let mut rendered = crate::render::Typed::new_at(r, position, choice.clone(), phase, round).rendered;
                     complete(&choice, core, &mut rendered);
@@ -261,7 +266,7 @@ mod real {
                     let Some(id) = script.questions.get(out.questions.len() - 1).and_then(|q| q.answer.clone()) else {
                         return Ok(out);
                     };
-                    let Some(pick) = crate::render::parse_pick(r, &choice.ask, &id) else {
+                    let Some(pick) = crate::multiask_dual::pick_or_parse(r, &choice, &id) else {
                         return Ok(out);
                     };
                     status = driver.resume(core, kernel, pick)?;

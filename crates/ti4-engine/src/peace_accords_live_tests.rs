@@ -89,6 +89,7 @@ fn string_run(state: &GameState, galaxy: &ti4_content::galaxy::Galaxy, want: Wan
         }
     }
     let questions = seen.borrow().clone();
+    crate::multiask_dual::remember_string_questions(questions.clone());
     let (state, staged) = without_staged(serde_json::to_value(&g.state).expect("serializes"));
     let run = Run { questions, events: g.events.clone(), state, rng: g.rng_positions(), staged };
     let ids = taken.borrow().clone();

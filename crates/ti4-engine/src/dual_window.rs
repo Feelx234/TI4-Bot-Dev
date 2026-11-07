@@ -140,6 +140,9 @@ pub struct Recording {
     pub adjacent: Vec<(String, String, bool)>,
     /// Whether two seats are neighbours, as the string's Pillage asked the map: `(owner, target, neighbours)`; the core is lent no galaxy.
     pub neighbours: Vec<(String, String, bool)>,
+    /// After [`Recording::collapse_multi_asks`]: per question, the multi-ask kind it stands for (several string questions the core asks as
+    /// one, compared loosely); empty before.
+    pub collapsed: Vec<Option<crate::multiask_dual::Kind>>,
     effect_depth: u32,
     in_pick: u32,
     /// The emission depth the window started at: a window may itself run inside an emission (an ability's
@@ -148,6 +151,25 @@ pub struct Recording {
 }
 
 impl Recording {
+    /// The string's questions as the core asks them (`multiask_dual::collapse`): a run the core asks as ONE multi-ask becomes one question,
+    /// the string's first, answered with the core's answer, and marked in [`Self::collapsed`].
+    pub fn collapse_multi_asks(&mut self) {
+        let qs: Vec<(&Choice, Option<&str>, bool)> = self.questions.iter().map(|q| (&q.choice, q.answer.as_deref(), q.nested)).collect();
+        let groups = crate::multiask_dual::collapse(&qs);
+        if groups.iter().all(|g| g.kind.is_none()) {
+            return;
+        }
+        let questions = groups
+            .iter()
+            .map(|g| {
+                let first = &self.questions[g.at[0]];
+                Asked { choice: first.choice.clone(), answer: g.answer.clone(), nested: first.nested }
+            })
+            .collect();
+        self.collapsed = groups.iter().map(|g| g.kind).collect();
+        self.questions = questions;
+    }
+
     /// The nested activity in one line: the event kinds and questions that happened inside the window's
     /// emissions, then the eligible abilities (the owner's faction name left out so seats pool).
     #[must_use]
@@ -817,6 +839,11 @@ pub fn drive_windowed<W: Window>(
                 return Ok(out);
             }
             Status::Asking(choice) => {
+                // A payment with one legal answer that the string paid without asking (multiask-1): answered, not compared.
+                if let Some(pick) = crate::multiask_dual::lone_answer(&choice, script.collapsed.get(out.questions.len()).copied().flatten()) {
+                    status = driver.resume(core, kernel, pick)?;
+                    continue;
+                }
                 let typed = match position {
                     Some(k) => Typed::new_at(r, render::Position { state: std::rc::Rc::new(core.clone()), kernel: k }, choice.clone(), phase, round),
                     None => Typed::new(r, choice.clone(), phase, round),
@@ -866,7 +893,7 @@ pub fn drive_windowed<W: Window>(
                 };
                 // An id the family cannot read back without the position (a sustain names a site, not
                 // the unit type) is matched against the rendered options of this very question.
-                let pick = render::parse_pick(r, &choice.ask, &id).or_else(|| {
+                let pick = crate::multiask_dual::pick_or_parse(r, &choice, &id).or_else(|| {
                     choice
                         .opts
                         .iter()
@@ -2024,7 +2051,7 @@ pub fn custodians(
     with_core(gs, &mut cx, Sources::default(), nested_fp(CUSTODIANS, script), |core, _| -> Result<(), DriverError> {
         let Status::Asking(choice) = driver.run(core, kernel)? else { return Ok(()) };
         rendered.push(Typed::new(&r, choice.clone(), phase, round).rendered);
-        let Some(pick) = script.questions.first().and_then(|q| q.answer.clone()).and_then(|id| render::parse_pick(&r, &choice.ask, &id)) else {
+        let Some(pick) = script.questions.first().and_then(|q| q.answer.clone()).and_then(|id| crate::multiask_dual::pick_or_parse(&r, &choice, &id)) else {
             return Ok(());
         };
         driver.resume(core, kernel, pick)?;
@@ -2038,7 +2065,7 @@ pub fn custodians(
                     rendered.push(Typed::new_at(&r, position, q.clone(), phase, round).rendered);
                     let answer = script.questions.get(next).and_then(|q| q.answer.clone());
                     next += 1;
-                    let Some(pick) = answer.and_then(|id| render::parse_pick(&r, &q.ask, &id)) else { return Ok(()) };
+                    let Some(pick) = answer.and_then(|id| crate::multiask_dual::pick_or_parse(&r, &q, &id)) else { return Ok(()) };
                     pay.resume(core, kernel, pick)?;
                 }
                 match pay.window.took {
@@ -3247,7 +3274,7 @@ pub fn land_one(
             let Status::Asking(choice) = driver.run(core, &env.kernel)? else { return Ok(()) };
             rendered.push(Typed::new(&r, choice.clone(), phase, round).rendered);
             let Some(id) = script.questions.first().and_then(|q| q.answer.clone()) else { return Ok(()) };
-            let Some(pick) = render::parse_pick(&r, &choice.ask, &id).or_else(|| {
+            let Some(pick) = crate::multiask_dual::pick_or_parse(&r, &choice, &id).or_else(|| {
                 choice.opts.iter().find(|o| render::option(&r, &choice.ask, o).id == id).map(|o| ti4_engine_core::choice::Pick::Opt(*o))
             }) else {
                 return Ok(());
@@ -3263,7 +3290,7 @@ pub fn land_one(
                     rendered.push(Typed::new_at(&r, position, q.clone(), phase, round).rendered);
                     let answer = script.questions.get(next).and_then(|q| q.answer.clone());
                     next += 1;
-                    let Some(pick) = answer.and_then(|id| render::parse_pick(&r, &q.ask, &id)) else { return Ok(()) };
+                    let Some(pick) = answer.and_then(|id| crate::multiask_dual::pick_or_parse(&r, &q, &id)) else { return Ok(()) };
                     pay.resume(core, pk, pick)?;
                 }
                 match pay.window.took {

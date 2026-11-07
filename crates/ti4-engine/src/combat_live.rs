@@ -471,6 +471,8 @@ mod tests {
     /// What one side of the lockstep leaves.
     struct Side {
         asked: Vec<Choice>,
+        /// The string side: the answer of each question of `asked` (the native side follows them, `multiask_dual::Follow`).
+        answers: Vec<String>,
         events: Vec<String>,
         /// The events of the aftermath's own arms, in order (native only): the typed ones the steps emitted, then the plain ones they wrote.
         after: Vec<String>,
@@ -481,16 +483,17 @@ mod tests {
     /// Answers from the script, then the first option (the questions after the script are the same on both sides: the default is deterministic).
     struct Recorder {
         queue: Rc<RefCell<VecDeque<String>>>,
-        asked: Rc<RefCell<Vec<Choice>>>,
+        asked: Rc<RefCell<Vec<(Choice, String)>>>,
         builds: std::cell::Cell<u32>,
     }
 
     impl crate::choice::Decider for Recorder {
         fn choose(&mut self, c: &Choice) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
-            self.asked.borrow_mut().push(c.clone());
             let Some(id) = self.queue.borrow_mut().pop_front().or_else(|| default_answer(c, &self.builds)) else {
+                self.asked.borrow_mut().push((c.clone(), String::new()));
                 return Err(crate::choice::IllegalChoice::NotOffered { player: c.player.clone(), chosen: "<no option>".to_owned(), offered: Vec::new() });
             };
+            self.asked.borrow_mut().push((c.clone(), id.clone()));
             c.options.iter().find(|o| o.id == id).cloned().ok_or(crate::choice::IllegalChoice::NotOffered { player: c.player.clone(), chosen: id, offered: c.ids().into_iter().map(str::to_owned).collect() })
         }
     }
@@ -513,13 +516,13 @@ mod tests {
                 }
             }
         });
-        let asked: Vec<Choice> = asked.borrow().iter().skip(1).filter(|c| !c.options.is_empty()).cloned().collect();
+        let (asked, answers): (Vec<Choice>, Vec<String>) = asked.borrow().iter().skip(1).filter(|(c, _)| !c.options.is_empty()).cloned().unzip();
         if std::env::var_os("M5_DEBUG").is_some() {
             for (i, q) in asked.iter().enumerate() {
                 eprintln!("Q{i} {} {}: {:?}", q.player, q.prompt, q.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>());
             }
         }
-        Side { asked, events: game.events.clone(), after: Vec::new(), state: serde_json::to_value(&game.state).expect("serialises"), bail: None }
+        Side { asked, answers, events: game.events.clone(), after: Vec::new(), state: serde_json::to_value(&game.state).expect("serialises"), bail: None }
     }
 
     /// Answers from the shared queue, then the first option.
@@ -527,21 +530,27 @@ mod tests {
         queue: Rc<RefCell<VecDeque<String>>>,
         seen: Rc<RefCell<Vec<Choice>>>,
         builds: std::cell::Cell<u32>,
+        /// The string run's questions and answers: the native side answers as the core asks them (multi-asks collapsed).
+        follow: Option<crate::multiask_dual::Follow>,
     }
 
     impl crate::live::Asker for Shared {
         fn ask(&mut self, q: &crate::live::Question<'_>) -> Result<String, crate::live::Stop> {
-            self.seen.borrow_mut().push(q.rendered.clone());
             if std::env::var_os("M5_DEBUG").is_some() {
                 eprintln!("NQ {} {} nested={} {:?}", q.rendered.player, q.rendered.prompt, q.asking.nested.is_some(), q.rendered.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>());
             }
+            if let Some(follow) = self.follow.as_mut() {
+                let mut seen = self.seen.borrow_mut();
+                return follow.answer(&q.asking.choice, &q.rendered, &mut seen).or_else(|_| Ok(default_answer(&q.rendered, &self.builds).unwrap_or_default()));
+            }
+            self.seen.borrow_mut().push(q.rendered.clone());
             Ok(self.queue.borrow_mut().pop_front().unwrap_or_else(|| default_answer(&q.rendered, &self.builds).unwrap_or_default()))
         }
     }
 
     /// The native run: the tactical window opens as the menu's answer does, then one `live_step` per step of the arm the position names, until the
     /// action is over.
-    fn native_run(state: &GameState, galaxy: &Galaxy, rng: &crate::rng::RngPositions, script: &[&str], builds: u32) -> Side {
+    fn native_run(state: &GameState, galaxy: &Galaxy, rng: &crate::rng::RngPositions, script: &[&str], builds: u32, string: Option<&Side>) -> Side {
         let mut cx = Ctx::of(state).expect("owners");
         let render = Render::new(cx.owners.ids().to_vec());
         let sources = POK;
@@ -561,7 +570,8 @@ mod tests {
         let live = Cx::new(&render, &env);
         let queue = Rc::new(RefCell::new(script[1..].iter().map(|s| (*s).to_owned()).collect::<VecDeque<_>>()));
         let seen = Rc::new(RefCell::new(Vec::new()));
-        let mut asker = Shared { queue: queue.clone(), seen: seen.clone(), builds: std::cell::Cell::new(builds) };
+        let follow = string.map(|s| crate::multiask_dual::Follow::new(&s.asked, &s.answers));
+        let mut asker = Shared { queue: queue.clone(), seen: seen.clone(), builds: std::cell::Cell::new(builds), follow };
         let mut bail = None;
         let mut after = Vec::new();
         for _ in 0..120 {
@@ -604,7 +614,7 @@ mod tests {
         crate::tactical_live::tests::adopt_staged_texts(&mut core, &render);
         let materialized = materialize::materialize(&core, &cx, state).expect("materializes");
         let after_events = after;
-        Side { asked, events, after: after_events, state: serde_json::to_value(&materialized).expect("serialises"), bail }
+        Side { asked, answers: Vec::new(), events, after: after_events, state: serde_json::to_value(&materialized).expect("serialises"), bail }
     }
 
     /// The `#seen:` marks of the per-step reconcile hooks (`starting_tech::settle`, `announce_gains`: lane B's `live_reconcile`) are the string's
@@ -658,7 +668,7 @@ mod tests {
         let _guard = crate::dual::tests::serial();
         let rng = crate::rng::GameRng::new(state.rng_seed).positions();
         let s = string_run(&state, galaxy, script, builds);
-        let n = native_run(&state, galaxy, &rng, script, builds);
+        let n = native_run(&state, galaxy, &rng, script, builds, Some(&s));
         let mut out = Vec::new();
         if let Some(why) = &n.bail {
             out.push(format!("BAIL: {why}"));

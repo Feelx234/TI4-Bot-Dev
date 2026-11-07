@@ -28,6 +28,9 @@ use crate::render::{self, Position, Typed};
 
 /// The reasons of the bails of the production adapters (package W0: every `None` of an adapter names one).
 
+/// The bail of a production step that pays one atom of a bill the string pays over several questions (the core asks it as one set).
+pub const MULTIASK_PAYMENT_STEP: &str = "a payment step the string asks atom by atom (the core asks the bill as one set, multiask-1)";
+
 const FOOTPRINT: Footprint = Footprint {
     reads: crate::production_view::READS.union(SliceSet::of(&[Slice::Pending])),
     writes: SliceSet::of(&[Slice::Board, Slice::Players, Slice::Transient, Slice::Marks, Slice::Pending]),
@@ -46,6 +49,21 @@ pub fn step(
     emit_timing: bool,
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Option<CoreWindow<WindowSnap>> {
+    // A payment the string pays atom by atom, one step per atom: the core asks the rest of the bill as ONE set (multiask-1), so a step whose
+    // atom leaves some of the bill open has no core step to compare with (the step that pays the rest has; the whole use is compared by the
+    // windows that drive it to its end).
+    if let Some(q) = script.questions.first()
+        && q.choice.prompt.starts_with("pay ")
+        && let Some(option) = q.answer.as_deref().map(|a| a.strip_prefix("pay:").unwrap_or(a)).and_then(|a| q.choice.options.iter().find(|o| o.id == a))
+    {
+        let n = |k: &str| option.payload.get(k).and_then(serde_json::Value::as_i64);
+        if let (Some(worth), Some(owed)) = (n("worth"), n("owed"))
+            && worth < owed
+        {
+            crate::dual::note_bail_here(MULTIASK_PAYMENT_STEP);
+            return None;
+        }
+    }
     let (mut cx, r) = tables(gs).why(NO_TABLES)?;
     let seat = r.seat(player.as_str()).why(NO_SEAT)?;
     let window = match before.to_core(gs, content, sources, seat, emit_timing) {
@@ -147,7 +165,7 @@ pub fn pay_step(
             let position = Position { state: Rc::new(core.clone()), kernel };
             rendered.push(Typed::new_at(&r, position, choice.clone(), phase, round).rendered);
             let answer = script.questions.first().and_then(|q| q.answer.clone());
-            if let Some(pick) = answer.and_then(|id| render::parse_pick(&r, &choice.ask, &id)) {
+            if let Some(pick) = answer.and_then(|id| crate::multiask_dual::pick_or_parse(&r, &choice, &id)) {
                 driver.resume(core, kernel, pick)?;
             }
         }

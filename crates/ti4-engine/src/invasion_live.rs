@@ -313,6 +313,7 @@ mod tests {
         let string = string_run(state.clone(), seed, system, "a", hero, pick);
         let mut padded = string.answers.clone();
         padded.extend(std::iter::repeat_n("fight".to_owned(), 6));
+        crate::multiask_dual::remember_string_questions(string.asked.clone());
         let (asked, gs, windows, events) = match live_run(state.clone(), seed, system, "a", &padded, hero) {
             Ok(r) => r,
             Err((stop, seen)) => panic!(
@@ -324,7 +325,8 @@ mod tests {
         if std::env::var_os("M3_DEBUG").is_some() {
             eprintln!("QUESTIONS {label}: {:?}", string.asked.iter().map(|c| (&c.prompt, c.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>())).collect::<Vec<_>>());
         }
-        assert_same_questions(&asked, &string.asked);
+        let (string_asked, asked_aligned) = crate::multiask_dual::align(&string.asked, &string.answers, &asked);
+        assert_same_questions(&asked_aligned, &string_asked);
         // The announcement of a card declared in a window of the invasion (`ACTION_CARD_PLAYED`, `ACTION_CARD_DISCARDED`) is compared by the card's
         // effect on the position below (the hand, the structures), not as an event of the invasion. The events named in `ignore` (a native run lists
         // top-level emissions only) are left out as well: both filters apply.

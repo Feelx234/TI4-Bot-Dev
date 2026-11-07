@@ -192,7 +192,7 @@ const FP: Footprint = Footprint::new(
 );
 
 /// The native run: `Arm::Production` through `live_step`, answered like the string. `Err`: the arm stopped (the bail), with the questions seen.
-fn live_run(mut gs: GameState, system: &SystemId, policy: &Policy, mode: Mode) -> Result<Run, (Stop, Vec<Choice>)> {
+fn live_run(mut gs: GameState, system: &SystemId, policy: &Policy, mode: Mode, script: Vec<String>) -> Result<Run, (Stop, Vec<Choice>)> {
     let (mut cx, r) = crate::dual_window::tables_for_tests(&gs).expect("a position the codecs carry");
     let rng_before = GameRng::new(gs.rng_seed).positions();
     let seeds: Rc<dyn ti4_engine_core::state::SeedSource> = Rc::new(TextSeeds::of(&cx));
@@ -222,16 +222,21 @@ fn live_run(mut gs: GameState, system: &SystemId, policy: &Policy, mode: Mode) -
         };
         open_production(core, open);
         let live = Cx::new(r_ref, &env);
+        // The string's answers as the core takes them (`multiask_dual::core_script`: a payment is ONE set), then the policy.
         struct Answers {
+            script: std::collections::VecDeque<String>,
             policy: Rc<RefCell<Policy>>,
         }
         impl crate::live::Asker for Answers {
             fn ask(&mut self, q: &crate::live::Question<'_>) -> Result<String, Stop> {
+                if let Some(id) = self.script.pop_front() {
+                    return Ok(id);
+                }
                 let i = self.policy.borrow_mut().pick(&q.rendered).min(q.rendered.options.len() - 1);
                 Ok(q.rendered.options[i].id.clone())
             }
         }
-        let mut asker = Answers { policy: shared.clone() };
+        let mut asker = Answers { script: script.into(), policy: shared.clone() };
         for _ in 0..200 {
             match live_step(core, Arm::Production, &live, &mut asker) {
                 Ok(step) => {
@@ -300,10 +305,16 @@ fn lockstep(label: &str, state: &GameState, system: &SystemId, policy: &Policy, 
         Mode::Ability => string_ability(state.clone(), system, policy),
         Mode::Tactical => string_run(state.clone(), system, policy),
     };
-    let live = match live_run(state.clone(), system, policy, mode) {
+    // The string's answers (the policy over its questions), as the core takes them.
+    let mut replay = policy.clone();
+    let answers: Vec<String> = string.asked.iter().map(|c| c.options[replay.pick(c).min(c.options.len() - 1)].id.clone()).collect();
+    let script = crate::multiask_dual::core_script(&string.asked, &answers);
+    let mut live = match live_run(state.clone(), system, policy, mode, script) {
         Ok(run) => run,
         Err((stop, seen)) => return vec![format!("{label}: the native run stopped: {stop:?}\nnative {:?}\nstring {:?}", show(&seen), show(&string.asked))],
     };
+    let mut string = string;
+    (string.asked, live.asked) = crate::multiask_dual::align(&string.asked, &answers, &live.asked);
     let mut out = Vec::new();
     // The native run must have run: the use was announced (a use of a system with a producer) unless nothing produces there.
     if string.events.iter().any(|(n, _)| n == "PRODUCTION_USED") && mode == Mode::Tactical && !live.events.iter().any(|(n, _)| n == "PRODUCTION_USED") {

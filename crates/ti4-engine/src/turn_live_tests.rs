@@ -88,6 +88,7 @@ pub(super) fn string_run(state: &GameState, ids: &[&str], body: impl FnOnce(&mut
     let mut game = super::Game::with_table(state.clone(), ContentStore::embedded(), table);
     body(&mut game);
     let questions = seen.borrow().clone();
+    crate::multiask_dual::remember_string_questions(questions.clone());
     let (state, staged) = without_staged(serde_json::to_value(&game.state).expect("serializes"));
     Run { questions, events: game.events.clone(), state, rng: game.rng_positions(), staged }
 }
@@ -101,6 +102,7 @@ pub(super) fn string_run_first(state: &GameState, ids: &[&str], body: impl FnOnc
     let mut game = super::Game::with_table(state.clone(), ContentStore::embedded(), table);
     body(&mut game);
     let questions = seen.borrow().clone();
+    crate::multiask_dual::remember_string_questions(questions.clone());
     let (state, staged) = without_staged(serde_json::to_value(&game.state).expect("serializes"));
     let mut all: Vec<String> = ids.iter().map(|s| (*s).to_owned()).collect();
     all.extend(taken.borrow().iter().cloned());
