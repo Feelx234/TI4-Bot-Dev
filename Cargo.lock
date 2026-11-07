@@ -4297,6 +4297,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ti4-mcts"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "ti4-chance",
+ "ti4-engine-core",
+ "ti4-engine-search",
+ "ti4-mcts-features",
+ "ti4-perf-alloc",
+]
+
+[[package]]
 name = "ti4-mcts-features"
 version = "0.1.0"
 dependencies = [

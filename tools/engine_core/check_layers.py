@@ -5,6 +5,7 @@
     python3 -I tools/engine_core/check_layers.py chance [CRATE]  the bottom crate ti4-chance (exit 1 on a violation)
     python3 -I tools/engine_core/check_layers.py resolver [CRATE]  the chance resolver ti4-engine-chance (exit 1 on a violation)
     python3 -I tools/engine_core/check_layers.py search [CRATE]  the search API ti4-engine-search (exit 1 on a violation)
+    python3 -I tools/engine_core/check_layers.py mcts [CRATE]    the MCTS core ti4-mcts (exit 1 on a violation)
     python3 -I tools/engine_core/check_layers.py engine [ROOT]   the report on ti4-engine/src (4.2 table)
 
 core:   every module of `crates/ti4-engine-core/src` (and `ti4-engine-core-factions`, when it exists)
@@ -30,6 +31,9 @@ search: (lane C6, docs/C6_RESUME.md) `crates/ti4-engine-search`, the search API:
         bridge crate outside `[dev-dependencies]`, its sources (test code ignored) name none of them, and they never read or draw the game's
         streams: no `.rng` but `.rng.positions()`, no `rng_mut`, no `answer` / `answer_mut` of ti4-chance, no `advance_resolved` / `settle*`;
         the play-mode resolver (`advance_observed`) only in `position.rs`; no OS entropy, no unsafe.
+mcts:   (lane L6, docs/L6_RESUME.md) `crates/ti4-mcts`, the MCTS core on the search API: the rules of `search` (no legacy, host,
+        server, browser or bridge crate; never the game's streams), and no play-mode resolver at all (every position it makes is a
+        search copy).
 engine: the tier table of 4.2 over the string engine; counts the module references that point up or
         sideways inside L4 (the number the port brings to zero). Reporting only, exit 0.
 """
@@ -267,8 +271,9 @@ SEARCH_FORBIDDEN = (r'rng_mut\(', r'\banswer_mut\b', r'\btry_answer_mut\b', r'ti
                     r'\bunsafe\b', r'advance_resolved', r'settle_from', r'\bsettle\(')
 
 
-def check_search(crate):
-    """The search API `ti4-engine-search` (lane C6): no product host, server, browser or legacy crate; never the game's streams."""
+def check_search(crate, resolver_file='position.rs'):
+    """The search API `ti4-engine-search` (lane C6): no product host, server, browser or legacy crate; never the game's streams. The
+    play-mode resolver only in `resolver_file` (`None`: nowhere; the MCTS core, lane L6)."""
     import tomllib
     bad, units = [], 0
     cargo = os.path.join(crate, 'Cargo.toml')
@@ -290,8 +295,8 @@ def check_search(crate):
         for pat in SEARCH_FORBIDDEN:
             for m in re.finditer(pat, text):
                 bad.append(f'{rel}: uses `{m.group(0)}`: a search position never reads or draws the game\'s streams')
-        if os.path.basename(path) != 'position.rs' and re.search(r'advance_observed|advance_in\b', text):
-            bad.append(f'{rel}: calls the play-mode resolver outside position.rs')
+        if os.path.basename(path) != resolver_file and re.search(r'advance_observed|advance_in\b', text):
+            bad.append(f'{rel}: calls the play-mode resolver outside {resolver_file or "the search API"}')
     return bad, units
 
 
@@ -398,6 +403,13 @@ def main():
         for b in bad:
             print('SEARCH', b)
         print(f'check_layers search: {units} files checked, {len(bad)} violations')
+        sys.exit(1 if bad else 0)
+    elif mode == 'mcts':
+        root = sys.argv[2] if len(sys.argv) > 2 else os.path.join(REPO, 'crates/ti4-mcts')
+        bad, units = check_search(root, resolver_file=None)
+        for b in bad:
+            print('MCTS', b)
+        print(f'check_layers mcts: {units} files checked, {len(bad)} violations')
         sys.exit(1 if bad else 0)
     elif mode == 'engine':
         check_engine(sys.argv[2] if len(sys.argv) > 2 else os.path.join(REPO, 'crates/ti4-engine/src'))

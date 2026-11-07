@@ -68,6 +68,7 @@ pub fn play(pos: &mut Position, agents: &mut [Box<dyn SeatAgent>], limits: Limit
                     }
                 };
                 let answer = decision.answer.clone();
+                let pick = if observe { pos.resolve(&answer) } else { None };
                 if let Err(e) = pos.apply(decision) {
                     error = Some(format!("seat {seat}: {e}"));
                     break;
@@ -75,7 +76,7 @@ pub fn play(pos: &mut Position, agents: &mut [Box<dyn SeatAgent>], limits: Limit
                 let rec = Record { seat, answer };
                 record(pos, &rec);
                 if observe {
-                    let applied = Applied::Decision { seat, answer: rec.answer.clone() };
+                    let applied = Applied::Decision { seat, answer: rec.answer.clone(), choice: Box::new(choice), pick };
                     for a in agents.iter_mut() {
                         a.observe(pos, &applied);
                     }
