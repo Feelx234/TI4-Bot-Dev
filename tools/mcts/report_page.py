@@ -46,7 +46,9 @@ def bar(x: float, base: float) -> str:
 
 
 def eval_section(r: dict) -> str:
-    name = html.escape(r.get("agent", "?"))
+    agent = r.get("agent", "?")
+    label = {"rule": "Rule bot", "random": "Random tree answers"}.get(agent, "Greedy policy net" if agent.startswith("policy:") else agent)
+    name = html.escape(f"{label} vs {'the best net' if r.get('mode') == 'gate' else 'three rule bots'}")
     base = r.get("baseline_share", 0.25)
     w = r["win_share"]
     paired = r.get("paired", {})
@@ -92,11 +94,20 @@ uniform guess (ln 4 = 1.386) and a guess from the factions alone.</p>
 
 
 def dataset_section(summaries: list[dict]) -> str:
-    games = sum(s["played"] for s in summaries)
+    # A `summary-<first>.json` of mcts_dataset (`played`, `errors`) or a `dataset_stats.py` output (`games`, `bytes`).
+    games = sum(s.get("played", s.get("games", 0)) for s in summaries)
     records = sum(s["records"] for s in summaries)
-    errors = sum(s["errors"] for s in summaries)
+    errors = sum(s.get("errors", 0) for s in summaries)
+    size = sum(s.get("bytes", 0) for s in summaries)
+    kinds: dict[str, int] = {}
+    for s in summaries:
+        for k, v in s.get("records_by_kind", {}).items():
+            kinds[k] = kinds.get(k, 0) + v
+    rows = "".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in kinds.items())
+    extra = f", {size / 1e6:.0f} MB of gzip shards" if size else ""
     return f"""<section><h2>Dataset</h2><p>{games} rule-bot games with exploration noise ({errors} dropped by an error), {records} recorded tree decisions
-(about {records / max(1, games):.0f} per game).</p></section>"""
+(about {records / max(1, games):.0f} per game){extra}.</p>
+<div class="wrap"><table><tr><th>Tree kind</th><th>Records</th></tr>{rows}</table></div></section>"""
 
 
 def main() -> None:
