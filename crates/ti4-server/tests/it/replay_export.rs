@@ -134,8 +134,8 @@ async fn a_game_in_progress_replays_to_its_open_question() {
     // question differing in a staged event, on `core-integration-17` too (docs/D28E_RESUME.md).
     // 64 since the multi-ask conversion (one question per token gain, purchase, payment): on this
     // table 61, 62, 63, 65, 68 and 69 answers are such positions now (56-60, 64, 66, 67, 70-75
-    // agree).
-    lobby_case("lobby_midgame", 64).await;
+    // agree). int-29 (+ chance-2's unbiased Spy / Sanctions, another game): only 64 and 65 of 56-70 are such positions; 62 again.
+    lobby_case("lobby_midgame", 62).await;
 }
 
 /// OPEN, for later (docs/MULTIASK1_RESUME.md, "Open issues"): the same table stopped after `TI4_LOBBY_ANSWERS` answers (default 61).
