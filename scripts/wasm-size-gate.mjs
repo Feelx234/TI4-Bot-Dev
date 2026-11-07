@@ -18,6 +18,10 @@
 // 6 660 000 / 2 126 000 / 1 532 000 for the multi-ask conversion (core-multiask-1, about +30 KB); chance-2 (randomness as
 // a question, +5.9 KB raw alone) on top left the merged real build at 6 661 206 / 2 120 780 / 1 524 274, so raw is
 // raised by exactly the 1 206 B left over after the cheap trims were assessed (docs/INTEGRATION29.md section 3).
+// 2026-11-07 (int-30): raw 6 661 206 -> 6 665 523. multi-ask-fix (Titan Prototype, combat texts, the multi-ask fixes; about +2.9 KB
+// alone) and C6's hit threshold on the combat chance requests (Sx::dice_on / die_on, about +1.1 KB; the user approved raising the
+// raw budget for it) left the merged real build at 6 665 523 / 2 122 498 / 1 525 693: raw raised by exactly the 4 317 B overrun
+// (at most 5 KB was approved); gzip and brotli unchanged and under (docs/INTEGRATION30.md section 3).
 import { readFileSync, appendFileSync } from "node:fs";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 
