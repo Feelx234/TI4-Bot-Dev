@@ -53,7 +53,7 @@ pub const FA: usize = 2 + 4 + 1 + 17 + 12 + 2 + 2;
 
 /// Where the values go: the numbers ([`Vals`]) or the column names ([`Names`]).
 pub trait Sink {
-    fn put(&mut self, v: f32, name: &dyn Fn() -> String);
+    fn put(&mut self, v: f32, name: impl Fn() -> String);
 }
 
 /// Appends the values.
@@ -61,7 +61,7 @@ pub struct Vals<'a>(pub &'a mut Vec<f32>);
 
 impl Sink for Vals<'_> {
     #[inline]
-    fn put(&mut self, v: f32, _: &dyn Fn() -> String) {
+    fn put(&mut self, v: f32, _: impl Fn() -> String) {
         self.0.push(v);
     }
 }
@@ -71,7 +71,7 @@ impl Sink for Vals<'_> {
 pub struct Names(pub Vec<String>);
 
 impl Sink for Names {
-    fn put(&mut self, _: f32, name: &dyn Fn() -> String) {
+    fn put(&mut self, _: f32, name: impl Fn() -> String) {
         self.0.push(name());
     }
 }
@@ -143,7 +143,7 @@ pub fn opt_name(o: &Opt) -> String {
     if variant.is_empty() { area.to_owned() } else { format!("{area}.{variant}") }
 }
 
-/// The context of one encoding: the map slots, the seats, the homes.
+/// The context of one encoding: the map slots, the seats, the homes, the actor's reach.
 pub struct Frame {
     pub actor: Seat,
     pub seats: Vec<Seat>,
@@ -156,45 +156,111 @@ pub struct Frame {
     pub adj: Vec<Vec<usize>>,
     /// The actor's producers, cannons and the map's adjacency (the filter's board).
     pub board: filter::Board,
+    /// Per slot: how many of the actor's ships can move into the system (`Seen::movable_into(actor, system).len()`).
+    pub moves: Vec<u16>,
+    /// The slot of each system index (-1: not on the map).
+    slot_of: Vec<i16>,
+}
+
+/// What a [`Frame`] keeps of the map between the decisions of one table: valid while the map's systems and their adjacency
+/// are the same (checked on every use).
+#[derive(Default, Clone)]
+pub struct MapCache {
+    systems: Vec<System>,
+    adjacent: Vec<ti4_engine_core::SysSet>,
+    adj: Vec<Vec<usize>>,
+    dist: Vec<Vec<u8>>,
+    slot_of: Vec<i16>,
+    /// The home slot per faction asked so far.
+    homes: Vec<(Faction, Option<usize>)>,
+}
+
+impl MapCache {
+    fn build(systems: Vec<System>, adjacent: Vec<ti4_engine_core::SysSet>) -> Self {
+        let mut slots = systems.clone();
+        slots.truncate(MAX_SYS);
+        let top = slots.iter().map(|s| s.index() + 1).max().unwrap_or(0);
+        let mut slot_of = vec![-1i16; top];
+        for (i, s) in slots.iter().enumerate() {
+            slot_of[s.index()] = i as i16;
+        }
+        let slot = |s: System| slot_of.get(s.index()).copied().filter(|x| *x >= 0).map(|x| x as usize);
+        let n = slots.len();
+        let adj: Vec<Vec<usize>> = (0..n).map(|i| adjacent[i].iter().filter_map(System::from_index).filter_map(slot).collect()).collect();
+        let dist = distances(&adj);
+        Self { systems, adjacent, adj, dist, slot_of, homes: Vec::new() }
+    }
+
+    fn home(&mut self, faction: Faction) -> Option<usize> {
+        if let Some((_, h)) = self.homes.iter().find(|(f, _)| *f == faction) {
+            return *h;
+        }
+        let h = self.systems.iter().take(MAX_SYS).position(|s| is_home_of(*s, Some(faction)));
+        self.homes.push((faction, h));
+        h
+    }
+}
+
+fn is_home_of(s: System, faction: Option<Faction>) -> bool {
+    s.data().planets.iter().any(|p| p.data().homeworld_of.is_some_and(|t| faction.is_some_and(|f| t.factions().contains(&f))))
+}
+
+fn distances(adj: &[Vec<usize>]) -> Vec<Vec<u8>> {
+    let n = adj.len();
+    let mut dist = vec![vec![u8::MAX; n]; n];
+    for (from, row) in dist.iter_mut().enumerate() {
+        row[from] = 0;
+        let mut frontier = vec![from];
+        let mut d = 0u8;
+        while !frontier.is_empty() && d < 16 {
+            d += 1;
+            let mut next = Vec::new();
+            for &i in &frontier {
+                for &j in &adj[i] {
+                    if row[j] == u8::MAX {
+                        row[j] = d;
+                        next.push(j);
+                    }
+                }
+            }
+            frontier = next;
+        }
+    }
+    dist
 }
 
 impl Frame {
+    /// The reference frame: everything computed from `seen`, the reach by `movable_into` per system.
     #[must_use]
     pub fn new(seen: &Seen<'_>, actor: Seat) -> Self {
-        let seats = relative_seats(seen, actor);
-        let board = filter::Board::of(seen, actor);
-        let mut systems = board.systems.clone();
-        systems.truncate(MAX_SYS);
-        let slot_of = |s: System| systems.iter().position(|x| *x == s);
-        let homes = seats
-            .iter()
-            .map(|seat| {
-                let faction = seen.seat(*seat).map(|v| v.faction);
-                systems.iter().position(|s| s.data().planets.iter().any(|p| p.data().homeworld_of.is_some_and(|t| faction.is_some_and(|f| t.factions().contains(&f)))))
-            })
-            .collect();
-        let n = systems.len();
-        let adj: Vec<Vec<usize>> = (0..n).map(|i| board.adjacent[i].iter().filter_map(System::from_index).filter_map(slot_of).collect()).collect();
-        let mut dist = vec![vec![u8::MAX; n]; n];
-        for (from, row) in dist.iter_mut().enumerate() {
-            row[from] = 0;
-            let mut frontier = vec![from];
-            let mut d = 0u8;
-            while !frontier.is_empty() && d < 16 {
-                d += 1;
-                let mut next = Vec::new();
-                for &i in &frontier {
-                    for &j in &adj[i] {
-                        if row[j] == u8::MAX {
-                            row[j] = d;
-                            next.push(j);
-                        }
-                    }
-                }
-                frontier = next;
-            }
+        let systems = seen.map_systems();
+        let adjacent = seen.adjacent_of_each(&systems);
+        let mut cache = MapCache::build(systems, adjacent);
+        let mut f = Self::assemble(seen, actor, &mut cache);
+        f.moves = f.systems.iter().map(|s| u16::try_from(seen.movable_into(actor, *s).len()).unwrap_or(u16::MAX)).collect();
+        f
+    }
+
+    /// The same frame from a cache of the map, the reach counted for all systems at once (`Seen::movable_counts`).
+    #[must_use]
+    pub fn cached(seen: &Seen<'_>, actor: Seat, cache: &mut MapCache) -> Self {
+        let systems = seen.map_systems();
+        let adjacent = seen.adjacent_of_each(&systems);
+        if cache.systems != systems || cache.adjacent != adjacent {
+            *cache = MapCache::build(systems, adjacent);
         }
-        Self { actor, seats, systems, homes, dist, adj, board }
+        let mut f = Self::assemble(seen, actor, cache);
+        f.moves = seen.movable_counts(actor, &f.systems);
+        f
+    }
+
+    fn assemble(seen: &Seen<'_>, actor: Seat, cache: &mut MapCache) -> Self {
+        let seats = relative_seats(seen, actor);
+        let board = filter::Board::of_map(seen, actor, cache.systems.clone(), cache.adjacent.clone());
+        let mut systems = cache.systems.clone();
+        systems.truncate(MAX_SYS);
+        let homes = seats.iter().map(|seat| seen.seat(*seat).map(|v| v.faction).and_then(|f| cache.home(f))).collect();
+        Self { actor, seats, systems, homes, dist: cache.dist.clone(), adj: cache.adj.clone(), board, moves: Vec::new(), slot_of: cache.slot_of.clone() }
     }
 
     /// The block of a seat (0 = the actor); `None` for a seat not at the table.
@@ -205,7 +271,13 @@ impl Frame {
 
     #[must_use]
     pub fn slot(&self, system: System) -> Option<usize> {
-        self.systems.iter().position(|s| *s == system)
+        self.slot_of.get(system.index()).copied().filter(|x| *x >= 0).map(|x| x as usize)
+    }
+
+    /// Whether some ship of the actor can move into `system` (0 off the map).
+    #[must_use]
+    pub fn movable(&self, system: System) -> bool {
+        self.slot(system).and_then(|i| self.moves.get(i)).is_some_and(|n| *n > 0)
     }
 }
 
@@ -214,7 +286,7 @@ fn mecatol(system: System) -> bool {
 }
 
 /// Write the system token of `system` (or an empty slot).
-fn system_block(s: &mut dyn Sink, seen: &Seen<'_>, f: &Frame, slot: usize, system: Option<System>, onboard: &mut [[u32; 11]; SEATS]) {
+fn system_block(s: &mut impl Sink, seen: &Seen<'_>, f: &Frame, slot: usize, system: Option<System>, onboard: &mut [[u32; 11]; SEATS]) {
     let Some(system) = system else {
         for _ in 0..FS {
             s.put(0.0, &|| "empty".into());
@@ -322,16 +394,16 @@ fn system_block(s: &mut dyn Sink, seen: &Seen<'_>, f: &Frame, slot: usize, syste
         s.put(if d == u8::MAX { 1.0 } else { f32::from(d.min(8)) / 8.0 }, &|| format!("dist_home_p{r}"));
     }
     // The actor's reach and the filter's reasons.
-    let movable = seen.movable_into(f.actor, system).len();
-    s.put(movable as f32 / 8.0, &|| "my_movable".into());
-    let why = f.board.reasons(seen, f.actor, system);
+    let movable = f.moves.get(slot).copied().unwrap_or(0);
+    s.put(f32::from(movable) / 8.0, &|| "my_movable".into());
+    let why = f.board.reasons_moving(system, movable > 0);
     s.put(b(why & filter::MOVE != 0), &|| "can_move_in".into());
     s.put(b(why & filter::PRODUCE != 0), &|| "can_produce".into());
     s.put(b(why & filter::SHOOT != 0), &|| "can_shoot".into());
     s.put(b(seen.active_system() == Some(system)), &|| "active".into());
 }
 
-fn seat_block(s: &mut dyn Sink, seen: &Seen<'_>, f: &Frame, r: usize, onboard: &[u32; 11]) {
+fn seat_block(s: &mut impl Sink, seen: &Seen<'_>, f: &Frame, r: usize, onboard: &[u32; 11]) {
     let Some(v) = f.seats.get(r).and_then(|seat| seen.seat(*seat)) else {
         for _ in 0..FP {
             s.put(0.0, &|| format!("empty_p{r}"));
@@ -389,7 +461,7 @@ fn seat_block(s: &mut dyn Sink, seen: &Seen<'_>, f: &Frame, r: usize, onboard: &
 }
 
 /// One objective slot: `(objective, mine-secret)`.
-fn objective_block(s: &mut dyn Sink, seen: &Seen<'_>, f: &Frame, obj: Option<ObjectiveRef>, progress: &[Vec<(ObjectiveRef, f32, bool)>]) {
+fn objective_block(s: &mut impl Sink, seen: &Seen<'_>, f: &Frame, obj: Option<ObjectiveRef>, progress: &[Vec<(ObjectiveRef, f32, bool)>]) {
     let Some(o) = obj else {
         for _ in 0..FO {
             s.put(0.0, &|| "empty".into());
@@ -423,7 +495,7 @@ fn objective_block(s: &mut dyn Sink, seen: &Seen<'_>, f: &Frame, obj: Option<Obj
     }
 }
 
-fn global_block(s: &mut dyn Sink, seen: &Seen<'_>, choice: &Choice) {
+fn global_block(s: &mut impl Sink, seen: &Seen<'_>, choice: &Choice) {
     s.put(seen.round() as f32 / 10.0, &|| "round".into());
     for ph in [Phase::Strategy, Phase::Action, Phase::Status, Phase::Agenda] {
         s.put(b(seen.phase() == ph), &|| format!("phase_{ph:?}"));
@@ -439,7 +511,7 @@ fn global_block(s: &mut dyn Sink, seen: &Seen<'_>, choice: &Choice) {
     s.put(b(seen.active() == Some(choice.actor)), &|| "actor_is_active".into());
 }
 
-fn option_block(s: &mut dyn Sink, seen: &Seen<'_>, f: &Frame, o: &Opt, keep: bool, why: u8, ptr: &mut [i16; PTRS], objs: &[ObjectiveRef]) {
+fn option_block(s: &mut impl Sink, seen: &Seen<'_>, f: &Frame, o: &Opt, keep: bool, why: u8, ptr: &mut [i16; PTRS], objs: &[ObjectiveRef]) {
     s.put(b(o.is_decline()), &|| "decline".into());
     s.put(b(matches!(o, Opt::Done)), &|| "done".into());
     s.put(b(keep), &|| "kept".into());
@@ -544,6 +616,29 @@ pub fn objective_slots(seen: &Seen<'_>) -> Vec<ObjectiveRef> {
     out
 }
 
+/// An encoder that keeps what does not change between the decisions of one table (lane L4's encode speed-up). Gives exactly
+/// the output of [`encode`].
+#[derive(Default)]
+pub struct Encoder {
+    map: MapCache,
+}
+
+impl Encoder {
+    /// [`encode`].
+    #[must_use]
+    pub fn encode(&mut self, seen: &Seen<'_>, choice: &Choice) -> Encoded {
+        let mut e = Encoded::default();
+        self.encode_into(seen, choice, &mut e);
+        e
+    }
+
+    /// [`encode_into`].
+    pub fn encode_into(&mut self, seen: &Seen<'_>, choice: &Choice, e: &mut Encoded) {
+        let f = Frame::cached(seen, choice.actor, &mut self.map);
+        encode_frame(seen, choice, &f, e);
+    }
+}
+
 /// Encode `choice` for its actor. `seen` must be bound to `choice.actor`.
 #[must_use]
 pub fn encode(seen: &Seen<'_>, choice: &Choice) -> Encoded {
@@ -554,8 +649,13 @@ pub fn encode(seen: &Seen<'_>, choice: &Choice) -> Encoded {
 
 /// [`encode`] into reused buffers.
 pub fn encode_into(seen: &Seen<'_>, choice: &Choice, e: &mut Encoded) {
-    debug_assert_eq!(seen.me(), choice.actor, "the view must be the actor's");
     let f = Frame::new(seen, choice.actor);
+    encode_frame(seen, choice, &f, e);
+}
+
+/// The encoding on a frame already built.
+fn encode_frame(seen: &Seen<'_>, choice: &Choice, f: &Frame, e: &mut Encoded) {
+    debug_assert_eq!(seen.me(), choice.actor, "the view must be the actor's");
     e.sys.clear();
     e.sys_id.clear();
     e.adj.clear();
@@ -591,7 +691,7 @@ pub fn encode_into(seen: &Seen<'_>, choice: &Choice, e: &mut Encoded) {
     e.glob.clear();
     global_block(&mut Vals(&mut e.glob), seen, choice);
     e.ask_kind = bucket(&kind::ask_name(&choice.ask));
-    let kept = filter::is_activation(&choice.ask).then(|| filter::activate_on(seen, choice, &f.board));
+    let kept = filter::is_activation(&choice.ask).then(|| filter::activate_with(choice, &f.board, |system| f.movable(system)));
     e.opt.clear();
     e.opt_kind.clear();
     e.opt_ptr.clear();

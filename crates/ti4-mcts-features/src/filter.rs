@@ -66,6 +66,12 @@ impl Board {
     pub fn of(seen: &Seen<'_>, me: Seat) -> Self {
         let systems = seen.map_systems();
         let adjacent = seen.adjacent_of_each(&systems);
+        Self::of_map(seen, me, systems, adjacent)
+    }
+
+    /// [`Self::of`] with the map's systems and their neighbours already known.
+    #[must_use]
+    pub fn of_map(seen: &Seen<'_>, me: Seat, systems: Vec<System>, adjacent: Vec<SysSet>) -> Self {
         let (mut produce, mut cannon, mut deep) = (SysSet::EMPTY, SysSet::EMPTY, SysSet::EMPTY);
         for system in &systems {
             let view = seen.system(*system);
@@ -93,8 +99,14 @@ impl Board {
     /// The reasons `system` is worth activating for the board's seat `me` (0: none).
     #[must_use]
     pub fn reasons(&self, seen: &Seen<'_>, me: Seat, system: System) -> u8 {
+        self.reasons_moving(system, !seen.movable_into(me, system).is_empty())
+    }
+
+    /// [`Self::reasons`] with the move reason known (`movable`: some unit of the seat can move into `system`).
+    #[must_use]
+    pub fn reasons_moving(&self, system: System, movable: bool) -> u8 {
         let mut why = 0;
-        if !seen.movable_into(me, system).is_empty() {
+        if movable {
             why |= MOVE;
         }
         if self.produce.contains(system.index()) {
@@ -141,10 +153,16 @@ pub fn activate(seen: &Seen<'_>, choice: &Choice) -> Option<Kept> {
 #[must_use]
 pub fn activate_on(seen: &Seen<'_>, choice: &Choice, board: &Board) -> Kept {
     let me = choice.actor;
+    activate_with(choice, board, |system| !seen.movable_into(me, system).is_empty())
+}
+
+/// [`activate_on`] with the move reason given per system (`movable`).
+#[must_use]
+pub fn activate_with(choice: &Choice, board: &Board, movable: impl Fn(System) -> bool) -> Kept {
     let why: Vec<u8> = choice
         .opts
         .iter()
-        .map(|o| system_of(o).map_or(MOVE | PRODUCE | SHOOT, |system| board.reasons(seen, me, system)))
+        .map(|o| system_of(o).map_or(MOVE | PRODUCE | SHOOT, |system| board.reasons_moving(system, movable(system))))
         .collect();
     let mut keep: Vec<bool> = why.iter().map(|w| *w != 0).collect();
     let passthrough = !keep.iter().any(|k| *k);

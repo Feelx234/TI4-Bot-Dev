@@ -4327,10 +4327,19 @@ dependencies = [
  "ti4-engine",
  "ti4-engine-core",
  "ti4-mcts-features",
+ "ti4-mcts-net",
  "ti4-model",
  "ti4-rule-bot",
  "ti4-rule-bot-typed",
  "ti4-selfplay",
+]
+
+[[package]]
+name = "ti4-mcts-net"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "ti4-mcts-features",
 ]
 
 [[package]]

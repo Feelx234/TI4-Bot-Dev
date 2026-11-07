@@ -11,6 +11,9 @@
 //!
 //! A dev tool: no production crate depends on this one (tools/engine_core/check_production_graph.sh).
 
+pub mod agents;
+pub mod eval;
+
 use std::time::{Duration, Instant};
 
 use ti4_content::galaxy::Galaxy;
@@ -316,6 +319,50 @@ pub fn step(t: &Table, pos: &mut Pos, dec: &mut dyn Decide, index: &mut usize) -
     let handed_off = arm == Arm::Tactical && pos.core.pending().window(WindowKind::Aftermath).is_some();
     pos.after_glue = out.finished && (glued(arm) || arm == Arm::Aftermath || handed_off || (pos.after_glue && arm == Arm::Tactical && asked == 0));
     Ok(Stepped::Played { arm, asked })
+}
+
+/// Whether the rendered option `i` names the core option `i` where the wire id is the core's name (activations, the draft,
+/// Thunder's Edge Warfare's systems); `true` for the other options (their ids are not names). With the count check of
+/// [`aligned`] this is the 1:1 option-order assertion of the plan (2.1, risk R4).
+#[must_use]
+pub fn option_named(rendered: &str, o: &ti4_engine_core::choice::Opt) -> bool {
+    use ti4_engine::generated::IdStr;
+    use ti4_engine_core::choice::{strategy, tactical, Opt};
+    match o {
+        Opt::Tactical(tactical::Opt::Activate(s)) | Opt::Strategy(strategy::Opt::System(s)) => rendered == s.as_str(),
+        Opt::Strategy(strategy::Opt::Card(c)) => rendered == c.as_str(),
+        _ => true,
+    }
+}
+
+/// The wire options are the core options in the same order (count, and the names where the ids are names).
+#[must_use]
+pub fn aligned(a: &Asked<'_>) -> bool {
+    a.rendered.options.len() == a.choice.opts.len() && a.choice.opts.iter().zip(&a.rendered.options).all(|(o, r)| option_named(&r.id, o))
+}
+
+/// SplitMix64: the lab's deterministic noise (exploration, subsampling) from a seed and a counter.
+#[must_use]
+pub const fn mix(mut x: u64) -> u64 {
+    x = x.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    x ^ (x >> 31)
+}
+
+/// A uniform number in `[0, 1)` from 53 bits of [`mix`].
+#[must_use]
+pub fn unit(x: u64) -> f64 {
+    (mix(x) >> 11) as f64 / (1u64 << 53) as f64
+}
+
+/// The outcome of an ended game by absolute seat: `z` (1 for the most victory points, a tie split) and the victory points.
+#[must_use]
+pub fn outcome(vp: &[i16]) -> (Vec<f32>, Vec<f32>) {
+    let vp: Vec<f32> = vp.iter().map(|v| f32::from(*v)).collect();
+    let best = vp.iter().copied().fold(f32::MIN, f32::max);
+    let winners = vp.iter().filter(|v| **v == best).count() as f32;
+    (vp.iter().map(|v| if *v == best { 1.0 / winners } else { 0.0 }).collect(), vp)
 }
 
 /// The rule bot at every seat.

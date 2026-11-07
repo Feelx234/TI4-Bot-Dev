@@ -476,6 +476,21 @@ impl SeatReach {
         rules
     }
 
+    /// Turn `rules` (a clone of these rules for another destination) into [`Self::rules_for`] `active`: the same value,
+    /// without a new clone of the template per destination (the MCTS features ask every system of the map).
+    pub fn retarget(&self, core: &CoreState, k: &Kernel, rules: &mut CoreRules, active: SystemIx) {
+        rules.active = active;
+        rules.passing_ship_types = self.passing_anywhere;
+        if self.per_destination {
+            for ix in self.types.iter() {
+                let ship = Unit::from_index(ix).expect("a unit index is in range");
+                if k.hooks.movement.may_move_through_ships(core, k, PassSite { player: self.seat, active, ship }) {
+                    rules.passing_ship_types.insert(ix);
+                }
+            }
+        }
+    }
+
     /// Systems holding any of the mover's units.
     #[must_use]
     pub const fn own_unit_systems(&self) -> &SysSet {
@@ -651,6 +666,32 @@ impl SeatFleet {
             }
         }
         found
+    }
+
+    /// `self.movable(rules).len()`, the ships that share an origin, a kind and the move values searched once.
+    #[must_use]
+    pub fn movable_count(&self, rules: &CoreRules) -> usize {
+        let active = rules.active;
+        let mut seen: Vec<(System, Unit, [i32; 4], bool)> = Vec::new();
+        let mut n = 0;
+        for ship in &self.ships {
+            if ship.origin == active {
+                continue;
+            }
+            if let Some(known) = seen.iter().find(|(o, k, v, _)| *o == ship.origin && *k == ship.kind && *v == ship.values) {
+                n += usize::from(known.3);
+                continue;
+            }
+            let reach = |slot: usize| rules.can_reach_ship(ship.origin, ship.values[slot], Some(ship.kind));
+            let ok = reach(0)
+                || [((true, false), 1), ((false, true), 2), ((true, true), 3)]
+                    .into_iter()
+                    .filter(|((gd, ion), _)| (!gd || self.gravity) && (!ion || self.ionian))
+                    .any(|(_, slot)| reach(slot));
+            seen.push((ship.origin, ship.kind, ship.values, ok));
+            n += usize::from(ok);
+        }
+        n
     }
 
     /// The move value of the ship at `index` of `origin` with these boosts, if the seat has it here.

@@ -21,7 +21,7 @@ DEFAULT_DIMS = {
     "kind_buckets": 512, "fs": 112, "fp": 156, "fo": 18, "fg": 17, "fa": 40,
 }
 META = ["game", "seed", "round", "actor", "faction", "ask_kind", "tree_kind", "smart", "picked", "decision", "k", "net", "sims",
-        "rel0", "rel1", "rel2", "rel3"]
+        "rel0", "rel1", "rel2", "rel3", "played", "noise"]
 #: The core's `Faction` indexes of Sol, Letnev, Xxcha, Jol-Nar.
 FACTIONS = [28, 15, 31, 10]
 

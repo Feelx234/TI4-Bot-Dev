@@ -293,3 +293,39 @@ fn a_shard_round_trips_its_shapes_and_rotates_the_outcome() {
     assert!(!gz_dir.join("sys.npy").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Collects every tree ask of a rule-bot game (position and question).
+struct All(Vec<(CoreState, Choice)>);
+
+impl Decide for All {
+    fn decide(&mut self, t: &Table, a: &Asked<'_>) -> Result<usize, String> {
+        if kind::tree_kind_of(a.choice).is_some() && a.choice.opts.len() >= 2 {
+            self.0.push((a.at.clone(), a.choice.clone()));
+        }
+        Ok(rule_bot(t, a).0)
+    }
+}
+
+#[test]
+fn the_caching_encoder_and_the_counted_reach_equal_the_reference() {
+    for seed in [5u64, 17] {
+        let (t, mut pos) = start(&ti4_mcts_lab::spec(seed)).expect("the table builds");
+        let mut all = All(Vec::new());
+        let _ = ti4_mcts_lab::play(&t, &mut pos, &mut all, 6000, 12, |_, _| {});
+        assert!(all.0.len() > 300, "a whole game: {}", all.0.len());
+        let mut enc = encode::Encoder::default();
+        for (i, (core, choice)) in all.0.iter().enumerate() {
+            let seen = Seen::new(core, t.kernel, choice.actor);
+            assert_eq!(enc.encode(&Seen::new(core, t.kernel, choice.actor), choice), encode::encode(&seen, choice), "seed {seed} ask {i}");
+            if i % 5 == 0 {
+                let systems = seen.map_systems();
+                for seat in seen.seating_order().as_slice() {
+                    let counts = seen.movable_counts(*seat, &systems);
+                    for (s, n) in systems.iter().zip(&counts) {
+                        assert_eq!(usize::from(*n), seen.movable_into(*seat, *s).len(), "seed {seed} ask {i} seat {seat:?} {s:?}");
+                    }
+                }
+            }
+        }
+    }
+}

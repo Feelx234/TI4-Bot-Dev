@@ -96,6 +96,8 @@ impl Decide for Export {
                     net: 0,
                     sims: 0,
                     rel: rel4,
+                    played: u16::try_from(picked).unwrap_or(u16::MAX),
+                    noise: false,
                 };
                 self.w.push(Record { enc, pi, meta });
                 self.records += 1;

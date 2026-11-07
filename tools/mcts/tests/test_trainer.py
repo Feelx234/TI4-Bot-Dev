@@ -141,6 +141,31 @@ class Model(Tmp):
         self.assertGreater(agree / n, chance + 0.2, f"held-out agreement {agree / n:.3f} vs chance {chance:.3f}")
 
 
+class Stream(Tmp):
+    def test_streaming_trains_splits_by_shard_and_weights_the_values(self):
+        from ti4mcts import stream
+
+        for i in range(6):
+            synth.write_synthetic(self.tmp / "d" / f"g{i:03d}", 400, seed=20 + i)
+        shards = stream.find_shards([self.tmp / "d"])
+        train, held = stream.split_shards(shards, held_every=3, held_max=1)
+        self.assertEqual(len(held), 1)
+        self.assertNotIn(held[0], train)
+        s = stream.load(shards[0], per_game=2.0)
+        keys = s.game_keys()
+        for k in np.unique(keys)[:5]:
+            w = s.w_value[keys == k]
+            self.assertAlmostEqual(float(w.sum()), min(2.0, float((keys == k).sum())), places=4)
+        kw = stream.kind_weights(s)
+        self.assertTrue(((kw >= 0.5) & (kw <= 3.0)).all())
+        r = stream.train_stream([str(self.tmp / "d")], self.tmp / "run", epochs=1, batch=64, pool=2, held_every=3, held_max=1,
+                                cfg=Config(d=16, heads=2, ff=32, sys_blocks=1), fixtures=10, log=lambda *_: None)
+        h = r["history"][-1]["held"]
+        self.assertGreater(h["records"], 0)
+        self.assertIn("value_ce_faction_prior", h)
+        self.assertTrue((self.tmp / "run" / "weights.t4w").exists())
+
+
 class Export(Tmp):
     def test_the_weights_round_trip_and_the_numpy_reference_matches(self):
         s = data.Shard(synth.write_synthetic(self.tmp / "s", 80, seed=7))
